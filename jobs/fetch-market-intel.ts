@@ -1,0 +1,822 @@
+import { createHash } from 'crypto';
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/db";
+import { type MetaAdLibraryAd } from "@/lib/connectors/meta-ad-library";
+import { isApifyMetaEnabled, fetchApifyMetaAdsByPages } from "@/lib/connectors/apify-meta-ads";
+import { fetchShoppingProducts } from "@/lib/connectors/dataforseo-shopping";
+import { fetchSerperShoppingProducts, type SerperShoppingProduct } from "@/lib/connectors/serper-shopping";
+import { fillCaptureTranslations } from "@/lib/market-intel/translate-captures";
+import { fillCreativeAngles } from "@/lib/market-intel/classify-angles";
+import { recordCompetitorAdCapture } from "@/lib/market-intel/ad-captures";
+import { isSpamStoryAd } from "@/lib/market-intel/spam-filter";
+import { resolveRunLimits, type MarketIntelRunOptions, type ResolvedLimits, type RunProfile } from "@/lib/market-intel/profiles";
+import type { JobResult, JobStatus } from "@/lib/jobs/types";
+
+type MarketIntelSummary = {
+  profile: RunProfile;
+  effectiveLimits: ResolvedLimits;
+  keywordsChecked: number;
+  shoppingResults: number;
+  competitorShoppingResults: number;
+  priceRecords: number;
+  priceRecordsCreated: number;
+  priceRecordsUpdated: number;
+  priceChanges: number;
+  competitorPagesChecked: number;
+  adsCaptured: number;
+  apifyAdsFetched: number;
+  spamAdsFiltered: number;
+  adCaptures: number;
+  adChangeInsights: number;
+  newAds: number;
+  longRunningAds: number;
+  insightsCreated: number;
+  insightsUpdated: number;
+  disabledSources: string[];
+};
+
+function slugPart(value: string | null | undefined) {
+  return (value ?? "unknown")
+    .toLowerCase()
+    .replace(/https?:\/\//g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 120) || "unknown";
+}
+
+function normalizeUrl(value: string | null | undefined) {
+  if (!value) return "";
+  try {
+    const parsed = new URL(value);
+    return `${parsed.host}${parsed.pathname}`.replace(/\/+$/, "");
+  } catch {
+    return value;
+  }
+}
+
+function productContextKey(context: { kind: "market" | "competitor"; key: string }) {
+  return `${context.kind}:${context.key}`;
+}
+
+function productKey(input: {
+  title: string;
+  brand?: string | null;
+  store?: string | null;
+  currency?: string | null;
+  productUrl?: string | null;
+  context: { kind: "market" | "competitor"; key: string };
+}) {
+  const parts = [
+    productContextKey(input.context),
+    normalizeUrl(input.productUrl),
+    input.title,
+    input.brand,
+    input.store,
+    input.currency,
+  ].map(slugPart);
+  return parts.join("|");
+}
+
+function json(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function keepExternalUrl(value: string | null | undefined) {
+  if (!value) return null;
+  return /^https?:\/\//i.test(value) ? value : null;
+}
+
+function sanitizeRawPayload(value: Record<string, unknown>) {
+  const copy = { ...value };
+  for (const key of ["image", "imageUrl", "thumbnail", "thumbnailUrl", "images", "videos"]) {
+    const field = copy[key];
+    if (typeof field === "string" && field.startsWith("data:")) copy[key] = "[inline-data-url-removed]";
+    if (Array.isArray(field)) {
+      copy[key] = field.map((item) => typeof item === "string" && item.startsWith("data:") ? "[inline-data-url-removed]" : item);
+    }
+  }
+  return copy;
+}
+
+function pctDelta(previous: number, current: number) {
+  if (previous === 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+function daysBetween(older: Date, newer: Date) {
+  return Math.floor((newer.getTime() - older.getTime()) / 86_400_000);
+}
+
+function captureDayRange(capturedAt: Date) {
+  const start = new Date(Date.UTC(capturedAt.getUTCFullYear(), capturedAt.getUTCMonth(), capturedAt.getUTCDate()));
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
+function nullableStringFilter(value: string | null | undefined): string | null {
+  const normalized = (value ?? "").trim();
+  return normalized === "" ? null : normalized;
+}
+
+type FetchMarketIntelOptions = MarketIntelRunOptions & { runId?: string };
+
+async function getOrCreateRunId(runId?: string): Promise<string> {
+  if (!runId) {
+    const run = await prisma.jobRun.create({
+      data: { jobName: "fetch-market-intel" },
+      select: { id: true },
+    });
+    return run.id;
+  }
+
+  const existing = await prisma.jobRun.findUnique({
+    where: { id: runId },
+    select: { id: true, jobName: true },
+  });
+  if (!existing) {
+    throw new Error(`Market intel run not found: ${runId}`);
+  }
+  if (existing.jobName !== "fetch-market-intel") {
+    throw new Error(`Run ${runId} belongs to ${existing.jobName}, not fetch-market-intel`);
+  }
+  return existing.id;
+}
+
+export function computeProductIdentityHash(productUrl: string | null | undefined, title: string, store: string | null | undefined): string {
+  const normalized = [
+    (productUrl ?? '').toLowerCase().trim(),
+    title.toLowerCase().trim(),
+    (store ?? '').toLowerCase().trim(),
+  ].join('|');
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+}
+
+export async function saveShoppingResult(data: Prisma.ShoppingResultUncheckedCreateInput): Promise<"created" | "updated"> {
+  const capturedAt = data.capturedAt instanceof Date ? data.capturedAt : new Date(String(data.capturedAt ?? Date.now()));
+  const { start } = captureDayRange(capturedAt);
+  const keyword = String(data.keyword);
+  const productKeyValue = String(data.productKey);
+  const captureDate = start;
+
+  const existing = await prisma.shoppingResult.findUnique({
+    where: {
+      keyword_productKey_captureDate: {
+        keyword,
+        productKey: productKeyValue,
+        captureDate,
+      },
+    },
+    select: { id: true },
+  });
+
+  const payload: Prisma.ShoppingResultUncheckedCreateInput = {
+    ...data,
+    captureDate,
+    productIdentityHash: computeProductIdentityHash(
+      data.productUrl as string | undefined,
+      String(data.title),
+      data.store as string | undefined,
+    ),
+  } as Prisma.ShoppingResultUncheckedCreateInput;
+
+  const { captureDate: _cd, keyword: _kw, productKey: _pk, ...shoppingUpdatePayload } = payload;
+  await prisma.shoppingResult.upsert({
+    where: {
+      keyword_productKey_captureDate: {
+        keyword,
+        productKey: productKeyValue,
+        captureDate,
+      },
+    },
+    create: payload,
+    update: shoppingUpdatePayload as Prisma.ShoppingResultUncheckedUpdateInput,
+  });
+
+  return existing ? "updated" : "created";
+}
+
+export async function saveShoppingPriceHistory(data: Prisma.ShoppingPriceHistoryUncheckedCreateInput): Promise<"created" | "updated"> {
+  const capturedAt = data.capturedAt instanceof Date ? data.capturedAt : new Date(String(data.capturedAt ?? Date.now()));
+  const { start } = captureDayRange(capturedAt);
+  const productKeyValue = String(data.productKey);
+  const captureDate = start;
+  const contextKey = data.marketKeywordId
+    ? `market:${String(data.marketKeywordId)}`
+    : data.competitorId
+    ? `competitor:${String(data.competitorId)}`
+    : "unknown";
+
+  const existing = await prisma.shoppingPriceHistory.findUnique({
+    where: {
+      productKey_captureDate_contextKey: {
+        productKey: productKeyValue,
+        captureDate,
+        contextKey,
+      },
+    },
+    select: { id: true },
+  });
+
+  const payload: Prisma.ShoppingPriceHistoryUncheckedCreateInput = {
+    ...data,
+    captureDate: start,
+    contextKey,
+  } as Prisma.ShoppingPriceHistoryUncheckedCreateInput;
+
+  const { captureDate: _cd2, productKey: _pk2, contextKey: _ck, ...priceUpdatePayload } = payload;
+  await prisma.shoppingPriceHistory.upsert({
+    where: {
+      productKey_captureDate_contextKey: {
+        productKey: productKeyValue,
+        captureDate,
+        contextKey,
+      },
+    },
+    create: payload,
+    update: priceUpdatePayload as Prisma.ShoppingPriceHistoryUncheckedUpdateInput,
+  });
+  return existing ? "updated" : "created";
+}
+
+async function savePriceChangeInsight(data: Prisma.MarketInsightUncheckedCreateInput, capturedAt: Date): Promise<"created" | "updated"> {
+  return saveOpenDailyMarketInsight(data, capturedAt);
+}
+
+export async function saveOpenDailyMarketInsight(data: Prisma.MarketInsightUncheckedCreateInput, capturedAt: Date): Promise<"created" | "updated"> {
+  const { start } = captureDayRange(capturedAt);
+  const captureDay = start.toISOString().slice(0, 10); // YYYY-MM-DD
+  const dedupeKey = [
+    String(data.type),
+    data.competitorId == null ? "" : String(data.competitorId),
+    data.keywordId == null ? "" : String(data.keywordId),
+    data.adId == null ? "" : String(data.adId),
+    captureDay,
+  ].join("|");
+
+  const existing = await prisma.marketInsight.findUnique({
+    where: { dedupeKey },
+    select: { id: true },
+  });
+
+  await prisma.marketInsight.upsert({
+    where: { dedupeKey },
+    create: { ...data, createdAt: capturedAt, dedupeKey },
+    update: { ...data } as Prisma.MarketInsightUncheckedUpdateInput, // dedupeKey not in data shape — excluded from update by design
+  });
+  return existing ? "updated" : "created";
+}
+
+export async function fetchMarketIntelHandler(
+  options: FetchMarketIntelOptions = { profile: "scheduled" },
+): Promise<JobResult<MarketIntelSummary>> {
+  const runId = await getOrCreateRunId(options.runId);
+  const limits = resolveRunLimits(options);
+  const { keywordLimit, shoppingResultLimit, competitorPageLimit, adLimitPerPage, longRunningAdDays, sources } = limits;
+
+  const errors: string[] = [];
+  const disabledSources = new Set<string>();
+  const capturedAt = new Date();
+  const summary: MarketIntelSummary = {
+    profile: options.profile,
+    effectiveLimits: limits,
+    keywordsChecked: 0,
+    shoppingResults: 0,
+    competitorShoppingResults: 0,
+    priceRecords: 0,
+    priceRecordsCreated: 0,
+    priceRecordsUpdated: 0,
+    priceChanges: 0,
+    competitorPagesChecked: 0,
+    adsCaptured: 0,
+    apifyAdsFetched: 0,
+    spamAdsFiltered: 0,
+    adCaptures: 0,
+    adChangeInsights: 0,
+    newAds: 0,
+    longRunningAds: 0,
+    insightsCreated: 0,
+    insightsUpdated: 0,
+    disabledSources: [],
+  };
+
+  if (process.env.MARKET_INTEL_ENABLED === "false") {
+    await prisma.jobRun.update({
+      where: { id: runId },
+      data: {
+        completedAt: new Date(),
+        status: "success",
+        summary: json({ ...summary, disabledSources: ["market_intel_disabled"] }),
+      },
+    });
+    return {
+      jobName: "fetch-market-intel",
+      runId: runId,
+      status: "success",
+      summary: { ...summary, disabledSources: ["market_intel_disabled"] },
+      errors,
+    };
+  }
+
+  try {
+  const keywords = sources.includes("shopping") ? await prisma.marketKeyword.findMany({
+    where: { active: true },
+    orderBy: { createdAt: "asc" },
+    take: keywordLimit,
+  }) : [];
+
+  for (const keyword of keywords) {
+    summary.keywordsChecked++;
+    try {
+      const serperResult = await fetchSerperShoppingProducts({
+        keyword: keyword.keyword,
+        countryCode: process.env.MARKET_INTEL_DEFAULT_COUNTRY ?? "ph",
+        languageCode: keyword.languageCode,
+        limit: shoppingResultLimit,
+      });
+      const result = serperResult.disabled
+        ? await fetchShoppingProducts({
+          keyword: keyword.keyword,
+          locationName: keyword.locationName,
+          languageCode: keyword.languageCode,
+        })
+        : serperResult;
+      if (serperResult.disabled && result.disabled) {
+        disabledSources.add("serper");
+        disabledSources.add("dataforseo");
+        continue;
+      }
+
+      for (const product of result.products.slice(0, shoppingResultLimit)) {
+        const key = productKey({
+          ...product,
+          context: { kind: "market", key: keyword.id },
+        });
+        await saveShoppingResult({
+          jobRunId: runId,
+          marketKeywordId: keyword.id,
+          keyword: keyword.keyword,
+          title: product.title,
+          brand: product.brand,
+          price: product.price,
+          currency: product.currency,
+          store: product.store,
+          rating: product.rating,
+          reviewCount: product.reviewCount != null ? Math.round(product.reviewCount) : null,
+          searchPosition: product.searchPosition != null ? Math.round(product.searchPosition) : null,
+          productUrl: product.productUrl,
+          imageUrl: keepExternalUrl(product.imageUrl),
+          productKey: key,
+          capturedAt,
+          rawPayload: json(sanitizeRawPayload(product.rawPayload)),
+        });
+        summary.shoppingResults++;
+
+        if (product.price == null) continue;
+        const { start: captureDayStart } = captureDayRange(capturedAt);
+
+        const previous = await prisma.shoppingPriceHistory.findFirst({
+          where: {
+            productKey: key,
+            marketKeywordId: keyword.id,
+            capturedAt: { lt: captureDayStart },
+          },
+          orderBy: { capturedAt: "desc" },
+        });
+        const priceDelta = previous ? product.price - previous.price : null;
+        const priceDeltaPct = previous && priceDelta != null ? pctDelta(previous.price, product.price) : null;
+
+        const priceWrite = await saveShoppingPriceHistory({
+          jobRunId: runId,
+          marketKeywordId: keyword.id,
+          productKey: key,
+          title: product.title,
+          store: product.store,
+          price: product.price,
+          currency: product.currency,
+          previousPrice: previous?.price,
+          priceDelta,
+          priceDeltaPct,
+          capturedAt,
+        });
+        summary.priceRecords++;
+        if (priceWrite === "created") summary.priceRecordsCreated++;
+        else summary.priceRecordsUpdated++;
+
+        if (previous && priceDelta != null && Math.abs(priceDelta) >= 0.01) {
+          const severity = priceDeltaPct != null && Math.abs(priceDeltaPct) >= 10 ? "warning" : "info";
+          const insightWrite = await savePriceChangeInsight({
+            type: "price_change",
+            severity,
+            title: `${product.store ?? "Competitor"} price changed`,
+            summary: `${product.title} changed from ${previous.price} to ${product.price}${product.currency ? ` ${product.currency}` : ""}.`,
+            evidence: json({
+              productKey: key,
+              keyword: keyword.keyword,
+              previousPrice: previous.price,
+              currentPrice: product.price,
+              priceDelta,
+              priceDeltaPct,
+              productUrl: product.productUrl,
+            }),
+            keywordId: keyword.id,
+          }, capturedAt);
+          summary.priceChanges++;
+          if (insightWrite === "created") summary.insightsCreated++;
+          else summary.insightsUpdated++;
+        }
+      }
+    } catch (err) {
+      errors.push(`shopping:${keyword.keyword}: ${String(err)}`);
+    }
+  }
+
+  // Per-competitor Google Shopping catalog pull (Serper). Pulls each competitor's
+  // products by brand name (q = competitor.name, num=40 ≈ 2 credits each). Gated to
+  // ~weekly via a 6-day recency check, and scoped to curated competitors (active +
+  // an active social page) so junk rows aren't queried. Kill-switch: COMPETITOR_SHOPPING_ENABLED.
+  if (sources.includes("shopping") && process.env.COMPETITOR_SHOPPING_ENABLED !== "false") {
+    const sixDaysAgo = new Date(capturedAt.getTime() - 6 * 24 * 60 * 60 * 1000);
+    const recentCompShopping = await prisma.shoppingResult.findFirst({
+      where: { competitorId: { not: null }, capturedAt: { gte: sixDaysAgo } },
+      select: { id: true },
+    });
+    if (recentCompShopping) {
+      // Already pulled within the weekly window — skip to conserve credits.
+    } else {
+      const competitors = await prisma.competitor.findMany({
+        where: { active: true, socialPages: { some: { active: true } } },
+        orderBy: { name: "asc" },
+      });
+      for (const competitor of competitors) {
+        try {
+          // Google Shopping returns ~40 results/page; paginate for deeper catalog
+          // coverage (2 pages ≈ 80 products, ~4 credits/competitor). Dedup by productKey.
+          const COMPETITOR_SHOPPING_PAGES = 2;
+          const productsByKey = new Map<string, SerperShoppingProduct>();
+          let serperDisabled = false;
+          for (let pageNum = 1; pageNum <= COMPETITOR_SHOPPING_PAGES; pageNum++) {
+            const pageResult = await fetchSerperShoppingProducts({
+              keyword: competitor.name,
+              countryCode: process.env.MARKET_INTEL_DEFAULT_COUNTRY ?? "ph",
+              limit: 40,
+              page: pageNum,
+            });
+            if (pageResult.disabled) {
+              serperDisabled = true;
+              break;
+            }
+            for (const product of pageResult.products) {
+              const k = productKey({
+                ...product,
+                context: { kind: "competitor", key: competitor.id },
+              });
+              if (!productsByKey.has(k)) productsByKey.set(k, product);
+            }
+            if (pageResult.products.length < 40) break; // last page reached
+          }
+          if (serperDisabled) {
+            disabledSources.add("serper");
+            break;
+          }
+          for (const product of productsByKey.values()) {
+            const key = productKey({
+              ...product,
+              context: { kind: "competitor", key: competitor.id },
+            });
+            await saveShoppingResult({
+              jobRunId: runId,
+              competitorId: competitor.id,
+              keyword: competitor.name,
+              title: product.title,
+              brand: product.brand,
+              price: product.price,
+              currency: product.currency,
+              store: product.store,
+              rating: product.rating,
+              reviewCount: product.reviewCount != null ? Math.round(product.reviewCount) : null,
+              searchPosition: product.searchPosition != null ? Math.round(product.searchPosition) : null,
+              productUrl: product.productUrl,
+              imageUrl: keepExternalUrl(product.imageUrl),
+              productKey: key,
+              capturedAt,
+              rawPayload: json(sanitizeRawPayload(product.rawPayload)),
+            });
+            summary.competitorShoppingResults++;
+
+            if (product.price == null) continue;
+            const { start: captureDayStart } = captureDayRange(capturedAt);
+
+            const previous = await prisma.shoppingPriceHistory.findFirst({
+              where: {
+                productKey: key,
+                competitorId: competitor.id,
+                capturedAt: { lt: captureDayStart },
+              },
+              orderBy: { capturedAt: "desc" },
+            });
+            const priceDelta = previous ? product.price - previous.price : null;
+            const priceDeltaPct = previous && priceDelta != null ? pctDelta(previous.price, product.price) : null;
+
+            const priceWrite = await saveShoppingPriceHistory({
+              jobRunId: runId,
+              competitorId: competitor.id,
+              productKey: key,
+              title: product.title,
+              store: product.store,
+              price: product.price,
+              currency: product.currency,
+              previousPrice: previous?.price,
+              priceDelta,
+              priceDeltaPct,
+              capturedAt,
+            });
+            summary.priceRecords++;
+            if (priceWrite === "created") summary.priceRecordsCreated++;
+            else summary.priceRecordsUpdated++;
+
+            if (previous && priceDelta != null && Math.abs(priceDelta) >= 0.01) {
+              const severity = priceDeltaPct != null && Math.abs(priceDeltaPct) >= 10 ? "warning" : "info";
+              const insightWrite = await savePriceChangeInsight({
+                type: "price_change",
+                severity,
+                title: `${competitor.name} price changed`,
+                summary: `${product.title} changed from ${previous.price} to ${product.price}${product.currency ? ` ${product.currency}` : ""}.`,
+                evidence: json({
+                  productKey: key,
+                  competitor: competitor.name,
+                  previousPrice: previous.price,
+                  currentPrice: product.price,
+                  priceDelta,
+                  priceDeltaPct,
+                  productUrl: product.productUrl,
+                }),
+                competitorId: competitor.id,
+              }, capturedAt);
+              summary.priceChanges++;
+              if (insightWrite === "created") summary.insightsCreated++;
+              else summary.insightsUpdated++;
+            }
+          }
+        } catch (err) {
+          errors.push(`competitor-shopping:${competitor.name}: ${String(err)}`);
+        }
+      }
+    }
+  }
+
+  const socialPages = sources.includes("meta") ? await prisma.competitorSocialPage.findMany({
+    where: { active: true, platform: { in: ["facebook", "instagram", "meta", "meta_keyword"] } },
+    include: { competitor: true },
+    orderBy: { createdAt: "asc" },
+    take: competitorPageLimit,
+  }) : [];
+
+  // Prefer Apify (rich title/cta/landing-URL fields) for competitor pages with a
+  // numeric page_id; fall back to the in-house scraper otherwise. Apify is metered
+  // (free credit), so pull at most ~weekly — skip if a fresh Apify capture exists.
+  let useApify = await isApifyMetaEnabled();
+  if (useApify) {
+    const sixDaysAgo = new Date(capturedAt.getTime() - 6 * 24 * 60 * 60 * 1000);
+    const recentApify = await prisma.competitorAd.findFirst({
+      where: { rawPayload: { path: ["source"], equals: "apify" }, capturedAt: { gte: sixDaysAgo } },
+      select: { id: true },
+    });
+    if (recentApify) useApify = false;
+  }
+  let apifyAdsByPage = new Map<string, MetaAdLibraryAd[]>();
+  if (useApify) {
+    const numericPageIds = socialPages
+      .map((p) => p.pageId)
+      .filter((id): id is string => Boolean(id) && /^\d+$/.test(id ?? ""));
+    if (numericPageIds.length) {
+      try {
+        const apify = await fetchApifyMetaAdsByPages(numericPageIds, { perPage: adLimitPerPage });
+        apifyAdsByPage = apify.adsByPageId;
+        summary.apifyAdsFetched = apify.total;
+      } catch (err) {
+        errors.push(`apify_meta: ${String(err)}`);
+      }
+    }
+  }
+
+  for (const page of socialPages) {
+    // Apify-only: competitor pages get rich data or are skipped. No scraper fallback.
+    const apifyAds = page.pageId ? apifyAdsByPage.get(page.pageId) : undefined;
+    if (!apifyAds || !apifyAds.length) continue;
+    summary.competitorPagesChecked++;
+    try {
+      const result = { ads: apifyAds.slice(0, adLimitPerPage) };
+
+      for (const ad of result.ads.slice(0, adLimitPerPage)) {
+        // Skip spam serialized-story creatives (content-farm novelette ads)
+        // that match broad keyword searches but are never real competitors.
+        if (isSpamStoryAd(ad)) {
+          summary.spamAdsFiltered++;
+          continue;
+        }
+        const existing = await prisma.competitorAd.findUnique({
+          where: { adArchiveId: ad.adArchiveId },
+          select: {
+            id: true,
+            adCopy: true,
+            headline: true,
+            description: true,
+            cta: true,
+            landingPageUrl: true,
+            activeStatus: true,
+            creativeType: true,
+            imageUrl: true,
+            videoUrl: true,
+            capturedAt: true,
+          },
+        });
+        const saved = await prisma.competitorAd.upsert({
+          where: { adArchiveId: ad.adArchiveId },
+          create: {
+            jobRunId: runId,
+            competitorId: page.competitorId,
+            pageName: ad.pageName ?? page.pageName,
+            pageId: ad.pageId ?? page.pageId,
+            adArchiveId: ad.adArchiveId,
+            adCopy: ad.adCopy,
+            headline: ad.headline,
+            description: ad.description,
+            cta: ad.cta,
+            landingPageUrl: ad.landingPageUrl,
+            adSnapshotUrl: ad.adSnapshotUrl,
+            platforms: json(ad.platforms ?? []),
+            startDate: ad.startDate,
+            endDate: ad.endDate,
+            activeStatus: ad.activeStatus,
+            creativeType: ad.creativeType,
+            imageUrl: keepExternalUrl(ad.imageUrl),
+            videoUrl: keepExternalUrl(ad.videoUrl),
+            capturedAt,
+            rawPayload: json(sanitizeRawPayload(ad.rawPayload)),
+          },
+          update: {
+            jobRunId: runId,
+            pageName: ad.pageName ?? page.pageName,
+            pageId: ad.pageId ?? page.pageId,
+            adCopy: ad.adCopy,
+            headline: ad.headline,
+            description: ad.description,
+            cta: ad.cta,
+            landingPageUrl: ad.landingPageUrl,
+            adSnapshotUrl: ad.adSnapshotUrl,
+            platforms: json(ad.platforms ?? []),
+            startDate: ad.startDate,
+            endDate: ad.endDate,
+            activeStatus: ad.activeStatus,
+            creativeType: ad.creativeType,
+            imageUrl: keepExternalUrl(ad.imageUrl),
+            videoUrl: keepExternalUrl(ad.videoUrl),
+            capturedAt,
+            rawPayload: json(sanitizeRawPayload(ad.rawPayload)),
+          },
+        });
+        summary.adsCaptured++;
+
+        const captureResult = await recordCompetitorAdCapture(prisma, {
+          competitorAdId: saved.id,
+          competitorId: page.competitorId,
+          competitorName: page.competitor.name,
+          jobRunId: runId,
+          capturedAt,
+          ad,
+          savedAd: {
+            adArchiveId: saved.adArchiveId,
+            adCopy: saved.adCopy,
+            adCopyEn: saved.adCopyEn,
+            headline: saved.headline,
+            headlineEn: saved.headlineEn,
+            description: saved.description,
+            cta: saved.cta,
+            landingPageUrl: saved.landingPageUrl,
+            activeStatus: saved.activeStatus,
+            creativeType: saved.creativeType,
+            creativeAngle: saved.creativeAngle,
+            imageUrl: saved.imageUrl,
+            videoUrl: saved.videoUrl,
+            rawPayload: saved.rawPayload,
+          },
+          previousAd: existing,
+        });
+        if (captureResult.created) summary.adCaptures++;
+        if (captureResult.insightsCreated > 0) {
+          summary.adChangeInsights += captureResult.insightsCreated;
+          summary.insightsCreated += captureResult.insightsCreated;
+        }
+
+        if (ad.activeStatus === "ACTIVE" && ad.startDate) {
+          const runningDays = daysBetween(ad.startDate, capturedAt);
+          if (runningDays >= longRunningAdDays) {
+            summary.longRunningAds++;
+            const insightWrite = await saveOpenDailyMarketInsight({
+              type: "long_running_competitor_ad",
+              severity: "warning",
+              title: `${page.competitor.name} has an ad running ${runningDays} days`,
+              summary: ad.headline ?? ad.adCopy ?? `This active Meta ad has been running for at least ${longRunningAdDays} days.`,
+              evidence: json({
+                adArchiveId: ad.adArchiveId,
+                pageName: ad.pageName ?? page.pageName,
+                adSnapshotUrl: ad.adSnapshotUrl,
+                platforms: ad.platforms ?? [],
+                startDate: ad.startDate.toISOString(),
+                runningDays,
+                thresholdDays: longRunningAdDays,
+              }),
+              competitorId: page.competitorId,
+              adId: saved.id,
+            }, capturedAt);
+
+            if (insightWrite === "created") {
+              summary.insightsCreated++;
+            } else {
+              summary.insightsUpdated++;
+            }
+          }
+        }
+
+        if (!existing) {
+          const insightWrite = await saveOpenDailyMarketInsight({
+            type: "new_competitor_ad",
+            severity: "info",
+            title: `${page.competitor.name} launched or exposed a new ad`,
+            summary: ad.headline ?? ad.adCopy ?? "A new Meta Ad Library creative was captured.",
+            evidence: json({
+              adArchiveId: ad.adArchiveId,
+              pageName: ad.pageName ?? page.pageName,
+              adSnapshotUrl: ad.adSnapshotUrl,
+              platforms: ad.platforms ?? [],
+              startDate: ad.startDate?.toISOString(),
+            }),
+            competitorId: page.competitorId,
+            adId: saved.id,
+          }, capturedAt);
+          summary.newAds++;
+          if (insightWrite === "created") summary.insightsCreated++;
+          else summary.insightsUpdated++;
+        }
+      }
+    } catch (err) {
+      errors.push(`meta_ad_library:${page.pageName}: ${String(err)}`);
+    }
+  }
+
+  // Fill English translations for newly captured ad/shopping text (best-effort;
+  // never fails the capture). Scraped competitor copy may be in Filipino.
+  try {
+    await fillCaptureTranslations({ limit: 300 });
+  } catch (err) {
+    errors.push(`translate_captures: ${String(err)}`);
+  }
+
+  // Classify each ad's marketing angle (best-effort; runs after translation so
+  // it can use the English copy). Never fails the capture.
+  try {
+    await fillCreativeAngles({ limit: 300 });
+  } catch (err) {
+    errors.push(`classify_angles: ${String(err)}`);
+  }
+
+  summary.disabledSources = Array.from(disabledSources);
+  const workDone = summary.shoppingResults + summary.competitorShoppingResults + summary.adsCaptured + summary.insightsCreated;
+  const attemptedWork = summary.keywordsChecked + socialPages.length;
+
+  const status: JobStatus = errors.length === 0 && (workDone > 0 || attemptedWork === 0)
+    ? "success"
+    : workDone > 0 || disabledSources.size > 0
+      ? "partial"
+      : "failed";
+  if (status === "failed" && errors.length === 0) {
+    errors.push("No market intelligence rows or insights were stored.");
+  }
+
+  await prisma.jobRun.update({
+    where: { id: runId },
+    data: {
+      completedAt: new Date(),
+      status,
+      summary: json(summary),
+      errorLog: errors.length > 0 ? errors.join("\n").slice(0, 10_000) : null,
+    },
+  });
+
+  return { jobName: "fetch-market-intel", runId: runId, status, summary, errors };
+  } catch (err) {
+    const message = String(err).slice(0, 10_000);
+    errors.push(message);
+    summary.disabledSources = Array.from(disabledSources);
+    await prisma.jobRun.update({
+      where: { id: runId },
+      data: {
+        completedAt: new Date(),
+        status: "failed",
+        summary: json(summary),
+        errorLog: message,
+      },
+    });
+    return { jobName: "fetch-market-intel", runId: runId, status: "failed", summary, errors };
+  }
+}

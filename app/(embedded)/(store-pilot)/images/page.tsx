@@ -1,0 +1,186 @@
+"use client";
+
+import {
+  Page,
+  Layout,
+  Card,
+  Text,
+  Button,
+  Badge,
+  InlineStack,
+  BlockStack,
+  Thumbnail,
+  DataTable,
+  Toast,
+  Spinner,
+} from "@shopify/polaris";
+import { useState, useEffect, useCallback } from "react";
+import { useAuthFetch } from "@/hooks/use-auth-fetch";
+import { getCache, setCache } from "@/lib/client-cache";
+
+interface ImageRow {
+  imageId: string;
+  productId: string;
+  productTitle: string;
+  imageUrl: string;
+  altText: string | null;
+}
+
+interface PageData {
+  images: ImageRow[];
+  total: number;
+  missingAltText: number;
+}
+
+const IMAGES_CACHE_KEY = "/api/images";
+
+export default function ImagesPage() {
+  const authFetch = useAuthFetch();
+  const [data, setData] = useState<PageData | null>(() => getCache<PageData>(IMAGES_CACHE_KEY));
+  const [loading, setLoading] = useState(() => !getCache(IMAGES_CACHE_KEY));
+  const [generating, setGenerating] = useState<Set<string>>(new Set());
+  const [suggestions, setSuggestions] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
+  const [bulkRunning, setBulkRunning] = useState(false);
+
+  useEffect(() => {
+    authFetch(IMAGES_CACHE_KEY)
+      .then((r) => r.json())
+      .then((d) => { setCache(IMAGES_CACHE_KEY, d); setData(d); setLoading(false); })
+      .catch(() => { setLoading(false); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const generate = useCallback(async (img: ImageRow): Promise<string | null> => {
+    setGenerating((p) => new Set(p).add(img.imageId));
+    setErrors((p) => { const n = { ...p }; delete n[img.imageId]; return n; });
+    try {
+      const res = await authFetch("/api/images", {
+        method: "POST",
+        body: JSON.stringify({ imageId: img.imageId, productId: img.productId, imageUrl: img.imageUrl, productTitle: img.productTitle }),
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error);
+      setSuggestions((p) => ({ ...p, [img.imageId]: d.altText }));
+      return d.altText as string;
+    } catch (e) {
+      setErrors((p) => ({ ...p, [img.imageId]: "Failed — retry" }));
+      return null;
+    } finally {
+      setGenerating((p) => { const n = new Set(p); n.delete(img.imageId); return n; });
+    }
+  }, [authFetch]); // authFetch from useCallback in hook — stable reference
+
+  const generateAllMissing = useCallback(async () => {
+    if (!data) return;
+    setBulkRunning(true);
+    const missing = data.images.filter((i) => !i.altText && !suggestions[i.imageId]);
+    for (const img of missing) {
+      await generate(img);
+    }
+    setBulkRunning(false);
+    setToast({ message: "Suggestions generated — copy alt text to apply manually" });
+  }, [data, suggestions, generate]);
+
+  const rows = (data?.images ?? []).map((img) => {
+    const suggestion = suggestions[img.imageId];
+    const isGenerating = generating.has(img.imageId);
+    const hasError = errors[img.imageId];
+
+    const altTextCell = hasError ? (
+      <Badge tone="critical">{hasError}</Badge>
+    ) : suggestion ? (
+      <Text as="span" variant="bodySm">
+        {suggestion.slice(0, 60)}{suggestion.length > 60 ? "…" : ""}
+      </Text>
+    ) : img.altText ? (
+      <InlineStack gap="200" align="start">
+        <Badge tone="success">Set</Badge>
+        <Text as="span" variant="bodySm" tone="subdued">
+          {img.altText.slice(0, 40)}{img.altText.length > 40 ? "…" : ""}
+        </Text>
+      </InlineStack>
+    ) : (
+      <Badge tone="critical">Missing</Badge>
+    );
+
+    const actionCell = img.altText && !hasError && !suggestion ? (
+      <></>
+    ) : (
+      <Button
+        size="slim"
+        onClick={() => generate(img)}
+        loading={isGenerating}
+        disabled={!!suggestion}
+      >
+        {hasError ? "Retry" : suggestion ? "Generated" : "Generate"}
+      </Button>
+    );
+
+    return [
+      img.productTitle,
+      <Thumbnail key={img.imageId} source={img.imageUrl} alt={img.altText ?? ""} size="small" />,
+      altTextCell,
+      actionCell,
+    ];
+  });
+
+  return (
+    <>
+      <Page
+        title="Image Optimization"
+        primaryAction={
+          <Button
+            variant="primary"
+            onClick={generateAllMissing}
+            loading={bulkRunning}
+            disabled={!data || data.missingAltText === 0}
+          >
+            Generate All Missing
+          </Button>
+        }
+      >
+        <Layout>
+          <Layout.Section>
+            <InlineStack gap="400" wrap={false}>
+              <Card>
+                <BlockStack gap="200">
+                  <Text variant="headingMd" as="h2">Total Images</Text>
+                  <Text variant="heading2xl" as="p">{data?.total ?? "—"}</Text>
+                </BlockStack>
+              </Card>
+              <Card>
+                <BlockStack gap="200">
+                  <Text variant="headingMd" as="h2">Missing Alt Text</Text>
+                  <Text variant="heading2xl" as="p">{data?.missingAltText ?? "—"}</Text>
+                </BlockStack>
+              </Card>
+            </InlineStack>
+          </Layout.Section>
+
+          <Layout.Section>
+            <Card>
+              {loading ? (
+                <InlineStack align="center"><Spinner /></InlineStack>
+              ) : (
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text"]}
+                  headings={["Product", "Image", "Alt Text", "Action"]}
+                  rows={rows}
+                />
+              )}
+            </Card>
+          </Layout.Section>
+        </Layout>
+      </Page>
+
+      {toast && (
+        <Toast
+          content={toast.message}
+          error={toast.error}
+          onDismiss={() => setToast(null)}
+        />
+      )}
+    </>
+  );
+}

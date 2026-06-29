@@ -1,0 +1,35 @@
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
+import { NextResponse } from "next/server";
+import { fetchManagedPages, fetchPagePosts } from "@/lib/connectors/meta-organic";
+import { requireAppAuth } from "@/lib/auth";
+
+export async function GET(req: Request) {
+  const authError = await requireAppAuth(req);
+  if (authError) return authError;
+  try {
+    if (!process.env.META_ACCESS_TOKEN) {
+      console.error("[social-pilot] Meta not configured: META_ACCESS_TOKEN is not set");
+      return NextResponse.json({ error: "Meta integration not configured", posts: [], pages: [] }, { status: 503 });
+    }
+
+    const pages = await fetchManagedPages();
+    if (pages.length === 0) {
+      return NextResponse.json({ posts: [], pages: [], message: "No Facebook pages found for this token." });
+    }
+
+    // Use META_PAGE_ID if set, otherwise first managed page
+    const pageId = process.env.META_PAGE_ID ?? pages[0]!.id;
+    const pageName = pages.find((p) => p.id === pageId)?.name ?? pages[0]!.name; // safe: pages.length > 0 checked above
+
+    const posts = await fetchPagePosts(pageId);
+
+    // Sort by engagement (likes + comments + shares)
+    posts.sort((a, b) => (b.likes + b.comments + b.shares) - (a.likes + a.comments + a.shares));
+
+    return NextResponse.json({ posts, pages, activePage: { id: pageId, name: pageName } });
+  } catch (err) {
+    return NextResponse.json({ error: "Internal server error", posts: [], pages: [] }, { status: 500 });
+  }
+}

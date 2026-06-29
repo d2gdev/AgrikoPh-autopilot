@@ -1,0 +1,56 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(node_modules/**)",
+      "Read(.next/**)",
+      "Read(dist/**)",
+      "Read(coverage/**)",
+      "Read(*.lock)",
+      "Read(package-lock.json)",
+      "Read(*.tsbuildinfo)",
+      "Read(repomix-output.xml)",
+      "Read(repomix-core.xml)",
+      "Read(repomix-plans.xml)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /mnt/c/Users/Sean/Documents/Agriko/autopilot-app/.claude/hooks/session-start.py",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /mnt/c/Users/Sean/Documents/Agriko/autopilot-app/.claude/hooks/rtk-enforcer.py",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /mnt/c/Users/Sean/Documents/Agriko/autopilot-app/.claude/hooks/grow.py",
+            "timeout": 15,
+            "statusMessage": "Running GROW..."
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "claude-hud@claude-hud": true
+  }
+}

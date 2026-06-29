@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Secret scan
+        run: |
+          ! git grep -nE 'BEGIN (RSA |EC |OPENSSH |)?PRIVATE KEY|sk-or-v1-|ghp_[A-Za-z0-9_]{20,}|Bearer [A-Za-z0-9._-]{40,}' -- ':!package-lock.json'
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Typecheck tests
+        run: npm run typecheck:test
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

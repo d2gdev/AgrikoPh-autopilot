@@ -1,0 +1,674 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model RawSnapshot {
+  id             String          @id @default(cuid())
+  source         String          // "google_ads" | "meta" | "ga4" | "gsc" | "blog"
+  fetchedAt      DateTime        @default(now())
+  dateRangeStart DateTime
+  dateRangeEnd   DateTime
+  payload        Json
+  jobRunId       String?
+  recommendations Recommendation[]
+  @@unique([source, dateRangeStart, dateRangeEnd])
+  @@index([source, fetchedAt])
+}
+
+model Recommendation {
+  id               String    @id @default(cuid())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  platform         String    // "google_ads" | "meta" | "both"
+  skillId          String
+  skillName        String
+
+  actionType       String    // "pause_campaign" | "change_bid" | "add_negative_keyword" | "adjust_budget" | "pause_ad"
+  targetEntityType String    // "campaign" | "ad_set" | "ad" | "keyword"
+  targetEntityId   String
+  targetEntityName String
+
+  currentValue     String?
+  proposedValue    String?
+  changePercent    Float?
+
+  rationale        String
+  estimatedImpact  String?
+  estimatedValuePhp Float?
+  confidenceScore  Float?
+
+  guardStatus      String    @default("clear") // "clear" | "soft_flag" | "hard_block"
+  guardReason      String?
+
+  status           String    @default("pending") // "pending" | "approved" | "override_approved" | "executing" | "executed" | "failed" | "rejected"
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+  overrideJustification String?
+  overrideApprovedBy    String?
+
+  executedAt       DateTime?
+  executionResult  Json?
+
+  snapshotId       String
+  snapshot         RawSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([status, targetEntityId])
+  @@index([platform, actionType])
+  @@index([guardStatus])
+  @@index([snapshotId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  actor      String   // "system" | shopify user id
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  meta       Json?
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model JobRun {
+  id          String    @id @default(cuid())
+  jobName     String
+  triggeredBy String    @default("scheduler")
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  status      String    @default("running") // "queued" | "running" | "success" | "failed" | "partial"
+  dryRun      Boolean   @default(false)
+  input       Json?
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(1)
+  claimedAt   DateTime?
+  lastHeartbeatAt DateTime?
+  ownerToken  String?
+  parentRunId String?
+  summary     Json?     // shape: { recommendationsGenerated, skillsRun, skillsSkipped, skillsTotal, skillHashes, snapshotsFetched }
+  errorLog    String?
+  shoppingResults       ShoppingResult[]
+  shoppingPriceHistory  ShoppingPriceHistory[]
+  competitorAds         CompetitorAd[]
+  competitorAdCaptures  CompetitorAdCapture[]
+  keywordResearch       KeywordResearchResult[]
+  gscQueries            GscQuery[]
+  pageAnalytics         PageAnalytics[]
+  internalLinkEdges     InternalLinkEdge[]
+  skillInsights         SkillInsight[]
+  @@index([jobName, startedAt])
+  @@index([startedAt])
+  @@index([status, startedAt])
+  @@index([status, jobName, startedAt])
+  @@index([ownerToken])
+  @@index([parentRunId])
+}
+
+// Google Search Console search-analytics snapshot (Agriko's own ranking data).
+// One row per query+page pair per capture; weekly snapshots build position/CTR
+// history. This is the only stream about Agriko itself (vs market/competitors).
+model GscQuery {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  jobRunId       String?
+  jobRun         JobRun?  @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
+  query          String
+  page           String
+  clicks         Int      @default(0)
+  impressions    Int      @default(0)
+  position       Float?
+  ctr            Float?
+  dateRangeStart DateTime
+  dateRangeEnd   DateTime
+  capturedAt     DateTime @default(now())
+
+  @@index([jobRunId])
+  @@index([query, capturedAt])
+  @@index([page, capturedAt])
+  @@index([capturedAt])
+}
+
+// Google Analytics landing-page snapshot. One row per page per capture window.
+// This is the normalized source for content traffic and page-health joins; the
+// legacy RawSnapshot("ga4") stream remains as raw evidence/cache.
+model PageAnalytics {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  jobRunId       String?
+  jobRun         JobRun?  @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
+  page           String
+  sessions       Int      @default(0)
+  totalUsers     Int      @default(0)
+  conversions    Int      @default(0)
+  bounceRate     Float?
+  conversionRate Float?
+  dateRangeStart DateTime
+  dateRangeEnd   DateTime
+  capturedAt     DateTime @default(now())
+  rawPayload      Json?
+
+  @@index([jobRunId])
+  @@index([page, capturedAt])
+  @@index([capturedAt])
+  @@index([dateRangeStart, dateRangeEnd])
+}
+
+// Per-reviewer product reviews (reviewer name + text + rating), scraped from the
+// product viewer on the Google Shopping product page. Currently Agriko's own
+// products; competitor products can be added later.
+model ProductReview {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  productId    String?
+  productTitle String
+  source       String?
+  reviewerName String?
+  rating       Float?
+  text         String?
+  reviewDate   String?
+  capturedAt   DateTime @default(now())
+
+  @@unique([productId, reviewerName, text])
+  @@index([productId, capturedAt])
+  @@index([source])
+}
+
+model JobLock {
+  jobName   String   @id
+  lockedAt  DateTime @default(now())
+  expiresAt DateTime
+  ownerToken String?
+}
+
+model ApiCredential {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   // AES-256-GCM encrypted
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+model GuardrailConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  label     String
+  valueType String   // "number" | "boolean" | "currency"
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+model ArticleRecord {
+  id               String    @id @default(cuid())
+  shopifyId        String    @unique
+  handle           String    @unique
+  title            String
+  author           String?
+  publishedAt      DateTime?
+  contentHash      String
+  wordCount        Int
+  imageCount       Int       @default(0)
+  headingCount     Int       @default(0)
+  ctaCount         Int       @default(0)
+  internalLinkCount Int      @default(0)
+  inboundCount     Int       @default(0)
+  seoData          Json
+  linksData        Json
+  topicsData       Json
+  indexedAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  snapshots        ArticleSnapshot[]
+
+  @@index([contentHash])
+  @@index([handle])
+  @@index([publishedAt])
+  @@index([indexedAt])
+  @@index([inboundCount])
+  @@index([internalLinkCount])
+}
+
+model ArticleSnapshot {
+  id                String         @id @default(cuid())
+  createdAt         DateTime       @default(now())
+  articleRecordId   String?
+  articleRecord     ArticleRecord? @relation(fields: [articleRecordId], references: [id], onDelete: SetNull)
+  shopifyId         String?
+  handle            String
+  title             String
+  contentHash       String
+  wordCount         Int
+  imageCount        Int            @default(0)
+  headingCount      Int            @default(0)
+  ctaCount          Int            @default(0)
+  internalLinkCount Int            @default(0)
+  inboundCount      Int            @default(0)
+  seoScore          Int?
+  seoData           Json
+  linksData         Json
+  topicsData        Json
+  capturedAt        DateTime       @default(now())
+
+  @@index([articleRecordId])
+  @@index([handle, capturedAt])
+  @@index([contentHash])
+  @@index([seoScore])
+}
+
+model InternalLinkEdge {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  jobRunId      String?
+  jobRun        JobRun?  @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
+  sourceType   String
+  sourceHandle String
+  sourceUrl    String?
+  targetType   String
+  targetHandle String?
+  targetUrl    String
+  anchorText   String
+  isCta        Boolean  @default(false)
+  capturedAt   DateTime @default(now())
+
+  @@index([jobRunId])
+  @@index([sourceType, sourceHandle])
+  @@index([targetType, targetHandle])
+  @@index([targetUrl])
+  @@index([capturedAt])
+}
+
+model Opportunity {
+  id             String    @id @default(cuid())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  type           String
+  targetType     String
+  targetId       String?
+  targetUrl      String?
+  targetName     String?
+  source         String
+  sourceRunId    String?
+  dedupeKey      String    @unique
+  score          Float
+  priority       String
+  confidence     Float?
+  impact         String?
+  effort         String?
+  evidence       Json
+  proposedAction Json
+  status         String    @default("open")
+  routedToType   String?
+  routedToId     String?
+  resolvedAt     DateTime?
+
+  @@index([status, score])
+  @@index([type, createdAt])
+  @@index([targetType, targetId])
+  @@index([targetUrl])
+  @@index([sourceRunId])
+}
+
+model StoreTask {
+  id             String    @id @default(cuid())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  taskType       String
+  targetType     String
+  targetId       String?
+  targetUrl      String?
+  title          String
+  description    String
+  proposedState  Json
+  sourceData     Json
+  priority       String
+  status         String    @default("pending")
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  completedAt    DateTime?
+  completionNote String?
+  opportunityId  String?
+  dedupeKey      String    @unique
+
+  @@index([status, priority, createdAt])
+  @@index([taskType])
+  @@index([targetType, targetId])
+  @@index([opportunityId])
+}
+
+model ContentProposal {
+  id               String    @id @default(cuid())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  articleHandle    String?
+  proposalType     String
+  changeType       String
+  priority         String
+  impact           String
+  effort           String
+  title            String
+  description      String
+  proposedState    Json
+  sourceData       Json
+  status           String    @default("pending")
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+  draftContent        Json?
+  draftGeneratedAt    DateTime?
+  draftStatus         String?
+  draftError          String?
+  publishedAt         DateTime?
+  shopifyArticleId    String?
+  publishedHandle     String?
+  scheduledPublishAt  DateTime?
+  baselineSeoScore    Int?
+  followUpSeoScore    Int?
+  followUpScoredAt    DateTime?
+
+  draftHistory  ContentProposalDraftHistory[]
+
+  @@index([status])
+  @@index([status, priority, createdAt])
+  @@index([articleHandle])
+  @@index([createdAt])
+  @@index([draftStatus])
+  @@index([scheduledPublishAt])
+}
+
+model ContentProposalDraftHistory {
+  id           String          @id @default(cuid())
+  proposalId   String
+  savedAt      DateTime        @default(now())
+  savedBy      String
+  draftContent Json
+  reason       String          // "generated" | "edited" | "regenerated"
+
+  proposal     ContentProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@index([proposalId, savedAt])
+}
+
+model Competitor {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  name      String
+  domain    String?
+  notes     String?
+  active    Boolean  @default(true)
+
+  socialPages     CompetitorSocialPage[]
+  ads             CompetitorAd[]
+  adCaptures      CompetitorAdCapture[]
+  insights        MarketInsight[]
+  shoppingResults ShoppingResult[]
+  priceHistory    ShoppingPriceHistory[]
+
+  @@unique([name])
+  @@index([active])
+}
+
+model CompetitorSocialPage {
+  id           String     @id @default(cuid())
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  competitorId String
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  platform     String
+  pageName     String
+  pageId       String?
+  pageUrl      String?
+  active       Boolean    @default(true)
+  identityKey  String     @default("")
+
+  @@index([competitorId])
+  @@index([platform, active])
+  @@index([platform, pageId])
+  @@unique([identityKey], map: "CompetitorSocialPage_identity_key")
+}
+
+model MarketKeyword {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  keyword      String
+  category     String?
+  locationName String?
+  languageCode String   @default("en")
+  active       Boolean  @default(true)
+
+  shoppingResults ShoppingResult[]
+  priceHistory    ShoppingPriceHistory[]
+  keywordResearch KeywordResearchResult[]
+  insights        MarketInsight[]
+
+  @@index([active])
+  @@unique([keyword, locationName, languageCode])
+}
+
+model KeywordResearchResult {
+  id                         String        @id @default(cuid())
+  createdAt                  DateTime      @default(now())
+  jobRunId                   String?
+  jobRun                     JobRun?       @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
+  marketKeywordId            String?
+  marketKeyword              MarketKeyword? @relation(fields: [marketKeywordId], references: [id], onDelete: SetNull)
+  seedKeyword                String
+  keyword                    String
+  source                     String        @default("google_ads")
+  locationName               String?
+  languageCode               String?
+  avgMonthlySearches         Int?
+  competition                String?
+  competitionIndex           Int?
+  lowTopOfPageBidMicros      BigInt?
+  highTopOfPageBidMicros     BigInt?
+  monthlySearchVolumes       Json?
+  rawPayload                 Json?
+  locationNameForDedupe      String       @default("")
+  languageCodeForDedupe      String       @default("")
+  captureDate                DateTime     @default(now())
+  capturedAt                 DateTime      @default(now())
+
+  @@index([jobRunId])
+  @@index([marketKeywordId, capturedAt])
+  @@index([seedKeyword, capturedAt])
+  @@index([keyword, capturedAt])
+  @@index([avgMonthlySearches])
+  @@index([competition])
+  @@unique([source, keyword, locationNameForDedupe, languageCodeForDedupe, captureDate], map: "KeywordResearchResult_locale_dedupe_key")
+}
+
+model ShoppingResult {
+  id               String        @id @default(cuid())
+  createdAt        DateTime      @default(now())
+  jobRunId         String?
+  jobRun           JobRun?       @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
+  marketKeywordId  String?
+  marketKeyword    MarketKeyword? @relation(fields: [marketKeywordId], references: [id], onDelete: SetNull)
+  competitorId     String?
+  competitor       Competitor?   @relation(fields: [competitorId], references: [id], onDelete: SetNull)
+  keyword          String
+  title            String
+  titleEn          String?
+  brand            String?
+  price            Float?
+  currency         String?
+  store            String?
+  rating           Float?
+  reviewCount      Int?
+  searchPosition   Int?
+  productUrl       String?
+  imageUrl         String?
+  productKey       String
+  productIdentityHash String?
+  captureDate      DateTime      @default(now())
+  capturedAt       DateTime      @default(now())
+  rawPayload       Json?
+
+  @@index([jobRunId])
+  @@index([marketKeywordId, capturedAt])
+  @@index([competitorId, capturedAt])
+  @@index([keyword, capturedAt])
+  @@index([store])
+  @@index([productKey, capturedAt])
+  @@index([searchPosition])
+  @@unique([keyword, productKey, captureDate], map: "ShoppingResult_captureDate_dedupe_key")
+  @@index([productIdentityHash])
+}
+
+model ShoppingPriceHistory {
+  id              String        @id @default(cuid())
+  createdAt       DateTime      @default(now())
+  jobRunId        String?
+  jobRun          JobRun?       @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
+  marketKeywordId String?
+  marketKeyword   MarketKeyword? @relation(fields: [marketKeywordId], references: [id], onDelete: Cascade)
+  competitorId    String?
+  competitor      Competitor?   @relation(fields: [competitorId], references: [id], onDelete: SetNull)
+  productKey      String
+  title           String
+  store           String?
+  price           Float
+  currency        String?
+  previousPrice   Float?
+  priceDelta      Float?
+  priceDeltaPct   Float?
+  captureDate     DateTime      @default(now())
+  capturedAt      DateTime      @default(now())
+  contextKey      String        @default("")
+
+  @@index([jobRunId])
+  @@index([marketKeywordId, capturedAt])
+  @@index([competitorId, capturedAt])
+  @@index([productKey, capturedAt])
+  @@index([store])
+  @@unique([productKey, captureDate, contextKey], map: "ShoppingPriceHistory_captureDate_dedupe_key")
+  @@index([contextKey, capturedAt])
+}
+
+model CompetitorAd {
+  id             String      @id @default(cuid())
+  createdAt      DateTime    @default(now())
+  jobRunId       String?
+  jobRun         JobRun?     @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
+  competitorId   String
+  competitor     Competitor  @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  pageName       String?
+  pageId         String?
+  adArchiveId    String
+  adCopy         String?
+  adCopyEn       String?
+  headline       String?
+  headlineEn     String?
+  description    String?
+  cta            String?
+  landingPageUrl String?
+  adSnapshotUrl  String?
+  platforms      Json?
+  startDate      DateTime?
+  endDate        DateTime?
+  activeStatus   String?
+  creativeType   String?
+  creativeAngle  String?
+  imageUrl       String?
+  videoUrl       String?
+  capturedAt     DateTime    @default(now())
+  rawPayload     Json?
+
+  insights       MarketInsight[]
+  captures       CompetitorAdCapture[]
+
+  @@index([jobRunId])
+  @@unique([adArchiveId])
+  @@index([competitorId])
+  @@index([competitorId, capturedAt])
+  @@index([activeStatus])
+  @@index([startDate])
+  @@index([capturedAt])
+}
+
+model CompetitorAdCapture {
+  id             String        @id @default(cuid())
+  createdAt      DateTime      @default(now())
+  competitorAdId String?
+  competitorAd   CompetitorAd? @relation(fields: [competitorAdId], references: [id], onDelete: SetNull)
+  competitorId   String?
+  competitor     Competitor?   @relation(fields: [competitorId], references: [id], onDelete: SetNull)
+  jobRunId       String?
+  jobRun         JobRun?       @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
+  adArchiveId    String
+  adCopy         String?
+  adCopyEn       String?
+  headline       String?
+  headlineEn     String?
+  description    String?
+  cta            String?
+  landingPageUrl String?
+  activeStatus   String?
+  creativeType   String?
+  creativeAngle  String?
+  imageUrl       String?
+  videoUrl       String?
+  capturedAt     DateTime      @default(now())
+  rawPayload     Json?
+  captureDate    DateTime      @default(now())
+
+  @@index([adArchiveId, capturedAt])
+  @@index([competitorId, capturedAt])
+  @@index([competitorAdId, capturedAt])
+  @@index([jobRunId])
+  @@unique([adArchiveId, captureDate], map: "CompetitorAdCapture_captureDate_dedupe_key")
+}
+
+model MarketInsight {
+  id           String      @id @default(cuid())
+  createdAt    DateTime    @default(now())
+  resolvedAt   DateTime?
+  type         String
+  severity     String      @default("info")
+  title        String
+  summary      String
+  evidence     Json
+  status       String      @default("open")
+  competitorId String?
+  competitor   Competitor? @relation(fields: [competitorId], references: [id], onDelete: SetNull)
+  keywordId    String?
+  keyword      MarketKeyword? @relation(fields: [keywordId], references: [id], onDelete: SetNull)
+  adId         String?
+  ad           CompetitorAd? @relation(fields: [adId], references: [id], onDelete: SetNull)
+  dedupeKey    String      @default("")
+
+  @@index([status, createdAt])
+  @@index([type, createdAt])
+  @@index([severity])
+  @@index([competitorId])
+  @@index([keywordId])
+  @@index([adId])
+  @@unique([dedupeKey], map: "MarketInsight_dedupe_key")
+}
+
+model SkillInsight {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  skillId     String
+  skillName   String
+  insightType String   // "fatigue-report" | "search-term-opportunities" | "competitor-analysis"
+  items       Json     // parsed array of insight objects
+  snapshotId  String
+  jobRunId    String?
+  jobRun      JobRun?  @relation(fields: [jobRunId], references: [id], onDelete: SetNull)
+
+  @@index([insightType, createdAt])
+  @@index([skillId, createdAt])
+  @@index([jobRunId])
+}

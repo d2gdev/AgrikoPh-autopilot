@@ -1,0 +1,16 @@
+# Pattern Index
+
+Lookup table for all pattern files in this directory. Check here before starting any task — if a pattern exists, follow it.
+
+| Pattern | Use when |
+|---------|----------|
+| [add-api-route.md#task-add-embedded-app-route](add-api-route.md#task-add-embedded-app-route) | Adding a new route callable from the Shopify embedded UI |
+| [add-api-route.md#task-add-cron-route](add-api-route.md#task-add-cron-route) | Adding a new cron endpoint in `app/api/cron/` |
+| [add-cron-job.md](add-cron-job.md) | Writing a new job handler in `jobs/` that fetches data and writes JobRun + RawSnapshot rows |
+| [debug-pipeline.md#task-diagnose-a-failed-or-partial-job](debug-pipeline.md#task-diagnose-a-failed-or-partial-job) | A cron job is returning `failed` or `partial` status |
+| [debug-pipeline.md#task-diagnose-no-recommendations-generated](debug-pipeline.md#task-diagnose-no-recommendations-generated) | Skills ran but no new Recommendation rows appeared |
+| [debug-pipeline.md#task-diagnose-execute-approved-not-executing](debug-pipeline.md#task-diagnose-execute-approved-not-executing) | Approved recommendations are not being executed |
+| [debug-pipeline.md#task-diagnose-connector-auth-failures](debug-pipeline.md#task-diagnose-connector-auth-failures) | A connector is returning 401/403 or token-expired errors |
+| [deploy.md#task-deploy-code-changes](deploy.md#task-deploy-code-changes) | Deploying code to the Linode VPS production server |
+| [deploy.md#task-run-database-migrations-in-production](deploy.md#task-run-database-migrations-in-production) | Running Prisma migrations on the production database |
+| [deploy.md#task-update-environment-variables-in-production](deploy.md#task-update-environment-variables-in-production) | Changing env vars on the production server |

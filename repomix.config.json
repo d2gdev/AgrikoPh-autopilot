@@ -1,0 +1,12 @@
+{
+  "ignore": {
+    "customPatterns": [
+      "docs/superpowers/plans/**",
+      "repomix-output.xml",
+      ".codesight/**",
+      "node_modules/**",
+      ".next/**",
+      "coverage/**"
+    ]
+  }
+}

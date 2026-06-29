@@ -1,0 +1,175 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://agrikoph.com/#organization",
+      "name": "Agriko",
+      "url": "https://agrikoph.com",
+      "logo": {
+        "@type": "ImageObject",
+        "@id": "https://agrikoph.com/#logo",
+        "url": "https://agrikoph.com/cdn/shop/files/agriko-logo.png",
+        "width": 400,
+        "height": 100
+      },
+      "sameAs": [
+        "https://facebook.com/AgrikoPH",
+        "https://instagram.com/agrikoph"
+      ],
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Dumingag",
+        "addressRegion": "Zamboanga del Sur",
+        "addressCountry": "PH"
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://agrikoph.com/#website",
+      "name": "Agriko",
+      "url": "https://agrikoph.com",
+      "publisher": {
+        "@id": "https://agrikoph.com/#organization"
+      },
+      "inLanguage": "en-PH"
+    },
+    {
+      "@type": "ImageObject",
+      "@id": "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos#primaryimage",
+      "url": "https://cdn.shopify.com/s/files/1/0812/7306/1602/files/agriko-content-og-image-main.png?v=1780581908",
+      "width": 640,
+      "height": 640,
+      "caption": "Red rice vs black rice comparison by Agriko Philippines"
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos#webpage",
+      "url": "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos",
+      "name": "Red Rice vs Black Rice: Which Is Healthier? | Agriko Philippines",
+      "description": "Red rice vs black rice — compare protein, fibre, antioxidants, and GI side by side. Both grown organically at Agriko Farm in the Philippines.",
+      "isPartOf": {
+        "@id": "https://agrikoph.com/#website"
+      },
+      "primaryImageOfPage": {
+        "@id": "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos#primaryimage"
+      },
+      "breadcrumb": {
+        "@id": "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos#breadcrumb"
+      },
+      "inLanguage": "en-PH",
+      "datePublished": "2026-06-26T01:14:57+08:00",
+      "dateModified": "2026-06-26T01:32:52+08:00"
+    },
+    {
+      "@type": "BlogPosting",
+      "@id": "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos#article",
+      "mainEntityOfPage": {
+        "@id": "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos#webpage"
+      },
+      "headline": "Red Rice vs Black Rice: Which Organic Grain Is Healthier for Filipinos?",
+      "alternativeHeadline": "Red Rice vs Black Rice: Which Is Healthier?",
+      "description": "Red rice vs black rice — compare protein, fibre, antioxidants, and GI side by side. Both grown organically at Agriko Farm in the Philippines.",
+      "image": {
+        "@id": "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos#primaryimage"
+      },
+      "author": {
+        "@id": "https://agrikoph.com/#organization"
+      },
+      "publisher": {
+        "@id": "https://agrikoph.com/#organization"
+      },
+      "datePublished": "2026-06-26T01:14:57+08:00",
+      "dateModified": "2026-06-26T01:32:52+08:00",
+      "articleSection": "Filipino Wellness",
+      "isPartOf": {
+        "@type": "Blog",
+        "@id": "https://agrikoph.com/blogs/news#blog",
+        "name": "Agriko Journal",
+        "url": "https://agrikoph.com/blogs/news"
+      },
+      "keywords": [
+        "red rice vs black rice",
+        "black rice vs red rice",
+        "organic rice Philippines",
+        "red rice Philippines",
+        "black rice Philippines",
+        "whole grain rice",
+        "Filipino organic rice"
+      ],
+      "wordCount": 859,
+      "timeRequired": "PT4M",
+      "inLanguage": "en-PH",
+      "about": [
+        {
+          "@type": "Thing",
+          "name": "Organic red rice"
+        },
+        {
+          "@type": "Thing",
+          "name": "Organic black rice"
+        },
+        {
+          "@type": "Thing",
+          "name": "Whole grain rice"
+        },
+        {
+          "@type": "Thing",
+          "name": "Philippine organic farming"
+        }
+      ],
+      "mentions": [
+        {
+          "@type": "Product",
+          "@id": "https://agrikoph.com/products/philippines-organic-red-rice#product",
+          "name": "Organic Red Rice – 3kg",
+          "url": "https://agrikoph.com/products/philippines-organic-red-rice",
+          "brand": {
+            "@id": "https://agrikoph.com/#organization"
+          },
+          "image": "https://agrikoph.com/cdn/shop/files/agriko-content-red-rice-final.png?v=1780580726&width=1200"
+        },
+        {
+          "@type": "Product",
+          "@id": "https://agrikoph.com/products/philippines-organic-black-rice#product",
+          "name": "Organic Black Rice – 3kg",
+          "url": "https://agrikoph.com/products/philippines-organic-black-rice",
+          "brand": {
+            "@id": "https://agrikoph.com/#organization"
+          },
+          "image": "https://agrikoph.com/cdn/shop/files/black-rice-gallery-packshot-scoop-v4.png?v=1781762990&width=1200"
+        }
+      ],
+      "potentialAction": {
+        "@type": "ReadAction",
+        "target": [
+          "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos"
+        ]
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos#breadcrumb",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://agrikoph.com/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Journal",
+          "item": "https://agrikoph.com/blogs/news"
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "name": "Red Rice vs Black Rice: Which Organic Grain Is Healthier for Filipinos?",
+          "item": "https://agrikoph.com/blogs/news/red-rice-vs-black-rice-which-organic-grain-is-healthier-for-filipinos"
+        }
+      ]
+    }
+  ]
+}

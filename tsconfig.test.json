@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["__tests__/**/*.ts", "__tests__/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx", "lib/**/*.ts", "jobs/**/*.ts", "components/**/*.tsx"],
+  "exclude": [".next", ".next.new", ".claude", ".serena", "node_modules", "tmp"],
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node", "vitest/globals"],
+    "jsx": "react-jsx"
+  }
+}
