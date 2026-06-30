@@ -53,8 +53,18 @@ export async function POST(
   }
 
   try {
-    const resolvedArticleHandle = resolveArticleHandle(proposal);
-    const { shopifyId, handle } = await publishDraft(proposal);
+    // Re-fetch after acquiring the lock: the lock above only guards draftStatus,
+    // so a concurrent edit (PATCH /proposals/[id], which writes draftContent while
+    // leaving draftStatus at "ready") can land between the initial read and the
+    // lock. Without this re-fetch, publishDraft() below would silently publish
+    // the pre-edit draftContent instead of what the operator just saved. Done
+    // inside the try block so a failure here still flows through the catch
+    // below and releases the "publishing" lock instead of leaving it stuck.
+    const fresh = await prisma.contentProposal.findUnique({ where: { id } });
+    if (!fresh) throw new Error("Proposal disappeared after lock was acquired");
+
+    const resolvedArticleHandle = resolveArticleHandle(fresh);
+    const { shopifyId, handle } = await publishDraft(fresh);
 
     // Persist the Shopify article id/handle immediately, before any further step
     // (SEO-score lookup, metafield work) that could throw. If a later step fails
@@ -65,7 +75,7 @@ export async function POST(
       data: {
         shopifyArticleId: shopifyId,
         ...(handle ? { publishedHandle: handle } : {}),
-        ...(proposal.proposalType !== "new-content" && resolvedArticleHandle && !proposal.articleHandle
+        ...(fresh.proposalType !== "new-content" && resolvedArticleHandle && !fresh.articleHandle
           ? { articleHandle: resolvedArticleHandle }
           : {}),
       },
@@ -85,8 +95,8 @@ export async function POST(
 
     // Merge resolved blogHandle into proposedState so "View on Shopify" always links correctly
     const updatedProposedState = resolvedBlogHandle
-      ? { ...(proposal.proposedState as Record<string, unknown>), blogHandle: resolvedBlogHandle }
-      : proposal.proposedState;
+      ? { ...(fresh.proposedState as Record<string, unknown>), blogHandle: resolvedBlogHandle }
+      : fresh.proposedState;
 
     await prisma.contentProposal.update({
       where: { id },
@@ -95,7 +105,7 @@ export async function POST(
         publishedAt: new Date(),
         shopifyArticleId: shopifyId,
         publishedHandle: handle,
-        ...(proposal.proposalType !== "new-content" && resolvedArticleHandle && !proposal.articleHandle
+        ...(fresh.proposalType !== "new-content" && resolvedArticleHandle && !fresh.articleHandle
           ? { articleHandle: resolvedArticleHandle }
           : {}),
         proposedState: updatedProposedState ?? undefined,
@@ -105,7 +115,7 @@ export async function POST(
 
     await markContentProposalOpportunityResolved(prisma, {
       proposalId: id,
-      sourceData: proposal.sourceData,
+      sourceData: fresh.sourceData,
     });
 
     await prisma.auditLog.create({

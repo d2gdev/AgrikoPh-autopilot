@@ -624,7 +624,11 @@ function QueueTab({
   };
 
   function openBulkPublishModal() {
-    const candidates = proposals.filter(
+    // Build candidates from ALL proposals (not the filtered in-view list) so the
+    // set the operator reviews here is exactly the set bulkPublishReady() will
+    // publish. getStage(p) === "ready" already excludes scheduled drafts and any
+    // rejected proposal that still carries a stale "ready" draftStatus.
+    const candidates = allProposals.filter(
       (p) => getStage(p) === "ready" && !p.scheduledPublishAt
     );
     if (candidates.length === 0) return;
@@ -637,7 +641,11 @@ function QueueTab({
     setConfirmPublishAll(false);
     setBulkActing(true);
     setError(null);
-    const ids = allProposals.filter((p) => p.draftStatus === "ready" && !p.scheduledPublishAt).map((p) => p.id);
+    // Publish exactly the drafts the operator reviewed in the modal — never
+    // recompute from allProposals here, or a filtered review could publish more
+    // (unreviewed) drafts than were shown. publishCandidates is set by
+    // openBulkPublishModal() immediately before this runs.
+    const ids = publishCandidates.map((p) => p.id);
     const CONCURRENCY = 2;
     let cursor = 0;
     let published = 0;
