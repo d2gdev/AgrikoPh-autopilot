@@ -8,7 +8,8 @@ export type DashboardJobName =
   | "fetch-market-intel"
   | "fetch-keyword-research"
   | "run-skills"
-  | "execute-approved";
+  | "execute-approved"
+  | "index-knowledge";
 
 export type DashboardJobTriggerStrategy = "queued" | "cron" | "disabled";
 
@@ -112,6 +113,15 @@ export const DASHBOARD_JOB_REGISTRY = [
     manualTriggerEnabled: true,
     triggerStrategy: "cron",
     cronPath: "/api/cron/execute-approved",
+    cronCadence: "daily",
+    expectedCadenceHours: 24,
+  },
+  {
+    name: "index-knowledge",
+    label: "Index Knowledge Base",
+    manualTriggerEnabled: true,
+    triggerStrategy: "cron",
+    cronPath: "/api/cron/index-knowledge",
     cronCadence: "daily",
     expectedCadenceHours: 24,
   },
