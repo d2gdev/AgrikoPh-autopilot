@@ -88,6 +88,7 @@ function proposal(overrides: Partial<ContentProposal>): ContentProposal {
     baselineSeoScore: null,
     followUpSeoScore: null,
     followUpScoredAt: null,
+    citations: null,
     ...overrides,
   };
 }

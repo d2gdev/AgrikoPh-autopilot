@@ -68,6 +68,26 @@ export async function buildGroundedSystemPrompt(baseSystem: string, query: strin
   return block ? `${baseSystem}\n\n${block}` : baseSystem;
 }
 
+export type DraftCitation = { sourceType: string; title: string; score: number };
+
+const NON_GROUNDED_DRAFT_TYPES = new Set(["seo-fix", "internal-link", "missing-meta"]);
+
+// Citations for the chunks that grounded this draft (Task 7 grounds only body/new-content
+// types). Returns [] for non-grounded types and whenever retrieval is empty/unavailable.
+export async function collectDraftCitations(proposal: ContentProposal): Promise<DraftCitation[]> {
+  if (NON_GROUNDED_DRAFT_TYPES.has(proposal.proposalType)) return [];
+  const chunks = await retrieveContext({
+    query: `${proposal.title} ${proposal.articleHandle ?? ""}`,
+    sourceTypes: ["article", "review"],
+    topK: 6,
+  });
+  return chunks.map((c) => ({
+    sourceType: c.sourceType,
+    title: (c.metadata?.title as string) ?? `${c.sourceType}:${c.sourceId}`,
+    score: c.score,
+  }));
+}
+
 // deepseek-v4-pro is a dual-mode model: when thinking is active, the chain-of-thought
 // goes to `reasoning_content` and the final answer goes to `content`. Thinking tokens
 // count against max_tokens, so we need a much larger budget than the output alone.

@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { requireAppAuth, getSessionUser, getSessionShop } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { generateDraft } from "@/lib/content-pilot/generate-draft";
+import { generateDraft, collectDraftCitations } from "@/lib/content-pilot/generate-draft";
 import { resolveArticleHandle } from "@/lib/content-pilot/publish-draft";
 import { fetchBlogArticles } from "@/lib/shopify-admin";
 
@@ -224,6 +224,7 @@ export async function POST(
     }
 
     const draftContent = await generateDraft(proposalForDraft, article);
+    const citations = await collectDraftCitations(proposalForDraft);
 
     // Pre-publish validation — check word count and structure for body proposals.
     // Skip for metadata-only types (seo-fix, internal-link, missing-meta) which
@@ -253,6 +254,7 @@ export async function POST(
       data: {
         draftStatus: "ready",
         draftContent: draftContent as object,
+        citations: citations as object,
         draftGeneratedAt: new Date(),
         draftError: null,
       },

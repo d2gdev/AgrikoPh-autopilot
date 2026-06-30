@@ -373,6 +373,7 @@ model ContentProposal {
   baselineSeoScore    Int?
   followUpSeoScore    Int?
   followUpScoredAt    DateTime?
+  citations           Json?
 
   draftHistory  ContentProposalDraftHistory[]
 
