@@ -8,7 +8,7 @@ export function citationLabel(c: DraftCitation): string {
 // "Grounded by" panel for a draft's KB citations. Renders nothing when there
 // are no citations, so it is safe to drop into any draft view unconditionally.
 export function GroundingCitations({ citations }: { citations?: DraftCitation[] | null }): JSX.Element | null {
-  if (!citations || citations.length === 0) return null;
+  if (!Array.isArray(citations) || citations.length === 0) return null;
   return (
     <Card>
       <BlockStack gap="200">

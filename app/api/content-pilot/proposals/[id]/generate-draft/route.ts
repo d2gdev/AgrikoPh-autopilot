@@ -224,7 +224,6 @@ export async function POST(
     }
 
     const draftContent = await generateDraft(proposalForDraft, article);
-    const citations = await collectDraftCitations(proposalForDraft);
 
     // Pre-publish validation — check word count and structure for body proposals.
     // Skip for metadata-only types (seo-fix, internal-link, missing-meta) which
@@ -254,7 +253,6 @@ export async function POST(
       data: {
         draftStatus: "ready",
         draftContent: draftContent as object,
-        citations: citations as object,
         draftGeneratedAt: new Date(),
         draftError: null,
       },
@@ -268,6 +266,21 @@ export async function POST(
         reason: wasReady ? "regenerated" : "generated",
       },
     });
+
+    // Citation persistence is best-effort and isolated from the core draft
+    // write: the `citations` column's migration (20260701030000) is not yet
+    // applied to the live DB, so this update can fail with `42703 column
+    // "citations" does not exist`. It must never affect draftStatus/draftContent
+    // or the response above.
+    try {
+      const citations = await collectDraftCitations(proposalForDraft);
+      await prisma.contentProposal.update({
+        where: { id },
+        data: { citations: citations as object },
+      });
+    } catch (err) {
+      console.warn("[generate-draft] skipped citation persistence:", err);
+    }
 
     return NextResponse.json({
       draftStatus: updated.draftStatus,

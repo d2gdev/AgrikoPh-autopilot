@@ -11,6 +11,10 @@ test("renders nothing when there are no citations", () => {
   expect(GroundingCitations({})).toBeNull();
 });
 
+test("renders nothing when citations is a non-array JSON value", () => {
+  expect(GroundingCitations({ citations: { foo: 1 } as unknown as never })).toBeNull();
+});
+
 test("returns an element when citations are present", () => {
   const el = GroundingCitations({ citations: [{ sourceType: "article", title: "Ginger 101", score: 0.9 }] });
   expect(el).not.toBeNull();
