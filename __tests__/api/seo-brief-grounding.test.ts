@@ -7,7 +7,7 @@ vi.mock("@/lib/ai/knowledge", async () => {
   return { ...actual, retrieveContext: vi.fn() };
 });
 
-import { groundSeoBriefContext } from "@/app/api/seo/brief/route";
+import { groundSeoBriefContext } from "@/lib/seo/brief-grounding";
 import { retrieveContext } from "@/lib/ai/knowledge";
 
 const mockRetrieve = retrieveContext as unknown as ReturnType<typeof vi.fn>;

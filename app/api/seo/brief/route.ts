@@ -7,20 +7,9 @@ import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
 import { getLatestGscData, getLatestGa4Data } from "@/lib/seo/data";
-import { retrieveContext, formatGroundingBlock } from "@/lib/ai/knowledge";
+import { groundSeoBriefContext } from "@/lib/seo/brief-grounding";
 
 const SeoBriefSchema = z.string().trim().min(1).max(2_000);
-
-// Grounds the SEO brief's prompt context in the KB corpus. Additive — unchanged when empty.
-export async function groundSeoBriefContext(baseContext: string, query: string): Promise<string> {
-  const chunks = await retrieveContext({
-    query,
-    sourceTypes: ["article", "recommendation"],
-    topK: 6,
-  });
-  const block = formatGroundingBlock(chunks);
-  return block ? `${baseContext}\n\n${block}` : baseContext;
-}
 
 function classifyBriefError(err: unknown): { status: number; error: string; detail?: string } {
   const raw = err instanceof Error ? err.message : String(err);

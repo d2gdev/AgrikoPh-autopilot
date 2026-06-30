@@ -3,7 +3,7 @@ import { resolve } from "path";
 
 export default defineConfig({
   oxc: {
-    jsx: "automatic",
+    jsx: { runtime: "automatic" },
   },
   test: {
     environment: "node",
