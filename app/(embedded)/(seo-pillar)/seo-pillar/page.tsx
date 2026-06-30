@@ -100,8 +100,13 @@ const diffBand = (d: number): { tone: "success" | "warning" | "critical"; label:
 // lightweight inline SVG line chart — no dependency
 function Sparkline({ points, color = "#2c6ecb", height = 40, width = 220 }: { points: number[]; color?: string; height?: number; width?: number }) {
   if (points.length === 0) return null;
-  const max = Math.max(...points, 1);
-  const min = Math.min(...points, 0);
+  // Scale to the actual data range, not a hardcoded 0..1 baseline — that
+  // baseline only makes sense for non-negative series (clicks, impressions).
+  // The avg-position series is plotted negated so "up" reads as improvement,
+  // so all its points are ≤0; forcing max to 1 stretched the range far past
+  // the real data and made genuine position movement render as a flat line.
+  const max = Math.max(...points);
+  const min = Math.min(...points);
   const range = max - min || 1;
   const stepX = points.length > 1 ? width / (points.length - 1) : 0;
   const coords = points.map((p, i) => {
@@ -164,7 +169,10 @@ export default function SeoPillarReportPage() {
     setData(d);
   }, [authFetch]);
 
-  useEffect(() => {
+  // Shared by the initial mount load and a manual refresh, so a refresh
+  // re-pulls every tab's data — not just the Overview/Opportunities `data`
+  // object via loadCore().
+  const loadAllSections = useCallback(async () => {
     const okJson = async (url: string, section: string) => {
       const r = await authFetch(url);
       if (!r.ok) throw new Error(section);
@@ -173,16 +181,20 @@ export default function SeoPillarReportPage() {
     const failed: string[] = [];
     const track = (p: Promise<unknown>, section: string) =>
       p.catch((e) => { failed.push(section); throw e; });
-    Promise.allSettled([
-      track(okJson("/api/seo", "SEO data").then((d) => { setCache("/api/seo", d); setData(d as SeoData); }), "SEO data"),
+    await Promise.allSettled([
+      track(loadCore(), "SEO data"),
       track(okJson("/api/seo/analysis", "AI analysis").then((d) => { setAnalysis(d.analysis ?? null); setAnalysisAt(d.generatedAt ?? null); }), "AI analysis"),
       track(okJson("/api/seo/health", "On-page health").then((d) => setHealth(d?.totals ? d : null)), "On-page health"),
       track(okJson("/api/seo/keywords", "Keywords").then((d) => setKeywords(d.keywords ?? [])), "Keywords"),
       track(okJson("/api/content-pilot/topic-clusters", "Pillar clusters").then((d) => setClusters(d.clusters ?? [])), "Pillar clusters"),
       track(okJson("/api/seo/history", "Trend").then((d) => setTrend(d.trend ?? [])), "Trend"),
-    ]).then(() => {
-      if (failed.length) setLoadError(`Some sections failed to load: ${failed.join(", ")}. Try Refresh data.`);
-    }).finally(() => setLoading(false));
+    ]);
+    setLoadError(failed.length ? `Some sections failed to load: ${failed.join(", ")}. Try Refresh data.` : null);
+  }, [authFetch, loadCore]);
+
+  useEffect(() => {
+    setLoading(true);
+    loadAllSections().finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshData = useCallback(async () => {
@@ -191,16 +203,21 @@ export default function SeoPillarReportPage() {
     try {
       const res = await authFetch("/api/seo/refresh", { method: "POST" });
       const d = await res.json().catch(() => ({}));
-      if (res.status === 409) setToast("A data fetch is already running — try again shortly.");
-      else if (d.status === "partial") {
-        await loadCore();
-        const count = Array.isArray(d.errors) ? d.errors.length : 1;
-        setToast(`SEO data partially refreshed — ${count} source${count === 1 ? "" : "s"} failed.`);
-      } else if (!res.ok || d.ok === false) setToast(d.error ?? "Refresh failed.");
-      else { await loadCore(); setToast("SEO data refreshed."); }
+      if (res.status === 409) {
+        setToast("A data fetch is already running — try again shortly.");
+      } else if (res.ok && d.ok !== false) {
+        // /api/seo/refresh only enqueues a background job (drained by a
+        // per-minute cron) — it does not fetch GSC/GA4 data synchronously.
+        // Re-load in case a previously queued run already finished, but don't
+        // claim the refresh is done; it usually isn't yet.
+        await loadAllSections();
+        setToast("Refresh queued — new SEO data will appear within a few minutes. Click Refresh data again shortly to check.");
+      } else {
+        setToast(d.error ?? "Refresh failed.");
+      }
     } catch { setToast("Refresh failed."); }
     finally { setRefreshing(false); }
-  }, [authFetch, loadCore]);
+  }, [authFetch, loadAllSections]);
 
   const runSeoAnalysis = useCallback(async () => {
     setAnalyzing(true);

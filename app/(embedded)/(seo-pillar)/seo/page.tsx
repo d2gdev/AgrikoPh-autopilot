@@ -175,19 +175,16 @@ export default function SeoPage() {
       const d = await res.json().catch(() => ({}));
       if (res.status === 409) {
         setRefreshMessage("A data fetch is already running. Try again shortly.");
-      } else if (d.status === "partial") {
-        const r = await authFetch(`${SEO_SUMMARY_CACHE_KEY}&refresh=1`);
-        const nextData = await r.json();
-        setCache(SEO_SUMMARY_CACHE_KEY, nextData);
-        setData(nextData);
-        const count = Array.isArray(d.errors) ? d.errors.length : 1;
-        setRefreshMessage(`SEO data partially refreshed; ${count} source${count === 1 ? "" : "s"} failed.`);
       } else if (res.ok && d.ok !== false) {
+        // /api/seo/refresh only enqueues a background job (drained by a
+        // per-minute cron) — it does not fetch GSC/GA4 data synchronously.
+        // Re-fetch in case a previously queued run already finished, but
+        // report honestly instead of claiming the refresh is done.
         const r = await authFetch(`${SEO_SUMMARY_CACHE_KEY}&refresh=1`);
         const nextData = await r.json();
         setCache(SEO_SUMMARY_CACHE_KEY, nextData);
         setData(nextData);
-        setRefreshMessage("SEO data refreshed.");
+        setRefreshMessage("Refresh queued — new SEO data will appear within a few minutes. Click Refresh again shortly to check.");
       } else {
         setRefreshMessage(d.error ?? "Refresh failed.");
       }

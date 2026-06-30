@@ -24,7 +24,7 @@ type SeoSummaryPayload = {
 
 const SEO_SUMMARY_CACHE_TTL_MS = 60_000;
 
-let seoSummaryCache: { expiresAt: number; payload: SeoSummaryPayload } | null = null;
+let seoSummaryCache: { expiresAt: number; limit: number; payload: SeoSummaryPayload } | null = null;
 
 export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
@@ -33,7 +33,21 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const view = url.searchParams.get("view");
     const forceRefresh = url.searchParams.get("refresh") === "1";
-    if (view === "summary" && !forceRefresh && seoSummaryCache && seoSummaryCache.expiresAt > Date.now()) {
+    const limit = Math.max(
+      1,
+      Math.min(200, Number(url.searchParams.get("limit") ?? 50) || 50),
+    );
+    // Cache key must include `limit` — it's a real, client-controllable param
+    // that changes the payload shape. Keying on `view` alone meant a request
+    // for one limit could serve another caller's cached, differently-sized
+    // payload within the 60s TTL.
+    if (
+      view === "summary" &&
+      !forceRefresh &&
+      seoSummaryCache &&
+      seoSummaryCache.limit === limit &&
+      seoSummaryCache.expiresAt > Date.now()
+    ) {
       return NextResponse.json(seoSummaryCache.payload);
     }
 
@@ -45,10 +59,6 @@ export async function GET(req: Request) {
     const topPages = ga4Data.pages;
 
     if (view === "summary") {
-      const limit = Math.max(
-        1,
-        Math.min(200, Number(url.searchParams.get("limit") ?? 50) || 50),
-      );
       const payload: SeoSummaryPayload = {
         topQueries: queries.slice(0, limit),
         topPages: topPages.slice(0, limit),
@@ -61,7 +71,7 @@ export async function GET(req: Request) {
         cachedAt: new Date().toISOString(),
         cacheTtlMs: SEO_SUMMARY_CACHE_TTL_MS,
       };
-      seoSummaryCache = { expiresAt: Date.now() + SEO_SUMMARY_CACHE_TTL_MS, payload };
+      seoSummaryCache = { expiresAt: Date.now() + SEO_SUMMARY_CACHE_TTL_MS, limit, payload };
       return NextResponse.json(payload);
     }
 
