@@ -4,6 +4,7 @@ import type { ContentProposal } from "@prisma/client";
 import type { BlogArticle } from "@/lib/shopify-admin";
 import { getAiClient } from "@/lib/ai/client";
 import { getBrandGuidelines } from "@/lib/content-pilot/brand-guidelines";
+import { retrieveContext, formatGroundingBlock } from "@/lib/ai/knowledge";
 
 const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro";
 const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4-pro";
@@ -59,15 +60,26 @@ export function getDraftSchema(proposalType: string) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Builds a system prompt grounded in Agriko's own corpus. Additive: if retrieval
+// returns nothing (e.g. embeddings offline), returns the base prompt unchanged.
+export async function buildGroundedSystemPrompt(baseSystem: string, query: string): Promise<string> {
+  const chunks = await retrieveContext({ query, sourceTypes: ["article", "review"], topK: 6 });
+  const block = formatGroundingBlock(chunks);
+  return block ? `${baseSystem}\n\n${block}` : baseSystem;
+}
+
 // deepseek-v4-pro is a dual-mode model: when thinking is active, the chain-of-thought
 // goes to `reasoning_content` and the final answer goes to `content`. Thinking tokens
 // count against max_tokens, so we need a much larger budget than the output alone.
 // Default 16k; body/new-content callers pass 32k.
-async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 16384): Promise<string> {
+async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 16384, groundingQuery?: string): Promise<string> {
   const guidelines = await getBrandGuidelines();
-  const fullSystem = guidelines.trim()
+  let fullSystem = guidelines.trim()
     ? `${systemPrompt}\n\nBRAND & WRITING GUIDELINES (follow strictly):\n${guidelines}`
     : systemPrompt;
+  if (groundingQuery) {
+    fullSystem = await buildGroundedSystemPrompt(fullSystem, groundingQuery);
+  }
   if (!process.env.OPENROUTER_API_KEY && !process.env.DEEPSEEK_API_KEY) {
     throw new Error(
       "AI provider not configured: set OPENROUTER_API_KEY or DEEPSEEK_API_KEY",
@@ -161,12 +173,13 @@ async function callParseValidate<T>(
   schema: z.ZodType<T>,
   system: string,
   user: string,
-  maxTokens?: number
+  maxTokens?: number,
+  groundingQuery?: string
 ): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const text = await callAI(system, user, maxTokens);
+      const text = await callAI(system, user, maxTokens, groundingQuery);
       return schema.parse(parseJson(text));
     } catch (err) {
       lastErr = err;
@@ -308,7 +321,8 @@ ${truncateBody(article?.bodyHtml)}
 \`\`\``;
 
   // 1000+ word HTML output + thinking tokens = need 32k budget
-  return callParseValidate(BodyHtmlSchema, system, user, 32768);
+  const groundingQuery = `${proposal.title} ${proposal.articleHandle ?? ""}`;
+  return callParseValidate(BodyHtmlSchema, system, user, 32768, groundingQuery);
 }
 
 async function generateNewContent(proposal: ContentProposal): Promise<NewContentDraft> {
@@ -356,7 +370,8 @@ ${gscContext}
 ${briefContext}
 Write a complete, SEO-optimised blog article for Agriko.`.trim();
 
-  return callParseValidate(NewContentSchema, system, user, 32768);
+  const groundingQuery = `${proposal.title} ${proposal.articleHandle ?? ""}`;
+  return callParseValidate(NewContentSchema, system, user, 32768, groundingQuery);
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
