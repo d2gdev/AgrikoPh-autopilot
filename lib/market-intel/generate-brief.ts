@@ -2,6 +2,18 @@ import { prisma } from "@/lib/db";
 import { getAiClient } from "@/lib/ai/client";
 import { getBrandGuidelines } from "@/lib/content-pilot/brand-guidelines";
 import { shopifyFetch } from "@/lib/shopify-admin";
+import { retrieveContext, formatGroundingBlock } from "@/lib/ai/knowledge";
+
+// Grounds a market-intel brief's prompt context in the KB corpus. Additive — unchanged when empty.
+export async function groundBriefContext(baseContext: string, query: string): Promise<string> {
+  const chunks = await retrieveContext({
+    query,
+    sourceTypes: ["competitor_ad", "market_insight"],
+    topK: 6,
+  });
+  const block = formatGroundingBlock(chunks);
+  return block ? `${baseContext}\n\n${block}` : baseContext;
+}
 
 export interface BriefSections {
   adsActivity: string;
@@ -152,6 +164,13 @@ export async function generateBrief(): Promise<BriefSections> {
     openInsights: insights.map((i) => ({ type: i.type, severity: i.severity, title: i.title, summary: i.summary })),
   };
 
+  const briefQueryTopics = [
+    ...new Set(provenAds.map((a) => a.competitor?.name ?? a.pageName).filter((n): n is string => Boolean(n))),
+  ].slice(0, 5);
+  const briefQuery = briefQueryTopics.length > 0
+    ? `competitor activity: ${briefQueryTopics.join(", ")}`
+    : "Agriko competitor and market intelligence";
+
   const ai = await getAiClient();
   const systemPrompt = `You are a market analyst writing a weekly competitive brief for ${brandGuidelines ? "an e-commerce brand" : "Agriko"}, a Filipino e-commerce store. Prices are in PHP unless otherwise noted.
 Respond in English only.
@@ -168,11 +187,12 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
 Be specific and data-backed. Reference actual competitor names, product names, prices. Keep each section under 150 words. Recommended actions should be concrete (e.g. "Lower price on X from ₱620 to ₱480" not "consider pricing strategy").`;
 
   try {
+    const groundedSystemPrompt = await groundBriefContext(systemPrompt, briefQuery);
     const response = await ai.client.chat.completions.create({
       model: ai.model,
       max_tokens: 2048,
       messages: [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: groundedSystemPrompt },
         { role: "user", content: JSON.stringify(context) },
       ],
     });

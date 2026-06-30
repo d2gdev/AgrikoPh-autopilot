@@ -7,8 +7,20 @@ import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
 import { getLatestGscData, getLatestGa4Data } from "@/lib/seo/data";
+import { retrieveContext, formatGroundingBlock } from "@/lib/ai/knowledge";
 
 const SeoBriefSchema = z.string().trim().min(1).max(2_000);
+
+// Grounds the SEO brief's prompt context in the KB corpus. Additive — unchanged when empty.
+export async function groundSeoBriefContext(baseContext: string, query: string): Promise<string> {
+  const chunks = await retrieveContext({
+    query,
+    sourceTypes: ["article", "recommendation"],
+    topK: 6,
+  });
+  const block = formatGroundingBlock(chunks);
+  return block ? `${baseContext}\n\n${block}` : baseContext;
+}
 
 function classifyBriefError(err: unknown): { status: number; error: string; detail?: string } {
   const raw = err instanceof Error ? err.message : String(err);
@@ -46,10 +58,13 @@ export async function POST(req: NextRequest) {
   const ga4Pages = ga4Latest.pages.slice(0, 20).map((r) => r.page).filter(Boolean).join(", ");
   const gscData = gscQueries ? `Top queries: ${gscQueries}` : "No GSC data";
   const ga4Data = ga4Pages ? `Top pages: ${ga4Pages}` : "No GA4 data";
+  const targetKeyword = gscLatest.queries[0]?.query || ga4Latest.pages[0]?.page || "Agriko SEO";
 
   const aiTimeout = AbortSignal.timeout(25_000);
   try {
     const ai = await getAiClient();
+    const baseUserContent = `Generate a concise SEO brief (3-5 bullet points) based on this data:\n\nGoogle Search Console:\n${gscData}\n\nGA4:\n${ga4Data}\n\nFocus on: top opportunities, content gaps, quick wins. Keep it under 200 words.`;
+    const groundedUserContent = await groundSeoBriefContext(baseUserContent, targetKeyword);
     const response = await ai.client.chat.completions.create({
       model: ai.model,
       max_tokens: 4096,
@@ -60,7 +75,7 @@ export async function POST(req: NextRequest) {
         },
         {
           role: "user",
-          content: `Generate a concise SEO brief (3-5 bullet points) based on this data:\n\nGoogle Search Console:\n${gscData}\n\nGA4:\n${ga4Data}\n\nFocus on: top opportunities, content gaps, quick wins. Keep it under 200 words.`,
+          content: groundedUserContent,
         },
       ],
     }, { signal: aiTimeout });
