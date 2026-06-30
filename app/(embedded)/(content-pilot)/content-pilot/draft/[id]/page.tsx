@@ -49,6 +49,8 @@ function countWords(html: string): number {
 import { useParams, useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
+import { GroundingCitations } from "@/components/content-pilot/grounding-citations";
+import type { DraftCitation } from "@/lib/content-pilot/generate-draft";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -68,6 +70,7 @@ interface ContentProposal {
   draftGeneratedAt: string | null;
   publishedAt: string | null;
   scheduledPublishAt: string | null;
+  citations?: unknown;
 }
 
 interface DraftHistoryEntry {
@@ -771,6 +774,7 @@ export default function DraftReviewPage() {
               {!editing && (hasDraft || isPublished) && proposal.draftContent && (
                 <DraftPreview proposal={proposal} />
               )}
+              <GroundingCitations citations={proposal?.citations as DraftCitation[] | undefined} />
             </BlockStack>
           </Card>
         </Layout.Section>

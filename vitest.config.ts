@@ -2,6 +2,9 @@ import { defineConfig } from "vitest/config";
 import { resolve } from "path";
 
 export default defineConfig({
+  oxc: {
+    jsx: "automatic",
+  },
   test: {
     environment: "node",
     exclude: [
