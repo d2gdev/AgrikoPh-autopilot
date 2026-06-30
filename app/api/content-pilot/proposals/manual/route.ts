@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAppAuth, getSessionShop } from "@/lib/auth";
+import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -8,8 +8,8 @@ export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
 
-  const shop = (await getSessionShop(req)) ?? "api";
-  if (!checkRateLimit(`manual:${shop}`, 5, 60_000)) {
+  const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
+  if (!checkRateLimit(`manual:${actor}`, 5, 60_000)) {
     return NextResponse.json(
       { error: "Rate limit exceeded — max 5 manual proposals per minute" },
       { status: 429 }

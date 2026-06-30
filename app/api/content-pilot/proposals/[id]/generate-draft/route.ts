@@ -16,7 +16,8 @@ import { fetchBlogArticles } from "@/lib/shopify-admin";
 function validateDraft(
   proposalType: string,
   bodyHtml: string,
-  targetWordCount?: number | null
+  targetWordCount?: number | null,
+  action?: string | null
 ): string | null {
   const text = bodyHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   const wordCount = text.split(" ").filter(Boolean).length;
@@ -30,12 +31,50 @@ function validateDraft(
   if (!/<h2/i.test(bodyHtml) && wordCount > 300) {
     return `Draft is missing H2 headings (${wordCount} words with no structure)`;
   }
+  if (action === "add_h1" && !/<h1[\s>]/i.test(bodyHtml)) {
+    return "Draft is missing the requested H1 heading";
+  }
 
   return null; // valid
 }
 
 function articleIdentityError(proposalType: string) {
   return `Proposal type "${proposalType}" requires an articleHandle or a Shopify article URL in proposal data`;
+}
+
+function classifyDraftGenerationError(err: unknown): { status: number; error: string; detail: string } {
+  const raw = err instanceof Error ? err.message : String(err);
+  const lower = raw.toLowerCase();
+
+  if (lower.includes("authentication fails") || lower.includes("api key") || lower.includes("401")) {
+    return {
+      status: 503,
+      error: "AI provider authentication failed",
+      detail: "The configured AI API key is invalid or expired. Update the DeepSeek/OpenRouter credential, then retry generation.",
+    };
+  }
+
+  if (lower.includes("no ai provider configured") || lower.includes("provider not configured")) {
+    return {
+      status: 503,
+      error: "AI provider is not configured",
+      detail: "Set a valid DeepSeek or OpenRouter API key, then retry generation.",
+    };
+  }
+
+  if (lower.includes("could not be parsed") || lower.includes("valid draft json")) {
+    return {
+      status: 502,
+      error: "AI returned invalid draft JSON",
+      detail: "The model response could not be parsed after retry. Retry once; if it repeats, inspect the stored draft error.",
+    };
+  }
+
+  return {
+    status: 500,
+    error: "Draft generation failed",
+    detail: raw.slice(0, 500),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,13 +91,14 @@ export async function POST(
   const authError = await requireAppAuth(req);
   if (authError) return authError;
   const { id } = await params;
-  const actor = (await getSessionUser(req)) ?? "operator";
-
-  const shop = (await getSessionShop(req)) ?? "api";
+  const shop = await getSessionShop(req);
+  const sessionUser = await getSessionUser(req);
+  const actor = sessionUser ?? "operator";
+  const rateLimitActor = shop ?? sessionUser ?? "embedded-app";
   // Raised to 120/min to support concurrent bulk backfills (e.g. re-generating
   // meta for the whole catalogue). Single-operator tool; abuse risk is low and
   // Shopify's own throttling still bounds the downstream publish step.
-  if (!checkRateLimit(`gen-draft:${shop}`, 120, 60_000)) {
+  if (!checkRateLimit(`gen-draft:${rateLimitActor}`, 120, 60_000)) {
     return NextResponse.json(
       { error: "Rate limit exceeded — max 120 draft generations per minute" },
       { status: 429 }
@@ -197,7 +237,8 @@ export async function POST(
       const bodyHtml = (dc.bodyHtml as string | undefined) ?? "";
       const ps = proposal.proposedState as Record<string, unknown>;
       const targetWordCount = (ps.targetWordCount ?? ps.idealWordCount) as number | null ?? null;
-      const validationError = validateDraft(proposal.proposalType, bodyHtml, targetWordCount);
+      const action = typeof ps.action === "string" ? ps.action : null;
+      const validationError = validateDraft(proposal.proposalType, bodyHtml, targetWordCount, action);
       if (validationError) {
         await prisma.contentProposal.update({
           where: { id },
@@ -232,12 +273,13 @@ export async function POST(
     });
   } catch (err) {
     console.error("[content-pilot/generate-draft] error:", err);
+    const classified = classifyDraftGenerationError(err);
+    const draftError = `${classified.error}: ${classified.detail}`;
     await prisma.contentProposal.update({
       where: { id },
-      data: { draftStatus: "failed", draftError: String(err) },
+      data: { draftStatus: "failed", draftError },
     });
-    // draftError keeps the raw detail for operators; the HTTP body stays generic.
-    return NextResponse.json({ error: "Draft generation failed" }, { status: 500 });
+    return NextResponse.json(classified, { status: classified.status });
   }
   } finally {
     inFlight.delete(id);

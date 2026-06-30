@@ -150,14 +150,25 @@ export async function runDashboardRefreshHandler(
     }
 
     const seoStep = fetchSteps.find((step) => step.jobName === "fetch-seo-data");
-    if (seoStep && isJobSuccessful(seoStep.status)) {
+    const gscStep = fetchSteps.find((step) => step.jobName === "fetch-gsc-data");
+    if ((seoStep && isJobSuccessful(seoStep.status)) || (gscStep && isJobSuccessful(gscStep.status))) {
       const seoHistory = await runLocked("snapshot-seo-history", async () => {
-        await snapshotSeoHistoryHandler();
+        const history = await snapshotSeoHistoryHandler();
+        if (history && typeof history === "object" && "skipped" in history && history.skipped) {
+          const reason = "reason" in history && typeof history.reason === "string" ? history.reason : "SEO history snapshot skipped";
+          return {
+            jobName: "snapshot-seo-history",
+            runId: "",
+            status: "skipped" as const,
+            summary: history,
+            errors: [reason],
+          };
+        }
         return {
           jobName: "snapshot-seo-history",
           runId: "",
           status: "success" as const,
-          summary: {},
+          summary: history ?? {},
           errors: [],
         };
       });
@@ -166,7 +177,7 @@ export async function runDashboardRefreshHandler(
     } else {
       const skipped = skippedStep("snapshot-seo-history");
       addStep(summary, skipped);
-      errors.push("snapshot-seo-history: skipped because fetch-seo-data did not succeed");
+      errors.push("snapshot-seo-history: skipped because fetch-seo-data and fetch-gsc-data did not succeed");
     }
 
     const marketSteps = await Promise.all([

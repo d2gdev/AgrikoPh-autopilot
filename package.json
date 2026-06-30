@@ -9,6 +9,7 @@
     "build:remote": "node scripts/build-next.mjs --remote",
     "build:clean": "node scripts/build-next.mjs --prisma=always",
     "start": "NODE_ENV=production node server.js",
+    "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "db:migrate": "prisma migrate deploy",
     "db:generate": "prisma generate",

@@ -1,37 +1,59 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { requireAppAuth } from "@/lib/auth";
+import { z } from "zod";
+import { requireAppAuth, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { checkRateLimit } from "@/lib/rate-limit";
 
-type PromoteBody = {
-  handle: string;
-  title: string;
-  issue: "missing-meta" | "thin-content" | "missing-h1";
-  wordCount?: number;
-};
+const PromoteBodySchema = z.object({
+  handle: z.string().trim().min(1).max(180),
+  title: z.string().trim().min(1).max(240),
+  issue: z.enum(["missing-meta", "thin-content", "missing-h1"]),
+  wordCount: z.coerce.number().int().nonnegative().max(100_000).optional(),
+});
 
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
 
-  const body: PromoteBody = await req.json().catch(() => ({})) as PromoteBody;
-  const { handle, title, issue, wordCount } = body;
+  const actor = (await getSessionUser(req)) ?? "embedded-app";
+  if (!checkRateLimit(`seo-promote:${actor}`, 20, 60_000)) {
+    return NextResponse.json({ error: "Rate limit: max 20 promotions per minute" }, { status: 429 });
+  }
 
-  if (!handle || !title || !issue) {
+  const parsed = PromoteBodySchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
     return NextResponse.json({ error: "handle, title, and issue are required" }, { status: 400 });
   }
+  const { handle, issue, wordCount } = parsed.data;
+
+  const article = await prisma.articleRecord.findUnique({
+    where: { handle },
+    select: { handle: true, title: true, wordCount: true },
+  });
+  if (!article) {
+    return NextResponse.json({ error: "Article not found" }, { status: 404 });
+  }
+
+  const title = article.title;
+  const currentWordCount = wordCount ?? article.wordCount ?? 0;
 
   const proposalType =
     issue === "thin-content" ? "content-refresh" :
-    issue === "missing-h1" ? "seo-fix" :
-    "missing-meta";
+    issue === "missing-h1" ? "content-refresh" :
+    "seo-fix";
+  const proposalTitle =
+    issue === "thin-content" ? `Expand thin content: ${title}` :
+    issue === "missing-h1" ? `Add heading structure: ${title}` :
+    `Fix meta: ${title}`;
 
-  // Check for an existing non-rejected proposal for this article + type
+  // Check for an existing non-rejected proposal for this exact article action.
   const existing = await prisma.contentProposal.findFirst({
     where: {
       articleHandle: handle,
       proposalType,
+      title: proposalTitle,
       status: { notIn: ["rejected"] },
     },
     select: { id: true },
@@ -45,7 +67,7 @@ export async function POST(req: Request) {
   let proposalData: ProposalCreateData;
 
   if (issue === "thin-content") {
-    const target = Math.max(500, Math.round((wordCount ?? 200) * 2));
+    const target = Math.max(500, Math.round(Math.max(currentWordCount, 200) * 2));
     proposalData = {
       articleHandle: handle,
       proposalType: "content-refresh",
@@ -53,25 +75,12 @@ export async function POST(req: Request) {
       priority: "P2",
       impact: "medium",
       effort: "medium",
-      title: `Expand thin content: ${title}`,
-      description: `Article has only ${wordCount ?? "few"} words. Expand to ${target}+ words to improve SEO.`,
-      proposedState: { articleHandle: handle, articleTitle: title, targetWordCount: target },
+      title: proposalTitle,
+      description: `Article has only ${currentWordCount || "few"} words. Expand to ${target}+ words to improve SEO.`,
+      proposedState: { action: "expand", articleHandle: handle, articleTitle: title, currentWordCount, targetWordCount: target },
       sourceData: { trigger: "seo-pilot-on-page-health", issue },
     };
   } else if (issue === "missing-meta") {
-    proposalData = {
-      articleHandle: handle,
-      proposalType: "missing-meta",
-      changeType: "update",
-      priority: "P1",
-      impact: "high",
-      effort: "low",
-      title: `Fix meta: ${title}`,
-      description: `Missing meta title or description. Add optimised meta tags.`,
-      proposedState: { articleHandle: handle, articleTitle: title },
-      sourceData: { trigger: "seo-pilot-on-page-health", issue },
-    };
-  } else if (issue === "missing-h1") {
     proposalData = {
       articleHandle: handle,
       proposalType: "seo-fix",
@@ -79,9 +88,29 @@ export async function POST(req: Request) {
       priority: "P1",
       impact: "high",
       effort: "low",
-      title: `Fix meta: ${title}`,
-      description: `Missing H1 heading. Add an H1 and review meta title/description.`,
-      proposedState: { articleHandle: handle, articleTitle: title },
+      title: proposalTitle,
+      description: `Missing meta title or description. Add optimised meta tags.`,
+      proposedState: { articleHandle: handle, articleTitle: title, targetQuery: title, issue },
+      sourceData: { trigger: "seo-pilot-on-page-health", issue },
+    };
+  } else if (issue === "missing-h1") {
+    proposalData = {
+      articleHandle: handle,
+      proposalType: "content-refresh",
+      changeType: "update",
+      priority: "P1",
+      impact: "high",
+      effort: "medium",
+      title: proposalTitle,
+      description: `Missing H1 heading. Refresh the article body to add a clear H1-style opening heading and improve heading hierarchy without changing the article topic.`,
+      proposedState: {
+        action: "add_h1",
+        articleHandle: handle,
+        articleTitle: title,
+        currentWordCount,
+        targetWordCount: Math.max(500, currentWordCount || 300),
+        issue,
+      },
       sourceData: { trigger: "seo-pilot-on-page-health", issue },
     };
   } else {

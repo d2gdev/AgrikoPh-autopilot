@@ -40,10 +40,9 @@ const GuardrailUpdateSchema = z.object({
 export async function PUT(req: NextRequest) {
   const authError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (authError) return authError;
-  const actor = await getSessionShop(req);
-  if (!actor) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const updatedBy = await getSessionUser(req) ?? "unknown";
+  const actor = await getSessionShop(req) ?? updatedBy;
 
   const body = await req.json().catch(() => ({}));
   const parsed = GuardrailUpdateSchema.safeParse(body);

@@ -1,28 +1,48 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 30;
 import { NextRequest, NextResponse } from "next/server";
-import { requireAppAuth, getSessionShop } from "@/lib/auth";
+import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { fetchSeoDataHandler } from "@/jobs/fetch-seo-data";
-import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
-import { jobResponse } from "@/lib/jobs/response";
+import { enqueueJob } from "@/lib/jobs/orchestrator";
+import { materializeJobsStatusSnapshot } from "@/lib/dashboard/jobs-status";
 
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
-  const shop = (await getSessionShop(req)) ?? "api";
-  if (!checkRateLimit(`seo-refresh:${shop}`, 3, 60_000)) {
+
+  const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
+  if (!checkRateLimit(`seo-refresh:${actor}`, 3, 60_000)) {
     return NextResponse.json({ error: "Rate limit: max 3 refreshes per minute" }, { status: 429 });
   }
-  const acquired = await acquireJobLock("fetch-seo-data");
-  if (!acquired) return NextResponse.json({ skipped: true, reason: "fetch already running" }, { status: 409 });
+
   try {
-    const result = await fetchSeoDataHandler();
-    return jobResponse(result);
+    const queuedRun = await enqueueJob({
+      jobName: "dashboard-refresh",
+      triggeredBy: actor,
+    });
+    await materializeJobsStatusSnapshot().catch((err) => console.error("[seo/refresh] status snapshot failed", err));
+
+    if (!queuedRun.created) {
+      return NextResponse.json({
+        ok: false,
+        queued: false,
+        alreadyQueued: true,
+        runId: queuedRun.runId,
+        status: queuedRun.status,
+        jobName: "dashboard-refresh",
+      }, { status: 409 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      queued: true,
+      alreadyQueued: false,
+      runId: queuedRun.runId,
+      status: queuedRun.status,
+      jobName: "dashboard-refresh",
+    }, { status: 202 });
   } catch (err) {
-    console.error("[seo/refresh] error:", err);
-    return NextResponse.json({ error: "Refresh failed" }, { status: 500 });
-  } finally {
-    await releaseJobLock("fetch-seo-data");
+    console.error("[seo/refresh] queue error:", err);
+    return NextResponse.json({ error: "Failed to queue SEO refresh", code: "trigger_failed" }, { status: 500 });
   }
 }

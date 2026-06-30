@@ -46,7 +46,7 @@ async function describeHttpError(res: Response, fallback: string): Promise<strin
 function countWords(html: string): number {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().split(" ").filter(Boolean).length;
 }
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
 
@@ -375,8 +375,9 @@ function DraftEditor({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function DraftReviewPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+export default function DraftReviewPage() {
+  const params = useParams<{ id: string }>();
+  const id = params.id;
   const router = useRouter();
   const authFetch = useAuthFetch();
   const [proposal, setProposal] = useState<ContentProposal | null>(null);

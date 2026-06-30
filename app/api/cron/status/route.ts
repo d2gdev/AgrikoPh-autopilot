@@ -1,11 +1,11 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getSessionShop } from "@/lib/auth";
+import { requireAppAuth } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
-  const shop = await getSessionShop(req);
-  if (!shop) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const authError = await requireAppAuth(req);
+  if (authError) return authError;
 
   try {
     const [runs, recCount, snapCount] = await Promise.all([

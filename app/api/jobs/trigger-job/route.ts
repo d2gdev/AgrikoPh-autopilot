@@ -34,8 +34,8 @@ async function auditManualTrigger(input: {
 }
 
 export async function POST(req: Request) {
-  const startedAt = Date.now();
   const auth = await authorizePermission(req, PERMISSIONS.JOBS_RUN);
+  const startedAt = Date.now();
   if (!auth.allowed) {
     const actor = auth.actor ?? "anonymous";
     await auditManualTrigger({

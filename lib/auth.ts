@@ -73,6 +73,8 @@ async function getAuthenticatedActor(request: Request): Promise<string | null> {
 // Guards embedded app API routes — verifies Shopify App Bridge session token.
 // Returns a 401 NextResponse if unauthorized, or null if the request is valid.
 export async function requireAppAuth(request: Request): Promise<NextResponse | null> {
+  if (apiKeyMatches(request)) return null;
+
   const shop = await verifySessionToken(request);
   if (!shop) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

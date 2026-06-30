@@ -34,7 +34,7 @@ describe("retention cleanup", () => {
     expect(getRetentionConfig({
       RAW_SNAPSHOT_RETENTION_DAYS: "0",
       JOB_RUN_RETENTION_DAYS: "nope",
-    } as NodeJS.ProcessEnv)).toEqual({
+    } as unknown as NodeJS.ProcessEnv)).toEqual({
       rawSnapshotRetentionDays: 30,
       jobRunRetentionDays: 90,
     });

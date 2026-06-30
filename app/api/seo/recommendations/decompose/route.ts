@@ -2,38 +2,38 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
 import { classifyPriority } from "@/lib/content-pilot/priority-score";
+import { hasMissingMeta } from "@/lib/seo/meta";
 
 const ACTIVE_STATUSES = ["pending", "approved", "override_approved"];
 const MAX_TASKS = 8;
 
-interface DecomposedTask {
-  type: "new-content" | "internal-link" | "content-refresh" | "seo-fix";
-  title: string;
-  // new-content
-  targetKeyword?: string;
-  idealWordCount?: number;
-  // internal-link
-  fromArticle?: string;
-  toArticle?: string;
-  suggestedAnchorText?: string;
-  // content-refresh / seo-fix
-  articleHandle?: string;
-  targetWordCount?: number;
-  // seo-fix
-  targetQuery?: string;
-}
+const DecomposedTaskSchema = z.object({
+  type: z.enum(["new-content", "internal-link", "content-refresh", "seo-fix"]),
+  title: z.string().trim().min(1).max(180),
+  targetKeyword: z.string().trim().max(160).optional(),
+  idealWordCount: z.coerce.number().int().min(300).max(5_000).optional(),
+  fromArticle: z.string().trim().max(180).optional(),
+  toArticle: z.string().trim().max(180).optional(),
+  suggestedAnchorText: z.string().trim().max(120).optional(),
+  articleHandle: z.string().trim().max(180).optional(),
+  targetWordCount: z.coerce.number().int().min(300).max(5_000).optional(),
+  targetQuery: z.string().trim().max(160).optional(),
+});
+const DecomposedTasksSchema = z.array(DecomposedTaskSchema).max(MAX_TASKS * 2);
+type DecomposedTask = z.infer<typeof DecomposedTaskSchema>;
 
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
 
-  const shop = (await getSessionShop(req)) ?? "api";
-  if (!checkRateLimit(`seo-decompose:${shop}`, 8, 60_000)) {
+  const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
+  if (!checkRateLimit(`seo-decompose:${actor}`, 8, 60_000)) {
     return NextResponse.json({ error: "Rate limit: max 8 decompositions per minute" }, { status: 429 });
   }
 
@@ -70,8 +70,7 @@ export async function POST(req: NextRequest) {
 
   if (isBulkMeta) {
     for (const a of articleRecords) {
-      const seo = a.seoData as Record<string, unknown> | null;
-      if (seo?.metaTitle || seo?.metaDescription) continue; // already has meta
+      if (!hasMissingMeta(a.seoData)) continue;
       rows.push({
         proposalType: "seo-fix",
         changeType: "update",
@@ -89,7 +88,7 @@ export async function POST(req: NextRequest) {
   // ── AI: decompose the strategy into concrete, typed tasks ──
   let tasks: DecomposedTask[] = [];
   try {
-    const ai = await getAiClient({ openRouterModel: "anthropic/claude-sonnet-4-6" });
+    const ai = await getAiClient({ deepseekModel: "deepseek-v4-pro", openRouterModel: "deepseek/deepseek-v4-pro" });
     const response = await ai.client.chat.completions.create(
       {
         model: ai.model,
@@ -136,7 +135,8 @@ ${articleRecords.slice(0, 120).map((a) => `${a.handle} — ${a.title} — ${a.wo
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(parsed)) tasks = parsed as DecomposedTask[];
+        const validated = DecomposedTasksSchema.safeParse(parsed);
+        if (validated.success) tasks = validated.data;
       } catch { /* fall through to empty */ }
     }
   } catch {

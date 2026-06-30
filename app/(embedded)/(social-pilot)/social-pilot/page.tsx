@@ -56,7 +56,7 @@ export default function SocialPilotPage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.error) {
-          if (d.error.includes("META_ACCESS_TOKEN")) {
+          if (d.code === "META_NOT_CONFIGURED" || d.error.includes("META_ACCESS_TOKEN")) {
             setNotConfigured(true);
           } else {
             setError(d.error);
@@ -81,7 +81,11 @@ export default function SocialPilotPage() {
         body: JSON.stringify({ posts }),
       });
       const d = await res.json();
-      if (res.ok) setAnalysis(d.analysis);
+      if (!res.ok) {
+        setAnalysisError(d.error ?? "AI analysis failed. Please try again.");
+        return;
+      }
+      setAnalysis(d.analysis);
     } catch (err) {
       console.error("[social-pilot] analysis error", err);
       setAnalysisError("AI analysis failed. Please try again.");
@@ -138,7 +142,7 @@ export default function SocialPilotPage() {
     <Page
       title="Social Pilot"
       subtitle={activePage ? `Facebook: ${activePage.name}` : "Organic social performance"}
-      secondaryActions={[{ content: "AI Analysis", onAction: runAnalysis, loading: analyzing }]}
+      secondaryActions={[{ content: "AI Analysis", onAction: runAnalysis, loading: analyzing, disabled: posts.length === 0 }]}
     >
       <Layout>
         <Layout.Section>

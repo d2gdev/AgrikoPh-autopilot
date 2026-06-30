@@ -1,0 +1,554 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import type { NextRequest } from "next/server";
+
+const mockAuth = vi.hoisted(() => ({
+  requireAppAuth: vi.fn(),
+  getSessionShop: vi.fn(),
+  getSessionUser: vi.fn(),
+}));
+
+const mockPrisma = vi.hoisted(() => ({
+  $transaction: vi.fn(),
+  articleRecord: {
+    findUnique: vi.fn(),
+    findMany: vi.fn(),
+  },
+  contentProposal: {
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    create: vi.fn(),
+  },
+  auditLog: {
+    create: vi.fn(),
+  },
+  marketKeyword: {
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    update: vi.fn(),
+    create: vi.fn(),
+  },
+}));
+
+const mockCheckRateLimit = vi.hoisted(() => vi.fn());
+const mockSeoData = vi.hoisted(() => ({
+  getLatestGscData: vi.fn(),
+  getLatestGa4Data: vi.fn(),
+  getPreviousGscQueries: vi.fn(),
+}));
+const mockGetAiClient = vi.hoisted(() => vi.fn());
+const mockJobs = vi.hoisted(() => ({
+  fetchSeoDataHandler: vi.fn(),
+  fetchGscDataHandler: vi.fn(),
+  snapshotSeoHistoryHandler: vi.fn(),
+  acquireJobLock: vi.fn(),
+  releaseJobLock: vi.fn(),
+}));
+const mockEnqueueJob = vi.hoisted(() => vi.fn());
+const mockMaterializeJobsStatusSnapshot = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/auth", () => ({
+  requireAppAuth: mockAuth.requireAppAuth,
+  getSessionShop: mockAuth.getSessionShop,
+  getSessionUser: mockAuth.getSessionUser,
+}));
+
+vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
+vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mockCheckRateLimit }));
+vi.mock("@/lib/seo/data", () => mockSeoData);
+vi.mock("@/lib/ai/client", () => ({ getAiClient: mockGetAiClient }));
+vi.mock("@/jobs/fetch-seo-data", () => ({ fetchSeoDataHandler: mockJobs.fetchSeoDataHandler }));
+vi.mock("@/jobs/fetch-gsc-data", () => ({ fetchGscDataHandler: mockJobs.fetchGscDataHandler }));
+vi.mock("@/jobs/snapshot-seo-history", () => ({ snapshotSeoHistoryHandler: mockJobs.snapshotSeoHistoryHandler }));
+vi.mock("@/lib/job-lock", () => ({
+  acquireJobLock: mockJobs.acquireJobLock,
+  releaseJobLock: mockJobs.releaseJobLock,
+}));
+vi.mock("@/lib/jobs/orchestrator", () => ({
+  enqueueJob: (...args: Parameters<typeof mockEnqueueJob>) => mockEnqueueJob(...args),
+}));
+vi.mock("@/lib/dashboard/jobs-status", () => ({
+  materializeJobsStatusSnapshot: (...args: Parameters<typeof mockMaterializeJobsStatusSnapshot>) => mockMaterializeJobsStatusSnapshot(...args),
+}));
+
+function jsonRequest(path: string, body: Record<string, unknown>) {
+  return new Request(`http://test.local${path}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  }) as NextRequest;
+}
+
+describe("SEO Pilot route regressions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockAuth.getSessionShop.mockResolvedValue(null);
+    mockAuth.getSessionUser.mockResolvedValue("api-key");
+    mockCheckRateLimit.mockReturnValue(true);
+    mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+    mockPrisma.contentProposal.findMany.mockResolvedValue([]);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([]);
+    mockPrisma.auditLog.create.mockResolvedValue({});
+    mockPrisma.marketKeyword.findFirst.mockResolvedValue(null);
+    mockPrisma.marketKeyword.create.mockResolvedValue({});
+    mockPrisma.marketKeyword.update.mockResolvedValue({});
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: null,
+      source: "none",
+      window: null,
+    });
+    mockSeoData.getLatestGa4Data.mockResolvedValue({
+      pages: [],
+      fetchedAt: null,
+      source: "none",
+      window: null,
+    });
+    mockSeoData.getPreviousGscQueries.mockResolvedValue([]);
+    mockGetAiClient.mockResolvedValue({
+      model: "test-model",
+      client: {
+        chat: {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{ message: { content: "- Improve titles on high-impression pages." } }],
+            }),
+          },
+        },
+      },
+    });
+    mockJobs.acquireJobLock.mockResolvedValue(true);
+    mockJobs.releaseJobLock.mockResolvedValue(undefined);
+    mockEnqueueJob.mockResolvedValue({
+      created: true,
+      runId: "dashboard-run",
+      status: "queued",
+    });
+    mockMaterializeJobsStatusSnapshot.mockResolvedValue(undefined);
+  });
+
+  it("promotes missing meta as a publishable seo-fix proposal", async () => {
+    mockPrisma.articleRecord.findUnique.mockResolvedValue({
+      handle: "black-rice",
+      title: "Black Rice Benefits",
+      wordCount: 760,
+    });
+    mockPrisma.contentProposal.findFirst.mockResolvedValue(null);
+    mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-1" });
+    const { POST } = await import("@/app/api/seo/promote/route");
+
+    const res = await POST(jsonRequest("/api/seo/promote", {
+      handle: "black-rice",
+      title: "Client title ignored",
+      issue: "missing-meta",
+    }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ id: "proposal-1", existed: false });
+    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        articleHandle: "black-rice",
+        proposalType: "seo-fix",
+        title: "Fix meta: Black Rice Benefits",
+        proposedState: expect.objectContaining({
+          articleTitle: "Black Rice Benefits",
+          targetQuery: "Black Rice Benefits",
+        }),
+      }),
+    });
+  });
+
+  it("promotes missing H1 as a body refresh with add_h1 intent", async () => {
+    mockPrisma.articleRecord.findUnique.mockResolvedValue({
+      handle: "moringa",
+      title: "Moringa Benefits",
+      wordCount: 420,
+    });
+    mockPrisma.contentProposal.findFirst.mockResolvedValue(null);
+    mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-2" });
+    const { POST } = await import("@/app/api/seo/promote/route");
+
+    const res = await POST(jsonRequest("/api/seo/promote", {
+      handle: "moringa",
+      title: "Moringa Benefits",
+      issue: "missing-h1",
+    }));
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        articleHandle: "moringa",
+        proposalType: "content-refresh",
+        title: "Add heading structure: Moringa Benefits",
+        proposedState: expect.objectContaining({
+          action: "add_h1",
+          issue: "missing-h1",
+          targetWordCount: 500,
+        }),
+      }),
+    });
+  });
+
+  it("builds keyword status from normalized GSC data", async () => {
+    mockPrisma.marketKeyword.findMany.mockResolvedValue([{ keyword: "black rice benefits" }]);
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [{ query: "black rice benefits", clicks: 12, impressions: 400, ctr: "3.0%", position: "8.1" }],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    mockSeoData.getPreviousGscQueries.mockResolvedValue([
+      { query: "black rice benefits", clicks: 8, impressions: 300, ctr: "2.7%", position: "12.5" },
+    ]);
+    const { GET } = await import("@/app/api/seo/keywords/route");
+
+    const res = await GET(new Request("http://test.local/api/seo/keywords") as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.keywords).toEqual([
+      expect.objectContaining({
+        keyword: "black rice benefits",
+        position: 8.1,
+        clicks: 12,
+        impressions: 400,
+        status: "improved",
+      }),
+    ]);
+    expect(mockSeoData.getLatestGscData).toHaveBeenCalled();
+  });
+
+  it("rejects malformed content-gap promotions before DB writes", async () => {
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+
+    const res = await POST(jsonRequest("/api/seo/gaps/promote", {
+      gaps: [{ query: "x", suggestedTitle: "short" }],
+    }));
+
+    expect(res.status).toBe(400);
+    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+  });
+
+  it("promotes analyzed missing-meta gaps as seo-fix proposals", async () => {
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [{ query: "black rice", clicks: 1, impressions: 200, ctr: "0.5%", position: "8.0" }],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 760 }]);
+    mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-3", title: "Improve SERP snippet: Black Rice Benefits" });
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+
+    const res = await POST(jsonRequest("/api/seo/gaps/promote", {
+      gaps: [{
+        query: "black rice",
+        impressions: 200,
+        position: 8,
+        suggestedTitle: "Client Supplied Title",
+        issue: "missing-meta",
+        articleHandle: "black-rice-benefits",
+      }],
+    }));
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        proposalType: "seo-fix",
+        articleHandle: "black-rice-benefits",
+        title: "Improve SERP snippet: Black Rice Benefits",
+        proposedState: expect.objectContaining({
+          targetQuery: "black rice",
+          articleHandle: "black-rice-benefits",
+        }),
+      }),
+    });
+  });
+
+
+  it("does not promote client-supplied SEO fix handles that do not exist server-side", async () => {
+    mockPrisma.articleRecord.findMany.mockResolvedValue([]);
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+
+    const res = await POST(jsonRequest("/api/seo/gaps/promote", {
+      gaps: [{
+        query: "black rice",
+        impressions: 200,
+        position: 8,
+        suggestedTitle: "Black Rice Benefits",
+        issue: "missing-meta",
+        articleHandle: "ghost-handle",
+      }],
+    }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({
+      created: 0,
+      skipped: 1,
+      skippedReasons: expect.objectContaining({ missingArticle: 1 }),
+    }));
+    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+  });
+
+  it("promotes existing blog-page CTR opportunities as seo-fix proposals", async () => {
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 760 }]);
+    mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-4", title: "Improve SERP snippet: Black Rice: A Complete Guide" });
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+
+    const res = await POST(jsonRequest("/api/seo/gaps/promote", {
+      gaps: [{
+        query: "black rice",
+        impressions: 300,
+        position: 6,
+        suggestedTitle: "Black Rice: A Complete Guide",
+        type: "low_ctr",
+        page: "https://agrikoph.com/blogs/news/black-rice-benefits",
+      }],
+    }));
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        proposalType: "seo-fix",
+        articleHandle: "black-rice-benefits",
+      }),
+    });
+  });
+
+
+  it("keys opportunity promotion state by query, page, and type", () => {
+    const source = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/page.tsx", "utf8");
+
+    expect(source).toContain("const opportunityKey =");
+    expect(source).toContain(`o.query, o.page ?? "", o.type`);
+    expect(source).not.toContain("promotedOpp.has(o.query)");
+    expect(source).not.toContain("promotingOpp.has(o.query)");
+  });
+
+  it("returns retryable error when SEO brief output is blank", async () => {
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [{ query: "black rice", clicks: 3, impressions: 200, ctr: "1.5%", position: "7.0" }],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    mockSeoData.getLatestGa4Data.mockResolvedValue({
+      pages: [{ page: "/blogs/news/black-rice", sessions: 20 }],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: "   " } }],
+    });
+    mockGetAiClient.mockResolvedValue({
+      model: "test-model",
+      client: { chat: { completions: { create } } },
+    });
+    const { POST } = await import("@/app/api/seo/brief/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body).toEqual({ error: "AI returned an empty brief - please retry" });
+  });
+
+  it("accepts SEO brief reasoning content when final content is blank", async () => {
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [{ query: "black rice", clicks: 3, impressions: 200, ctr: "1.5%", position: "7.0" }],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    mockSeoData.getLatestGa4Data.mockResolvedValue({
+      pages: [{ page: "/blogs/news/black-rice", sessions: 20 }],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: "", reasoning_content: "- Improve black rice snippets." } }],
+    });
+    mockGetAiClient.mockResolvedValue({
+      model: "test-model",
+      client: { chat: { completions: { create } } },
+    });
+    const { POST } = await import("@/app/api/seo/brief/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ brief: "- Improve black rice snippets." });
+    expect(mockGetAiClient).toHaveBeenCalledWith();
+  });
+
+  it("returns actionable error when SEO brief provider config fails", async () => {
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [{ query: "mushroom chicharon", clicks: 5, impressions: 300, ctr: "1.7%", position: "6.5" }],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    mockSeoData.getLatestGa4Data.mockResolvedValue({
+      pages: [{ page: "/products/mushroom-chicharon", sessions: 30 }],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    mockGetAiClient.mockRejectedValue(new Error("No AI provider configured"));
+    const { POST } = await import("@/app/api/seo/brief/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(body).toEqual({
+      status: 503,
+      error: "AI provider is not configured",
+      detail: "Set a valid DeepSeek or OpenRouter API key, then retry SEO brief generation.",
+    });
+  });
+
+
+  it("skips existing non-blog page opportunities instead of creating new articles", async () => {
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+
+    const res = await POST(jsonRequest("/api/seo/gaps/promote", {
+      gaps: [{
+        query: "black rice",
+        impressions: 300,
+        position: 6,
+        suggestedTitle: "Black Rice Product Page",
+        type: "low_ctr",
+        page: "https://agrikoph.com/products/black-rice",
+      }],
+    }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({
+      created: 0,
+      skipped: 1,
+      skippedReasons: expect.objectContaining({ nonBlogExistingPage: 1 }),
+    }));
+    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+  });
+
+  it("bulk-decomposes stale missing-meta records using analyze-compatible meta signals", async () => {
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      {
+        handle: "stale-meta-fields",
+        title: "Stale Meta Fields",
+        wordCount: 700,
+        seoData: {
+          metaTitle: "Legacy title",
+          metaDescription: "Legacy description",
+          seoTitle: "",
+          seoDescription: "",
+        },
+      },
+      {
+        handle: "missing-meta-code",
+        title: "Missing Meta Code",
+        wordCount: 650,
+        seoData: {
+          metaTitle: "Legacy title",
+          metaDescription: "Legacy description",
+          issues: ["missing_meta"],
+        },
+      },
+      {
+        handle: "complete-meta",
+        title: "Complete Meta",
+        wordCount: 800,
+        seoData: {
+          metaTitle: "Complete meta title",
+          metaDescription: "Complete meta description",
+          seoTitle: "Complete meta title",
+          seoDescription: "Complete meta description",
+        },
+      },
+    ]);
+    mockPrisma.contentProposal.create.mockImplementation(async ({ data }) => ({
+      id: `proposal-${String(data.articleHandle)}`,
+      title: data.title,
+      proposalType: data.proposalType,
+    }));
+    const { POST } = await import("@/app/api/seo/recommendations/decompose/route");
+
+    const res = await POST(jsonRequest("/api/seo/recommendations/decompose", {
+      recommendation: "Create systematic meta titles and descriptions for all articles",
+    }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({ created: 2, skipped: 0, dropped: 0 }));
+    expect(mockPrisma.contentProposal.create).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        proposalType: "seo-fix",
+        articleHandle: "stale-meta-fields",
+        title: "Fix meta: Stale Meta Fields",
+      }),
+    });
+    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        proposalType: "seo-fix",
+        articleHandle: "missing-meta-code",
+        title: "Fix meta: Missing Meta Code",
+      }),
+    });
+  });
+
+  it("normalizes tracked keywords before persistence", async () => {
+    const { POST } = await import("@/app/api/seo/keywords/route");
+
+    const res = await POST(jsonRequest("/api/seo/keywords", { keyword: "  Black   Rice Benefits  " }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.keyword).toBe("black rice benefits");
+    expect(mockPrisma.marketKeyword.findFirst).toHaveBeenCalledWith({
+      where: { keyword: "black rice benefits", locationName: null, languageCode: "en" },
+      select: { id: true },
+    });
+  });
+
+  it("queues SEO refresh work instead of running fetch handlers inline", async () => {
+    const { POST } = await import("@/app/api/seo/refresh/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/refresh", { method: "POST" }) as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(202);
+    expect(body).toEqual(expect.objectContaining({
+      ok: true,
+      queued: true,
+      alreadyQueued: false,
+      runId: "dashboard-run",
+      status: "queued",
+      jobName: "dashboard-refresh",
+    }));
+    expect(mockCheckRateLimit).toHaveBeenCalledWith("seo-refresh:api-key", 3, 60_000);
+    expect(mockEnqueueJob).toHaveBeenCalledWith({ jobName: "dashboard-refresh", triggeredBy: "api-key" });
+    expect(mockJobs.fetchSeoDataHandler).not.toHaveBeenCalled();
+    expect(mockJobs.fetchGscDataHandler).not.toHaveBeenCalled();
+    expect(mockJobs.snapshotSeoHistoryHandler).not.toHaveBeenCalled();
+  });
+});

@@ -9,8 +9,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
   const auth = await authorizePermission(req, PERMISSIONS.RECOMMENDATIONS_OVERRIDE);
+  const { id } = await params;
   if (!auth.allowed) {
     await prisma.auditLog.create({
       data: {

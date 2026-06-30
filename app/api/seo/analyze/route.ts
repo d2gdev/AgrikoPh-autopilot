@@ -2,34 +2,38 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireAppAuth, getSessionShop } from "@/lib/auth";
+import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
+import { getLatestGscData } from "@/lib/seo/data";
+import { hasMissingMeta } from "@/lib/seo/meta";
+
+const SeoAnalysisSchema = z.object({
+  summary: z.string().trim().min(1).max(2_000).optional(),
+  quickWins: z.array(z.string().trim().min(1).max(500)).max(8).default([]),
+  recommendations: z.array(z.string().trim().min(1).max(500)).max(8).default([]),
+});
 
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
-  const shop = (await getSessionShop(req)) ?? "api";
-  if (!checkRateLimit(`seo-analyze:${shop}`, 5, 60_000)) {
+  const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
+  if (!checkRateLimit(`seo-analyze:${actor}`, 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit: max 5 analyses per minute" }, { status: 429 });
   }
 
-  const [gscSnap, articleRecords] = await Promise.all([
-    prisma.rawSnapshot.findFirst({ where: { source: "gsc" }, orderBy: { fetchedAt: "desc" } }),
+  const [gscData, articleRecords] = await Promise.all([
+    getLatestGscData(),
     prisma.articleRecord.findMany({ select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true }, take: 200 }),
   ]);
 
-  const topQueries = ((gscSnap?.payload as Record<string, unknown>)?.topQueries as Array<{
-    query: string; clicks: number; impressions: number; ctr: string; position: string;
-  }> ?? []).slice(0, 30);
+  const topQueries = gscData.queries.slice(0, 30);
 
   const thinContent = articleRecords.filter((a) => (a.wordCount ?? 0) < 300);
   const noInternalLinks = articleRecords.filter((a) => (a.internalLinkCount ?? 0) === 0);
-  const missingMeta = articleRecords.filter((a) => {
-    const seo = a.seoData as Record<string, unknown> | null;
-    return !seo?.metaTitle && !seo?.metaDescription;
-  });
+  const missingMeta = articleRecords.filter((a) => hasMissingMeta(a.seoData));
   const existingTitles = articleRecords.map((a) => a.title);
 
   if (topQueries.length === 0 && articleRecords.length === 0) {
@@ -37,7 +41,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Build content gaps programmatically so the AI can't dodge them
-  const programmaticGaps: Array<{ query: string; impressions: number; position: number; suggestedTitle: string }> = [];
+  const programmaticGaps: Array<{
+    query: string;
+    impressions: number;
+    position: number;
+    suggestedTitle: string;
+    issue?: "missing-meta" | "thin-content";
+    articleHandle?: string;
+    wordCount?: number | null;
+  }> = [];
 
   // 1. Striking-distance GSC queries (pos 5–20)
   for (const q of topQueries) {
@@ -59,7 +71,10 @@ export async function POST(req: NextRequest) {
       query: a.title.toLowerCase(),
       impressions: 0,
       position: 0,
-      suggestedTitle: `${a.title} (expand — currently ${a.wordCount} words)`,
+      suggestedTitle: a.title,
+      issue: "thin-content",
+      articleHandle: a.handle,
+      wordCount: a.wordCount,
     });
   }
 
@@ -70,14 +85,17 @@ export async function POST(req: NextRequest) {
         query: a.title.toLowerCase(),
         impressions: 0,
         position: 0,
-        suggestedTitle: `${a.title} (add meta title + description)`,
+        suggestedTitle: a.title,
+        issue: "missing-meta",
+        articleHandle: a.handle,
+        wordCount: a.wordCount,
       });
     }
   }
 
   const aiTimeout = AbortSignal.timeout(25_000);
   try {
-    const ai = await getAiClient({ openRouterModel: "anthropic/claude-sonnet-4-6" });
+    const ai = await getAiClient({ deepseekModel: "deepseek-v4-pro", openRouterModel: "deepseek/deepseek-v4-pro" });
     const response = await ai.client.chat.completions.create({
       model: ai.model,
       max_tokens: 1000,
@@ -123,12 +141,14 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
     if (jsonMatch) {
       try { aiResult = JSON.parse(jsonMatch[0]); } catch { /* ignore */ }
     }
+    const validated = SeoAnalysisSchema.safeParse(aiResult);
+    const parsedAnalysis = validated.success ? validated.data : { quickWins: [], recommendations: [] };
 
     const analysis = {
-      summary: aiResult.summary ?? `${articleRecords.length} articles indexed. ${missingMeta.length} missing meta, ${thinContent.length} thin content, ${noInternalLinks.length} with no internal links.`,
-      quickWins: aiResult.quickWins ?? [],
+      summary: parsedAnalysis.summary ?? `${articleRecords.length} articles indexed. ${missingMeta.length} missing meta, ${thinContent.length} thin content, ${noInternalLinks.length} with no internal links.`,
+      quickWins: parsedAnalysis.quickWins,
       contentGaps: programmaticGaps,
-      recommendations: aiResult.recommendations ?? [],
+      recommendations: parsedAnalysis.recommendations,
     };
 
     await prisma.rawSnapshot.upsert({
@@ -137,7 +157,7 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
       create: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0), payload: analysis as object },
     });
 
-    return NextResponse.json({ analysis, gscFetchedAt: gscSnap?.fetchedAt ?? null });
+    return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source });
   } catch (err) {
     if (aiTimeout.aborted) {
       console.error("[seo/analyze] AI completion timed out after 25s");

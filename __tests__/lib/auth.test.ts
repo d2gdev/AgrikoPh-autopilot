@@ -83,14 +83,13 @@ describe("requireAppAuth", () => {
     expect(res?.status).toBe(401);
   });
 
-  it("does not accept x-autopilot-api-key as embedded app auth", async () => {
+  it("accepts matching x-autopilot-api-key as temporary embedded app fallback", async () => {
     vi.stubEnv("AUTOPILOT_API_KEY", "secret-key-123");
-    vi.mocked(verifySessionToken).mockResolvedValueOnce(null);
     const req = makeRequest({ "x-autopilot-api-key": "secret-key-123" });
 
     const res = await requireAppAuth(req);
 
-    expect(res?.status).toBe(401);
+    expect(res).toBeNull();
     vi.unstubAllEnvs();
   });
 });

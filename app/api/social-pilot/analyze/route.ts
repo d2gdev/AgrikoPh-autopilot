@@ -2,10 +2,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { z } from "zod";
-import { getSessionShop } from "@/lib/auth";
+import { getSessionShop, getSessionUser, requireAppAuth } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { getAiClient } from "@/lib/ai/client";
 
 const sanitize = (s: string) => s.replace(/[<>"]/g, "").slice(0, 300);
 
@@ -22,19 +22,19 @@ const SocialRequestSchema = z.object({
   posts: z.array(PostInputSchema).max(50),
 });
 
-const openai = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY!,
-  defaultHeaders: {
-    "HTTP-Referer": "https://agrikoph.com",
-    "X-Title": "Agriko Autopilot",
-  },
-});
+const SocialAnalysisSchema = z.object({
+  summary: z.string().max(1000).optional(),
+  bestContentType: z.string().max(1000).optional(),
+  bestTime: z.string().max(500).optional(),
+  recommendations: z.array(z.string().max(1000)).max(10).optional(),
+}).passthrough();
 
 export async function POST(req: NextRequest) {
-  const shop = await getSessionShop(req);
-  if (!shop) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!checkRateLimit(`social-analyze:${shop}`, 5, 60_000)) {
+  const authError = await requireAppAuth(req);
+  if (authError) return authError;
+
+  const actor = await getSessionShop(req) ?? await getSessionUser(req) ?? "embedded-app";
+  if (!checkRateLimit(`social-analyze:${actor}`, 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit: max 5 analyses per minute" }, { status: 429 });
   }
 
@@ -59,8 +59,12 @@ export async function POST(req: NextRequest) {
   }));
 
   try {
-    const response = await openai.chat.completions.create({
-      model: process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4-6",
+    const ai = await getAiClient({
+      deepseekModel: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash",
+      openRouterModel: process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4-6",
+    });
+    const response = await ai.client.chat.completions.create({
+      model: ai.model,
       max_tokens: 600,
       messages: [
         {
@@ -98,9 +102,13 @@ Format your response as a JSON object with this exact shape:
     if (!analysisData || typeof analysisData !== "object" || Array.isArray(analysisData)) {
       return NextResponse.json({ error: "AI returned unexpected format" }, { status: 502 });
     }
-    const analysis = analysisData;
+    const analysis = SocialAnalysisSchema.safeParse(analysisData);
+    if (!analysis.success) {
+      console.error("[social-pilot/analyze] LLM returned invalid shape:", analysis.error.flatten());
+      return NextResponse.json({ error: "AI returned unexpected format" }, { status: 502 });
+    }
 
-    return NextResponse.json({ analysis });
+    return NextResponse.json({ analysis: analysis.data });
   } catch (err) {
     console.error("[social-pilot/analyze]", err);
     return NextResponse.json({ error: "Analysis failed" }, { status: 500 });

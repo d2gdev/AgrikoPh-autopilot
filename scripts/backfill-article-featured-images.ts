@@ -67,7 +67,7 @@ async function fetchArticles(): Promise<ArticleNode[]> {
   let after: string | null = null;
 
   do {
-    const data = await shopifyFetch<ArticlesResponse>(
+    const data: ArticlesResponse = await shopifyFetch<ArticlesResponse>(
       `query Articles($after: String) {
         articles(first: 250, after: $after, sortKey: PUBLISHED_AT, reverse: true) {
           pageInfo { hasNextPage endCursor }
@@ -86,7 +86,7 @@ async function fetchArticles(): Promise<ArticleNode[]> {
       { after }
     );
 
-    articles.push(...data.articles.edges.map((edge) => edge.node));
+    articles.push(...data.articles.edges.map((edge: { node: ArticleNode }) => edge.node));
     after = data.articles.pageInfo.hasNextPage ? data.articles.pageInfo.endCursor : null;
   } while (after);
 

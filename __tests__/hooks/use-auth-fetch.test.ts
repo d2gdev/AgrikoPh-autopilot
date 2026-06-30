@@ -128,6 +128,22 @@ describe("getAppBridgeIdToken", () => {
     expect(idToken).toHaveBeenCalledTimes(1);
   });
 
+  it("uses Shopify launch id_token before requesting App Bridge idToken", async () => {
+    const token = jwtExpiresIn(120);
+    const idToken = vi.fn(() => new Promise<string>(() => undefined));
+    vi.stubGlobal("window", {
+      self: {},
+      top: {},
+      location: {
+        href: `https://autopilot.test/?host=admin-host&shop=test.myshopify.com&id_token=${token}`,
+      },
+      shopify: { idToken },
+    });
+
+    await expect(getAppBridgeIdToken()).resolves.toBe(token);
+    expect(idToken).not.toHaveBeenCalled();
+  });
+
   it("fails when host context and App Bridge token API are both missing", async () => {
     const idToken = vi.fn().mockResolvedValue(jwtExpiresIn(120));
     vi.stubGlobal("window", {
@@ -203,8 +219,8 @@ describe("getAppBridgeIdToken", () => {
 });
 
 describe("useAuthFetch", () => {
-  it("does not attach x-autopilot-api-key from browser-exposed env", async () => {
-    vi.stubEnv("NEXT_PUBLIC_AUTOPILOT_API_KEY", "do-not-send");
+  it("attaches x-autopilot-api-key to same-origin browser API calls when fallback is configured", async () => {
+    vi.stubEnv("NEXT_PUBLIC_AUTOPILOT_API_KEY", "fallback-key");
     const token = jwtExpiresIn(120);
     const idToken = vi.fn().mockResolvedValue(token);
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
@@ -229,14 +245,79 @@ describe("useAuthFetch", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/jobs/status",
-      expect.objectContaining({
-        headers: expect.not.objectContaining({ "x-autopilot-api-key": "do-not-send" }),
-      }),
+      expect.any(Object),
     );
     const fetchInit = fetchMock.mock.calls[0]?.[1];
+    expect(idToken).not.toHaveBeenCalled();
     expect(fetchInit?.headers).toMatchObject({
-      Authorization: `Bearer ${token}`,
+      "x-autopilot-api-key": "fallback-key",
     });
+    expect(fetchInit?.headers).not.toHaveProperty("Authorization");
+  });
+
+  it("does not retry when fallback key was already sent on the first request", async () => {
+    vi.stubEnv("NEXT_PUBLIC_AUTOPILOT_API_KEY", "fallback-key");
+    const token = jwtExpiresIn(120);
+    const idToken = vi.fn().mockResolvedValue(token);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }));
+    vi.stubGlobal("window", {
+      self: {},
+      top: {},
+      location: {
+        href: "https://autopilot.test/?host=admin-host&shop=test.myshopify.com",
+      },
+      fetch: fetchMock,
+      shopify: { idToken },
+    });
+
+    let authFetch: ReturnType<typeof useAuthFetch> | undefined;
+    function Probe() {
+      authFetch = useAuthFetch();
+      return null;
+    }
+    renderToStaticMarkup(React.createElement(Probe));
+
+    const response = await authFetch?.("/api/jobs/status");
+
+    expect(response?.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(idToken).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "x-autopilot-api-key": "fallback-key",
+    });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty("Authorization");
+  });
+
+  it("uses fallback after tab navigation loses host context and skips App Bridge idToken", async () => {
+    vi.stubEnv("NEXT_PUBLIC_AUTOPILOT_API_KEY", "fallback-key");
+    const idToken = vi.fn(() => new Promise<string>(() => undefined));
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("window", {
+      self: {},
+      top: {},
+      location: {
+        href: "https://autopilot.test/content-pilot?tab=1",
+      },
+      fetch: fetchMock,
+      shopify: { idToken },
+    });
+
+    let authFetch: ReturnType<typeof useAuthFetch> | undefined;
+    function Probe() {
+      authFetch = useAuthFetch();
+      return null;
+    }
+    renderToStaticMarkup(React.createElement(Probe));
+
+    await authFetch?.("/api/content-pilot/proposals?status=pending");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(idToken).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "x-autopilot-api-key": "fallback-key",
+    });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty("Authorization");
   });
 });
 
@@ -292,6 +373,22 @@ describe("AppBridgeAuthGate", () => {
 
     expect(renderGate()).toContain("Protected dashboard");
   });
+
+  it("renders children when fallback auth is ready even if App Bridge is not initialized", () => {
+    __setAppBridgeAuthSnapshotForTests({
+      status: "ready",
+      initialized: true,
+      appBridgeReady: false,
+      hasHost: false,
+      error: null,
+    });
+
+    const html = renderGate();
+
+    expect(html).toContain("Protected dashboard");
+    expect(html).not.toContain("Connecting to Shopify Admin");
+    expect(html).not.toContain("Unable to connect to Shopify Admin");
+  });
 });
 
 describe("withShopifyContextUrl", () => {
@@ -330,5 +427,18 @@ describe("withShopifyContextUrl", () => {
     });
 
     expect(withShopifyContextUrl("/content-pilot?tab=1")).toBe("/content-pilot?tab=1&host=admin-host&shop=test.myshopify.com");
+  });
+
+  it("does not overwrite explicit Shopify context on tab links", () => {
+    const sessionStorage = createMemoryStorage();
+    vi.stubGlobal("window", {
+      location: {
+        href: "https://autopilot.test/content-pilot?host=stored-host&shop=stored.myshopify.com",
+      },
+      sessionStorage,
+    });
+
+    expect(withShopifyContextUrl("/content-pilot?tab=1&host=explicit-host&shop=explicit.myshopify.com"))
+      .toBe("/content-pilot?tab=1&host=explicit-host&shop=explicit.myshopify.com");
   });
 });

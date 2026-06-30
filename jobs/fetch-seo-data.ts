@@ -18,8 +18,10 @@ export async function fetchSeoDataHandler(): Promise<JobResult<FetchSeoSummary>>
     // trend comparisons use true adjacent periods (not overlapping/cadence-
     // dependent windows). Current = [now-28, now); prior = [now-56, now-28).
     const WINDOW_MS = 28 * 24 * 60 * 60 * 1000;
+    const LAG_MS = Math.max(0, Number(process.env.GSC_LAG_DAYS ?? 3)) * 24 * 60 * 60 * 1000;
     const now = new Date();
-    const currentStart = new Date(now.getTime() - WINDOW_MS);
+    const currentEnd = new Date(now.getTime() - LAG_MS);
+    const currentStart = new Date(currentEnd.getTime() - WINDOW_MS);
     const priorEnd = currentStart;
     const priorStart = new Date(currentStart.getTime() - WINDOW_MS);
 
@@ -28,7 +30,7 @@ export async function fetchSeoDataHandler(): Promise<JobResult<FetchSeoSummary>>
     // @@unique([source, dateRangeStart, dateRangeEnd]) constraint makes
     // same-window re-runs idempotent via upsert.
     const windows: { start: Date; end: Date }[] = [
-      { start: currentStart, end: now },
+      { start: currentStart, end: currentEnd },
       { start: priorStart, end: priorEnd },
     ];
 

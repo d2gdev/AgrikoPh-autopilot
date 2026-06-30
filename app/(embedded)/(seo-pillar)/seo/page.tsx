@@ -116,9 +116,10 @@ export default function SeoPage() {
   const [loading, setLoading] = useState(() => !getCache(SEO_SUMMARY_CACHE_KEY));
   const [analyzing, setAnalyzing] = useState(false);
   const [brief, setBrief] = useState<string | null>(null);
-const [briefError, setBriefError] = useState<string | null>(null);
+  const [briefError, setBriefError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [querySortCol, setQuerySortCol] = useState(1);
   const [querySortDir, setQuerySortDir] = useState<SortDirection>("descending");
 
@@ -153,7 +154,8 @@ const [briefError, setBriefError] = useState<string | null>(null);
       const res = await authFetch("/api/seo/brief", { method: "POST" });
       const d = await res.json();
       if (!res.ok) {
-        setBriefError(d.error ?? "Failed to generate brief");
+        const message = [d.error, d.detail].filter(Boolean).join(": ");
+        setBriefError(message || "Failed to generate brief");
         return;
       }
       setBrief(d.brief);
@@ -167,16 +169,31 @@ const [briefError, setBriefError] = useState<string | null>(null);
 
   async function refreshData() {
     setRefreshing(true);
+    setRefreshMessage(null);
     try {
       const res = await authFetch("/api/seo/refresh", { method: "POST" });
-      if (res.ok) {
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        setRefreshMessage("A data fetch is already running. Try again shortly.");
+      } else if (d.status === "partial") {
         const r = await authFetch(`${SEO_SUMMARY_CACHE_KEY}&refresh=1`);
         const nextData = await r.json();
         setCache(SEO_SUMMARY_CACHE_KEY, nextData);
         setData(nextData);
+        const count = Array.isArray(d.errors) ? d.errors.length : 1;
+        setRefreshMessage(`SEO data partially refreshed; ${count} source${count === 1 ? "" : "s"} failed.`);
+      } else if (res.ok && d.ok !== false) {
+        const r = await authFetch(`${SEO_SUMMARY_CACHE_KEY}&refresh=1`);
+        const nextData = await r.json();
+        setCache(SEO_SUMMARY_CACHE_KEY, nextData);
+        setData(nextData);
+        setRefreshMessage("SEO data refreshed.");
+      } else {
+        setRefreshMessage(d.error ?? "Refresh failed.");
       }
     } catch (err) {
       console.error("[seo/refresh]", err);
+      setRefreshMessage("Refresh failed.");
     } finally {
       setRefreshing(false);
     }
@@ -199,7 +216,7 @@ const [briefError, setBriefError] = useState<string | null>(null);
       title="SEO"
       primaryAction={
         <Button onClick={generateBrief} loading={analyzing}>
-          Generate SEO Brief with Claude
+          Generate SEO Brief
         </Button>
       }
     >
@@ -220,6 +237,13 @@ const [briefError, setBriefError] = useState<string | null>(null);
           <Layout.Section>
             <Banner tone="critical" title="Brief generation failed" onDismiss={() => setBriefError(null)}>
               <p>{briefError}</p>
+            </Banner>
+          </Layout.Section>
+        )}
+        {refreshMessage && (
+          <Layout.Section>
+            <Banner tone="info" onDismiss={() => setRefreshMessage(null)}>
+              <p>{refreshMessage}</p>
             </Banner>
           </Layout.Section>
         )}

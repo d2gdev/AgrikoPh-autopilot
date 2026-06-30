@@ -4,7 +4,7 @@ export const maxDuration = 30;
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireAppAuth, getSessionShop } from "@/lib/auth";
+import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
 
@@ -13,12 +13,28 @@ const BriefInput = z.object({
   existingTitle: z.string().max(200).optional(),
 });
 
+function classifyBriefError(err: unknown): { status: number; error: string; detail?: string } {
+  const raw = err instanceof Error ? err.message : String(err);
+  const lower = raw.toLowerCase();
+  if (lower.includes("authentication fails") || lower.includes("api key") || lower.includes("401")) {
+    return {
+      status: 503,
+      error: "AI provider authentication failed",
+      detail: "The configured AI API key is invalid or expired. Update the DeepSeek/OpenRouter credential, then retry brief generation.",
+    };
+  }
+  if (lower.includes("no ai provider configured") || lower.includes("provider not configured")) {
+    return { status: 503, error: "AI provider is not configured", detail: "Set a valid DeepSeek or OpenRouter API key, then retry brief generation." };
+  }
+  return { status: 500, error: "Brief generation failed", detail: raw.slice(0, 500) };
+}
+
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
-  const shop = (await getSessionShop(req)) ?? "api";
-  if (!checkRateLimit(`brief:${shop}`, 10, 60_000)) {
-    return NextResponse.json({ error: "Rate limit exceeded — max 10 briefs per minute" }, { status: 429 });
+  const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
+  if (!checkRateLimit(`brief:${actor}`, 10, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded: max 10 briefs per minute" }, { status: 429 });
   }
 
   const body = await req.json().catch(() => ({}));
@@ -78,6 +94,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ brief });
   } catch (err) {
     console.error("[content-pilot/brief] error:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const classified = classifyBriefError(err);
+    return NextResponse.json(classified, { status: classified.status });
   }
 }

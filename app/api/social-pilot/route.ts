@@ -11,7 +11,12 @@ export async function GET(req: Request) {
   try {
     if (!process.env.META_ACCESS_TOKEN) {
       console.error("[social-pilot] Meta not configured: META_ACCESS_TOKEN is not set");
-      return NextResponse.json({ error: "Meta integration not configured", posts: [], pages: [] }, { status: 503 });
+      return NextResponse.json({
+        error: "Meta integration not configured",
+        code: "META_NOT_CONFIGURED",
+        posts: [],
+        pages: [],
+      }, { status: 503 });
     }
 
     const pages = await fetchManagedPages();

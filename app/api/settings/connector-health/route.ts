@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { getSessionShop } from "@/lib/auth";
+import { requireAppAuth } from "@/lib/auth";
 import { getConnectorHealth } from "@/lib/config/connector-health";
 
 type ConnectorHealthPayload = {
@@ -41,8 +41,8 @@ async function loadConnectorHealthPayload(forceRefresh: boolean): Promise<Connec
 }
 
 export async function GET(req: Request) {
-  const actor = await getSessionShop(req);
-  if (!actor) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const authError = await requireAppAuth(req);
+  if (authError) return authError;
 
   try {
     const forceRefresh = new URL(req.url).searchParams.get("refresh") === "1";

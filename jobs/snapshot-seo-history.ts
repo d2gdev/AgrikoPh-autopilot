@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getLatestSnapshot, getQueries } from "@/lib/seo/snapshot";
 import { computeSnapshotTotals } from "@/lib/seo/history";
+import { getLatestGscData } from "@/lib/seo/data";
 
 const JOB_NAME = "snapshot-seo-history";
 
@@ -24,13 +25,19 @@ export async function snapshotSeoHistoryHandler() {
   let error: string | null = null;
 
   try {
-    const latest = await getLatestSnapshot("gsc");
-    if (!latest) {
-      status = "skipped";
-      return { skipped: true, reason: "no gsc snapshot yet" };
+    const latest = await getLatestGscData();
+    let queries = latest.queries;
+    if (queries.length === 0) {
+      const rawLatest = await getLatestSnapshot("gsc");
+      const rawQueries = getQueries(rawLatest);
+      if (rawQueries.length === 0) {
+        status = "skipped";
+        return { skipped: true, reason: "no gsc snapshot yet" };
+      }
+      queries = rawQueries;
     }
 
-    const totals = computeSnapshotTotals(getQueries(latest));
+    const totals = computeSnapshotTotals(queries);
 
     // Key on the UTC day so there is exactly one point per day.
     const now = new Date();

@@ -133,6 +133,12 @@ function SeoDeltaBadge({ before, after }: { before: number | null | undefined; a
   return <Badge tone={tone}>{delta > 0 ? `SEO +${delta}` : `SEO ${delta}`}</Badge>;
 }
 
+function draftFailureMessage(data: Record<string, unknown>, fallback = "Draft generation failed") {
+  const error = typeof data.error === "string" ? data.error : fallback;
+  const detail = typeof data.detail === "string" ? data.detail : "";
+  return detail && !error.includes(detail) ? `${error}: ${detail}` : error;
+}
+
 // Fix #6 — unknown types fall back to readable JSON rather than showing nothing
 function ProposedChangeSummary({
   proposalType,
@@ -555,13 +561,15 @@ function QueueTab({
       const res = await authFetch(`/api/content-pilot/proposals/${id}/generate-draft`, { method: "POST" });
       const d = await safeJson(res);
       if (!res.ok) {
-        setError((d.error as string) ?? "Draft generation failed");
-        setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed" } : p));
+        const message = draftFailureMessage(d);
+        setError(message);
+        setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed", draftError: message } : p));
       } else if (navigate) { router.push(withShopifyContextUrl(`/content-pilot/draft/${id}`)); }
       else if (reload) { await loadProposals(); }
     } catch (e) {
-      setError(String(e));
-      setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed" } : p));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed", draftError: message } : p));
     }
     finally { setGeneratingDraftIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
   };
@@ -964,12 +972,12 @@ function QueueTab({
       )}
 
       {/* Header */}
-      <InlineStack align="space-between" blockAlign="center">
+      <InlineStack align="space-between" blockAlign="center" wrap>
         <Text variant="headingMd" as="h2">Content Queue</Text>
-        <InlineStack gap="200">
+        <InlineStack gap="200" wrap>
           {approvedCount > 0 && (
             confirmGenerateAll ? (
-              <InlineStack gap="200">
+              <InlineStack gap="200" wrap blockAlign="center">
                 <Text as="p" tone="subdued">{`Generate all ${approvedCount} drafts?`}</Text>
                 <Button size="slim" variant="primary" loading={bulkActing} onClick={() => { setConfirmGenerateAll(false); generateAllDrafts(); }}>Confirm</Button>
                 <Button size="slim" onClick={() => setConfirmGenerateAll(false)}>Cancel</Button>
@@ -982,7 +990,7 @@ function QueueTab({
           )}
           {readyCount > 0 && (
             confirmPublishAll ? (
-              <InlineStack gap="200">
+              <InlineStack gap="200" wrap blockAlign="center">
                 <Text as="p" tone="subdued">{`Publish all ${readyCount}?`}</Text>
                 <Button size="slim" variant="primary" tone="critical" loading={bulkActing} onClick={() => { setConfirmPublishAll(false); openBulkPublishModal(); }}>Confirm</Button>
                 <Button size="slim" onClick={() => setConfirmPublishAll(false)}>Cancel</Button>
@@ -1046,14 +1054,14 @@ function QueueTab({
       {/* Bulk action bar */}
       {selectableInView.length > 0 && (
         <Card>
-          <InlineStack align="space-between" blockAlign="center">
+          <InlineStack align="space-between" blockAlign="center" wrap>
             <Checkbox
               label={allSelectableSelected ? "Deselect all" : `Select all (${selectableInView.length})`}
               checked={allSelectableSelected}
               onChange={toggleSelectAll}
             />
             {selectedIds.size > 0 && (
-              <InlineStack gap="200">
+              <InlineStack gap="200" wrap>
                 {pendingSelectedCount > 0 && (
                   <Button size="slim" variant="primary" loading={bulkActing} onClick={bulkApproveAndGenerate}>
                     {`Approve & Generate (${pendingSelectedCount})`}
@@ -1096,8 +1104,8 @@ function QueueTab({
           {proposals.map((p) => (
             <Card key={p.id}>
               <BlockStack gap="300">
-                <InlineStack align="space-between" blockAlign="start" wrap={false}>
-                  <InlineStack gap="200" blockAlign="center">
+                <InlineStack align="space-between" blockAlign="start" wrap>
+                  <InlineStack gap="200" blockAlign="center" wrap>
                     {(p.status === "pending" || (p.status === "approved" && !p.draftStatus)) && (
                       <Checkbox label="Select proposal" labelHidden checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} />
                     )}
@@ -1115,7 +1123,9 @@ function QueueTab({
                 <Text as="p" tone="subdued">{p.description}</Text>
 
                 {getStage(p) === "failed" && p.draftError && (
-                  <Text as="p" tone="critical" variant="bodySm">{p.draftError}</Text>
+                  <Banner tone="critical" title="Draft generation failed">
+                    <p>{p.draftError}</p>
+                  </Banner>
                 )}
 
                 {p.proposalType === "new-content" && !p.articleHandle && (
@@ -1384,6 +1394,7 @@ function BriefTab({
 }) {
   const [topic, setTopic] = useState("");
   const [brief, setBrief] = useState<string | null>(null);
+  const [briefTopic, setBriefTopic] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [creatingProposal, setCreatingProposal] = useState(false);
   const [activeChip, setActiveChip] = useState<string | null>(null);
@@ -1414,7 +1425,9 @@ function BriefTab({
       if (!resolved) return;
       setGenerating(true);
       setError(null);
+      setProposalCreated(false);
       setBrief(null);
+      setBriefTopic(null);
       try {
         const res = await authFetch("/api/content-pilot/brief", {
           method: "POST",
@@ -1422,9 +1435,10 @@ function BriefTab({
         });
         const d = await safeJson(res);
         if (!res.ok) {
-          setError((d.error as string) ?? "Brief generation failed");
+          setError(draftFailureMessage(d, "Brief generation failed"));
         } else {
           setBrief(d.brief as string);
+          setBriefTopic(resolved);
         }
       } catch (e) {
         setError(String(e));
@@ -1437,16 +1451,22 @@ function BriefTab({
   );
 
   const createProposal = async () => {
+    const proposalTopic = (briefTopic ?? topic).trim();
+    if (!proposalTopic || !brief) {
+      setError("Generate a brief before creating a proposal.");
+      return;
+    }
     setCreatingProposal(true);
+    setError(null);
     try {
       const res = await authFetch("/api/content-pilot/proposals/manual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: topic.trim(), brief, blogHandle: selectedBlog || null }),
+        body: JSON.stringify({ topic: proposalTopic, brief, blogHandle: selectedBlog || null }),
       });
       const d = await safeJson(res);
       if (!res.ok) { setError((d.error as string) ?? "Failed to create proposal"); }
-      else { setBrief(null); setTopic(""); setError(null); setProposalCreated(true); }
+      else { setBrief(null); setBriefTopic(null); setTopic(""); setError(null); setProposalCreated(true); }
     } catch (e) { setError(String(e)); }
     finally { setCreatingProposal(false); }
   };
@@ -1470,6 +1490,10 @@ function BriefTab({
         </Banner>
       )}
 
+      <Banner tone="info">
+        Generate a brief, review it, then create a Queue proposal. The Queue tab is where drafts are generated and published.
+      </Banner>
+
       {topGaps.length > 0 && (
         <Card>
           <BlockStack gap="200">
@@ -1480,26 +1504,16 @@ function BriefTab({
               {topGaps.map((c) => {
                 const isActive = activeChip === c.topic;
                 return (
-                  <button
+                  <Button
                     key={c.topic}
+                    size="slim"
+                    variant={isActive ? "primary" : "secondary"}
+                    loading={isActive && generating}
+                    disabled={generating && !isActive}
                     onClick={() => handleChipClick(c.topic)}
-                    disabled={generating}
-                    style={{
-                      cursor: generating ? "not-allowed" : "pointer",
-                      padding: "4px 10px",
-                      borderRadius: "20px",
-                      border: `1px solid ${isActive ? "#005bd3" : "#8c9196"}`,
-                      background: isActive ? "#e3ecfe" : "#f6f6f7",
-                      fontSize: "13px",
-                      fontWeight: isActive ? 600 : 400,
-                      opacity: generating && !isActive ? 0.4 : 1,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                    }}
                   >
-                    {isActive && generating ? `${c.topic}…` : c.topic}
-                  </button>
+                    {c.topic}
+                  </Button>
                 );
               })}
             </InlineStack>
@@ -1551,9 +1565,15 @@ function BriefTab({
       {brief && (
         <Card>
           <BlockStack gap="200">
-            <Text variant="headingMd" as="h2">
-              Content Brief
-            </Text>
+            <InlineStack align="space-between" blockAlign="center" gap="200" wrap={false}>
+              <Text variant="headingMd" as="h2">
+                Content Brief
+              </Text>
+              {briefTopic && <Badge tone="info">{briefTopic}</Badge>}
+            </InlineStack>
+            <Banner tone="success">
+              Brief generated. Create a proposal to send this topic to the Queue, then generate the draft from there.
+            </Banner>
             <Box>
               <pre
                 style={{
@@ -1570,8 +1590,8 @@ function BriefTab({
               <Button size="slim" onClick={() => setBrief(null)}>
                 Clear
               </Button>
-              <Button variant="primary" onClick={createProposal} loading={creatingProposal} disabled={!topic.trim()}>
-                Create Proposal
+              <Button variant="primary" onClick={createProposal} loading={creatingProposal} disabled={!brief || creatingProposal}>
+                Create Queue Proposal
               </Button>
             </InlineStack>
           </BlockStack>
@@ -1711,7 +1731,8 @@ export default function ContentPilotPage() {
         )}
 
         <Layout.Section>
-          <InlineStack gap="400" wrap={false}>
+          <InlineStack gap="400" wrap>
+            <div style={{ flex: "1 1 180px", minWidth: 180 }}>
             <Card>
               <BlockStack gap="100">
                 <Text variant="headingSm" as="h3" tone="subdued">
@@ -1722,6 +1743,8 @@ export default function ContentPilotPage() {
                 </Text>
               </BlockStack>
             </Card>
+            </div>
+            <div style={{ flex: "1 1 180px", minWidth: 180 }}>
             <Card>
               <BlockStack gap="100">
                 <Text variant="headingSm" as="h3" tone="subdued">
@@ -1732,6 +1755,8 @@ export default function ContentPilotPage() {
                 </Text>
               </BlockStack>
             </Card>
+            </div>
+            <div style={{ flex: "1 1 180px", minWidth: 180 }}>
             <Card>
               <BlockStack gap="100">
                 <Text variant="headingSm" as="h3" tone="subdued">
@@ -1742,6 +1767,8 @@ export default function ContentPilotPage() {
                 </Text>
               </BlockStack>
             </Card>
+            </div>
+            <div style={{ flex: "1 1 180px", minWidth: 180 }}>
             <Card>
               <BlockStack gap="100">
                 <Text variant="headingSm" as="h3" tone="subdued">
@@ -1752,6 +1779,7 @@ export default function ContentPilotPage() {
                 </Text>
               </BlockStack>
             </Card>
+            </div>
           </InlineStack>
         </Layout.Section>
 

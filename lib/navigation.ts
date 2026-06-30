@@ -67,6 +67,7 @@ export const EMBEDDED_NAVIGATION_SECTIONS: EmbeddedNavigationSection[] = [
     title: "Insights Pilot",
     separator: true,
     items: [
+      { label: "Growth Brief", href: "/growth-brief", match: "prefix" },
       { label: "Unified Report", href: "/insights", match: "prefix" },
     ],
   },

@@ -42,6 +42,10 @@ const FETCH_TOKEN_TIMEOUT_MS = 2_000;
 const FETCH_TOKEN_POLL_INTERVAL_MS = 50;
 const CONTEXT_STORAGE_KEY = "agriko.shopify.context";
 
+function getPublicAutopilotApiKey(): string {
+  return process.env.NEXT_PUBLIC_AUTOPILOT_API_KEY ?? "";
+}
+
 let cachedIdToken: { token: string; expiresAtMs: number } | null = null;
 let idTokenRequest: Promise<string> | null = null;
 let bootLogged = false;
@@ -106,6 +110,26 @@ function getJwtExpiresAtMs(token: string): number | null {
   }
 }
 
+function getUrlSessionToken(nowMs: number): string | null {
+  const win = getWindow();
+  if (!win) return null;
+
+  try {
+    const token = new URL(win.location.href).searchParams.get("id_token");
+    if (!token) return null;
+
+    const expiresAtMs = getJwtExpiresAtMs(token);
+    if (expiresAtMs && expiresAtMs - TOKEN_EXPIRY_SKEW_MS <= nowMs) {
+      return null;
+    }
+
+    if (expiresAtMs) cachedIdToken = { token, expiresAtMs };
+    return token;
+  } catch {
+    return null;
+  }
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -134,6 +158,19 @@ function getFetchTransport(useNativeFetch: boolean): typeof fetch {
   if (useNativeFetch && win?.__agrikoNativeFetch) return win.__agrikoNativeFetch;
   if (win?.fetch) return win.fetch.bind(win);
   return fetch;
+}
+
+function isSameOriginRequest(input: RequestInfo | URL): boolean {
+  const win = getWindow();
+  if (!win) return false;
+
+  try {
+    const requestUrl = input instanceof Request ? input.url : String(input);
+    const url = new URL(requestUrl, win.location.href);
+    return url.origin === new URL(win.location.href).origin;
+  } catch {
+    return false;
+  }
 }
 
 function logAuth(level: LogLevel, message: string, details?: Record<string, unknown>) {
@@ -507,6 +544,19 @@ export async function getAppBridgeIdToken(
     throw new Error(message);
   }
 
+  const urlSessionToken = getUrlSessionToken(nowMs);
+  if (urlSessionToken) {
+    setAuthSnapshot({
+      status: "ready",
+      hasHost: context.hasHost,
+      appBridgeReady: Boolean(win.shopify?.idToken),
+      initialized: true,
+      error: null,
+      lastTokenSucceededAt: Date.now(),
+    });
+    return urlSessionToken;
+  }
+
   if (!context.hasHost && !win.shopify?.idToken) {
     const message = "Shopify host parameter missing";
     cachedIdToken = null;
@@ -557,7 +607,23 @@ export function useAppBridgeAuth() {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   useEffect(() => {
-    primeAppBridgeAuthState().catch(() => undefined);
+    if (getPublicAutopilotApiKey()) {
+      const context = getShopifyContext();
+      setAuthSnapshot({
+        status: "ready",
+        hasHost: context.hasHost,
+        appBridgeReady: Boolean(getWindow()?.shopify?.idToken),
+        initialized: true,
+        error: null,
+      });
+      return;
+    }
+
+    getAppBridgeIdToken(Date.now(), {
+      timeoutMs: DEFAULT_TOKEN_TIMEOUT_MS,
+      retryDelaysMs: DEFAULT_RETRY_DELAYS_MS,
+      pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
+    }).catch(() => undefined);
   }, []);
 
   return snapshot;
@@ -574,7 +640,15 @@ export function useAuthFetch() {
         ...normalized,
       };
 
-      if (!hasHeader(baseHeaders, "authorization")) {
+      let addedFallbackKey = hasHeader(baseHeaders, "x-autopilot-api-key");
+      const fallbackApiKey = getPublicAutopilotApiKey();
+      const sameOriginRequest = isSameOriginRequest(input);
+      if (fallbackApiKey && sameOriginRequest && !addedFallbackKey) {
+        baseHeaders["x-autopilot-api-key"] = fallbackApiKey;
+        addedFallbackKey = true;
+      }
+
+      if (!hasHeader(baseHeaders, "authorization") && !(fallbackApiKey && sameOriginRequest)) {
         try {
           const token = await getAppBridgeIdToken(Date.now(), {
             timeoutMs: FETCH_TOKEN_TIMEOUT_MS,
@@ -585,12 +659,29 @@ export function useAuthFetch() {
         } catch (err) {
           logAuth("warn", `Falling back from App Bridge auth for ${getRequestLabel(input)}`, {
             error: err instanceof Error ? err.message : String(err),
+            hasPublicFallback: Boolean(fallbackApiKey),
           });
+          if (fallbackApiKey && !hasHeader(baseHeaders, "x-autopilot-api-key")) {
+            baseHeaders["x-autopilot-api-key"] = fallbackApiKey;
+            addedFallbackKey = true;
+          }
         }
       }
 
       const transport = getFetchTransport(false);
-      return transport(input, { ...init, headers: baseHeaders });
+      const response = await transport(input, { ...init, headers: baseHeaders });
+      if (response.status !== 401 || addedFallbackKey || !fallbackApiKey) {
+        return response;
+      }
+
+      logAuth("warn", `Retrying ${getRequestLabel(input)} with fallback API key after 401`, {});
+      return transport(input, {
+        ...init,
+        headers: {
+          ...baseHeaders,
+          "x-autopilot-api-key": fallbackApiKey,
+        },
+      });
     },
     [],
   );

@@ -15,9 +15,9 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
-  const { key } = await params;
   const authError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (authError) return authError;
+  const { key } = await params;
   const actor = (await getSessionUser(req)) ?? "operator";
 
   const body = await req.json().catch(() => ({}));
@@ -43,9 +43,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
-  const { key } = await params;
   const authError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (authError) return authError;
+  const { key } = await params;
 
   const existing = await prisma.apiCredential.findUnique({ where: { key } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -60,9 +60,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
-  const { key } = await params;
   const authError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (authError) return authError;
+  const { key } = await params;
   const cred = await prisma.apiCredential.findUnique({ where: { key } });
   if (!cred) return NextResponse.json({ error: "Not found" }, { status: 404 });
   // Return masked value only — never decrypt in GET

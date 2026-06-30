@@ -8,9 +8,9 @@ import { getDashboardJob } from "@/lib/dashboard/job-registry";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const auth = await authorizePermission(req, PERMISSIONS.JOBS_RUN);
   const startedAt = Date.now();
   const jobName = "dashboard-refresh";
-  const auth = await authorizePermission(req, PERMISSIONS.JOBS_RUN);
   if (!auth.allowed) {
     await prisma.auditLog.create({
       data: {

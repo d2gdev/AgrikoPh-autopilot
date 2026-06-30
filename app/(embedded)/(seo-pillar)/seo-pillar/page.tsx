@@ -29,7 +29,15 @@ interface SeoData {
   pageHealth?: PageHealthRow[];
   clusters?: OpportunityCluster[];
 }
-interface ContentGap { query: string; impressions: number; position: number; suggestedTitle: string }
+interface ContentGap {
+  query: string;
+  impressions: number;
+  position: number;
+  suggestedTitle: string;
+  issue?: "missing-meta" | "thin-content";
+  articleHandle?: string;
+  wordCount?: number | null;
+}
 interface Analysis { summary?: string; quickWins?: string[]; contentGaps?: ContentGap[]; recommendations?: string[] }
 interface HealthTotals { total: number; missingMeta: number; thinContent: number; noInternalLinks: number; lowHeadings: number; orphan: number; titleLengthOff?: number; descLengthOff?: number; missingDesc?: number; missingH1?: number; duplicateTitle?: number }
 interface HealthOffender { handle: string; title: string; wordCount: number; issues: string[] }
@@ -46,6 +54,7 @@ function timeAgo(iso: string) {
 }
 
 const gapKey = (g: { query: string; suggestedTitle: string }) => `${g.query}::${g.suggestedTitle}`;
+const opportunityKey = (o: Pick<Opportunity, "query" | "page" | "type">) => JSON.stringify([o.query, o.page ?? "", o.type]);
 
 // fractions 0–1 → "x.x%", null → "—"
 const fmtPct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(1)}%`);
@@ -170,7 +179,7 @@ export default function SeoPillarReportPage() {
       track(okJson("/api/seo/health", "On-page health").then((d) => setHealth(d?.totals ? d : null)), "On-page health"),
       track(okJson("/api/seo/keywords", "Keywords").then((d) => setKeywords(d.keywords ?? [])), "Keywords"),
       track(okJson("/api/content-pilot/topic-clusters", "Pillar clusters").then((d) => setClusters(d.clusters ?? [])), "Pillar clusters"),
-      track(okJson("/api/seo/history?source=gsc", "Trend").then((d) => setTrend(d.trend ?? [])), "Trend"),
+      track(okJson("/api/seo/history", "Trend").then((d) => setTrend(d.trend ?? [])), "Trend"),
     ]).then(() => {
       if (failed.length) setLoadError(`Some sections failed to load: ${failed.join(", ")}. Try Refresh data.`);
     }).finally(() => setLoading(false));
@@ -181,8 +190,13 @@ export default function SeoPillarReportPage() {
     setToast(null);
     try {
       const res = await authFetch("/api/seo/refresh", { method: "POST" });
+      const d = await res.json().catch(() => ({}));
       if (res.status === 409) setToast("A data fetch is already running — try again shortly.");
-      else if (!res.ok) setToast("Refresh failed.");
+      else if (d.status === "partial") {
+        await loadCore();
+        const count = Array.isArray(d.errors) ? d.errors.length : 1;
+        setToast(`SEO data partially refreshed — ${count} source${count === 1 ? "" : "s"} failed.`);
+      } else if (!res.ok || d.ok === false) setToast(d.error ?? "Refresh failed.");
       else { await loadCore(); setToast("SEO data refreshed."); }
     } catch { setToast("Refresh failed."); }
     finally { setRefreshing(false); }
@@ -224,21 +238,22 @@ export default function SeoPillarReportPage() {
   }, [authFetch]);
 
   const promoteOpportunity = useCallback(async (o: Opportunity) => {
-    setPromotingOpp((s) => new Set([...s, o.query]));
+    const key = opportunityKey(o);
+    setPromotingOpp((s) => new Set([...s, key]));
     try {
       const suggestedTitle = `${o.query.charAt(0).toUpperCase() + o.query.slice(1)}: A Complete Guide`;
       const res = await authFetch("/api/seo/gaps/promote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gaps: [{ query: o.query, impressions: o.impressions, position: o.position, suggestedTitle }] }),
+        body: JSON.stringify({ gaps: [{ query: o.query, impressions: o.impressions, position: o.position, suggestedTitle, page: o.page, type: o.type }] }),
       });
       const d = await res.json();
       if (res.ok) {
-        setPromotedOpp((s) => new Set([...s, o.query]));
+        setPromotedOpp((s) => new Set([...s, key]));
         setToast(`Created draft proposal in Content Pilot${d.skipped ? " (already exists)" : ""}.`);
       } else setToast(d.error ?? "Could not create proposal.");
     } catch { setToast("Could not create proposal."); }
-    finally { setPromotingOpp((s) => { const n = new Set(s); n.delete(o.query); return n; }); }
+    finally { setPromotingOpp((s) => { const n = new Set(s); n.delete(key); return n; }); }
   }, [authFetch]);
 
   const promoteOnPage = useCallback(async (
@@ -267,7 +282,7 @@ export default function SeoPillarReportPage() {
     } finally {
       setPromotingOnPage((s) => { const n = new Set(s); n.delete(key); return n; });
     }
-  }, [authFetch, router]);
+  }, [authFetch]);
 
   const planStrategy = useCallback(async (
     index: number,
@@ -400,9 +415,9 @@ export default function SeoPillarReportPage() {
       ? <Text key={`d-${o.query}`} as="span" tone="subdued">—</Text>
       : <Badge key={`d-${o.query}`} tone={diffBand(o.difficulty).tone}>{`${o.difficulty} · ${diffBand(o.difficulty).label}`}</Badge>,
     <Tooltip key={`t-${o.query}`} content={o.reason}><Text as="span" fontWeight="semibold">+{o.potentialClicks}</Text></Tooltip>,
-    promotedOpp.has(o.query)
+    promotedOpp.has(opportunityKey(o))
       ? <Badge key={`a-${o.query}`} tone="success">Created</Badge>
-      : <Button key={`a-${o.query}`} size="slim" loading={promotingOpp.has(o.query)} onClick={() => promoteOpportunity(o)}>Create brief</Button>,
+      : <Button key={`a-${o.query}`} size="slim" loading={promotingOpp.has(opportunityKey(o))} onClick={() => promoteOpportunity(o)}>Create brief</Button>,
   ]);
 
   // page health — already sorted by severity desc; flagged rows lead
