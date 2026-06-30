@@ -672,3 +672,19 @@ model SkillInsight {
   @@index([skillId, createdAt])
   @@index([jobRunId])
 }
+
+model KnowledgeChunk {
+  id          String   @id @default(cuid())
+  sourceType  String
+  sourceId    String
+  chunkIndex  Int
+  content     String   @db.Text
+  contentHash String
+  embedding   Unsupported("vector(1024)")
+  metadata    Json
+  tokens      Int
+  createdAt   DateTime @default(now())
+
+  @@unique([sourceType, sourceId, chunkIndex])
+  @@index([sourceType])
+}
