@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/db";
 
 async function main() {
-  const [{ exists }] = await prisma.$queryRaw<{ exists: boolean }[]>`
+  const extensionRows = await prisma.$queryRaw<{ exists: boolean }[]>`
     SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') AS exists;`;
-  if (!exists) throw new Error("pgvector extension missing");
+  if (!extensionRows[0]?.exists) throw new Error("pgvector extension missing");
 
   const vec = "[" + Array(1024).fill(0).map((_, i) => (i === 0 ? 1 : 0)).join(",") + "]";
   await prisma.$executeRawUnsafe(
