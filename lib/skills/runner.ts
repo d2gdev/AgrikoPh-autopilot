@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { SkillDefinition } from "./loader";
 import type { RawSnapshot } from "@prisma/client";
 import { getAiClient } from "@/lib/ai/client";
+import { retrieveContext, formatGroundingBlock } from "@/lib/ai/knowledge";
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
 
@@ -93,6 +94,39 @@ const INSIGHT_SCHEMAS: Record<string, string> = {
 ]`,
 };
 
+// Grounds a skill's context block in the KB. Additive — unchanged when empty
+// (e.g. embeddings offline or nothing relevant indexed yet).
+export async function groundSkillContext(baseContext: string, query: string): Promise<string> {
+  const chunks = await retrieveContext({
+    query,
+    sourceTypes: ["recommendation", "market_insight"],
+    topK: 6,
+  });
+  const block = formatGroundingBlock(chunks);
+  return block ? `${baseContext}\n\n${block}` : baseContext;
+}
+
+// Builds a short retrieval query from the skill name plus the names of the
+// entities under analysis (campaigns/ad sets/ads/keywords), so grounding pulls
+// material relevant to what's actually being evaluated.
+function buildQuerySummary(skill: SkillDefinition, payload: Record<string, unknown>): string {
+  const entityNames: string[] = [];
+  const collect = (arr: unknown) => {
+    if (!Array.isArray(arr)) return;
+    for (const item of arr) {
+      const name = (item as Record<string, unknown> | null)?.name;
+      if (typeof name === "string") entityNames.push(name);
+    }
+  };
+  collect(payload.campaigns);
+  collect(payload.adSets ?? payload.adGroups);
+  collect(payload.ads);
+  collect(payload.keywords);
+
+  const summary = entityNames.slice(0, 10).join(", ");
+  return summary ? `${skill.name}: ${summary}` : skill.name;
+}
+
 export async function runSkill(
   skill: SkillDefinition,
   snapshot: RawSnapshot
@@ -128,6 +162,10 @@ End your response with EXACTLY this fenced block:
 \`\`\`
 If nothing actionable, output \`\`\`recommendations\n[]\n\`\`\``;
 
+  const contextBlock = `${AGRIKO_CONTEXT}\n\n---\n\n${skill.fullPrompt}`;
+  const querySummary = buildQuerySummary(skill, payload);
+  const grounded = await groundSkillContext(contextBlock, querySummary);
+
   const ai = await getAiClient({
     deepseekModel: DEFAULT_MODEL,
     openRouterModel: "deepseek/deepseek-v4-flash",
@@ -136,7 +174,7 @@ If nothing actionable, output \`\`\`recommendations\n[]\n\`\`\``;
     model: ai.model,
     max_tokens: 4096,
     messages: [
-      { role: "system", content: `${AGRIKO_CONTEXT}\n\n---\n\n${skill.fullPrompt}` },
+      { role: "system", content: grounded },
       { role: "user", content: dataPayload + OUTPUT_REMINDER },
     ],
   });
