@@ -103,9 +103,11 @@ manual trigger.
 
 Steps:
 
-1. Pull text from each source table: `ArticleRecord` / `ArticleSnapshot`,
-   `ProductReview`, `ContentProposal` briefs, `MarketInsight`, `Recommendation`
-   rationales, `CompetitorAd` copy.
+1. Pull text from each source: blog articles via `fetchBlogArticles()` (live
+   Shopify — `ArticleRecord` stores only a content hash + metrics, not body text),
+   `ProductReview.text`, `ContentProposal` (`title` + `description`),
+   `MarketInsight` (`title` + `summary`), `Recommendation.rationale`,
+   `CompetitorAd` (`headline*`/`adCopy*`/`description`).
 2. Chunk to ~500 tokens with ~50 overlap; compute `contentHash` per chunk.
 3. **Incremental**: skip chunks whose `(sourceType, sourceId, chunkIndex)` hash is
    unchanged. Daily runs only embed new/edited content.

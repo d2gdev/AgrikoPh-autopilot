@@ -575,12 +575,18 @@ git commit -m "feat: add retrieveContext + grounding formatter"
 - Test: `__tests__/lib/ai/knowledge-sources.test.ts`
 
 **Interfaces:**
-- Consumes: `prisma` from `@/lib/db`.
+- Consumes: `prisma` from `@/lib/db`; `fetchBlogArticles` from `@/lib/shopify-admin`.
 - Produces:
   - `interface SourceDoc { sourceType: string; sourceId: string; text: string; metadata: Record<string, unknown> }`
-  - `async function collectSourceDocs(): Promise<SourceDoc[]>` — pulls text from `ArticleRecord`, `ProductReview`, `ContentProposal`, `MarketInsight`, `Recommendation`, `CompetitorAd`. Skips rows with empty text. `metadata` carries `{ title?, url?, lang? }` for citations.
+  - `async function collectSourceDocs(): Promise<SourceDoc[]>` — pulls text from blog articles (live Shopify), `ProductReview`, `ContentProposal`, `MarketInsight`, `Recommendation`, `CompetitorAd`. Skips rows with empty text. `metadata` carries `{ title?, url? }` for citations.
 
-> NOTE for implementer: confirm the exact column names on each model in `prisma/schema.prisma` before writing the queries (e.g. `ArticleRecord.title`/`bodyHtml`, `ProductReview.body`, `Recommendation.rationale`, `CompetitorAd.adText`). Use `select` to pull only id + text + citation fields. The test below pins the *shape*, not specific columns.
+**Field names are taken directly from `prisma/schema.prisma` and `lib/shopify-admin.ts`:**
+- **Articles**: `ArticleRecord` does **not** store body text (only `contentHash` + metrics). The full body lives in Shopify, so articles are pulled via `fetchBlogArticles()` → `BlogArticle { id, title, bodyHtml, handle, onlineStoreUrl }`.
+- `ProductReview` → text field is **`text`** (not `body`); citation title is `productTitle`.
+- `ContentProposal` → has **`title` + `description`** (no `brief` field).
+- `MarketInsight` → **`title` + `summary`**.
+- `Recommendation` → **`rationale`** (+ `estimatedImpact`); citation title is `targetEntityName`.
+- `CompetitorAd` → **`adCopyEn`/`adCopy`, `headlineEn`/`headline`, `description`** (no `adText`); prefer the `*En` English variants.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -589,10 +595,11 @@ Create `__tests__/lib/ai/knowledge-sources.test.ts`:
 ```ts
 import { collectSourceDocs } from "@/lib/ai/knowledge-sources";
 import { prisma } from "@/lib/db";
+import { fetchBlogArticles } from "@/lib/shopify-admin";
 
+jest.mock("@/lib/shopify-admin", () => ({ fetchBlogArticles: jest.fn() }));
 jest.mock("@/lib/db", () => ({
   prisma: {
-    articleRecord: { findMany: jest.fn() },
     productReview: { findMany: jest.fn() },
     contentProposal: { findMany: jest.fn() },
     marketInsight: { findMany: jest.fn() },
@@ -602,26 +609,32 @@ jest.mock("@/lib/db", () => ({
 }));
 
 beforeEach(() => {
+  (fetchBlogArticles as jest.Mock).mockResolvedValue([]);
   for (const m of Object.values(prisma as Record<string, { findMany: jest.Mock }>)) {
     m.findMany.mockResolvedValue([]);
   }
 });
 
-test("maps article rows to SourceDoc with citation metadata", async () => {
-  (prisma.articleRecord.findMany as jest.Mock).mockResolvedValue([
-    { id: "art1", title: "Ginger 101", bodyHtml: "<p>Ginger is great</p>", url: "https://x/ginger" },
+test("maps blog articles to SourceDoc with citation metadata", async () => {
+  (fetchBlogArticles as jest.Mock).mockResolvedValue([
+    { id: "gid://shopify/Article/1", title: "Ginger 101", bodyHtml: "<p>Ginger is great</p>", handle: "ginger-101", onlineStoreUrl: "https://agrikoph.com/blogs/news/ginger-101" },
   ]);
   const docs = await collectSourceDocs();
   const art = docs.find((d) => d.sourceType === "article");
-  expect(art).toMatchObject({ sourceType: "article", sourceId: "art1" });
+  expect(art).toMatchObject({ sourceType: "article", sourceId: "gid://shopify/Article/1" });
   expect(art!.text).toContain("Ginger");
-  expect(art!.metadata).toMatchObject({ title: "Ginger 101", url: "https://x/ginger" });
+  expect(art!.metadata).toMatchObject({ title: "Ginger 101", url: "https://agrikoph.com/blogs/news/ginger-101" });
 });
 
-test("skips rows whose extracted text is empty", async () => {
-  (prisma.productReview.findMany as jest.Mock).mockResolvedValue([{ id: "r1", body: "   " }]);
+test("uses ProductReview.text and skips empty-text rows", async () => {
+  (prisma.productReview.findMany as jest.Mock).mockResolvedValue([
+    { id: "r1", text: "Great turmeric, fast delivery.", productTitle: "Turmeric" },
+    { id: "r2", text: "   " },
+  ]);
   const docs = await collectSourceDocs();
-  expect(docs.find((d) => d.sourceType === "review")).toBeUndefined();
+  const reviews = docs.filter((d) => d.sourceType === "review");
+  expect(reviews).toHaveLength(1);
+  expect(reviews[0]).toMatchObject({ sourceId: "r1", metadata: { title: "Turmeric" } });
 });
 ```
 
@@ -632,10 +645,11 @@ Expected: FAIL — `Cannot find module '@/lib/ai/knowledge-sources'`.
 
 - [ ] **Step 3: Write the implementation**
 
-Create `lib/ai/knowledge-sources.ts` (adjust column names to match `schema.prisma`):
+Create `lib/ai/knowledge-sources.ts`:
 
 ```ts
 import { prisma } from "@/lib/db";
+import { fetchBlogArticles } from "@/lib/shopify-admin";
 
 export interface SourceDoc {
   sourceType: string;
@@ -648,6 +662,10 @@ function stripHtml(html: string | null | undefined): string {
   return (html ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function joinNonEmpty(parts: (string | null | undefined)[]): string {
+  return parts.map((p) => (p ?? "").trim()).filter(Boolean).join("\n");
+}
+
 function push(docs: SourceDoc[], doc: SourceDoc) {
   if (doc.text.trim()) docs.push(doc);
 }
@@ -655,55 +673,75 @@ function push(docs: SourceDoc[], doc: SourceDoc) {
 export async function collectSourceDocs(): Promise<SourceDoc[]> {
   const docs: SourceDoc[] = [];
 
-  const articles = await prisma.articleRecord.findMany({
-    select: { id: true, title: true, bodyHtml: true, url: true },
-  });
+  // Articles: body text is not persisted in ArticleRecord — pull live from Shopify.
+  const articles = await fetchBlogArticles();
   for (const a of articles) {
     push(docs, {
       sourceType: "article",
       sourceId: a.id,
-      text: `${a.title ?? ""}\n${stripHtml(a.bodyHtml)}`,
-      metadata: { title: a.title, url: a.url },
+      text: joinNonEmpty([a.title, stripHtml(a.bodyHtml)]),
+      metadata: { title: a.title, url: a.onlineStoreUrl ?? null, handle: a.handle },
     });
   }
 
-  const reviews = await prisma.productReview.findMany({ select: { id: true, body: true } });
+  const reviews = await prisma.productReview.findMany({
+    select: { id: true, text: true, productTitle: true },
+  });
   for (const r of reviews) {
-    push(docs, { sourceType: "review", sourceId: r.id, text: r.body ?? "", metadata: {} });
+    push(docs, {
+      sourceType: "review",
+      sourceId: r.id,
+      text: r.text ?? "",
+      metadata: { title: r.productTitle },
+    });
   }
 
   const proposals = await prisma.contentProposal.findMany({
-    select: { id: true, title: true, brief: true },
+    select: { id: true, title: true, description: true },
   });
   for (const p of proposals) {
     push(docs, {
       sourceType: "brief",
       sourceId: p.id,
-      text: `${p.title ?? ""}\n${p.brief ?? ""}`,
+      text: joinNonEmpty([p.title, p.description]),
       metadata: { title: p.title },
     });
   }
 
-  const insights = await prisma.marketInsight.findMany({ select: { id: true, summary: true } });
+  const insights = await prisma.marketInsight.findMany({
+    select: { id: true, title: true, summary: true },
+  });
   for (const m of insights) {
-    push(docs, { sourceType: "market_insight", sourceId: m.id, text: m.summary ?? "", metadata: {} });
+    push(docs, {
+      sourceType: "market_insight",
+      sourceId: m.id,
+      text: joinNonEmpty([m.title, m.summary]),
+      metadata: { title: m.title },
+    });
   }
 
   const recs = await prisma.recommendation.findMany({
-    select: { id: true, rationale: true, targetEntityName: true },
+    select: { id: true, rationale: true, estimatedImpact: true, targetEntityName: true },
   });
   for (const rec of recs) {
     push(docs, {
       sourceType: "recommendation",
       sourceId: rec.id,
-      text: rec.rationale ?? "",
+      text: joinNonEmpty([rec.rationale, rec.estimatedImpact]),
       metadata: { title: rec.targetEntityName },
     });
   }
 
-  const ads = await prisma.competitorAd.findMany({ select: { id: true, adText: true } });
+  const ads = await prisma.competitorAd.findMany({
+    select: { id: true, adCopy: true, adCopyEn: true, headline: true, headlineEn: true, description: true },
+  });
   for (const ad of ads) {
-    push(docs, { sourceType: "competitor_ad", sourceId: ad.id, text: ad.adText ?? "", metadata: {} });
+    push(docs, {
+      sourceType: "competitor_ad",
+      sourceId: ad.id,
+      text: joinNonEmpty([ad.headlineEn ?? ad.headline, ad.adCopyEn ?? ad.adCopy, ad.description]),
+      metadata: {},
+    });
   }
 
   return docs;
@@ -713,7 +751,7 @@ export async function collectSourceDocs(): Promise<SourceDoc[]> {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- knowledge-sources.test`
-Expected: PASS (2 tests). If a column name differs from the real schema, fix the `select`/mapping and re-run.
+Expected: PASS (2 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -898,16 +936,22 @@ export async function indexKnowledgeHandler(): Promise<JobResult<Summary>> {
     errors.push(err instanceof Error ? err.message : String(err));
   }
 
+  const summary: Summary = { indexed, skipped, deleted };
   await prisma.jobRun.update({
     where: { id: runId },
-    data: { status, finishedAt: new Date(), error: errors.join("; ") || null },
+    data: {
+      status,
+      completedAt: new Date(),
+      summary,
+      errorLog: errors.length > 0 ? errors.join("\n").slice(0, 10_000) : null,
+    },
   });
 
-  return { jobName: JOB_NAME, runId, status, summary: { indexed, skipped, deleted }, errors };
+  return { jobName: JOB_NAME, runId, status, summary, errors };
 }
 ```
 
-> NOTE: confirm `JobRun` update fields (`status`, `finishedAt`, `error`) against `schema.prisma`; mirror whatever `jobs/fetch-seo-data.ts` writes on completion.
+(Completion fields — `status`, `completedAt`, `summary`, `errorLog` — match what `jobs/fetch-seo-data.ts` writes; `JobRun` has no `finishedAt`/`error` columns.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1067,7 +1111,7 @@ async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 1638
 }
 ```
 
-At each `callAI(...)` call site that generates article/body content, pass a grounding query built from the proposal (e.g. `` `${proposal.title} ${proposal.targetKeyword ?? ""}` ``). Leave SEO-meta-only call sites without a grounding query if retrieval adds no value there.
+At each `callAI(...)` call site that generates article/body content, pass a grounding query built from the proposal's real fields — `` `${proposal.title} ${proposal.articleHandle ?? ""}` `` (`ContentProposal` has `title`, `description`, `articleHandle`, `proposalType`; there is no `targetKeyword`). Leave SEO-meta-only call sites without a grounding query if retrieval adds no value there.
 
 - [ ] **Step 4: Run test to verify it passes**
 
