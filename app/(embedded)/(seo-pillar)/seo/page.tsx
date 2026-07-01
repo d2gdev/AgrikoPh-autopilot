@@ -23,6 +23,7 @@ interface SeoData {
     impressions: number;
     ctr: string;
     position: string;
+    searchVolume?: number | null;
   }>;
   topPages: Array<{
     page: string;
@@ -46,9 +47,12 @@ function sortQueries(
     switch (colIndex) {
       case 0: return dir * a.query.localeCompare(b.query);
       case 1: return dir * (a.clicks - b.clicks);
-      case 2: return dir * (a.impressions - b.impressions);
-      case 3: return dir * (parseFloat(a.ctr) - parseFloat(b.ctr));
-      case 4: return dir * (parseFloat(a.position) - parseFloat(b.position));
+      // Traffic (search volume) inserted between Clicks and Impressions; unknown
+      // volumes sort to the bottom (treated as -1).
+      case 2: return dir * ((a.searchVolume ?? -1) - (b.searchVolume ?? -1));
+      case 3: return dir * (a.impressions - b.impressions);
+      case 4: return dir * (parseFloat(a.ctr) - parseFloat(b.ctr));
+      case 5: return dir * (parseFloat(a.position) - parseFloat(b.position));
       default: return 0;
     }
   });
@@ -199,7 +203,12 @@ export default function SeoPage() {
   const sortedQueries = sortQueries(data?.topQueries ?? [], querySortCol, querySortDir);
 
   const queryRows = sortedQueries.map((q) => [
-    q.query, q.clicks, q.impressions, q.ctr, q.position,
+    q.query,
+    q.clicks,
+    q.searchVolume == null ? "—" : q.searchVolume.toLocaleString("en-PH"),
+    q.impressions,
+    q.ctr,
+    q.position,
   ]);
 
   const pageRows = (data?.topPages ?? []).map((p) => [
@@ -273,10 +282,10 @@ export default function SeoPage() {
                 <BlockStack gap="200">
                   <Text variant="headingMd" as="h2">Top Queries (GSC — 28d)</Text>
                   <DataTable
-                    columnContentTypes={["text", "numeric", "numeric", "text", "text"]}
-                    headings={["Query", "Clicks", "Impressions", "CTR", "Position"]}
+                    columnContentTypes={["text", "numeric", "numeric", "numeric", "text", "text"]}
+                    headings={["Query", "Clicks", "Traffic", "Impressions", "CTR", "Position"]}
                     rows={queryRows}
-                    sortable={[true, true, true, true, true]}
+                    sortable={[true, true, true, true, true, true]}
                     defaultSortDirection={querySortDir === "none" ? "descending" : querySortDir}
                     initialSortColumnIndex={querySortCol}
                     onSort={(colIndex, direction) => {

@@ -59,8 +59,28 @@ export async function GET(req: Request) {
     const topPages = ga4Data.pages;
 
     if (view === "summary") {
+      const top = queries.slice(0, limit);
+      // Attach cached DataForSEO monthly search volume ("Traffic" column).
+      // Read-only join — the cache is populated by the GSC fetch job, so a
+      // passive page view never calls the metered DataForSEO API.
+      const volumeKeys = Array.from(
+        new Set(top.map((q) => (q.query ?? "").trim().toLowerCase()).filter((k) => k.length > 0)),
+      );
+      const volumeByKey = new Map<string, number>();
+      if (volumeKeys.length) {
+        const vols = await prisma.keywordSearchVolume.findMany({
+          where: { keyword: { in: volumeKeys } },
+          select: { keyword: true, searchVolume: true },
+        });
+        for (const v of vols) volumeByKey.set(v.keyword, v.searchVolume);
+      }
+      const topWithVolume = top.map((q) => ({
+        ...q,
+        searchVolume: volumeByKey.get((q.query ?? "").trim().toLowerCase()) ?? null,
+      }));
+
       const payload: SeoSummaryPayload = {
-        topQueries: queries.slice(0, limit),
+        topQueries: topWithVolume,
         topPages: topPages.slice(0, limit),
         gscFetchedAt: gscData.fetchedAt,
         ga4FetchedAt: ga4Data.fetchedAt,

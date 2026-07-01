@@ -489,6 +489,22 @@ model KeywordResearchResult {
   @@unique([source, keyword, locationNameForDedupe, languageCodeForDedupe, captureDate], map: "KeywordResearchResult_locale_dedupe_key")
 }
 
+/// Cached monthly search volume per keyword (DataForSEO), keyed by normalized
+/// keyword. Populated by the GSC fetch job for the site's top queries and read
+/// by the SEO summary API for the "Traffic" column — so passive page views
+/// never hit the metered DataForSEO API. Re-fetched when a row is older than the
+/// job's staleness window.
+model KeywordSearchVolume {
+  id           String   @id @default(cuid())
+  keyword      String   @unique
+  searchVolume Int
+  source       String   @default("dataforseo")
+  fetchedAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([fetchedAt])
+}
+
 model ShoppingResult {
   id               String        @id @default(cuid())
   createdAt        DateTime      @default(now())
