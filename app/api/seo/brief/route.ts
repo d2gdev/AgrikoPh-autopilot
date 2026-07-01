@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getAiClient } from "@/lib/ai/client";
+import { chatCompletionWithFailover } from "@/lib/ai/client";
 import { getLatestGscData, getLatestGa4Data } from "@/lib/seo/data";
 import { groundSeoBriefContext } from "@/lib/seo/brief-grounding";
 
@@ -51,15 +51,16 @@ export async function POST(req: NextRequest) {
 
   let aiTimeout: AbortSignal | undefined;
   try {
-    const ai = await getAiClient();
     const baseUserContent = `Generate a concise SEO brief (3-5 bullet points) based on this data:\n\nGoogle Search Console:\n${gscData}\n\nGA4:\n${ga4Data}\n\nFocus on: top opportunities, content gaps, quick wins. Keep it under 200 words.`;
     const groundedUserContent = await groundSeoBriefContext(baseUserContent, targetKeyword);
     // Started only now, not before grounding — retrieveContext bounds itself
     // independently, but starting this timer any earlier would still let
     // however long grounding took eat into the AI completion's own budget.
     aiTimeout = AbortSignal.timeout(25_000);
-    const response = await ai.client.chat.completions.create({
-      model: ai.model,
+    // Fails over to OpenRouter if DeepSeek resets the connection (a recurring
+    // ECONNRESET from this host on long responses) — the whole reason this brief
+    // was surfacing "temporarily unavailable".
+    const { content } = await chatCompletionWithFailover({
       max_tokens: 4096,
       messages: [
         {
@@ -71,10 +72,8 @@ export async function POST(req: NextRequest) {
           content: groundedUserContent,
         },
       ],
-    }, { signal: aiTimeout });
+    }, { requestOptions: { signal: aiTimeout } });
 
-    const msg = response.choices[0]?.message as Record<string, unknown> | undefined;
-    const content = ((msg?.content as string) || (msg?.reasoning_content as string) || "").trim();
     const parsedBrief = SeoBriefSchema.safeParse(content);
     if (!parsedBrief.success) {
       console.error("[seo/brief] invalid AI output", parsedBrief.error.flatten());

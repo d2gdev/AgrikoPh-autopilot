@@ -19,28 +19,17 @@ vi.mock("@/lib/shopify-admin", () => ({
 }));
 
 vi.mock("@/lib/ai/client", () => ({
-  getAiClient: vi.fn().mockResolvedValue({
+  chatCompletionWithFailover: vi.fn().mockResolvedValue({
+    content: JSON.stringify({
+      adsActivity: "No new ads this week.",
+      pricingMovements: "Prices stable.",
+      opportunities: "No competitors running educational content.",
+      recommendedActions: [
+        { priority: "low", action: "Monitor pricing", reason: "Stable market." }
+      ],
+    }),
+    provider: "deepseek",
     model: "test-model",
-    client: {
-      chat: {
-        completions: {
-          create: vi.fn().mockResolvedValue({
-            choices: [{
-              message: {
-                content: JSON.stringify({
-                  adsActivity: "No new ads this week.",
-                  pricingMovements: "Prices stable.",
-                  opportunities: "No competitors running educational content.",
-                  recommendedActions: [
-                    { priority: "low", action: "Monitor pricing", reason: "Stable market." }
-                  ],
-                }),
-              },
-            }],
-          }),
-        },
-      },
-    },
   }),
 }));
 
@@ -59,19 +48,9 @@ describe("generateBrief", () => {
   });
 
   it("returns fallback when AI returns malformed JSON", async () => {
-    const { getAiClient } = await import("@/lib/ai/client");
-    vi.mocked(getAiClient).mockResolvedValueOnce({
-      model: "test-model",
-      provider: "deepseek",
-      client: {
-        chat: {
-          completions: {
-            create: vi.fn().mockResolvedValue({
-              choices: [{ message: { content: "not json at all" } }],
-            }),
-          },
-        },
-      } as never,
+    const { chatCompletionWithFailover } = await import("@/lib/ai/client");
+    vi.mocked(chatCompletionWithFailover).mockResolvedValueOnce({
+      content: "not json at all", provider: "deepseek", model: "test-model",
     });
     const { generateBrief } = await import("@/lib/market-intel/generate-brief");
     const result = await generateBrief();
@@ -87,23 +66,19 @@ describe("generateBrief", () => {
       },
     ] as never);
 
-    const createMock = vi.fn().mockResolvedValue({
-      choices: [{ message: { content: JSON.stringify({
-        adsActivity: "x", pricingMovements: "x", opportunities: "x", recommendedActions: [],
-      }) } }],
+    const { chatCompletionWithFailover } = await import("@/lib/ai/client");
+    const aiMock = vi.mocked(chatCompletionWithFailover);
+    aiMock.mockResolvedValueOnce({
+      content: JSON.stringify({ adsActivity: "x", pricingMovements: "x", opportunities: "x", recommendedActions: [] }),
+      provider: "deepseek", model: "test-model",
     });
-    const { getAiClient } = await import("@/lib/ai/client");
-    vi.mocked(getAiClient).mockResolvedValueOnce({
-      model: "test-model", provider: "deepseek",
-      client: { chat: { completions: { create: createMock } } },
-    } as never);
 
     const { generateBrief } = await import("@/lib/market-intel/generate-brief");
     await generateBrief();
 
-    const call = createMock.mock.calls[0];
-    if (!call) throw new Error("expected ai.client.chat.completions.create to have been called");
-    const userMessageContent = call[0].messages[1].content;
+    const call = aiMock.mock.calls[0];
+    if (!call) throw new Error("expected chatCompletionWithFailover to have been called");
+    const userMessageContent = (call[0].messages[1] as { content: string }).content;
     const context = JSON.parse(userMessageContent);
     expect(context.priceMovements[0].deltaPct).toBe(0);
   });

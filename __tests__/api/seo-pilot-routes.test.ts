@@ -37,6 +37,7 @@ const mockSeoData = vi.hoisted(() => ({
   getPreviousGscQueries: vi.fn(),
 }));
 const mockGetAiClient = vi.hoisted(() => vi.fn());
+const mockChatCompletion = vi.hoisted(() => vi.fn());
 const mockJobs = vi.hoisted(() => ({
   fetchSeoDataHandler: vi.fn(),
   fetchGscDataHandler: vi.fn(),
@@ -56,7 +57,7 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock("@/lib/seo/data", () => mockSeoData);
-vi.mock("@/lib/ai/client", () => ({ getAiClient: mockGetAiClient }));
+vi.mock("@/lib/ai/client", () => ({ getAiClient: mockGetAiClient, chatCompletionWithFailover: mockChatCompletion }));
 vi.mock("@/jobs/fetch-seo-data", () => ({ fetchSeoDataHandler: mockJobs.fetchSeoDataHandler }));
 vi.mock("@/jobs/fetch-gsc-data", () => ({ fetchGscDataHandler: mockJobs.fetchGscDataHandler }));
 vi.mock("@/jobs/snapshot-seo-history", () => ({ snapshotSeoHistoryHandler: mockJobs.snapshotSeoHistoryHandler }));
@@ -118,6 +119,11 @@ describe("SEO Pilot route regressions", () => {
           },
         },
       },
+    });
+    mockChatCompletion.mockResolvedValue({
+      content: "- Improve titles on high-impression pages.",
+      provider: "deepseek",
+      model: "test-model",
     });
     mockJobs.acquireJobLock.mockResolvedValue(true);
     mockJobs.releaseJobLock.mockResolvedValue(undefined);
@@ -348,13 +354,8 @@ describe("SEO Pilot route regressions", () => {
       source: "normalized",
       window: null,
     });
-    const create = vi.fn().mockResolvedValue({
-      choices: [{ message: { content: "   " } }],
-    });
-    mockGetAiClient.mockResolvedValue({
-      model: "test-model",
-      client: { chat: { completions: { create } } },
-    });
+    // The failover helper trims + extracts content; a blank brief arrives as "".
+    mockChatCompletion.mockResolvedValue({ content: "", provider: "deepseek", model: "test-model" });
     const { POST } = await import("@/app/api/seo/brief/route");
 
     const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
@@ -379,13 +380,9 @@ describe("SEO Pilot route regressions", () => {
       source: "normalized",
       window: null,
     });
-    const create = vi.fn().mockResolvedValue({
-      choices: [{ message: { content: "", reasoning_content: "- Improve black rice snippets." } }],
-    });
-    mockGetAiClient.mockResolvedValue({
-      model: "test-model",
-      client: { chat: { completions: { create } } },
-    });
+    // The helper resolves reasoning_content into `content` when final content is
+    // blank; the route just consumes the returned content.
+    mockChatCompletion.mockResolvedValue({ content: "- Improve black rice snippets.", provider: "deepseek", model: "test-model" });
     const { POST } = await import("@/app/api/seo/brief/route");
 
     const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
@@ -393,7 +390,7 @@ describe("SEO Pilot route regressions", () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual({ brief: "- Improve black rice snippets." });
-    expect(mockGetAiClient).toHaveBeenCalledWith();
+    expect(mockChatCompletion).toHaveBeenCalled();
   });
 
   it("returns actionable error when SEO brief provider config fails", async () => {
@@ -411,7 +408,7 @@ describe("SEO Pilot route regressions", () => {
       source: "normalized",
       window: null,
     });
-    mockGetAiClient.mockRejectedValue(new Error("No AI provider configured"));
+    mockChatCompletion.mockRejectedValue(new Error("No AI provider configured"));
     const { POST } = await import("@/app/api/seo/brief/route");
 
     const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);

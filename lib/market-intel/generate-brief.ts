@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getAiClient } from "@/lib/ai/client";
+import { chatCompletionWithFailover } from "@/lib/ai/client";
 import { getBrandGuidelines } from "@/lib/content-pilot/brand-guidelines";
 import { shopifyFetch } from "@/lib/shopify-admin";
 import { retrieveContext, formatGroundingBlock } from "@/lib/ai/knowledge";
@@ -173,7 +173,6 @@ export async function generateBrief(): Promise<BriefSections> {
     ? `competitor activity: ${briefQueryTopics.join(", ")}`
     : "Agriko competitor and market intelligence";
 
-  const ai = await getAiClient();
   const systemPrompt = `You are a market analyst writing a weekly competitive brief for ${brandGuidelines ? "an e-commerce brand" : "Agriko"}, a Filipino e-commerce store. Prices are in PHP unless otherwise noted.
 Respond in English only.
 You will receive structured JSON data about competitor ads, pricing, and market insights from the last 7 days.
@@ -190,15 +189,13 @@ Be specific and data-backed. Reference actual competitor names, product names, p
 
   try {
     const groundedSystemPrompt = await groundBriefContext(systemPrompt, briefQuery);
-    const response = await ai.client.chat.completions.create({
-      model: ai.model,
+    const { content: raw } = await chatCompletionWithFailover({
       max_tokens: 2048,
       messages: [
         { role: "system", content: groundedSystemPrompt },
         { role: "user", content: JSON.stringify(context) },
       ],
     });
-    const raw = response.choices[0]?.message?.content ?? "";
     return parseBriefJson(raw) ?? { ...BRIEF_FALLBACK, generatedAt: new Date().toISOString() };
   } catch {
     return { ...BRIEF_FALLBACK, generatedAt: new Date().toISOString() };
