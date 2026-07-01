@@ -13,6 +13,8 @@ function toVectorLiteral(vec: number[]): string {
   return "[" + vec.join(",") + "]";
 }
 
+const RETRIEVAL_TIMEOUT_MS = 5_000;
+
 export async function retrieveContext(args: {
   query: string;
   sourceTypes?: string[];
@@ -22,7 +24,12 @@ export async function retrieveContext(args: {
   const topK = args.topK ?? 6;
   const minScore = args.minScore ?? 0.35;
   try {
-    const [vec] = await embedTexts([args.query]);
+    // Grounding is additive/best-effort — a slow or unresponsive embeddings
+    // service must never be able to consume a caller's own request budget
+    // (e.g. an AI completion's own AbortSignal.timeout, started before this
+    // call runs), so bound it independently and degrade to "no grounding" via
+    // the catch below rather than hang or eat into the caller's timer.
+    const [vec] = await embedTexts([args.query], { signal: AbortSignal.timeout(RETRIEVAL_TIMEOUT_MS) });
     if (!vec) return [];
     const literal = toVectorLiteral(vec);
 

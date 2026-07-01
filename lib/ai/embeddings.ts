@@ -25,13 +25,22 @@ async function getEmbeddingsClient() {
   return { client, model: model ?? DEFAULT_MODEL };
 }
 
-export async function embedTexts(texts: string[]): Promise<number[][]> {
+export async function embedTexts(
+  texts: string[],
+  options?: { signal?: AbortSignal },
+): Promise<number[][]> {
   if (texts.length === 0) return [];
   const { client, model } = await getEmbeddingsClient();
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE);
-    const res = await client.embeddings.create({ model, input: batch });
+    const res = await client.embeddings.create(
+      { model, input: batch },
+      // maxRetries:0 when a signal is supplied — the client-level maxRetries:3
+      // would otherwise keep retrying past a caller-imposed deadline instead of
+      // respecting it, defeating the purpose of passing a short-lived signal.
+      options?.signal ? { signal: options.signal, maxRetries: 0 } : undefined,
+    );
     const sorted = [...res.data].sort((a, b) => a.index - b.index);
     for (const row of sorted) out.push(row.embedding as number[]);
   }

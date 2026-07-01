@@ -49,11 +49,15 @@ export async function POST(req: NextRequest) {
   const ga4Data = ga4Pages ? `Top pages: ${ga4Pages}` : "No GA4 data";
   const targetKeyword = gscLatest.queries[0]?.query || ga4Latest.pages[0]?.page || "Agriko SEO";
 
-  const aiTimeout = AbortSignal.timeout(25_000);
+  let aiTimeout: AbortSignal | undefined;
   try {
     const ai = await getAiClient();
     const baseUserContent = `Generate a concise SEO brief (3-5 bullet points) based on this data:\n\nGoogle Search Console:\n${gscData}\n\nGA4:\n${ga4Data}\n\nFocus on: top opportunities, content gaps, quick wins. Keep it under 200 words.`;
     const groundedUserContent = await groundSeoBriefContext(baseUserContent, targetKeyword);
+    // Started only now, not before grounding — retrieveContext bounds itself
+    // independently, but starting this timer any earlier would still let
+    // however long grounding took eat into the AI completion's own budget.
+    aiTimeout = AbortSignal.timeout(25_000);
     const response = await ai.client.chat.completions.create({
       model: ai.model,
       max_tokens: 4096,
@@ -79,7 +83,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ brief: parsedBrief.data });
   } catch (err) {
-    if (aiTimeout.aborted) {
+    if (aiTimeout?.aborted) {
       console.error("[seo/brief] AI completion timed out after 25s");
       return NextResponse.json({ error: "Brief generation timed out — please try again" }, { status: 504 });
     }

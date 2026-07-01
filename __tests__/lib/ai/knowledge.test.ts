@@ -41,6 +41,22 @@ test("returns [] when embeddings unavailable (graceful)", async () => {
   expect(await retrieveContext({ query: "q" })).toEqual([]);
 });
 
+test("returns [] when the embeddings call is aborted (e.g. a slow/hanging service)", async () => {
+  mockEmbed.mockRejectedValue(new DOMException("The operation was aborted", "AbortError"));
+  expect(await retrieveContext({ query: "q" })).toEqual([]);
+});
+
+test("bounds the embeddings call with its own short timeout, independent of any caller-supplied timer", async () => {
+  await retrieveContext({ query: "q" });
+  // Grounding is additive/best-effort — a slow embeddings service must never be
+  // able to consume a caller's own request budget (e.g. an AI completion's
+  // AbortSignal.timeout started before this call), so this must bound itself.
+  expect(mockEmbed).toHaveBeenCalledWith(
+    ["q"],
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+});
+
 test("returns [] when the DB query throws (graceful)", async () => {
   mockQuery.mockRejectedValue(new Error("db down"));
   expect(await retrieveContext({ query: "q" })).toEqual([]);

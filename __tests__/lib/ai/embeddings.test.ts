@@ -52,3 +52,13 @@ test("empty input returns empty without calling the API", async () => {
   expect(await embedTexts([])).toEqual([]);
   expect(createMock).not.toHaveBeenCalled();
 });
+
+test("forwards a provided abort signal to the underlying request, and disables SDK retries so an abort isn't retried away", async () => {
+  createMock.mockResolvedValue({ data: [{ index: 0, embedding: Array(EMBEDDING_DIM).fill(0.1) }] });
+  const controller = new AbortController();
+  await embedTexts(["a"], { signal: controller.signal });
+  expect(createMock).toHaveBeenCalledWith(
+    { model: "bge-m3", input: ["a"] },
+    expect.objectContaining({ signal: controller.signal, maxRetries: 0 }),
+  );
+});
