@@ -5,6 +5,7 @@ import {
   BlockStack,
   Button,
   Card,
+  Checkbox,
   Collapsible,
   DataTable,
   FormLayout,
@@ -29,6 +30,7 @@ import {
   AdCreativeCard,
   CompetitiveBrief,
   InsightCard,
+  InsightGroupCard,
   OurProduct,
   PriceComparisonCard,
   findMatches,
@@ -226,6 +228,7 @@ export default function MarketIntelligencePage() {
   const [filterDays, setFilterDays] = useState("30");
   const [filterKeyword, setFilterKeyword] = useState("");
   const [filterCompetitor, setFilterCompetitor] = useState("");
+  const [showAllAds, setShowAllAds] = useState(false);
 
   const [manageOpen, setManageOpen] = useState(false);
 
@@ -400,15 +403,70 @@ export default function MarketIntelligencePage() {
     return d;
   }, [filterDays]);
 
-  // Insights as severity-sorted cards (most urgent first, then newest).
-  const sortedInsights = useMemo(() => (data?.insights ?? [])
-    .filter((i) => !cutoff || new Date(i.createdAt) >= cutoff)
-    .slice()
-    .sort((a, b) => {
-      const rank = (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9);
-      if (rank !== 0) return rank;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    }), [data?.insights, cutoff]);
+  // Insights feed: severity-sorted, but with repetitive long-running-ad insights
+  // collapsed per competitor into one expandable group so a single competitor's
+  // ten near-identical ad alerts don't bury genuinely new price/ad changes.
+  // Each item is either a standalone insight or a grouped run.
+  const insightItems = useMemo(() => {
+    const filtered = (data?.insights ?? []).filter((i) => !cutoff || new Date(i.createdAt) >= cutoff);
+
+    const groups = new Map<string, MarketInsight[]>();
+    const singles: MarketInsight[] = [];
+    for (const insight of filtered) {
+      const competitor = insight.competitor?.name;
+      if (insight.type === "long_running_competitor_ad" && competitor) {
+        const key = competitor;
+        const arr = groups.get(key);
+        if (arr) arr.push(insight); else groups.set(key, [insight]);
+      } else {
+        singles.push(insight);
+      }
+    }
+
+    type Item =
+      | { kind: "single"; id: string; insight: MarketInsight; rank: number; when: number }
+      | { kind: "group"; id: string; label: string; typeLabel: string; severity: string; insights: MarketInsight[]; rank: number; when: number };
+
+    const items: Item[] = [];
+    for (const insight of singles) {
+      items.push({
+        kind: "single",
+        id: insight.id,
+        insight,
+        rank: SEVERITY_RANK[insight.severity] ?? 9,
+        when: new Date(insight.createdAt).getTime(),
+      });
+    }
+    for (const [competitor, groupInsights] of groups) {
+      // A lone long-running-ad insight isn't worth grouping — render it normally.
+      if (groupInsights.length === 1) {
+        const insight = groupInsights[0]!;
+        items.push({
+          kind: "single",
+          id: insight.id,
+          insight,
+          rank: SEVERITY_RANK[insight.severity] ?? 9,
+          when: new Date(insight.createdAt).getTime(),
+        });
+        continue;
+      }
+      const rank = Math.min(...groupInsights.map((i) => SEVERITY_RANK[i.severity] ?? 9));
+      const severity = groupInsights.find((i) => (SEVERITY_RANK[i.severity] ?? 9) === rank)?.severity ?? "info";
+      const when = Math.max(...groupInsights.map((i) => new Date(i.createdAt).getTime()));
+      items.push({
+        kind: "group",
+        id: `group:${competitor}`,
+        label: competitor,
+        typeLabel: "long-running ads",
+        severity,
+        insights: groupInsights.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+        rank,
+        when,
+      });
+    }
+
+    return items.sort((a, b) => (a.rank - b.rank) || (b.when - a.when));
+  }, [data?.insights, cutoff]);
 
   // Shared with Price Comparison below and its empty-state check, so both
   // respect the global date-range filter the same way the Shopping tab does —
@@ -450,8 +508,11 @@ export default function MarketIntelligencePage() {
       if (cutoff && new Date(ad.capturedAt) < cutoff) return false;
       const name = (ad.competitor?.name ?? ad.pageName ?? "").toLowerCase();
       if (filterCompetitor && !name.includes(filterCompetitor.toLowerCase())) return false;
-      // Always restrict to proven, long-running creative (start date 60+ days ago).
-      if (!ad.startDate || new Date(ad.startDate) > longRunCutoff) return false;
+      // By default restrict to proven, long-running creative (start date 60+
+      // days ago) — but this hides every ad for a newly-tracked competitor
+      // until their creative has run that long, so let the operator opt into
+      // seeing everything captured via showAllAds.
+      if (!showAllAds && (!ad.startDate || new Date(ad.startDate) > longRunCutoff)) return false;
       return true;
     });
 
@@ -474,7 +535,7 @@ export default function MarketIntelligencePage() {
 
     // Sort by running duration, longest-first — the most-validated ads on top.
     return [...groups.values()].sort((a, b) => (adRunningDays(b.ad) ?? 0) - (adRunningDays(a.ad) ?? 0));
-  }, [data?.competitorAds, cutoff, filterCompetitor]);
+  }, [data?.competitorAds, cutoff, filterCompetitor, showAllAds]);
 
   // Which angles endure: distribution of creative angle across the shown ads.
   const angleSummary = useMemo(() => {
@@ -569,25 +630,26 @@ export default function MarketIntelligencePage() {
           )}
         </Layout.Section>
 
-        {/* Global filter — date range only; text filters live inside their tabs */}
+        {/* Global date-range filter — a compact inline control rather than a
+            lone dropdown marooned in a full-width card. Text filters live in
+            their tabs. */}
         <Layout.Section>
-          <Card>
-            <InlineStack gap="400" wrap blockAlign="end">
-              <div style={{ minWidth: 150 }}>
-                <Select
-                  label="Date range"
-                  options={[
-                    { label: "Last 7 days", value: "7" },
-                    { label: "Last 30 days", value: "30" },
-                    { label: "Last 90 days", value: "90" },
-                    { label: "All time", value: "all" },
-                  ]}
-                  value={filterDays}
-                  onChange={setFilterDays}
-                />
-              </div>
-            </InlineStack>
-          </Card>
+          <InlineStack align="end" blockAlign="center">
+            <div style={{ minWidth: 200 }}>
+              <Select
+                label="Date range"
+                labelInline
+                options={[
+                  { label: "Last 7 days", value: "7" },
+                  { label: "Last 30 days", value: "30" },
+                  { label: "Last 90 days", value: "90" },
+                  { label: "All time", value: "all" },
+                ]}
+                value={filterDays}
+                onChange={setFilterDays}
+              />
+            </div>
+          </InlineStack>
         </Layout.Section>
 
         {/* Competitive brief */}
@@ -620,13 +682,23 @@ export default function MarketIntelligencePage() {
                   </BlockStack>
                   {loading ? (
                     <InlineStack align="center"><Spinner size="small" /></InlineStack>
-                  ) : sortedInsights.length === 0 ? (
+                  ) : insightItems.length === 0 ? (
                     <Card>
                       <EmptyMessage title="No insights yet" description="Run a capture to analyze competitor moves." />
                     </Card>
                   ) : (
                     <BlockStack gap="300">
-                      {sortedInsights.map((insight) => <InsightCard key={insight.id} insight={insight} />)}
+                      {insightItems.map((item) => item.kind === "group" ? (
+                        <InsightGroupCard
+                          key={item.id}
+                          label={item.label}
+                          typeLabel={item.typeLabel}
+                          severity={item.severity}
+                          insights={item.insights}
+                        />
+                      ) : (
+                        <InsightCard key={item.id} insight={item.insight} />
+                      ))}
                     </BlockStack>
                   )}
                 </BlockStack>
@@ -638,19 +710,31 @@ export default function MarketIntelligencePage() {
                   <InlineStack align="space-between" blockAlign="end">
                     <BlockStack gap="100">
                       <Text variant="headingMd" as="h2">Competitor ad creative</Text>
-                      <Text as="p" tone="subdued">Competitor ads — longest-running first.</Text>
+                      <Text as="p" tone="subdued">
+                        {showAllAds
+                          ? "All captured competitor ads — longest-running first."
+                          : "Proven, long-running ads only (60+ days) — longest-running first."}
+                      </Text>
                     </BlockStack>
-                    <div style={{ minWidth: 220 }}>
-                      <TextField
-                        label="Filter by competitor"
-                        value={filterCompetitor}
-                        onChange={setFilterCompetitor}
-                        placeholder="e.g. Harvest Gold"
-                        autoComplete="off"
-                        clearButton
-                        onClearButtonClick={() => setFilterCompetitor("")}
+                    <InlineStack gap="400" blockAlign="end">
+                      <Checkbox
+                        label="Show all captured ads"
+                        checked={showAllAds}
+                        onChange={setShowAllAds}
+                        helpText="Include newly-tracked competitors"
                       />
-                    </div>
+                      <div style={{ minWidth: 220 }}>
+                        <TextField
+                          label="Filter by competitor"
+                          value={filterCompetitor}
+                          onChange={setFilterCompetitor}
+                          placeholder="e.g. Harvest Gold"
+                          autoComplete="off"
+                          clearButton
+                          onClearButtonClick={() => setFilterCompetitor("")}
+                        />
+                      </div>
+                    </InlineStack>
                   </InlineStack>
                   {angleSummary.length > 0 && (
                     <InlineStack gap="150" blockAlign="center" wrap>
@@ -664,7 +748,14 @@ export default function MarketIntelligencePage() {
                     <InlineStack align="center"><Spinner size="small" /></InlineStack>
                   ) : adCards.length === 0 ? (
                     <Card>
-                      <EmptyMessage title="No competitor ads found" description="No competitor ads captured yet. Add a competitor in Manage tracking below to start capturing." />
+                      <EmptyMessage
+                        title="No competitor ads found"
+                        description={
+                          showAllAds
+                            ? "No competitor ads captured yet. Add a competitor in Manage tracking below to start capturing."
+                            : 'No ads have run 60+ days yet. Check "Show all captured ads" above to see newly-tracked competitors\' ads.'
+                        }
+                      />
                     </Card>
                   ) : (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px" }}>

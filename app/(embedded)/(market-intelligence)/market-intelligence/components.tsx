@@ -102,6 +102,58 @@ export function InsightCard({ insight }: { insight: MarketInsight }) {
   );
 }
 
+/**
+ * A run of same-type insights for one competitor, collapsed into a single row
+ * so ten "Trinitea has an ad running N days" entries read as one
+ * "Trinitea · 10 long-running ads" you can expand — instead of ten stacked
+ * near-identical cards drowning out genuinely new changes.
+ */
+export function InsightGroupCard({
+  label,
+  typeLabel,
+  severity,
+  insights,
+}: {
+  label: string;
+  typeLabel: string;
+  severity: string;
+  insights: MarketInsight[];
+}) {
+  const [open, setOpen] = useState(false);
+  const latest = insights.reduce<string | null>(
+    (acc, i) => (!acc || new Date(i.createdAt) > new Date(acc) ? i.createdAt : acc),
+    null,
+  );
+  return (
+    <Card>
+      <BlockStack gap="150">
+        <InlineStack gap="200" align="space-between" blockAlign="center" wrap={false}>
+          <InlineStack gap="200" blockAlign="center" wrap={false}>
+            <Badge tone={severityTone(severity)}>{severity}</Badge>
+            <Text variant="headingSm" as="h3">{label} · {insights.length} {typeLabel}</Text>
+          </InlineStack>
+          <Link removeUnderline onClick={() => setOpen((v) => !v)}>{open ? "Hide" : "View all"}</Link>
+        </InlineStack>
+        <InlineStack gap="200" wrap>
+          <Text as="span" variant="bodySm" tone="subdued">{typeLabel}</Text>
+          {latest && <Text as="span" variant="bodySm" tone="subdued">· latest {relativeTime(latest)}</Text>}
+        </InlineStack>
+        {open && (
+          <BlockStack gap="200">
+            <Divider />
+            {insights.map((i) => (
+              <BlockStack key={i.id} gap="050">
+                <Text as="p" fontWeight="medium" variant="bodySm">{i.title}</Text>
+                {i.summary && <Text as="p" tone="subdued" variant="bodySm">{i.summary}</Text>}
+              </BlockStack>
+            ))}
+          </BlockStack>
+        )}
+      </BlockStack>
+    </Card>
+  );
+}
+
 // ─── Price comparison ────────────────────────────────────────────────────────
 
 export interface OurProduct {
@@ -240,6 +292,7 @@ interface StolenAd {
 
 export function AdCreativeCard({ ad, count = 1 }: { ad: CompetitorAd; count?: number }) {
   const [expanded, setExpanded] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [stealing, setStealing] = useState(false);
   const [stolen, setStolen] = useState<StolenAd | null>(null);
   const [stealError, setStealError] = useState<string | null>(null);
@@ -321,8 +374,6 @@ export function AdCreativeCard({ ad, count = 1 }: { ad: CompetitorAd; count?: nu
             <Badge tone={durationTone as "success" | "attention" | undefined}>{durationLabel}</Badge>
             <Badge tone={isActive && !ended ? "success" : undefined}>{ended ? "inactive" : (ad.activeStatus ?? "unknown")}</Badge>
             {ad.creativeAngle && <Badge tone="info">{ad.creativeAngle.replace(/-/g, " ")}</Badge>}
-            {ad.creativeType && <Badge>{ad.creativeType.toLowerCase()}</Badge>}
-            {platforms.map((p) => <Badge key={p}>{p.toLowerCase()}</Badge>)}
           </InlineStack>
         )}
 
@@ -330,14 +381,6 @@ export function AdCreativeCard({ ad, count = 1 }: { ad: CompetitorAd; count?: nu
         <Text as="p" tone="subdued">{shownCopy || "No ad text"}</Text>
         {isLong && (
           <Link removeUnderline onClick={() => setExpanded((v) => !v)}>{expanded ? "Show less" : "Show more"}</Link>
-        )}
-        {hashtags.length > 0 && (
-          <InlineStack gap="100" wrap>
-            {hashtags.slice(0, 8).map((tag) => (
-              <Badge key={tag} tone="info">{tag}</Badge>
-            ))}
-            {hashtags.length > 8 && <Text as="span" variant="bodySm" tone="subdued">+{hashtags.length - 8} more</Text>}
-          </InlineStack>
         )}
 
         {ad.cta && (
@@ -354,6 +397,26 @@ export function AdCreativeCard({ ad, count = 1 }: { ad: CompetitorAd; count?: nu
             <Link url={ad.adSnapshotUrl} target="_blank">View on Meta</Link>
           )}
         </InlineStack>
+
+        {/* Platforms, creative type and hashtags tucked behind a toggle so the
+            card leads with the creative itself instead of a wall of badges. */}
+        {(platforms.length > 0 || hashtags.length > 0 || ad.creativeType) && (
+          <BlockStack gap="150">
+            <Link removeUnderline onClick={() => setShowDetails((v) => !v)}>
+              {showDetails ? "Hide details" : "Details"}
+            </Link>
+            {showDetails && (
+              <InlineStack gap="100" wrap>
+                {ad.creativeType && <Badge>{ad.creativeType.toLowerCase()}</Badge>}
+                {platforms.map((p) => <Badge key={p}>{p.toLowerCase()}</Badge>)}
+                {hashtags.slice(0, 8).map((tag) => (
+                  <Badge key={tag} tone="info">{tag}</Badge>
+                ))}
+                {hashtags.length > 8 && <Text as="span" variant="bodySm" tone="subdued">+{hashtags.length - 8} more</Text>}
+              </InlineStack>
+            )}
+          </BlockStack>
+        )}
 
         {/* Steal This Ad */}
         {(ad.adCopy || ad.headline) && (
@@ -433,6 +496,40 @@ const PRIORITY_TONE: Record<string, "critical" | "attention" | "info"> = {
   medium: "attention",
   low: "info",
 };
+
+// Priority → Polaris fill token for the coloured left rail on each action.
+const PRIORITY_ACCENT: Record<string, string> = {
+  high: "critical",
+  medium: "caution",
+  low: "info",
+};
+
+// One analysis section (Ads / Pricing / Opportunity) as a compact, scannable
+// card: a bold lead sentence plus the rest of the prose collapsed behind a
+// toggle, so the brief can be skimmed instead of read wall-to-wall.
+function BriefSection({ title, body }: { title: string; body: string }) {
+  const [open, setOpen] = useState(false);
+  const trimmed = (body ?? "").trim();
+  // Split off the first sentence as the takeaway lead.
+  const match = trimmed.match(/^([\s\S]*?[.!?])(\s+)([\s\S]*)$/);
+  const lead = match ? match[1] : trimmed;
+  const rest = match ? match[3] : "";
+
+  return (
+    <Box borderColor="border" borderWidth="025" padding="400" borderRadius="200" minHeight="100%">
+      <BlockStack gap="150">
+        <Text variant="headingXs" as="h3" tone="subdued">{title}</Text>
+        <Text as="p" fontWeight="medium">{lead || "—"}</Text>
+        {rest && open && <Text as="p" tone="subdued">{rest}</Text>}
+        {rest && (
+          <Link removeUnderline onClick={() => setOpen((v) => !v)}>
+            {open ? "Show less" : "Show more"}
+          </Link>
+        )}
+      </BlockStack>
+    </Box>
+  );
+}
 
 export function CompetitiveBrief() {
   const [brief, setBrief] = useState<BriefSections | null>(null);
@@ -514,41 +611,39 @@ export function CompetitiveBrief() {
 
         {brief && !loading && (
           <BlockStack gap="400">
-            <BlockStack gap="100">
-              <Text variant="headingSm" as="h3">Ads Activity</Text>
-              <Text as="p" tone="subdued">{brief.adsActivity}</Text>
-            </BlockStack>
-            <Divider />
-            <BlockStack gap="100">
-              <Text variant="headingSm" as="h3">Pricing Movements</Text>
-              <Text as="p" tone="subdued">{brief.pricingMovements}</Text>
-            </BlockStack>
-            <Divider />
-            <BlockStack gap="100">
-              <Text variant="headingSm" as="h3">Opportunities</Text>
-              <Text as="p" tone="subdued">{brief.opportunities}</Text>
-            </BlockStack>
+            {/* Recommended Actions lead — the only actionable part of the brief,
+                so it sits at the top instead of buried under the analysis. */}
             {brief.recommendedActions.length > 0 && (
-              <>
-                <Divider />
-                <BlockStack gap="200">
-                  <Text variant="headingSm" as="h3">Recommended Actions</Text>
-                  <BlockStack gap="150">
-                    {brief.recommendedActions.map((item, i) => (
-                      <InlineStack key={i} gap="200" blockAlign="start" wrap={false}>
-                        <Box minWidth="60px">
-                          <Badge tone={PRIORITY_TONE[item.priority] ?? "info"}>{item.priority.toUpperCase()}</Badge>
-                        </Box>
-                        <BlockStack gap="0">
-                          <Text as="p" fontWeight="semibold">{item.action}</Text>
-                          <Text as="p" tone="subdued" variant="bodySm">{item.reason}</Text>
-                        </BlockStack>
-                      </InlineStack>
-                    ))}
-                  </BlockStack>
+              <BlockStack gap="300">
+                <Text variant="headingSm" as="h3">Recommended actions</Text>
+                <BlockStack gap="400">
+                  {brief.recommendedActions.map((item, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        borderInlineStart: `3px solid var(--p-color-bg-fill-${PRIORITY_ACCENT[item.priority] ?? "info"})`,
+                        paddingInlineStart: "var(--p-space-400)",
+                      }}
+                    >
+                      <BlockStack gap="100">
+                        <Badge tone={PRIORITY_TONE[item.priority] ?? "info"}>{item.priority.toUpperCase()}</Badge>
+                        <Text as="p" fontWeight="semibold">{item.action}</Text>
+                        <Text as="p" tone="subdued" variant="bodySm">{item.reason}</Text>
+                      </BlockStack>
+                    </div>
+                  ))}
                 </BlockStack>
-              </>
+              </BlockStack>
             )}
+
+            <Divider />
+
+            {/* Analysis as a scannable 3-up strip rather than stacked paragraphs. */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
+              <BriefSection title="Ads activity" body={brief.adsActivity} />
+              <BriefSection title="Pricing movements" body={brief.pricingMovements} />
+              <BriefSection title="Opportunities" body={brief.opportunities} />
+            </div>
           </BlockStack>
         )}
       </BlockStack>

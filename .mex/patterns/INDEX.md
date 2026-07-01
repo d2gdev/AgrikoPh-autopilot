@@ -11,6 +11,7 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [debug-pipeline.md#task-diagnose-no-recommendations-generated](debug-pipeline.md#task-diagnose-no-recommendations-generated) | Skills ran but no new Recommendation rows appeared |
 | [debug-pipeline.md#task-diagnose-execute-approved-not-executing](debug-pipeline.md#task-diagnose-execute-approved-not-executing) | Approved recommendations are not being executed |
 | [debug-pipeline.md#task-diagnose-connector-auth-failures](debug-pipeline.md#task-diagnose-connector-auth-failures) | A connector is returning 401/403 or token-expired errors |
+| [debug-pipeline.md#task-diagnose-competitor-ads-not-appearing-in-the-market-intelligence-ui](debug-pipeline.md#task-diagnose-competitor-ads-not-appearing-in-the-market-intelligence-ui) | Market Intelligence "Ads" tab shows few/no ads for a competitor |
 | [debug-shopify-app-bridge-auth.md](debug-shopify-app-bridge-auth.md) | Shopify embedded UI auth fails with App Bridge `idToken()` timeouts, dashboard 401s, or tab/navigation auth breakage |
 | [deploy.md#task-deploy-code-changes](deploy.md#task-deploy-code-changes) | Deploying code to the Linode VPS production server |
 | [deploy.md#task-run-database-migrations-in-production](deploy.md#task-run-database-migrations-in-production) | Running Prisma migrations on the production database |

@@ -11,6 +11,8 @@ triggers:
   - "execute-approved not working"
   - "stuck job"
   - "stale job"
+  - "ads not showing"
+  - "competitor ads missing"
 edges:
   - target: context/data-pipeline.md
     condition: for full pipeline structure and component responsibilities
@@ -18,7 +20,7 @@ edges:
     condition: for skill runner and guardrail debug paths
   - target: patterns/add-cron-job.md
     condition: if the fix involves changing a job handler
-last_updated: 2026-06-25
+last_updated: 2026-07-01
 ---
 
 # Debug Pipeline
@@ -116,6 +118,28 @@ Check `JobRun` rows first — they are the authoritative record of what ran and 
 | Shopify Admin | `SHOPIFY_ADMIN_ACCESS_TOKEN` env | `npm run shopify:refresh-token` |
 | GSC / GA4 | Service account JSON | Never expires unless rotated manually |
 | Google Ads | `GOOGLE_ADS_REFRESH_TOKEN` env | OAuth refresh token; rotate if revoked |
+
+---
+
+## Task: Diagnose Competitor Ads Not Appearing in the Market Intelligence UI
+
+### Symptom: "Ads" tab shows few/no ads for a competitor, or a tracked competitor never shows anything
+
+Two independent layers can each cause this — check both, don't stop at the first plausible one:
+
+1. **Is the competitor even being scraped?**
+   - Query `CompetitorSocialPage` for the competitor: `active` must be `true` AND `pageId` must be purely numeric (`/^\d+$/`). `jobs/fetch-market-intel.ts` only sends numeric `pageId`s to Apify (`apify-meta-ads.ts` filters with `/^\d+$/.test(id)`), and there's no scraper fallback — a non-numeric `pageId` (a URL, vanity slug, or empty string) is silently dropped with zero error/log entry, forever.
+   - `config/route.ts`'s POST validates `pageId` is numeric on the UI path, so this class of bug only enters via direct SQL/seed-script inserts that bypass that route — check for that if a competitor has a suspicious `pageId`.
+   - `scripts/seed-competitors.mjs` deactivates any social page with a non-numeric `pageId` but does NOT supply a replacement — if a competitor's only page gets deactivated this way, it silently stops capturing anything until a human finds and adds the correct numeric Facebook page ID (via Facebook's own Page Transparency panel; Apify ad-library keyword search and anonymous scraping are unreliable for resolving vanity names → numeric IDs).
+   - Also check for accidental duplicate `Competitor` rows (same brand, slightly different name string) — `competitor.upsert` keys on exact `name`, so "Organics.ph" and "Organics PH" become two different rows, and the duplicate may carry the broken `pageId` while the original works fine.
+
+2. **Is the UI filtering it out even though it was captured?**
+   - `app/(embedded)/(market-intelligence)/market-intelligence/page.tsx`'s Ads tab defaults to showing only "proven, long-running" ads (`startDate` 60+ days in the past). A competitor whose captured ads are all newer than 60 days will show **zero** cards by default even though the API returned them — check the "Show all captured ads" checkbox (added to cover this) before concluding nothing was captured.
+   - The API (`app/api/market-intelligence/route.ts`) also only returns the most recent 80 `CompetitorAd` rows (by `capturedAt`) before the UI filter even runs — a competitor whose ads weren't in the most recent capture batch can be crowded out if capture volume is high.
+
+### Gotchas
+
+- Don't diagnose from the DB total count alone — a competitor can have hundreds of captured ads and still show nothing in the UI if none of them are 60+ days old. Reproduce with the actual API response + front-end filter logic (`competitorAds` → `isSpamStoryAd` → 80-row/50-row API caps → UI date-range/60-day/dedup filters), not just `SELECT count(*)`.
 
 ## Update Scaffold
 - [ ] Update `.mex/ROUTER.md` "Known Issues" if a systemic issue was found

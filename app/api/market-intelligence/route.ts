@@ -40,6 +40,37 @@ async function loadMarketIntelligencePayload(forceRefresh: boolean): Promise<Mar
   }
 }
 
+const ADS_PER_COMPETITOR = 15;
+
+const competitorAdSelect = {
+  id: true, capturedAt: true, competitorId: true, pageName: true,
+  adCopy: true, adCopyEn: true, headline: true, headlineEn: true,
+  description: true, cta: true, landingPageUrl: true, adSnapshotUrl: true,
+  platforms: true, startDate: true, endDate: true, activeStatus: true,
+  creativeType: true, creativeAngle: true, imageUrl: true, videoUrl: true,
+  // rawPayload, adArchiveId, pageId, jobRunId omitted — large/unused in UI
+  competitor: { select: { id: true, name: true } },
+} as const;
+
+// Fetch the most-recently-captured ads *per competitor* rather than a single
+// global "most recent N" cap — a global cap starves out competitors whose
+// last capture is older than busier competitors', hiding their ads from the
+// UI entirely even though they were successfully captured.
+async function fetchRecentAdsPerCompetitor() {
+  const competitors = await prisma.competitor.findMany({ where: { active: true }, select: { id: true } });
+  const perCompetitor = await Promise.all(
+    competitors.map((c) =>
+      prisma.competitorAd.findMany({
+        where: { competitorId: c.id },
+        orderBy: { capturedAt: "desc" },
+        take: ADS_PER_COMPETITOR,
+        select: competitorAdSelect,
+      }),
+    ),
+  );
+  return perCompetitor.flat().sort((a, b) => b.capturedAt.getTime() - a.capturedAt.getTime());
+}
+
 async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePayload> {
   const [
     insights,
@@ -83,19 +114,7 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
         searchPosition: true,
       },
     }),
-    prisma.competitorAd.findMany({
-      orderBy: { capturedAt: "desc" },
-      take: 80,
-      select: {
-        id: true, capturedAt: true, competitorId: true, pageName: true,
-        adCopy: true, adCopyEn: true, headline: true, headlineEn: true,
-        description: true, cta: true, landingPageUrl: true, adSnapshotUrl: true,
-        platforms: true, startDate: true, endDate: true, activeStatus: true,
-        creativeType: true, creativeAngle: true, imageUrl: true, videoUrl: true,
-        // rawPayload, adArchiveId, pageId, jobRunId omitted — large/unused in UI
-        competitor: { select: { id: true, name: true } },
-      },
-    }),
+    fetchRecentAdsPerCompetitor(),
     prisma.keywordResearchResult.findMany({
       orderBy: { capturedAt: "desc" },
       take: 50,
@@ -134,7 +153,10 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
 
   // Hide spam serialized-story creatives already stored from earlier scrapes,
   // without waiting for the next fetch-market-intel run to re-filter them.
-  const cleanCompetitorAds = competitorAds.filter((ad) => !isSpamStoryAd(ad)).slice(0, 50);
+  // No further slice here — fetchRecentAdsPerCompetitor() already bounds size
+  // per-competitor; an additional global slice would re-introduce the same
+  // starvation bug this replaced (busier competitors crowding out quieter ones).
+  const cleanCompetitorAds = competitorAds.filter((ad) => !isSpamStoryAd(ad));
 
   // The "What changed" feed is built from insights; drop any insight whose
   // underlying ad is spam (keyword-search captures content-farm story ads).
