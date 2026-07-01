@@ -6,6 +6,7 @@ import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getJobsStatusPayload } from "@/lib/dashboard/jobs-status";
 import { fetchProductImages } from "@/lib/shopify-admin";
+import { priorityRank } from "@/lib/growth-brief/priority";
 
 type BriefTone = "success" | "warning" | "critical" | "info";
 
@@ -21,8 +22,9 @@ type BriefItem = {
 };
 
 function priorityTone(priority: string | null | undefined): BriefTone {
-  if (priority === "P0" || priority === "P1") return "critical";
-  if (priority === "P2") return "warning";
+  const rank = priorityRank(priority);
+  if (rank <= 1) return "critical";
+  if (rank === 2) return "warning";
   return "info";
 }
 
@@ -317,13 +319,13 @@ export async function GET(req: Request) {
     }
 
     const sortedNeedsAttention = needsAttention
-      .sort((a, b) => (a.priority > b.priority ? 1 : -1))
+      .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
       .slice(0, 10);
     const sortedReady = readyToApprove
-      .sort((a, b) => (a.priority > b.priority ? 1 : -1))
+      .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
       .slice(0, 10);
     const sortedQuickWins = quickWins
-      .sort((a, b) => (a.priority > b.priority ? 1 : -1))
+      .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
       .slice(0, 10);
 
     const nextAction = sortedNeedsAttention[0]

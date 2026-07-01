@@ -126,8 +126,8 @@ function ItemCard({ item }: { item: BriefItem }) {
         </BlockStack>
         {item.meta.length > 0 ? (
           <InlineStack gap="150" wrap>
-            {item.meta.map((m) => (
-              <Badge key={m} tone="info">
+            {item.meta.map((m, i) => (
+              <Badge key={`${item.id}-${i}`} tone="info">
                 {m}
               </Badge>
             ))}
