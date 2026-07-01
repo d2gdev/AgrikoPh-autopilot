@@ -7,9 +7,9 @@ import {
 } from "@/lib/dashboard/jobs-status";
 
 export async function GET(req: Request) {
-  const startedAt = Date.now();
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const startedAt = Date.now();
 
   try {
     const runId = new URL(req.url).searchParams.get("runId");

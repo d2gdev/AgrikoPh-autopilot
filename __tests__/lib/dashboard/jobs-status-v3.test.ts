@@ -11,6 +11,7 @@ const mockPrisma = {
     findFirst: vi.fn(),
     groupBy: vi.fn(),
     findMany: vi.fn(),
+    updateMany: vi.fn(),
   },
   contentProposal: {
     groupBy: vi.fn(),
@@ -80,6 +81,7 @@ function defaultMocks() {
   mockPrisma.jobRun.findFirst.mockResolvedValue(null);
   mockPrisma.jobRun.groupBy.mockResolvedValue([]);
   mockPrisma.jobRun.findMany.mockResolvedValue([]);
+  mockPrisma.jobRun.updateMany.mockResolvedValue({ count: 0 });
   mockPrisma.contentProposal.groupBy.mockResolvedValue([]);
   mockPrisma.contentProposal.count.mockResolvedValue(0);
   mockPrisma.contentProposal.findMany.mockResolvedValue([]);

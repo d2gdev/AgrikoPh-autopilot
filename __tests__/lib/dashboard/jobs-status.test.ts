@@ -11,6 +11,7 @@ const mockPrisma = {
     findFirst: vi.fn(),
     groupBy: vi.fn(),
     findMany: vi.fn(),
+    updateMany: vi.fn(),
   },
   contentProposal: {
     groupBy: vi.fn(),
@@ -45,6 +46,7 @@ beforeEach(() => {
   mockPrisma.jobRun.findFirst.mockResolvedValue(null);
   mockPrisma.jobRun.groupBy.mockResolvedValue([]);
   mockPrisma.jobRun.findMany.mockResolvedValue([]);
+  mockPrisma.jobRun.updateMany.mockResolvedValue({ count: 0 });
   mockPrisma.contentProposal.groupBy.mockResolvedValue([
     { status: "pending", _count: { _all: 2 } },
   ]);

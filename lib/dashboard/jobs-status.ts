@@ -3,11 +3,23 @@ import { prisma } from "@/lib/db";
 import { addInsightRow, emptyMetrics } from "@/lib/ad-pilot/report";
 import {
   DASHBOARD_JOB_NAMES,
+  QUEUED_DASHBOARD_JOB_NAMES,
   getDashboardJob,
 } from "@/lib/dashboard/job-registry";
 
 export const JOB_STATUS_SNAPSHOT_SOURCE = "dashboard_jobs_status_v1";
 export const JOB_NAMES = DASHBOARD_JOB_NAMES;
+
+// Jobs with triggerStrategy "cron" or "disabled" create their JobRun row
+// directly in the handler (no ownerToken/claimedAt) and only ever reach a
+// terminal status via their own try/finally — so if the process is killed
+// mid-run (timeout/OOM/crash), the row is stuck at status="running" forever.
+// recoverStaleQueuedRuns (lib/jobs/orchestrator.ts) already recovers the
+// queued-strategy jobs via their claim/retry mechanism; this set is
+// everything that mechanism does NOT cover.
+const NON_QUEUED_JOB_NAMES = DASHBOARD_JOB_NAMES.filter(
+  (name) => !(QUEUED_DASHBOARD_JOB_NAMES as readonly string[]).includes(name),
+);
 
 const SNAPSHOT_DATE = new Date(0);
 const STALE_RUNNING_JOB_MINUTES = Number(process.env.JOBS_STATUS_STALE_RUNNING_JOB_MINUTES ?? 30);
@@ -246,6 +258,25 @@ export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
   const buildStartedAt = Date.now();
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const staleRunningBefore = new Date(Date.now() - STALE_RUNNING_JOB_MINUTES * 60_000);
+
+  // Self-heal stuck "running" rows for non-queued jobs before computing health
+  // below, so a crash that killed the process mid-run doesn't permanently pin
+  // that job's dashboard tile to "stale_running"/critical even after later
+  // runs succeed. Queued-strategy jobs are excluded: drain-jobs already
+  // recovers those via recoverStaleQueuedRuns's claim/retry logic, and
+  // marking them "failed" here would skip that retry behavior.
+  await prisma.jobRun.updateMany({
+    where: {
+      jobName: { in: NON_QUEUED_JOB_NAMES },
+      status: "running",
+      startedAt: { lt: staleRunningBefore },
+    },
+    data: {
+      status: "failed",
+      completedAt: new Date(),
+      errorLog: `Recovered: run exceeded ${STALE_RUNNING_JOB_MINUTES}m without completing (process likely crashed or was killed mid-run).`,
+    },
+  });
 
   const dbPingStart = Date.now();
   await prisma.$queryRaw`SELECT 1`;
