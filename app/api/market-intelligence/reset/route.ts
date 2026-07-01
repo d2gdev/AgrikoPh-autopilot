@@ -286,6 +286,11 @@ export async function POST(req: Request) {
         metaKeywordPages: deactivatedPages.count,
         keywordSearchCompetitors: deactivatedCompetitors.count,
       };
+    }, {
+      // Six unbounded deleteMany() over the largest capture tables run serially
+      // here; the default 5s interactive-transaction timeout aborts (P2028) on
+      // large datasets — exactly the data this maintenance action must clear.
+      timeout: 110_000,
     });
 
     return NextResponse.json({

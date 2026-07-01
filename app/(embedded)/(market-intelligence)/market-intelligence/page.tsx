@@ -191,6 +191,9 @@ export default function MarketIntelligencePage() {
         if (status !== "queued" && status !== "running") {
           if (status !== "success" && status !== "partial") {
             setError(`Job ${jobName} finished with status ${status}`);
+            // Clear the success-toned notice so a failed job doesn't render a
+            // green "…failed" banner alongside the red error banner.
+            setNotice(null);
           } else {
             setError(null);
           }
@@ -202,6 +205,7 @@ export default function MarketIntelligencePage() {
       }
       if (isMountedRef.current && pollRef.current && Date.now() - started >= timeoutMs) {
         setError(`${kind === "capture" ? "Market Intelligence" : "Keyword research"} run timed out after 10 minutes.`);
+        setNotice(null);
         clearRunState();
       }
     } catch (err) {
@@ -836,7 +840,14 @@ export default function MarketIntelligencePage() {
                   </BlockStack>
                   {keywordResearchRows.length === 0 ? (
                     <Card>
-                      <EmptyMessage title="No keyword research captured yet" description={'Use the "Keyword research" button above to run a capture.'} />
+                      {(data?.keywordResearch ?? []).length > 0 ? (
+                        <EmptyMessage
+                          title="No keyword research for this date range"
+                          description="Keyword data exists but falls outside the selected range — try a wider date range."
+                        />
+                      ) : (
+                        <EmptyMessage title="No keyword research captured yet" description={'Use the "Keyword research" button above to run a capture.'} />
+                      )}
                     </Card>
                   ) : (
                     <DataTable

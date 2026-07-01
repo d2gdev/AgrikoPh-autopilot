@@ -13,8 +13,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body = await req.json() as { adId?: string };
-    if (!body.adId || typeof body.adId !== "string") {
+    const body = await req.json().catch(() => null) as { adId?: string } | null;
+    if (!body || !body.adId || typeof body.adId !== "string") {
       return NextResponse.json({ error: "adId is required" }, { status: 400 });
     }
     const result = await generateStolenAd(body.adId);

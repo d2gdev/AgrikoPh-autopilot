@@ -60,6 +60,9 @@ All routes live in `app/api/[resource]/route.ts` (Next.js App Router). Never put
 - Validate all query params — do not trust `req.nextUrl.searchParams` values directly; an invalid `status` or `platform` param passed to Prisma will throw
 - `getSessionUser(req)` returns the Shopify user ID for actor attribution in audit logs — use it for mutations that need `reviewedBy`/`actor` fields
 - Never read `AUTOPILOT_API_KEY` in route logic — `requireAppAuth` already handles that path; duplicate checks create inconsistency
+- **Always guard `await req.json()`** with `.catch(() => null)` (then return a 400 on null) — a bare `await req.json()` on an empty/malformed POST body throws, and if it's outside/inside a generic try it surfaces as an **empty-body 500** the client can't parse ("Unexpected end of JSON input"). This has recurred in `config`, `steal-ad`, and `send-to-content-pilot` routes. Pattern: `const body = await req.json().catch(() => null); if (!body) return 400;`
+- **Wrap DB access in try/catch and return a JSON error body** — a bare `await prisma…` in a GET produces an empty-body 500 on any DB fault; the client then fails on `res.json()` instead of seeing the cause.
+- **Range/filter-aware empty states:** when a list is filtered (e.g. by date range) before render, the empty message must distinguish "none exist" from "none in this range" (check the unfiltered length) — otherwise it falsely reads "nothing captured yet."
 
 ---
 

@@ -16,8 +16,8 @@ export async function POST(req: Request) {
   if (authError) return authError;
 
   try {
-    const body = await req.json() as SendBody;
-    if (!body.headline || !body.adCopy || !body.sourceAdId) {
+    const body = await req.json().catch(() => null) as SendBody | null;
+    if (!body || !body.headline || !body.adCopy || !body.sourceAdId) {
       return NextResponse.json({ error: "headline, adCopy, and sourceAdId are required" }, { status: 400 });
     }
 
