@@ -22,21 +22,19 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
-import { StatGrid } from "@/components/ui/stat-grid";
-import { StatCard } from "@/components/ui/stat-card";
 import { SectionCard } from "@/components/ui/section-card";
-import { EmptyMessage, StatGridSkeleton } from "@/components/ui/states";
+import { EmptyMessage } from "@/components/ui/states";
 import {
   AdCreativeCard,
   CompetitiveBrief,
   InsightCard,
   InsightGroupCard,
+  IntelHero,
   OurProduct,
   PriceComparisonCard,
   findMatches,
   SEVERITY_RANK,
   adRunningDays,
-  relativeTime,
   shortDate,
   type CompetitorAd,
   type MarketInsight,
@@ -114,14 +112,6 @@ async function readJson(res: Response, fallbackMessage: string): Promise<Record<
   } catch {
     throw new Error(`${fallbackMessage} (HTTP ${res.status})`);
   }
-}
-
-function lastCaptureTone(status?: string | null): "success" | "critical" | "attention" | undefined {
-  if (!status) return undefined;
-  const s = status.toLowerCase();
-  if (s === "success" || s === "completed") return "success";
-  if (s === "failed" || s === "error") return "critical";
-  return "attention";
 }
 
 export default function MarketIntelligencePage() {
@@ -612,26 +602,16 @@ export default function MarketIntelligencePage() {
           </Layout.Section>
         )}
 
-        {/* Stat cards */}
+        {/* Signature: competitive-intelligence hero band */}
         <Layout.Section>
-          {loading ? (
-            <StatGridSkeleton count={4} />
-          ) : (
-            <StatGrid>
-              <StatCard label="Active Competitors" value={data?.stats.activeCompetitors ?? 0} />
-              <StatCard label="Tracked Keywords" value={data?.stats.activeKeywords ?? 0} />
-              <StatCard label="Open Insights" value={data?.stats.openInsights ?? 0} />
-              <StatCard
-                label="Last Capture"
-                value={relativeTime(data?.lastJobRun?.completedAt ?? data?.lastJobRun?.startedAt)}
-                badge={
-                  lastStatus
-                    ? { label: lastStatus, tone: lastCaptureTone(lastStatus) }
-                    : undefined
-                }
-              />
-            </StatGrid>
-          )}
+          <IntelHero
+            activeCompetitors={data?.stats.activeCompetitors ?? 0}
+            activeKeywords={data?.stats.activeKeywords ?? 0}
+            openInsights={data?.stats.openInsights ?? 0}
+            lastRunAt={data?.lastJobRun?.completedAt ?? data?.lastJobRun?.startedAt}
+            lastStatus={lastStatus}
+            loading={loading}
+          />
         </Layout.Section>
 
         {/* Global date-range filter — a compact inline control rather than a

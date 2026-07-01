@@ -80,6 +80,106 @@ export function relativeTime(value?: string | null): string {
   return shortDate(value);
 }
 
+/**
+ * The page's signature: a deep-forest-green "intelligence band" that reframes
+ * Market Intelligence as a competitive war-room instead of generic Polaris stat
+ * cards. Green is Agriko's organic identity taken dark and serious; the accent
+ * is turmeric gold (their flagship product), deliberately not the default
+ * dashboard blue/acid-green. Key metrics render as large tabular numerals.
+ */
+export function IntelHero({
+  activeCompetitors,
+  activeKeywords,
+  openInsights,
+  lastRunAt,
+  lastStatus,
+  loading,
+}: {
+  activeCompetitors: number;
+  activeKeywords: number;
+  openInsights: number;
+  lastRunAt?: string | null;
+  lastStatus?: string | null;
+  loading?: boolean;
+}) {
+  const num = (n: number) => (loading ? "—" : n.toLocaleString("en-PH"));
+  const metrics: Array<{ value: string; label: string; accent: boolean }> = [
+    { value: num(activeCompetitors), label: "Competitors tracked", accent: false },
+    { value: num(activeKeywords), label: "Keywords watched", accent: false },
+    { value: num(openInsights), label: "Open signals", accent: true },
+  ];
+  return (
+    <div
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        borderRadius: 16,
+        background: "linear-gradient(135deg, #0A2417 0%, #124A2C 60%, #0C3320 100%)",
+        boxShadow: "0 14px 34px -16px rgba(6,26,16,0.65)",
+        padding: "26px 30px",
+      }}
+    >
+      {/* soft agricultural glow, top-right — depth without decoration */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: -90,
+          right: -70,
+          width: 280,
+          height: 280,
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(61,187,107,0.20) 0%, rgba(61,187,107,0) 70%)",
+          pointerEvents: "none",
+        }}
+      />
+      <div style={{ position: "relative" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 22, flexWrap: "wrap" }}>
+          <span
+            aria-hidden
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "#E8A33D",
+              boxShadow: "0 0 0 4px rgba(232,163,61,0.22)",
+            }}
+          />
+          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#E8A33D" }}>
+            Competitive Intelligence
+          </span>
+          <span style={{ marginLeft: "auto", fontSize: 12.5, fontWeight: 500, color: "rgba(233,238,231,0.68)" }}>
+            {loading
+              ? "Syncing…"
+              : `Last sweep ${relativeTime(lastRunAt)}${lastStatus ? ` · ${lastStatus}` : ""}`}
+          </span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 20 }}>
+          {metrics.map((m) => (
+            <div key={m.label}>
+              <div
+                style={{
+                  fontSize: 46,
+                  fontWeight: 800,
+                  lineHeight: 1,
+                  letterSpacing: "-0.03em",
+                  fontVariantNumeric: "tabular-nums",
+                  color: m.accent ? "#69E29A" : "#FFFFFF",
+                }}
+              >
+                {m.value}
+              </div>
+              <div style={{ marginTop: 9, fontSize: 12.5, fontWeight: 500, letterSpacing: "0.02em", color: "rgba(233,238,231,0.62)" }}>
+                {m.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** One insight as a severity-toned card — the page's "what changed" headline unit. */
 export function InsightCard({ insight }: { insight: MarketInsight }) {
   const source = insight.competitor?.name ?? insight.keyword?.keyword ?? null;
