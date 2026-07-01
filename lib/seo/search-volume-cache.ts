@@ -44,3 +44,26 @@ export async function fillSearchVolumeCache(queries: string[], now: Date = new D
   }
   return filled;
 }
+
+/**
+ * Fill the volume cache for the top queries (by impressions) in a set of GSC
+ * query rows/pairs. Shared by both GSC fetch paths (fetch-gsc-data and
+ * fetch-seo-data) so the "top queries by impressions" logic lives in one place.
+ */
+export async function fillSearchVolumeFromGscRows(
+  rows: Array<{ query?: unknown; impressions?: unknown }>,
+  now: Date = new Date(),
+): Promise<number> {
+  const impressionsByQuery = new Map<string, number>();
+  for (const row of rows) {
+    const query = typeof row.query === "string" ? row.query : "";
+    if (!query) continue;
+    const impressions = typeof row.impressions === "number" ? row.impressions : Number(row.impressions) || 0;
+    impressionsByQuery.set(query, (impressionsByQuery.get(query) ?? 0) + impressions);
+  }
+  const topQueries = [...impressionsByQuery.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_QUERIES)
+    .map(([q]) => q);
+  return fillSearchVolumeCache(topQueries, now);
+}

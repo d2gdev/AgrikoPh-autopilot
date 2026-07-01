@@ -107,7 +107,17 @@ export async function fetchSeoDataHandler(): Promise<JobResult<FetchSeoSummary>>
         label: `gsc_query_page[${start.toISOString().slice(0, 10)}]`,
         run: async () => {
           const { fetchGscQueryPageData } = await import("@/lib/connectors/gsc");
-          await saveSnapshot("gsc_query_page", start, end, await fetchGscQueryPageData({ start, end }));
+          const gsc = await fetchGscQueryPageData({ start, end });
+          await saveSnapshot("gsc_query_page", start, end, gsc);
+          // Keep the DataForSEO search-volume cache warm on the daily path too
+          // (non-fatal; bounded + 30-day cached — see search-volume-cache).
+          try {
+            const { fillSearchVolumeFromGscRows } = await import("@/lib/seo/search-volume-cache");
+            const pairs = ((gsc as { pairs?: unknown }).pairs as Array<{ query?: unknown; impressions?: unknown }>) ?? [];
+            await fillSearchVolumeFromGscRows(pairs);
+          } catch {
+            /* volume cache is best-effort; never fail the SEO fetch over it */
+          }
         },
       });
     }

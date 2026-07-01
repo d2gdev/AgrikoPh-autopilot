@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { fetchGscQueryPageData } from "@/lib/connectors/gsc";
-import { fillSearchVolumeCache } from "@/lib/seo/search-volume-cache";
+import { fillSearchVolumeFromGscRows } from "@/lib/seo/search-volume-cache";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
 
 type FetchGscSummary = {
@@ -92,16 +92,7 @@ export async function fetchGscDataHandler(): Promise<JobResult<FetchGscSummary>>
     // impressions) that feed the SEO "Traffic" column — one bounded, cached
     // bulk call. Non-fatal: a volume-fetch failure must not fail the GSC job.
     try {
-      const impressionsByQuery = new Map<string, number>();
-      for (const r of rows) {
-        if (!r.query) continue;
-        impressionsByQuery.set(r.query, (impressionsByQuery.get(r.query) ?? 0) + r.impressions);
-      }
-      const topQueries = [...impressionsByQuery.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 50)
-        .map(([q]) => q);
-      summary.searchVolumeFilled = await fillSearchVolumeCache(topQueries, capturedAt);
+      summary.searchVolumeFilled = await fillSearchVolumeFromGscRows(rows, capturedAt);
     } catch (err) {
       errors.push(`search-volume: ${String(err).slice(0, 200)}`);
     }
