@@ -146,6 +146,50 @@ describe("saveOpenDailyMarketInsight idempotency", () => {
     );
   });
 
+  it("omitting the discriminator preserves the legacy 5-segment dedupeKey (no regression)", async () => {
+    await saveOpenDailyMarketInsight(baseInsight(), CAPTURED_AT);
+    const call = mockMarketInsight.upsert.mock.calls[0]![0];
+    expect(call.where.dedupeKey).toBe("COMPETITOR_PRICE_CHANGE|comp-1|kw-1||2026-06-25");
+  });
+
+  it("price_change insights for different products under the same keyword get DISTINCT dedupeKeys (no overwrite)", async () => {
+    // Reproduces the data-loss bug: same type+keyword+day, different products.
+    mockMarketInsight.findUnique.mockResolvedValue(null);
+    await saveOpenDailyMarketInsight(
+      baseInsight({ type: "price_change", competitorId: null, keywordId: "kw-1", adId: null }),
+      CAPTURED_AT,
+      "product-A",
+    );
+    await saveOpenDailyMarketInsight(
+      baseInsight({ type: "price_change", competitorId: null, keywordId: "kw-1", adId: null }),
+      CAPTURED_AT,
+      "product-B",
+    );
+    const keys = (mockMarketInsight.upsert.mock.calls as Array<[{ where: { dedupeKey: string } }]>).map(
+      (c) => c[0].where.dedupeKey,
+    );
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[0]).toContain("product-A");
+    expect(keys[1]).toContain("product-B");
+  });
+
+  it("price_change insights for the SAME product dedupe to one key (idempotent re-run)", async () => {
+    await saveOpenDailyMarketInsight(
+      baseInsight({ type: "price_change", competitorId: null, keywordId: "kw-1", adId: null }),
+      CAPTURED_AT,
+      "product-A",
+    );
+    await saveOpenDailyMarketInsight(
+      baseInsight({ type: "price_change", competitorId: null, keywordId: "kw-1", adId: null }),
+      CAPTURED_AT,
+      "product-A",
+    );
+    const keys = (mockMarketInsight.upsert.mock.calls as Array<[{ where: { dedupeKey: string } }]>).map(
+      (c) => c[0].where.dedupeKey,
+    );
+    expect(keys[0]).toBe(keys[1]);
+  });
+
   it("creates TWO separate rows when competitorId differs (different dedupeKey)", async () => {
     // Both calls see no existing row
     mockMarketInsight.findUnique.mockResolvedValue(null);

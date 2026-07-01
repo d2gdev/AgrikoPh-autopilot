@@ -4,7 +4,10 @@ import type { RawSnapshot } from "@prisma/client";
 import { getAiClient } from "@/lib/ai/client";
 import { retrieveContext, formatGroundingBlock } from "@/lib/ai/knowledge";
 
-const DEFAULT_MODEL = "deepseek-v4-flash";
+// deepseek-v4-flash returns HTTP 200 with EMPTY content — it silently breaks
+// skill JSON parsing and produces zero recommendations. deepseek-chat returns
+// real content. See lib/ai/client.ts for the same fix.
+const DEFAULT_MODEL = "deepseek-chat";
 
 
 const RecommendationSchema = z.object({
@@ -168,7 +171,7 @@ If nothing actionable, output \`\`\`recommendations\n[]\n\`\`\``;
 
   const ai = await getAiClient({
     deepseekModel: DEFAULT_MODEL,
-    openRouterModel: "deepseek/deepseek-v4-flash",
+    openRouterModel: "deepseek/deepseek-chat",
   });
   const response = await ai.client.chat.completions.create({
     model: ai.model,

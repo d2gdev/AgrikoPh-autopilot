@@ -2,7 +2,7 @@
 // not flow through as NaN into Math.max/Prisma `take`/.slice — `0` is a valid
 // value for some of these limits, so a plain `|| default` falsy-fallback
 // would also be wrong.
-function envInt(raw: string | undefined, fallback: number): number {
+export function envInt(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
   return Number.isFinite(n) ? n : fallback;
 }

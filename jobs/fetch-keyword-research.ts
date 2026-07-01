@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { fetchGoogleAdsKeywordResearch, fetchGoogleAdsKeywordIdeas } from "@/lib/connectors/google-ads";
+import { envInt } from "@/lib/market-intel/profiles";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
 
 type FetchKeywordResearchSummary = {
@@ -119,7 +120,7 @@ export async function fetchKeywordResearchHandler(
   const runId = await getOrCreateRunId(options.runId);
   // Keyword Planner volume lookup + idea expansion is a single batched call, so
   // cover all active seeds by default. Cap at 100 as a safety bound.
-  const keywordLimit = Math.max(1, Number(process.env.MARKET_INTEL_KEYWORD_LIMIT ?? 100));
+  const keywordLimit = Math.max(1, envInt(process.env.MARKET_INTEL_KEYWORD_LIMIT, 100));
   const capturedAt = new Date();
   const summary: FetchKeywordResearchSummary = {
     keywordsChecked: 0,
@@ -176,7 +177,7 @@ export async function fetchKeywordResearchHandler(
 
     // Long-tail discovery: expand the seeds (and optionally the store URL) into
     // NEW keyword ideas the seed list never contained, then store the fresh ones.
-    const ideaLimit = Math.max(0, Number(process.env.MARKET_INTEL_KEYWORD_IDEAS_LIMIT ?? 50));
+    const ideaLimit = Math.max(0, envInt(process.env.MARKET_INTEL_KEYWORD_IDEAS_LIMIT, 50));
     if (ideaLimit > 0 && seeds.length > 0) {
       const ideas = await fetchGoogleAdsKeywordIdeas({
         seedKeywords: seeds.map((seed) => seed.keyword),

@@ -238,20 +238,27 @@ export async function saveShoppingPriceHistory(data: Prisma.ShoppingPriceHistory
   return existing ? "updated" : "created";
 }
 
-async function savePriceChangeInsight(data: Prisma.MarketInsightUncheckedCreateInput, capturedAt: Date): Promise<"created" | "updated"> {
-  return saveOpenDailyMarketInsight(data, capturedAt);
+async function savePriceChangeInsight(data: Prisma.MarketInsightUncheckedCreateInput, capturedAt: Date, discriminator?: string): Promise<"created" | "updated"> {
+  return saveOpenDailyMarketInsight(data, capturedAt, discriminator);
 }
 
-export async function saveOpenDailyMarketInsight(data: Prisma.MarketInsightUncheckedCreateInput, capturedAt: Date): Promise<"created" | "updated"> {
+// `discriminator` is an optional extra key segment. price_change insights share
+// type + competitor/keyword + day across every product, so without a per-product
+// discriminator (the productKey) they collide on one dedupeKey and silently
+// overwrite each other — losing all but the last product's insight. Appended
+// only when provided, so existing (ad-based) insight keys are unchanged.
+export async function saveOpenDailyMarketInsight(data: Prisma.MarketInsightUncheckedCreateInput, capturedAt: Date, discriminator?: string): Promise<"created" | "updated"> {
   const { start } = captureDayRange(capturedAt);
   const captureDay = start.toISOString().slice(0, 10); // YYYY-MM-DD
-  const dedupeKey = [
+  const dedupeParts = [
     String(data.type),
     data.competitorId == null ? "" : String(data.competitorId),
     data.keywordId == null ? "" : String(data.keywordId),
     data.adId == null ? "" : String(data.adId),
     captureDay,
-  ].join("|");
+  ];
+  if (discriminator) dedupeParts.push(String(discriminator));
+  const dedupeKey = dedupeParts.join("|");
 
   const existing = await prisma.marketInsight.findUnique({
     where: { dedupeKey },
@@ -419,7 +426,7 @@ export async function fetchMarketIntelHandler(
               productUrl: product.productUrl,
             }),
             keywordId: keyword.id,
-          }, capturedAt);
+          }, capturedAt, key);
           summary.priceChanges++;
           if (insightWrite === "created") summary.insightsCreated++;
           else summary.insightsUpdated++;
@@ -474,10 +481,10 @@ export async function fetchMarketIntelHandler(
             }
             if (pageResult.products.length < 40) break; // last page reached
           }
-          if (serperDisabled) {
-            disabledSources.add("serper");
-            break;
-          }
+          // Persist whatever was collected before a mid-pagination Serper
+          // disable — page-1 products (already fetched and paid for) must not
+          // be dropped just because a later page hit the quota wall. We stop
+          // querying further competitors only AFTER saving (below).
           for (const product of productsByKey.values()) {
             const key = productKey({
               ...product,
@@ -551,11 +558,17 @@ export async function fetchMarketIntelHandler(
                   productUrl: product.productUrl,
                 }),
                 competitorId: competitor.id,
-              }, capturedAt);
+              }, capturedAt, key);
               summary.priceChanges++;
               if (insightWrite === "created") summary.insightsCreated++;
               else summary.insightsUpdated++;
             }
+          }
+          // Now that page-1 products are persisted, stop hammering a disabled
+          // Serper across the remaining competitors.
+          if (serperDisabled) {
+            disabledSources.add("serper");
+            break;
           }
         } catch (err) {
           errors.push(`competitor-shopping:${competitor.name}: ${String(err)}`);

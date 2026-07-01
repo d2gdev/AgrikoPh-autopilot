@@ -1,8 +1,11 @@
 import OpenAI from "openai";
 import { getOptionalSecret } from "@/lib/config/resolver";
 
-const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
-const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4-flash";
+// deepseek-v4-flash returns HTTP 200 with EMPTY content (not a valid served
+// model), which silently breaks every JSON-parsing AI feature. deepseek-chat
+// is the stable alias that actually returns content.
+const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
+const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-chat";
 
 export interface AiClientOptions {
   deepseekModel?: string;

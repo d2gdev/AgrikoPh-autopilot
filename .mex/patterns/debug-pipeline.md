@@ -87,6 +87,9 @@ Check `JobRun` rows first — they are the authoritative record of what ran and 
 - The daily cron skips skills entirely if **all three** data fetches (ads, seo, blog) fail. If one succeeds, skills run.
 - Skills are deduped by hash in `lib/skills/orchestrator.ts` — identical recommendations from consecutive runs are not re-inserted. If you expect new recs but none appear, the same recs may already exist in `pending` status.
 - `confidenceScore` must be 0.0–1.0; the Zod schema rejects values outside this range silently.
+- **Empty-content AI model (recurring landmine):** an invalid/deprecated DeepSeek model name returns **HTTP 200 with empty `content`** (no error) — every JSON-parsing feature then silently produces nothing (`parseJsonArray`→`[]`, `parseStolenAd`→"malformed response", zero recommendations). The known-bad string is `deepseek-v4-flash`; `deepseek-chat` returns real content. Resolution order in `getAiClient()` is `DEEPSEEK_MODEL` env/DB → caller `options.deepseekModel` → `DEFAULT_DEEPSEEK_MODEL`. If AI features go quiet, verify the resolved model actually returns content: `curl -s -H "Authorization: Bearer $KEY" -X POST https://api.deepseek.com/chat/completions -d '{"model":"<model>","messages":[{"role":"user","content":"hi"}],"max_tokens":5}'` and check `choices[0].message.content` is non-empty. Keep `DEEPSEEK_MODEL=deepseek-chat` set in `.env` (local + prod).
+- **NaN-from-env:** parse env-int limits with the exported `envInt()` from `lib/market-intel/profiles.ts` (guards `Number.isFinite`), never bare `Number(process.env.X ?? n)` — a non-numeric value yields `NaN` → `Math.max(1, NaN)=NaN` → Prisma `take: NaN`.
+- **Same-day insight dedupe needs a per-row discriminator:** `saveOpenDailyMarketInsight` keys on `type|competitorId|keywordId|adId|day`. For `price_change` (many products share one keyword/competitor/day) pass the `productKey` as the 3rd `discriminator` arg or the insights overwrite each other.
 
 ---
 

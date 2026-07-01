@@ -68,23 +68,37 @@ export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
 
-  const [keywords, competitors] = await Promise.all([
-    prisma.marketKeyword.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
-    prisma.competitor.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: { socialPages: { orderBy: { createdAt: "desc" } } },
-    }),
-  ]);
+  try {
+    const [keywords, competitors] = await Promise.all([
+      prisma.marketKeyword.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
+      prisma.competitor.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        include: { socialPages: { orderBy: { createdAt: "desc" } } },
+      }),
+    ]);
 
-  return NextResponse.json({ keywords, competitors });
+    return NextResponse.json({ keywords, competitors });
+  } catch (err) {
+    // Return a JSON error body so the client surfaces the cause instead of
+    // failing on an empty-body 500.
+    console.error("[market-intelligence/config] GET failed:", err);
+    return NextResponse.json({ error: "Failed to load configuration" }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
 
-  const parsed = bodySchema.safeParse(await req.json());
+  // Parse defensively: a malformed/empty body would otherwise throw here —
+  // outside the try below — and surface as an empty-body 500 the client can't
+  // read ("Unexpected end of JSON input") instead of a clear 400.
+  const rawBody = await req.json().catch(() => null);
+  if (rawBody === null) {
+    return NextResponse.json({ error: "Invalid or empty JSON body" }, { status: 400 });
+  }
+  const parsed = bodySchema.safeParse(rawBody);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }

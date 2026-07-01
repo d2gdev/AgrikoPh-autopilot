@@ -53,7 +53,7 @@ Then read this file fully before doing anything else in this session.
 - Legacy direct-analysis routes still use OpenRouter instead of DeepSeek primary — gradual migration ongoing
 - `better-sqlite3` competitor scraper DB is local-only; prod market intel uses Serper/DataForSEO instead
 - Competitor "Falo" (falo.ph) has no valid numeric Facebook page ID configured — its `CompetitorSocialPage` row was deactivated by `scripts/seed-competitors.mjs` (non-numeric pageId) and never replaced, so `jobs/fetch-market-intel.ts` silently captures zero ads for it every run. Apify ad-library search and anonymous Facebook scraping couldn't resolve the numeric ID automatically — needs a human to pull it from Facebook's Page Transparency panel and add it via Manage Tracking.
-- Adding a competitor/page with a non-numeric pageId directly via SQL/seed script (bypassing `config/route.ts`'s Zod validation) produces a permanently-broken, silent scrape target with no operator-visible error — watch for this pattern when seeding competitors outside the API.
+- Adding a competitor/page with a non-numeric pageId directly via SQL/seed script (bypassing `app/api/market-intelligence/config/route.ts`'s Zod validation) produces a permanently-broken, silent scrape target with no operator-visible error — watch for this pattern when seeding competitors outside the API.
 
 ## Routing Table
 

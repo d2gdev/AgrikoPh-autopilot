@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const ai = await getAiClient({
-      deepseekModel: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash",
+      deepseekModel: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
       openRouterModel: process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4-6",
     });
     const response = await ai.client.chat.completions.create({
