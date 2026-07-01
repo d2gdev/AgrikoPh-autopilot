@@ -8,15 +8,20 @@ import { prisma } from "@/lib/db";
 
 const BATCH_SIZE = 40;
 
+export type TranslationResult = { text: string; ok: boolean };
+
 /**
  * Translate an ordered list of strings to English in one LLM call per batch.
  * Already-English strings are returned unchanged. Output length and order match
- * the input; on any failure the original strings are returned (never throws).
+ * the input; on any failure the original string is returned with ok:false so
+ * callers can avoid persisting it as if it were a real translation — writing a
+ * fallback into the same column the "still needs translation" query filters on
+ * would otherwise permanently hide the row from every future retry.
  */
-export async function translateToEnglishBatch(texts: string[]): Promise<string[]> {
+export async function translateToEnglishBatch(texts: string[]): Promise<TranslationResult[]> {
   if (texts.length === 0) return [];
   const ai = await getAiClient();
-  const out: string[] = [];
+  const out: TranslationResult[] = [];
 
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const chunk = texts.slice(i, i + BATCH_SIZE);
@@ -39,12 +44,15 @@ export async function translateToEnglishBatch(texts: string[]): Promise<string[]
       const raw = response.choices[0]?.message?.content ?? "";
       const parsed = parseJsonArray(raw);
       if (parsed && parsed.length === chunk.length) {
-        out.push(...parsed.map((v, idx) => (typeof v === "string" && v.trim() ? v : chunk[idx] ?? "")));
+        out.push(...parsed.map((v, idx) => ({
+          text: typeof v === "string" && v.trim() ? v : chunk[idx] ?? "",
+          ok: true,
+        })));
       } else {
-        out.push(...chunk); // shape mismatch — fall back to originals
+        out.push(...chunk.map((t) => ({ text: t, ok: false }))); // shape mismatch — fall back, but flag as unretranslated
       }
     } catch {
-      out.push(...chunk); // never block capture on translation failure
+      out.push(...chunk.map((t) => ({ text: t, ok: false }))); // never block capture on translation failure — but flag as unretranslated
     }
   }
   return out;
@@ -62,6 +70,25 @@ function parseJsonArray(raw: string): string[] | null {
   }
 }
 
+// Translates `rows` and persists the result only for entries that actually
+// translated successfully — a failed entry is left untouched so it stays
+// eligible for the next run's `WHERE <column>: null` selection, instead of
+// being permanently marked "done" with an untranslated fallback value.
+// Returns the count of rows actually written.
+async function translateAndPersist<T extends { id: string }>(
+  rows: T[],
+  getText: (row: T) => string,
+  persist: (row: T, translatedText: string) => Promise<unknown>,
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const translated = await translateToEnglishBatch(rows.map(getText));
+  const succeeded = rows
+    .map((row, idx) => ({ row, result: translated[idx] }))
+    .filter((entry): entry is { row: T; result: TranslationResult } => entry.result?.ok === true);
+  await Promise.all(succeeded.map(({ row, result }) => persist(row, result.text)));
+  return succeeded.length;
+}
+
 /**
  * Fill missing English columns (titleEn / headlineEn / adCopyEn) for captured rows.
  * Used both at the end of a capture run and by the one-time backfill script.
@@ -76,15 +103,11 @@ export async function fillCaptureTranslations({ limit = 500 }: { limit?: number 
     select: { id: true, title: true },
     take: limit,
   });
-  if (shopping.length > 0) {
-    const translated = await translateToEnglishBatch(shopping.map((r) => r.title));
-    await Promise.all(
-      shopping.map((r, idx) =>
-        prisma.shoppingResult.update({ where: { id: r.id }, data: { titleEn: translated[idx] } }),
-      ),
-    );
-    result.shopping = shopping.length;
-  }
+  result.shopping = await translateAndPersist(
+    shopping,
+    (r) => r.title,
+    (r, titleEn) => prisma.shoppingResult.update({ where: { id: r.id }, data: { titleEn } }),
+  );
 
   // Ad headlines
   const headlines = await prisma.competitorAd.findMany({
@@ -92,30 +115,22 @@ export async function fillCaptureTranslations({ limit = 500 }: { limit?: number 
     select: { id: true, headline: true },
     take: limit,
   });
-  if (headlines.length > 0) {
-    const translated = await translateToEnglishBatch(headlines.map((r) => r.headline ?? ""));
-    await Promise.all(
-      headlines.map((r, idx) =>
-        prisma.competitorAd.update({ where: { id: r.id }, data: { headlineEn: translated[idx] } }),
-      ),
-    );
-    result.adHeadlines = headlines.length;
-  }
+  result.adHeadlines = await translateAndPersist(
+    headlines,
+    (r) => r.headline ?? "",
+    (r, headlineEn) => prisma.competitorAd.update({ where: { id: r.id }, data: { headlineEn } }),
+  );
 
   const captureHeadlines = await prisma.competitorAdCapture.findMany({
     where: { headlineEn: null, headline: { not: null } },
     select: { id: true, headline: true },
     take: limit,
   });
-  if (captureHeadlines.length > 0) {
-    const translated = await translateToEnglishBatch(captureHeadlines.map((r) => r.headline ?? ""));
-    await Promise.all(
-      captureHeadlines.map((r, idx) =>
-        prisma.competitorAdCapture.update({ where: { id: r.id }, data: { headlineEn: translated[idx] } }),
-      ),
-    );
-    result.adCaptureHeadlines = captureHeadlines.length;
-  }
+  result.adCaptureHeadlines = await translateAndPersist(
+    captureHeadlines,
+    (r) => r.headline ?? "",
+    (r, headlineEn) => prisma.competitorAdCapture.update({ where: { id: r.id }, data: { headlineEn } }),
+  );
 
   // Ad copy
   const copies = await prisma.competitorAd.findMany({
@@ -123,30 +138,22 @@ export async function fillCaptureTranslations({ limit = 500 }: { limit?: number 
     select: { id: true, adCopy: true },
     take: limit,
   });
-  if (copies.length > 0) {
-    const translated = await translateToEnglishBatch(copies.map((r) => r.adCopy ?? ""));
-    await Promise.all(
-      copies.map((r, idx) =>
-        prisma.competitorAd.update({ where: { id: r.id }, data: { adCopyEn: translated[idx] } }),
-      ),
-    );
-    result.adCopies = copies.length;
-  }
+  result.adCopies = await translateAndPersist(
+    copies,
+    (r) => r.adCopy ?? "",
+    (r, adCopyEn) => prisma.competitorAd.update({ where: { id: r.id }, data: { adCopyEn } }),
+  );
 
   const captureCopies = await prisma.competitorAdCapture.findMany({
     where: { adCopyEn: null, adCopy: { not: null } },
     select: { id: true, adCopy: true },
     take: limit,
   });
-  if (captureCopies.length > 0) {
-    const translated = await translateToEnglishBatch(captureCopies.map((r) => r.adCopy ?? ""));
-    await Promise.all(
-      captureCopies.map((r, idx) =>
-        prisma.competitorAdCapture.update({ where: { id: r.id }, data: { adCopyEn: translated[idx] } }),
-      ),
-    );
-    result.adCaptureCopies = captureCopies.length;
-  }
+  result.adCaptureCopies = await translateAndPersist(
+    captureCopies,
+    (r) => r.adCopy ?? "",
+    (r, adCopyEn) => prisma.competitorAdCapture.update({ where: { id: r.id }, data: { adCopyEn } }),
+  );
 
   return result;
 }

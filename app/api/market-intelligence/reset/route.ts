@@ -183,10 +183,16 @@ export async function POST(req: Request) {
     );
   }
 
+  // Outside production, when no confirmation secret is configured, accept the
+  // literal string "clear-captures" as a convenience token — but only compare
+  // against it, never against the unset env var directly, so the "expected"
+  // hint below actually describes a value that works.
+  const devFallbackConfirmation = process.env.NODE_ENV !== "production" ? "clear-captures" : null;
+  const effectiveConfirmationSecret = RESET_CONFIRMATION_SECRET ?? devFallbackConfirmation;
+
   const providedConfirmation = resolveConfirmation(url.searchParams, req);
-  if (!secureEqual(RESET_CONFIRMATION_SECRET, providedConfirmation)) {
-    const fallback = process.env.NODE_ENV !== "production" ? "clear-captures" : null;
-    const expected = RESET_CONFIRMATION_SECRET ? "a server-provided confirmation token" : fallback;
+  if (!secureEqual(effectiveConfirmationSecret, providedConfirmation)) {
+    const expected = RESET_CONFIRMATION_SECRET ? "a server-provided confirmation token" : devFallbackConfirmation;
     await logResetAttempt({
       actor,
       request: req,

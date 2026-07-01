@@ -1,3 +1,12 @@
+// A misconfigured env var (e.g. non-numeric) must fall back to the default,
+// not flow through as NaN into Math.max/Prisma `take`/.slice — `0` is a valid
+// value for some of these limits, so a plain `|| default` falsy-fallback
+// would also be wrong.
+function envInt(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export type RunProfile = "smoke" | "shopping" | "meta-pages" | "meta-keywords" | "scheduled";
 
 export interface ResolvedLimits {
@@ -60,14 +69,14 @@ const PROFILE_CAPS: Record<RunProfile, Omit<ResolvedLimits, "longRunningAdDays">
 };
 
 export function resolveRunLimits(options: MarketIntelRunOptions): ResolvedLimits {
-  const longRunningAdDays = Math.max(1, Number(process.env.MARKET_INTEL_LONG_RUNNING_AD_DAYS ?? 30));
+  const longRunningAdDays = Math.max(1, envInt(process.env.MARKET_INTEL_LONG_RUNNING_AD_DAYS, 30));
 
   if (options.profile === "scheduled") {
     return {
-      keywordLimit: Math.max(0, Number(process.env.MARKET_INTEL_KEYWORD_LIMIT ?? 5)),
-      shoppingResultLimit: Math.max(1, Number(process.env.MARKET_INTEL_RESULTS_PER_KEYWORD ?? 20)),
-      competitorPageLimit: Math.max(0, Number(process.env.MARKET_INTEL_COMPETITOR_PAGE_LIMIT ?? 10)),
-      adLimitPerPage: Math.max(1, Number(process.env.MARKET_INTEL_ADS_PER_PAGE_LIMIT ?? 50)),
+      keywordLimit: Math.max(0, envInt(process.env.MARKET_INTEL_KEYWORD_LIMIT, 5)),
+      shoppingResultLimit: Math.max(1, envInt(process.env.MARKET_INTEL_RESULTS_PER_KEYWORD, 20)),
+      competitorPageLimit: Math.max(0, envInt(process.env.MARKET_INTEL_COMPETITOR_PAGE_LIMIT, 10)),
+      adLimitPerPage: Math.max(1, envInt(process.env.MARKET_INTEL_ADS_PER_PAGE_LIMIT, 50)),
       longRunningAdDays,
       sources: ["shopping", "meta"],
     };

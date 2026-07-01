@@ -77,4 +77,54 @@ describe("generateBrief", () => {
     const result = await generateBrief();
     expect(result.adsActivity).toContain("unavailable");
   });
+
+  it("includes a genuine zero price-delta percentage instead of dropping it as null", async () => {
+    const { prisma } = await import("@/lib/db");
+    vi.mocked(prisma.shoppingPriceHistory.findMany).mockResolvedValueOnce([
+      {
+        title: "Organic Ginger", store: "CompetitorStore", price: 199, previousPrice: 199,
+        priceDelta: 0.01, priceDeltaPct: 0, currency: "PHP", marketKeyword: { keyword: "ginger" },
+      },
+    ] as never);
+
+    const createMock = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({
+        adsActivity: "x", pricingMovements: "x", opportunities: "x", recommendedActions: [],
+      }) } }],
+    });
+    const { getAiClient } = await import("@/lib/ai/client");
+    vi.mocked(getAiClient).mockResolvedValueOnce({
+      model: "test-model", provider: "deepseek",
+      client: { chat: { completions: { create: createMock } } },
+    } as never);
+
+    const { generateBrief } = await import("@/lib/market-intel/generate-brief");
+    await generateBrief();
+
+    const call = createMock.mock.calls[0];
+    if (!call) throw new Error("expected ai.client.chat.completions.create to have been called");
+    const userMessageContent = call[0].messages[1].content;
+    const context = JSON.parse(userMessageContent);
+    expect(context.priceMovements[0].deltaPct).toBe(0);
+  });
+});
+
+describe("fetchOurProducts", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns already-fetched pages when a later page fails, instead of discarding everything", async () => {
+    const { shopifyFetch } = await import("@/lib/shopify-admin");
+    vi.mocked(shopifyFetch)
+      .mockResolvedValueOnce({
+        products: {
+          edges: [{ node: { title: "Organic Black Rice", priceRangeV2: { minVariantPrice: { amount: "250", currencyCode: "PHP" } } } }],
+          pageInfo: { hasNextPage: true, endCursor: "cursor1" },
+        },
+      } as never)
+      .mockRejectedValueOnce(new Error("Shopify API timeout"));
+
+    const { fetchOurProducts } = await import("@/lib/market-intel/generate-brief");
+    const result = await fetchOurProducts();
+    expect(result).toEqual([{ title: "Organic Black Rice", price: 250, currency: "PHP" }]);
+  });
 });

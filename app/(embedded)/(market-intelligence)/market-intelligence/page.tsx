@@ -138,6 +138,14 @@ export default function MarketIntelligencePage() {
   const [notice, setNotice] = useState<string | null>(null);
   const runningPollRef = useRef(false);
   const keywordPollRef = useRef(false);
+  // Stops the poll loop's setState calls and its next 2.5s wait iteration once
+  // the page unmounts (e.g. operator navigates away mid-capture) — the loop
+  // otherwise keeps firing /api/jobs/status and setting state on an unmounted
+  // component for up to its full 10-minute timeout.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   async function wait(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -162,7 +170,9 @@ export default function MarketIntelligencePage() {
       const started = Date.now();
       const timeoutMs = 10 * 60_000;
       while (Date.now() - started < timeoutMs) {
+        if (!isMountedRef.current) return;
         const pollRes = await authFetch(`/api/jobs/status?runId=${encodeURIComponent(runId)}`);
+        if (!isMountedRef.current) return;
         const payload = await readJson(pollRes, `${kind === "capture" ? "Market Intelligence" : "Keyword research"} status request failed`);
         if (!pollRes.ok) {
           throw new Error((payload.error as string) ?? `${kind} status request failed`);
@@ -183,18 +193,20 @@ export default function MarketIntelligencePage() {
             setError(null);
           }
           await load(true);
-          clearRunState();
+          if (isMountedRef.current) clearRunState();
           break;
         }
         await wait(2500);
       }
-      if (pollRef.current && Date.now() - started >= timeoutMs) {
+      if (isMountedRef.current && pollRef.current && Date.now() - started >= timeoutMs) {
         setError(`${kind === "capture" ? "Market Intelligence" : "Keyword research"} run timed out after 10 minutes.`);
         clearRunState();
       }
     } catch (err) {
-      setError(String(err));
-      clearRunState();
+      if (isMountedRef.current) {
+        setError(String(err));
+        clearRunState();
+      }
     } finally {
       pollRef.current = false;
     }
@@ -398,9 +410,17 @@ export default function MarketIntelligencePage() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     }), [data?.insights, cutoff]);
 
-  const shoppingRows = useMemo(() => (data?.shoppingResults ?? [])
+  // Shared with Price Comparison below and its empty-state check, so both
+  // respect the global date-range filter the same way the Shopping tab does —
+  // previously Price Comparison read data.shoppingResults directly, so its
+  // cards (and the "no data for this date range" empty state) silently
+  // ignored the filter while the Shopping tab's own table respected it.
+  const dateFilteredShoppingResults = useMemo(() => (data?.shoppingResults ?? [])
+    .filter((r) => !cutoff || new Date(r.capturedAt) >= cutoff),
+    [data?.shoppingResults, cutoff]);
+
+  const shoppingRows = useMemo(() => dateFilteredShoppingResults
     .filter((r) => {
-      if (cutoff && new Date(r.capturedAt) < cutoff) return false;
       if (filterKeyword && !r.keyword.toLowerCase().includes(filterKeyword.toLowerCase())) return false;
       return true;
     })
@@ -414,7 +434,7 @@ export default function MarketIntelligencePage() {
       result.searchPosition != null ? String(result.searchPosition) : "-",
       shortDate(result.capturedAt),
       ];
-    }), [data?.shoppingResults, cutoff, filterKeyword]);
+    }), [dateFilteredShoppingResults, filterKeyword]);
 
   // Competitor ads as creative cards (filtered like the old table).
   // Ads that have been *running* 60+ days (by ad start date) — proven, durable
@@ -466,7 +486,9 @@ export default function MarketIntelligencePage() {
     return [...counts.entries()].sort((x, y) => y[1] - x[1]);
   }, [adCards]);
 
-  const keywordResearchRows = useMemo(() => (data?.keywordResearch ?? []).map((result) => [
+  const keywordResearchRows = useMemo(() => (data?.keywordResearch ?? [])
+    .filter((result) => !cutoff || new Date(result.capturedAt) >= cutoff)
+    .map((result) => [
     result.keyword,
     result.avgMonthlySearches != null ? result.avgMonthlySearches.toLocaleString("en-PH") : "-",
     result.competition ?? "-",
@@ -474,14 +496,14 @@ export default function MarketIntelligencePage() {
     result.lowTopOfPageBidMicros ? (Number(result.lowTopOfPageBidMicros) / 1_000_000).toFixed(2) : "-",
     result.highTopOfPageBidMicros ? (Number(result.highTopOfPageBidMicros) / 1_000_000).toFixed(2) : "-",
     shortDate(result.capturedAt),
-  ]), [data?.keywordResearch]);
+  ]), [data?.keywordResearch, cutoff]);
 
   const priceComparisons = useMemo(() =>
     ourProducts.map(product => ({
       product,
-      matches: findMatches(product, data?.shoppingResults ?? []),
+      matches: findMatches(product, dateFilteredShoppingResults),
     })),
-    [ourProducts, data?.shoppingResults],
+    [ourProducts, dateFilteredShoppingResults],
   );
 
   const lastStatus = data?.lastJobRun?.status;
@@ -696,7 +718,7 @@ export default function MarketIntelligencePage() {
                           description="Check your Shopify credentials in Settings."
                         />
                       </Card>
-                    ) : (data?.shoppingResults ?? []).length === 0 ? (
+                    ) : dateFilteredShoppingResults.length === 0 ? (
                       <Card>
                         <EmptyMessage
                           title="No competitor pricing data"

@@ -91,86 +91,71 @@ export async function POST(req: Request) {
 
   const created = { keywords: 0, competitors: 0, pages: 0 };
 
-  for (const keyword of parsed.data.keywords) {
-    const locationName = keyword.locationName ?? process.env.MARKET_INTEL_DEFAULT_LOCATION ?? "Philippines";
-    const languageCode = keyword.languageCode ?? "en";
-    await prisma.marketKeyword.upsert({
-      where: {
-        keyword_locationName_languageCode: {
+  try {
+    for (const keyword of parsed.data.keywords) {
+      const locationName = keyword.locationName ?? process.env.MARKET_INTEL_DEFAULT_LOCATION ?? "Philippines";
+      const languageCode = keyword.languageCode ?? "en";
+      await prisma.marketKeyword.upsert({
+        where: {
+          keyword_locationName_languageCode: {
+            keyword: keyword.keyword,
+            locationName,
+            languageCode,
+          },
+        },
+        create: {
           keyword: keyword.keyword,
+          category: keyword.category,
           locationName,
           languageCode,
         },
-      },
-      create: {
-        keyword: keyword.keyword,
-        category: keyword.category,
-        locationName,
-        languageCode,
-      },
-      update: {
-        category: keyword.category,
-        locationName,
-        languageCode,
-        active: true,
-      },
-    });
-    created.keywords++;
-  }
-
-  for (const competitorInput of parsed.data.competitors) {
-    const competitor = await prisma.competitor.upsert({
-      where: { name: competitorInput.name },
-      create: {
-        name: competitorInput.name,
-        domain: competitorInput.domain,
-        notes: competitorInput.notes,
-      },
-      update: {
-        domain: competitorInput.domain,
-        notes: competitorInput.notes,
-        active: true,
-      },
-    });
-    created.competitors++;
-
-    for (const page of competitorInput.pages) {
-      const normalizedPage = {
-        platform: page.platform.toLowerCase(),
-        pageName: page.pageName,
-        pageId: page.pageId,
-        pageUrl: page.pageUrl,
-      };
-      const identityKey = buildSocialPageIdentity({
-        platform: normalizedPage.platform,
-        competitorId: competitor.id,
-        pageId: normalizedPage.pageId,
-        pageName: normalizedPage.pageName,
-      });
-
-      const existingPage = await prisma.competitorSocialPage.findFirst({
-        where: {
-          platform: normalizedPage.platform,
-          ...(normalizedPage.pageId
-            ? { pageId: normalizedPage.pageId }
-            : { pageName: normalizedPage.pageName, competitorId: competitor.id }),
+        update: {
+          category: keyword.category,
+          locationName,
+          languageCode,
+          active: true,
         },
       });
-      if (existingPage) {
-        await prisma.competitorSocialPage.update({
-          where: { id: existingPage.id },
-          data: {
-            competitorId: competitor.id,
-            pageName: normalizedPage.pageName,
-            pageUrl: normalizedPage.pageUrl,
-            active: true,
-            identityKey,
-            ...(normalizedPage.pageId ? { pageId: normalizedPage.pageId } : {}),
-          },
+      created.keywords++;
+    }
+
+    for (const competitorInput of parsed.data.competitors) {
+      const competitor = await prisma.competitor.upsert({
+        where: { name: competitorInput.name },
+        create: {
+          name: competitorInput.name,
+          domain: competitorInput.domain,
+          notes: competitorInput.notes,
+        },
+        update: {
+          domain: competitorInput.domain,
+          notes: competitorInput.notes,
+          active: true,
+        },
+      });
+      created.competitors++;
+
+      for (const page of competitorInput.pages) {
+        const normalizedPage = {
+          platform: page.platform.toLowerCase(),
+          pageName: page.pageName,
+          pageId: page.pageId,
+          pageUrl: page.pageUrl,
+        };
+        const identityKey = buildSocialPageIdentity({
+          platform: normalizedPage.platform,
+          competitorId: competitor.id,
+          pageId: normalizedPage.pageId,
+          pageName: normalizedPage.pageName,
         });
-      } else {
-        await prisma.competitorSocialPage.create({
-          data: {
+
+        // Upsert directly on identityKey (unique) instead of find-then-create/update:
+        // the prior check-then-write left a window where two concurrent identical
+        // submissions could both pass the "not found" check and both attempt create,
+        // throwing an uncaught P2002 unique-constraint violation.
+        await prisma.competitorSocialPage.upsert({
+          where: { identityKey },
+          create: {
             competitorId: competitor.id,
             platform: normalizedPage.platform,
             pageName: normalizedPage.pageName,
@@ -178,11 +163,24 @@ export async function POST(req: Request) {
             pageUrl: normalizedPage.pageUrl,
             identityKey,
           },
+          update: {
+            competitorId: competitor.id,
+            pageName: normalizedPage.pageName,
+            pageUrl: normalizedPage.pageUrl,
+            active: true,
+            ...(normalizedPage.pageId ? { pageId: normalizedPage.pageId } : {}),
+          },
         });
+        created.pages++;
       }
-      created.pages++;
     }
-  }
 
-  return NextResponse.json({ ok: true, created });
+    return NextResponse.json({ ok: true, created });
+  } catch (err) {
+    console.error("[market-intelligence/config] save failed:", err);
+    return NextResponse.json(
+      { error: "Failed to save configuration", partial: created },
+      { status: 500 },
+    );
+  }
 }

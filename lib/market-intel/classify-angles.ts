@@ -24,11 +24,19 @@ export type AdAngle = (typeof AD_ANGLES)[number];
 
 const ANGLE_SET = new Set<string>(AD_ANGLES);
 
-/** Classify ad copy into one angle each — JSON array, same length/order. */
-export async function classifyAnglesBatch(texts: string[]): Promise<AdAngle[]> {
+export type AngleResult = { angle: AdAngle; ok: boolean };
+
+/**
+ * Classify ad copy into one angle each — JSON array, same length/order.
+ * On failure, falls back to "other" with ok:false so callers can avoid
+ * persisting it as if it were a real classification — writing "other" into
+ * the same column the "still needs classifying" query filters on would
+ * otherwise permanently hide the row from every future retry.
+ */
+export async function classifyAnglesBatch(texts: string[]): Promise<AngleResult[]> {
   if (texts.length === 0) return [];
   const ai = await getAiClient();
-  const out: AdAngle[] = [];
+  const out: AngleResult[] = [];
 
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const chunk = texts.slice(i, i + BATCH_SIZE);
@@ -56,12 +64,12 @@ export async function classifyAnglesBatch(texts: string[]): Promise<AdAngle[]> {
       const raw = response.choices[0]?.message?.content ?? "";
       const parsed = parseJsonArray(raw);
       if (parsed && parsed.length === chunk.length) {
-        out.push(...parsed.map((v) => normalizeAngle(v)));
+        out.push(...parsed.map((v) => ({ angle: normalizeAngle(v), ok: true })));
       } else {
-        out.push(...chunk.map(() => "other" as AdAngle));
+        out.push(...chunk.map(() => ({ angle: "other" as AdAngle, ok: false })));
       }
     } catch {
-      out.push(...chunk.map(() => "other" as AdAngle));
+      out.push(...chunk.map(() => ({ angle: "other" as AdAngle, ok: false })));
     }
   }
   return out;
@@ -84,6 +92,28 @@ function parseJsonArray(raw: string): string[] | null {
   }
 }
 
+function creativeText(row: { adCopy: string | null; adCopyEn: string | null; headline: string | null; headlineEn: string | null }): string {
+  return `${row.headlineEn ?? row.headline ?? ""}\n${row.adCopyEn ?? row.adCopy ?? ""}`.trim().slice(0, 1200);
+}
+
+// Classifies `rows` and persists creativeAngle only for entries that actually
+// classified successfully — a failed entry is left untouched so it stays
+// eligible for the next run's `creativeAngle: null` selection, instead of
+// being permanently marked "done" with the "other" fallback.
+async function classifyAndPersist<T extends { id: string }>(
+  rows: T[],
+  persist: (row: T, angle: AdAngle) => Promise<unknown>,
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const texts = rows.map((r) => creativeText(r as unknown as Parameters<typeof creativeText>[0]));
+  const results = await classifyAnglesBatch(texts);
+  const succeeded = rows
+    .map((row, idx) => ({ row, result: results[idx] }))
+    .filter((entry): entry is { row: T; result: AngleResult } => entry.result?.ok === true);
+  await Promise.all(succeeded.map(({ row, result }) => persist(row, result.angle)));
+  return succeeded.length;
+}
+
 /**
  * Fill missing creativeAngle for captured ads. Prefers the English copy.
  * Used at the end of a capture run and by a one-time backfill. `limit` caps
@@ -95,34 +125,20 @@ export async function fillCreativeAngles({ limit = 300 }: { limit?: number } = {
     select: { id: true, adCopy: true, adCopyEn: true, headlineEn: true, headline: true },
     take: limit,
   });
-  if (ads.length > 0) {
-    const texts = ads.map((a) =>
-      `${a.headlineEn ?? a.headline ?? ""}\n${a.adCopyEn ?? a.adCopy ?? ""}`.trim().slice(0, 1200),
-    );
-    const angles = await classifyAnglesBatch(texts);
-    await Promise.all(
-      ads.map((a, idx) =>
-        prisma.competitorAd.update({ where: { id: a.id }, data: { creativeAngle: angles[idx] } }),
-      ),
-    );
-  }
+  const adsClassified = await classifyAndPersist(
+    ads,
+    (a, creativeAngle) => prisma.competitorAd.update({ where: { id: a.id }, data: { creativeAngle } }),
+  );
 
   const captures = await prisma.competitorAdCapture.findMany({
     where: { creativeAngle: null, OR: [{ adCopyEn: { not: null } }, { adCopy: { not: null } }] },
     select: { id: true, adCopy: true, adCopyEn: true, headlineEn: true, headline: true },
     take: limit,
   });
-  if (captures.length > 0) {
-    const captureTexts = captures.map((a) =>
-      `${a.headlineEn ?? a.headline ?? ""}\n${a.adCopyEn ?? a.adCopy ?? ""}`.trim().slice(0, 1200),
-    );
-    const captureAngles = await classifyAnglesBatch(captureTexts);
-    await Promise.all(
-      captures.map((a, idx) =>
-        prisma.competitorAdCapture.update({ where: { id: a.id }, data: { creativeAngle: captureAngles[idx] } }),
-      ),
-    );
-  }
+  const capturesClassified = await classifyAndPersist(
+    captures,
+    (a, creativeAngle) => prisma.competitorAdCapture.update({ where: { id: a.id }, data: { creativeAngle } }),
+  );
 
-  return { classified: ads.length + captures.length };
+  return { classified: adsClassified + capturesClassified };
 }

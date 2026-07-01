@@ -2,7 +2,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
-import { requireAppAuth } from "@/lib/auth";
+import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { fillCaptureTranslations } from "@/lib/market-intel/translate-captures";
 
 // One-time (re-runnable) backfill: fill English translation columns for existing
@@ -11,6 +12,11 @@ import { fillCaptureTranslations } from "@/lib/market-intel/translate-captures";
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+
+  const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
+  if (!checkRateLimit(`market-intel-backfill-translations:${actor}`, 3, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded — max 3 per minute" }, { status: 429 });
+  }
 
   const totals = { shopping: 0, adHeadlines: 0, adCopies: 0 };
   try {

@@ -8,9 +8,7 @@ const mockPrisma = vi.hoisted(() => ({
     upsert: vi.fn(),
   },
   competitorSocialPage: {
-    findFirst: vi.fn(),
-    create: vi.fn(),
-    update: vi.fn(),
+    upsert: vi.fn(),
   },
 }));
 
@@ -48,19 +46,7 @@ describe("market intelligence config route", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    mockPrisma.competitorSocialPage.findFirst.mockResolvedValue(null);
-    mockPrisma.competitorSocialPage.create.mockResolvedValue({
-      id: "page-1",
-      competitorId: "comp-1",
-      platform: "facebook",
-      pageName: "Acme Page",
-      pageId: "12345",
-      pageUrl: null,
-      active: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    mockPrisma.competitorSocialPage.update.mockResolvedValue({
+    mockPrisma.competitorSocialPage.upsert.mockResolvedValue({
       id: "page-1",
       competitorId: "comp-1",
       platform: "facebook",
@@ -145,17 +131,13 @@ describe("market intelligence config route", () => {
         update: expect.objectContaining({ active: true }),
       }),
     );
-    expect(mockPrisma.competitorSocialPage.findFirst).toHaveBeenCalledWith(
+    // Upserts directly on the unique identityKey — atomic, so two concurrent
+    // identical submissions can't both pass a "not found" check and race on create.
+    expect(mockPrisma.competitorSocialPage.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { platform: "facebook", pageId: "12345" },
-      }),
-    );
-    expect(mockPrisma.competitorSocialPage.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          platform: "facebook",
-          pageId: "12345",
-        }),
+        where: { identityKey: "facebook|12345" },
+        create: expect.objectContaining({ platform: "facebook", pageId: "12345" }),
+        update: expect.objectContaining({ pageId: "12345" }),
       }),
     );
   });

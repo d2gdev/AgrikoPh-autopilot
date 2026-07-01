@@ -51,11 +51,11 @@ interface ProductsGql {
   };
 }
 
-async function fetchOurProducts(): Promise<{ title: string; price: number; currency: string }[]> {
-  try {
-    const products: { title: string; price: number; currency: string }[] = [];
-    let after: string | null = null;
-    for (let page = 0; page < 5; page++) {
+export async function fetchOurProducts(): Promise<{ title: string; price: number; currency: string }[]> {
+  const products: { title: string; price: number; currency: string }[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < 5; page++) {
+    try {
       const data: ProductsGql = await shopifyFetch<ProductsGql>(OUR_PRODUCTS_QUERY, after ? { after } : {});
       for (const { node } of data.products.edges) {
         products.push({
@@ -66,11 +66,13 @@ async function fetchOurProducts(): Promise<{ title: string; price: number; curre
       }
       if (!data.products.pageInfo.hasNextPage) break;
       after = data.products.pageInfo.endCursor;
+    } catch {
+      // A later page failing (transient API hiccup) shouldn't discard the
+      // pages already fetched successfully — return what we have so far.
+      break;
     }
-    return products;
-  } catch {
-    return [];
   }
+  return products;
 }
 
 function parseBriefJson(raw: string): BriefSections | null {
@@ -158,7 +160,7 @@ export async function generateBrief(): Promise<BriefSections> {
       keyword: p.marketKeyword?.keyword ?? null,
       from: p.previousPrice,
       to: p.price,
-      deltaPct: p.priceDeltaPct ? Math.round(p.priceDeltaPct * 10) / 10 : null,
+      deltaPct: p.priceDeltaPct != null ? Math.round(p.priceDeltaPct * 10) / 10 : null,
       currency: p.currency,
     })),
     openInsights: insights.map((i) => ({ type: i.type, severity: i.severity, title: i.title, summary: i.summary })),
