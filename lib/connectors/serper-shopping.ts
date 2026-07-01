@@ -116,6 +116,14 @@ export async function fetchSerperShoppingProducts(input: SerperShoppingInput): P
   const text = await res.text();
   const payload = text ? JSON.parse(text) as Record<string, unknown> : {};
   if (!res.ok) {
+    // Quota exhaustion (403 "Not enough credits"), bad key (401), payment
+    // required (402) and rate-limit (429) are the expected degradation path —
+    // return `disabled` so the caller falls back to DataForSEO and marks the
+    // source degraded, instead of throwing once per keyword/competitor and
+    // silently skipping the whole graceful-degradation design.
+    if ([401, 402, 403, 429].includes(res.status)) {
+      return { disabled: true, products: [] };
+    }
     throw new Error(`Serper Shopping error ${res.status}: ${String(payload.message ?? text).slice(0, 500)}`);
   }
 

@@ -122,6 +122,10 @@ Check `JobRun` rows first — they are the authoritative record of what ran and 
 | GSC / GA4 | Service account JSON | Never expires unless rotated manually |
 | Google Ads | `GOOGLE_ADS_REFRESH_TOKEN` env | OAuth refresh token; rotate if revoked |
 
+### Gotcha: quota/rate-limit must DEGRADE (return `disabled`), not throw
+
+A shopping/keyword connector that has a fallback (Serper → DataForSEO) must return `{ disabled: true, products: [] }` on quota/auth/rate-limit statuses (`401/402/403/429`), **not** throw. `serper-shopping.ts` originally threw on any `!res.ok`, but `disabled` was only set when the API key was missing — so a Serper 403 "Not enough credits" threw once per keyword/competitor, the caller's `catch` just logged it, the DataForSEO fallback (gated on `.disabled`) never fired, and `disabledSources` was never marked. Fixed to map those statuses to `disabled`. If a connector with a fallback isn't degrading (job logs many per-keyword errors but never falls back or marks the source disabled), check that its `!res.ok` branch returns `disabled` for 4xx quota codes. (`dataforseo-shopping.ts` still throws on `!res.ok` — lower impact as the last-resort source, but the same shape.)
+
 ---
 
 ## Task: Diagnose Competitor Ads Not Appearing in the Market Intelligence UI
