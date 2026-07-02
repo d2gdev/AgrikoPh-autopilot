@@ -31,6 +31,20 @@ Review only fetches destination URLs over HTTP).
 | "Cannot unassign role" (400) | By design — roles must always be assigned. Use reassignment. |
 | Dropdown empty in Settings | `AppUser` is populated on login; the person must have opened the app at least once. |
 
+## Post-review hardening (2026-07-02, commit a172112)
+
+- Conflict-of-interest is enforced on ALL paths now: SLA backups/escalations
+  and Transition A never assign the submitter as their own reviewer.
+- The worker recovers jobs orphaned in PROCESSING (crash/kill) each cycle.
+- Job timeouts during HTTP checks retry (1m/5m/15m) instead of terminally
+  rejecting the ad.
+- `stageEnteredAt` (set by every `transition()`) is the SLA clock — never use
+  `updatedAt` for stage-age measurements.
+- force-transition syncs stage/assignee/timestamps, enqueues the AI job for
+  queue statuses, and clears the manual-intervention flag.
+- Review/approve authority is per-approval assignment only; the only env
+  permissions are AD_APPROVAL_SUBMIT and AD_APPROVAL_ADMIN.
+
 ## Gotchas
 
 - The migration `20260702000000_add_ad_approval_workflow` was authored offline (no local dev DB).
