@@ -74,7 +74,14 @@ describe("buildExtraContext", () => {
           id: "snap-2",
           dateRangeStart: new Date(),
           dateRangeEnd: new Date(),
-          payload: { topQueries: [{ query: "a", clicks: 1, impressions: 1, ctr: "1%", position: "1" }] },
+          // Real gsc_query_page payload shape is { pairs, fetchedAt } — see lib/connectors/gsc.ts fetchGscQueryPageData
+          payload: {
+            pairs: [
+              { query: "a", page: "/p1", clicks: 1, impressions: 10, position: "3.0" },
+              { query: "b", page: "/p2", clicks: 5, impressions: 20, position: "1.2" },
+            ],
+            fetchedAt: "2026-07-01T00:00:00.000Z",
+          },
         });
 
       const result = await buildExtraContext(["gsc"]);
@@ -82,7 +89,11 @@ describe("buildExtraContext", () => {
         2,
         expect.objectContaining({ where: { source: "gsc_query_page" } })
       );
-      expect((result.gsc as { topQueries: unknown[] }).topQueries).toHaveLength(1);
+      const gsc = result.gsc as { topQueries: Array<{ query: string; clicks: number; impressions: number; position: string }> };
+      expect(gsc.topQueries).toHaveLength(2);
+      // mapped into the same shape as the primary path, sorted by clicks desc
+      expect(gsc.topQueries[0]).toEqual({ query: "b", clicks: 5, impressions: 20, position: "1.2" });
+      expect(gsc.topQueries[1]).toEqual({ query: "a", clicks: 1, impressions: 10, position: "3.0" });
     });
 
     it("returns null when no gsc snapshot exists at all", async () => {

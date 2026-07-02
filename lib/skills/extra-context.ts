@@ -9,21 +9,44 @@ function daysAgo(days: number): Date {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
 
+// Shape of rows in the gsc_query_page snapshot payload (`payload.pairs`) —
+// see lib/connectors/gsc.ts fetchGscQueryPageData.
+type GscQueryPagePair = {
+  query?: string;
+  page?: string;
+  clicks?: number;
+  impressions?: number;
+  position?: string;
+};
+
 async function buildGscContext(): Promise<unknown> {
   let snap = await prisma.rawSnapshot.findFirst({
     where: { source: "gsc" },
     orderBy: [{ dateRangeEnd: "desc" }, { fetchedAt: "desc" }],
   });
-  if (!snap) {
+  let queries: Array<Partial<GscQueryRow>> = [];
+
+  if (snap) {
+    const payload = snap.payload as Record<string, unknown> | null;
+    queries = Array.isArray(payload?.topQueries) ? (payload!.topQueries as GscQueryRow[]) : [];
+  } else {
     snap = await prisma.rawSnapshot.findFirst({
       where: { source: "gsc_query_page" },
       orderBy: [{ dateRangeEnd: "desc" }, { fetchedAt: "desc" }],
     });
+    if (!snap) return null;
+    // gsc_query_page payload shape is { pairs, fetchedAt } (see lib/connectors/gsc.ts) —
+    // map pair rows into the same top-queries shape the primary path emits.
+    const payload = snap.payload as Record<string, unknown> | null;
+    const pairs = Array.isArray(payload?.pairs) ? (payload!.pairs as GscQueryPagePair[]) : [];
+    queries = pairs.map((p) => ({
+      query: p.query ?? "",
+      clicks: p.clicks ?? 0,
+      impressions: p.impressions ?? 0,
+      position: p.position ?? "",
+    }));
   }
-  if (!snap) return null;
 
-  const payload = snap.payload as Record<string, unknown> | null;
-  const queries = Array.isArray(payload?.topQueries) ? (payload!.topQueries as GscQueryRow[]) : [];
   const topQueries = [...queries]
     .sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0))
     .slice(0, 100);
