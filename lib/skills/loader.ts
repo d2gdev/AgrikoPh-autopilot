@@ -2,6 +2,10 @@ import fs from "fs";
 import path from "path";
 import * as yaml from "js-yaml";
 
+export type ExtraSource = "gsc" | "ga4" | "market_intel" | "keyword_research";
+
+const VALID_EXTRA_SOURCES: ExtraSource[] = ["gsc", "ga4", "market_intel", "keyword_research"];
+
 export interface SkillDefinition {
   id: string;
   name: string;
@@ -11,6 +15,7 @@ export interface SkillDefinition {
   enabled: boolean;
   fullPrompt: string;
   insightBlock?: string; // e.g. "fatigue-report" | "search-term-opportunities" | "competitor-analysis"
+  extraSources?: ExtraSource[]; // additional data sources to inject into the skill's payload
 }
 
 const SKILLS_DIR = path.join(process.cwd(), "skills-source");
@@ -24,8 +29,22 @@ type SkillFrontmatter = {
   metadata?: {
     platform?: string;
     insightBlock?: string;
+    extraSources?: string[];
   };
 };
+
+function parseExtraSources(raw: unknown): ExtraSource[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const result: ExtraSource[] = [];
+  for (const value of raw) {
+    if (typeof value === "string" && (VALID_EXTRA_SOURCES as string[]).includes(value)) {
+      result.push(value as ExtraSource);
+    } else {
+      console.warn(`[skills/loader] Unknown extraSources value ignored: ${String(value)}`);
+    }
+  }
+  return result.length > 0 ? result : undefined;
+}
 
 function parseFrontmatter(raw: string): { data: SkillFrontmatter; content: string } {
   if (!raw.startsWith("---\n")) return { data: {}, content: raw };
@@ -74,6 +93,7 @@ function parseSkillFile(filePath: string, pilotGroup: string): SkillDefinition |
       enabled: data.enabled !== false,
       fullPrompt: content.trim(),
       insightBlock: (data.metadata?.insightBlock as string | undefined) ?? undefined,
+      extraSources: parseExtraSources(data.metadata?.extraSources),
     };
   } catch (err) {
     console.warn(`[skills/loader] Failed to parse ${filePath}:`, err);

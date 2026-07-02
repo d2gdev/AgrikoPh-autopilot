@@ -132,11 +132,12 @@ function buildQuerySummary(skill: SkillDefinition, payload: Record<string, unkno
 
 export async function runSkill(
   skill: SkillDefinition,
-  snapshot: RawSnapshot
+  snapshot: RawSnapshot,
+  extraContext?: Record<string, unknown>
 ): Promise<{ recs: ParsedRecommendation[]; insights: unknown[]; truncated: boolean }> {
 
   const payload = snapshot.payload as Record<string, unknown>;
-  const dataPayload = assembleDataPayload(skill, payload);
+  const dataPayload = assembleDataPayload(skill, payload, extraContext);
 
   const insightSchema = skill.insightBlock ? INSIGHT_SCHEMAS[skill.insightBlock] : null;
   const insightInstruction = insightSchema
@@ -198,7 +199,60 @@ If nothing actionable, output \`\`\`recommendations\n[]\n\`\`\``;
   return { recs: parseRecommendations(text), insights, truncated: false };
 }
 
-function assembleDataPayload(skill: SkillDefinition, payload: Record<string, unknown>): string {
+const MAX_EXTRA_SECTION_CHARS = 8000;
+
+const EXTRA_SECTION_TITLES: Record<string, string> = {
+  gsc: "Organic Search (GSC)",
+  ga4: "Site Analytics (GA4)",
+  market_intel: "Market Intelligence",
+  keyword_research: "Keyword Research",
+};
+
+// Serializes `data` to a JSON block capped at ~maxChars. If `data` (or a top-level
+// array field within it) is too large, arrays are trimmed and a truncation note is
+// appended — the caller never sees a payload silently blown past the cap.
+function capJson(data: unknown, maxChars: number): string {
+  let json = JSON.stringify(data, null, 2);
+  if (json.length <= maxChars) return json;
+
+  // If the payload is (or wraps) an array, trim elements until it fits.
+  const isArray = Array.isArray(data);
+  const arrayHolder = isArray
+    ? { items: data as unknown[] }
+    : data && typeof data === "object"
+      ? (data as Record<string, unknown>)
+      : null;
+
+  if (arrayHolder) {
+    const arrayKey = isArray
+      ? "items"
+      : Object.keys(arrayHolder).find((k) => Array.isArray(arrayHolder[k]));
+    if (arrayKey && Array.isArray(arrayHolder[arrayKey])) {
+      const original = arrayHolder[arrayKey] as unknown[];
+      let count = original.length;
+      while (count > 0) {
+        count = Math.floor(count * 0.75) || count - 1;
+        const trimmed = isArray
+          ? original.slice(0, count)
+          : { ...arrayHolder, [arrayKey]: original.slice(0, count) };
+        json = JSON.stringify(trimmed, null, 2);
+        if (json.length <= maxChars || count <= 1) {
+          const note = `\n/* truncated: showing ${count} of ${original.length} item(s) to stay under the size cap */`;
+          return json + note;
+        }
+      }
+    }
+  }
+
+  // Fallback: hard-truncate the string itself.
+  return json.slice(0, maxChars) + "\n/* truncated: payload exceeded size cap */";
+}
+
+export function assembleDataPayload(
+  skill: SkillDefinition,
+  payload: Record<string, unknown>,
+  extraContext?: Record<string, unknown>
+): string {
   const sections: string[] = [`# Ad Account Data for Analysis\n`];
 
   if (payload.campaigns) {
@@ -219,6 +273,16 @@ function assembleDataPayload(skill: SkillDefinition, payload: Record<string, unk
 
   if (payload.insights) {
     sections.push(`## Performance Insights (ROAS / CTR / Spend / Frequency)\n\`\`\`json\n${JSON.stringify(payload.insights, null, 2)}\n\`\`\``);
+  }
+
+  if (extraContext && skill.extraSources) {
+    for (const source of skill.extraSources) {
+      if (!(source in extraContext)) continue;
+      const data = extraContext[source];
+      if (data === null || data === undefined) continue;
+      const title = EXTRA_SECTION_TITLES[source] ?? source;
+      sections.push(`## ${title}\n\`\`\`json\n${capJson(data, MAX_EXTRA_SECTION_CHARS)}\n\`\`\``);
+    }
   }
 
   return sections.join("\n\n");

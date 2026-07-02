@@ -4,12 +4,13 @@ description: Analyzes your search term reports across all campaigns and surfaces
 metadata:
   platform: Google
   insightBlock: search-term-opportunities
+  extraSources: [keyword_research]
 ---
 
 # 7/ Search Term Mining — Google
 
 ## What it does
-Analyzes your search term reports across all campaigns and surfaces high-intent terms you're not bidding on yet. Groups them by theme, estimates their potential volume and CPA, and recommends match types and starting bids for each.
+Analyzes your search term reports across all campaigns and surfaces high-intent terms you're not bidding on yet. Groups them by theme, estimates their potential volume and CPA, and recommends match types and starting bids for each. A "Keyword Research" data section (search volume, competition, and bid ranges) is included below the ad account data when available.
 
 ## How it works
 Claude processes your search term data over a 30-90 day window, identifies converting terms that are currently matched through broad or phrase but don't have dedicated keywords, and separates them from noise. It also finds patterns — clusters of related terms that suggest new ad group or campaign opportunities you're missing.

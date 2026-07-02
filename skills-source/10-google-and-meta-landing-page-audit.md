@@ -3,12 +3,13 @@ name: landing-page-audit
 description: Reviews your landing pages against the ads driving traffic to them. Checks for message match between ad copy and page content, CTA clarity, above-the-fold alignment, form friction, and flags any disconnects between what the ad promises and what the page delivers.
 metadata:
   platform: Google and Meta
+  extraSources: [ga4]
 ---
 
 # 10/ Landing Page Audit — Google + Meta
 
 ## What it does
-Reviews your landing pages against the ads driving traffic to them. Checks for message match between ad copy and page content, CTA clarity, above-the-fold alignment, form friction, and flags any disconnects between what the ad promises and what the page delivers.
+Reviews your landing pages against the ads driving traffic to them. Checks for message match between ad copy and page content, CTA clarity, above-the-fold alignment, form friction, and flags any disconnects between what the ad promises and what the page delivers. A "Site Analytics (GA4)" data section (top landing pages by sessions, conversion rate, bounce rate) is included below the ad account data when available.
 
 ## How it works
 Claude takes your ad copy and landing page content side by side. It evaluates whether the headline on the page matches the hook in the ad, whether the offer is consistent, whether the CTA is visible and clear, and whether the page structure follows conversion best practices for your specific campaign objective (lead gen, ecommerce, SaaS trial, etc).

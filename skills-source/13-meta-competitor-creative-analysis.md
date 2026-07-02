@@ -4,12 +4,13 @@ description: Pulls competitor ads from Meta Ad Library and Google Ads Transparen
 metadata:
   platform: Meta
   insightBlock: competitor-analysis
+  extraSources: [market_intel]
 ---
 
 # 13/ Competitor Creative Analysis — Meta
 
 ## What it does
-Pulls competitor ads from Meta Ad Library and Google Ads Transparency Center, categorizes their messaging angles, formats, CTAs, and creative types, then identifies gaps in their approach you can exploit and patterns worth testing in your own campaigns.
+Pulls competitor ads from Meta Ad Library and Google Ads Transparency Center, categorizes their messaging angles, formats, CTAs, and creative types, then identifies gaps in their approach you can exploit and patterns worth testing in your own campaigns. A "Market Intelligence" data section (recent competitor ads, price changes, and open market insights) is included below the ad account data when available.
 
 ## How it works
 Claude reviews competitor ad libraries and breaks down what they're running — how many active ads, what formats (video, static, carousel), what messaging themes (pain point, benefit, social proof, urgency), how often they rotate, and what offers they're pushing. It then maps this against your current creative strategy to find differentiation opportunities.

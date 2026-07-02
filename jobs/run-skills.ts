@@ -121,6 +121,23 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
   }
 
   const { runSkill } = await import("@/lib/skills/runner");
+  const { buildExtraContext } = await import("@/lib/skills/extra-context");
+
+  // Build the union of extraSources needed by any applicable skill once per run,
+  // then hand each skill only the subset it declared.
+  const extraSourcesUnion = Array.from(
+    new Set(applicableSkills.flatMap((s) => s.extraSources ?? []))
+  );
+  const extraContext = extraSourcesUnion.length > 0 ? await buildExtraContext(extraSourcesUnion) : {};
+
+  function extraContextForSkill(skill: SkillDefinition): Record<string, unknown> | undefined {
+    if (!skill.extraSources || skill.extraSources.length === 0) return undefined;
+    const subset: Record<string, unknown> = {};
+    for (const source of skill.extraSources) {
+      if (source in extraContext) subset[source] = extraContext[source];
+    }
+    return subset;
+  }
 
   let totalRecs = 0;
   let skipped = 0;
@@ -143,7 +160,7 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
       }
 
       const { recs: recommendations, insights, truncated } = await Promise.race([
-        runSkill(skill, snapshot),
+        runSkill(skill, snapshot, extraContextForSkill(skill)),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('runSkill timeout after 120s')), 120_000))
       ]);
       if (truncated) {
