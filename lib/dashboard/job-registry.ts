@@ -9,7 +9,8 @@ export type DashboardJobName =
   | "fetch-keyword-research"
   | "run-skills"
   | "execute-approved"
-  | "index-knowledge";
+  | "index-knowledge"
+  | "check-outcomes";
 
 export type DashboardJobTriggerStrategy = "queued" | "cron" | "disabled";
 
@@ -122,6 +123,15 @@ export const DASHBOARD_JOB_REGISTRY = [
     manualTriggerEnabled: true,
     triggerStrategy: "cron",
     cronPath: "/api/cron/index-knowledge",
+    cronCadence: "daily",
+    expectedCadenceHours: 24,
+  },
+  {
+    name: "check-outcomes",
+    label: "Check Recommendation Outcomes",
+    manualTriggerEnabled: true,
+    triggerStrategy: "cron",
+    cronPath: "/api/cron/check-outcomes",
     cronCadence: "daily",
     expectedCadenceHours: 24,
   },

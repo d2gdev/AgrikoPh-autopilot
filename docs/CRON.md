@@ -16,6 +16,7 @@ Cron scheduling is handled outside the app. The app exposes cron routes that can
 | 05:45 | `/api/cron/fetch-keyword-research` | Captures Google Ads keyword planning metrics for tracked market keywords |
 | Mon 05:50 | `/api/cron/fetch-gsc-data` | Captures query+page GSC rows into `GscQuery` for historical search analytics |
 | 06:00 | `/api/cron/execute-approved` | Dry-runs approved execution queue unless live execution is explicitly enabled |
+| 07:00 | `/api/cron/check-outcomes` | Measures whether executed recommendations helped by comparing before/after platform metrics |
 | Every minute | `/api/cron/drain-jobs?limit=1` | Drains one queued job run and recovers stale claims. This includes `dashboard-refresh`, `fetch-market-intel`, and `fetch-keyword-research` queue entries. |
 | Every 5 min | `/api/cron/process-ad-reviews` | Runs queued/retry AI ad-approval review jobs (Pre/Brand/Technical) and advances the approval workflow. |
 | Every 5 min | `/api/cron/ad-approval-sla` | Escalates ad approvals that breach reviewer SLAs (Conversion 4h, Penultimate 8h, Final 24h). |
@@ -85,6 +86,9 @@ Live execution requires both:
 - `?live=true`
 
 Without both, `/api/cron/execute-approved` remains dry-run even when called by the scheduler.
+
+### `/api/cron/check-outcomes`
+Outcome feedback loop: selects up to 50 `Recommendation` rows with `status: "executed"`, `executedAt` at least 7 days ago, and `outcomeCheckedAt: null`. For each, finds the latest `RawSnapshot` for the rec's platform captured before `executedAt` and the earliest captured at least 7 days after, locates the target entity in each payload (campaigns/adSets/ads/keywords, tolerant of missing arrays or an entity that has since been deleted), and compares spend/roas/ctr/cpa/conversions. Primary metric is ROAS if present, else CPA, else CTR; >5% better/worse than baseline is `improved`/`worsened`, otherwise `neutral`; missing data on either side is `insufficient_data`. Writes `outcome` + `outcomeCheckedAt` on the recommendation (never re-selected afterward) and, for decided verdicts, indexes a one-paragraph summary into the knowledge base under `sourceType: "recommendation_outcome"` so future skill runs (`groundSkillContext`) see what worked. Per-recommendation failures are collected rather than thrown; the job reports `partial` if some succeed and some fail. KB indexing failures are logged and swallowed — they never fail the outcome check itself. Runs under a `JobLock`.
 
 ### `/api/cron/drain-jobs`
 Claims one queued job run at a time from `JobRun`, updates a heartbeat while the job executes, and releases queue ownership when complete. Stale claimed runs are requeued or failed according to `JOB_QUEUE_STALE_MINUTES` and `maxAttempts`.

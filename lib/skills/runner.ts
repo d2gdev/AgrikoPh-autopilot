@@ -102,7 +102,7 @@ const INSIGHT_SCHEMAS: Record<string, string> = {
 export async function groundSkillContext(baseContext: string, query: string): Promise<string> {
   const chunks = await retrieveContext({
     query,
-    sourceTypes: ["recommendation", "market_insight"],
+    sourceTypes: ["recommendation", "market_insight", "recommendation_outcome"],
     topK: 6,
   });
   const block = formatGroundingBlock(chunks);

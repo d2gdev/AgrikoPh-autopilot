@@ -56,6 +56,11 @@ model Recommendation {
   executedAt       DateTime?
   executionResult  Json?
 
+  // Outcome feedback loop (Task 4): did the executed change help? Populated by
+  // jobs/check-outcomes.ts by comparing platform metrics before/after execution.
+  outcome          Json?     // { verdict, metricsBefore, metricsAfter, deltas, windowDays, checkedAt }
+  outcomeCheckedAt DateTime?
+
   snapshotId       String
   snapshot         RawSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
@@ -64,6 +69,7 @@ model Recommendation {
   @@index([platform, actionType])
   @@index([guardStatus])
   @@index([snapshotId])
+  @@index([status, outcomeCheckedAt])
 }
 
 model AuditLog {
