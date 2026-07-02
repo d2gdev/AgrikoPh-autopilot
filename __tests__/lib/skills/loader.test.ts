@@ -104,4 +104,38 @@ describe("skills loader", () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("bogus_source"));
     warnSpy.mockRestore();
   });
+
+  it("loads the paid/organic overlap skill (45) with 'both' platform and gsc+ga4 extraSources", async () => {
+    process.chdir(originalCwd);
+    vi.resetModules();
+
+    const { loadAllSkillsSync } = await import("@/lib/skills/loader");
+    const skills = loadAllSkillsSync();
+    const skill = skills.find((s) => s.id === "45-google-and-meta-paid-organic-overlap");
+
+    expect(skill).toEqual(
+      expect.objectContaining({
+        platform: "both",
+        enabled: true,
+        extraSources: ["gsc", "ga4"],
+      }),
+    );
+  });
+
+  it("loads the keyword gap analysis skill (46) with 'google_ads' platform and keyword_research+gsc extraSources", async () => {
+    process.chdir(originalCwd);
+    vi.resetModules();
+
+    const { loadAllSkillsSync } = await import("@/lib/skills/loader");
+    const skills = loadAllSkillsSync();
+    const skill = skills.find((s) => s.id === "46-google-keyword-gap-analysis");
+
+    expect(skill).toEqual(
+      expect.objectContaining({
+        platform: "google_ads",
+        enabled: true,
+        extraSources: ["keyword_research", "gsc"],
+      }),
+    );
+  });
 });
