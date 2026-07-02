@@ -55,19 +55,75 @@ export async function checkRedirectChain(
   return { ok: false, note: `Exceeded ${maxHops} redirects` };
 }
 
-/** Fetch the page HTML and look for a Facebook pixel install. */
+/**
+ * Fetch the page HTML and look for a Facebook pixel install.
+ *
+ * Shopify stores rarely embed fbevents.js in the raw HTML — Meta pixels are
+ * usually installed as sandboxed Web Pixels that load dynamically through
+ * Shopify's Web Pixels Manager (only a `/cdn/wpm/...` bootstrap appears in the
+ * HTML). Treating "no fbevents.js in HTML" as "no pixel" terminally rejected
+ * every Shopify-hosted landing page (false negative found in prod E2E). So:
+ *   1. fbevents.js / fbq() in HTML            -> PASS (direct install)
+ *   2. Web Pixels bootstrap in HTML           -> verify via Meta Marketing API
+ *      that a pixel on the ad account fired recently; PASS if so, PASS-with-
+ *      caveat if the API is unavailable, FAIL if pixels exist but are silent
+ *   3. neither                                -> FAIL
+ */
 export async function checkFacebookPixel(url: string, signal: AbortSignal): Promise<HttpCheck> {
   try {
     const res = await fetch(url, { method: "GET", redirect: "follow", signal });
     if (!res.ok) return { ok: false, note: `Page returned HTTP ${res.status}` };
     const html = await res.text();
-    const hasPixel =
+
+    const hasDirectPixel =
       /connect\.facebook\.net\/[^"']*\/fbevents\.js/i.test(html) ||
       /fbq\(\s*['"]init['"]/i.test(html);
-    return { ok: hasPixel, note: hasPixel ? "Pixel detected" : "No Facebook pixel found on page" };
+    if (hasDirectPixel) return { ok: true, note: "Pixel embedded directly in page HTML" };
+
+    const hasWebPixelsFramework = /\/cdn\/wpm\/|web-pixels@|webPixelsManager/i.test(html);
+    if (hasWebPixelsFramework) {
+      const fired = await metaPixelRecentlyFired(signal);
+      if (fired === true) {
+        return { ok: true, note: "Shopify Web Pixels install; Meta pixel verified firing via Marketing API" };
+      }
+      if (fired === null) {
+        return { ok: true, note: "Shopify Web Pixels framework detected (pixel loads dynamically; Meta API verification unavailable)" };
+      }
+      return { ok: false, note: "Shopify Web Pixels framework present, but no pixel on the ad account fired in the last 7 days" };
+    }
+
+    return { ok: false, note: "No Facebook pixel found on page" };
   } catch (err) {
     rethrowIfAborted(err, signal);
     return { ok: false, note: `Fetch failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * Ask the Meta Marketing API whether any pixel on the configured ad account
+ * fired within the last 7 days. Returns null when unverifiable (no credentials,
+ * API error, or no pixels on the account) — callers treat null as "unknown",
+ * not as failure.
+ */
+async function metaPixelRecentlyFired(signal: AbortSignal): Promise<boolean | null> {
+  const token = process.env.META_ACCESS_TOKEN;
+  const account = process.env.META_AD_ACCOUNT_ID;
+  if (!token || !account) return null;
+  const accountId = account.startsWith("act_") ? account : `act_${account}`;
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v21.0/${accountId}/adspixels?fields=id,last_fired_time&access_token=${encodeURIComponent(token)}`,
+      { signal },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: Array<{ last_fired_time?: string }> };
+    const pixels = json.data ?? [];
+    if (!pixels.length) return null;
+    const cutoff = Date.now() - 7 * 24 * 3600_000;
+    return pixels.some((p) => p.last_fired_time && new Date(p.last_fired_time).getTime() > cutoff);
+  } catch (err) {
+    rethrowIfAborted(err, signal);
+    return null;
   }
 }
 
