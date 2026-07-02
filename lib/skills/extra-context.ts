@@ -20,41 +20,79 @@ type GscQueryPagePair = {
   position?: string;
 };
 
+// Shape of rows in the dataforseo_ranked snapshot payload (`payload.topQueries`)
+// — see lib/connectors/dataforseo-labs.ts fetchRankedKeywords / RankedKeywordResult.
+type DataForSeoRankedRow = {
+  keyword?: string;
+  position?: number | null;
+  searchVolume?: number | null;
+  cpc?: number | null;
+  url?: string | null;
+};
+
 async function buildGscContext(): Promise<unknown> {
   let snap = await prisma.rawSnapshot.findFirst({
     where: { source: "gsc" },
     orderBy: [{ dateRangeEnd: "desc" }, { fetchedAt: "desc" }],
   });
-  let queries: Array<Partial<GscQueryRow>> = [];
 
   if (snap) {
     const payload = snap.payload as Record<string, unknown> | null;
-    queries = Array.isArray(payload?.topQueries) ? (payload!.topQueries as GscQueryRow[]) : [];
-  } else {
-    snap = await prisma.rawSnapshot.findFirst({
-      where: { source: "gsc_query_page" },
-      orderBy: [{ dateRangeEnd: "desc" }, { fetchedAt: "desc" }],
-    });
-    if (!snap) return null;
+    const queries = Array.isArray(payload?.topQueries) ? (payload!.topQueries as Array<Partial<GscQueryRow>>) : [];
+    const topQueries = [...queries]
+      .sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0))
+      .slice(0, 100);
+    return { dateRangeStart: snap.dateRangeStart, dateRangeEnd: snap.dateRangeEnd, topQueries };
+  }
+
+  snap = await prisma.rawSnapshot.findFirst({
+    where: { source: "gsc_query_page" },
+    orderBy: [{ dateRangeEnd: "desc" }, { fetchedAt: "desc" }],
+  });
+  if (snap) {
     // gsc_query_page payload shape is { pairs, fetchedAt } (see lib/connectors/gsc.ts) —
     // map pair rows into the same top-queries shape the primary path emits.
     const payload = snap.payload as Record<string, unknown> | null;
     const pairs = Array.isArray(payload?.pairs) ? (payload!.pairs as GscQueryPagePair[]) : [];
-    queries = pairs.map((p) => ({
+    const queries: Array<Partial<GscQueryRow>> = pairs.map((p) => ({
       query: p.query ?? "",
       clicks: p.clicks ?? 0,
       impressions: p.impressions ?? 0,
       position: p.position ?? "",
     }));
+    const topQueries = [...queries]
+      .sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0))
+      .slice(0, 100);
+    return { dateRangeStart: snap.dateRangeStart, dateRangeEnd: snap.dateRangeEnd, topQueries };
   }
 
-  const topQueries = [...queries]
-    .sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0))
+  // Final fallback: DataForSEO Labs ranked-keywords snapshot. This has a
+  // genuinely different shape from GSC (no clicks/impressions — GSC is
+  // click/impression data, DataForSEO Labs is rank/search-volume data), so we
+  // do NOT fake clicks/impressions fields here. We surface what actually
+  // exists (query, position, searchVolume) and mark the provenance via
+  // `source: "dataforseo"` so downstream AI skills know this isn't GSC data.
+  snap = await prisma.rawSnapshot.findFirst({
+    where: { source: "dataforseo_ranked" },
+    orderBy: [{ dateRangeEnd: "desc" }, { fetchedAt: "desc" }],
+  });
+  if (!snap) return null;
+
+  const payload = snap.payload as Record<string, unknown> | null;
+  const rows = Array.isArray(payload?.topQueries) ? (payload!.topQueries as DataForSeoRankedRow[]) : [];
+  const topQueries = rows
+    .map((r) => ({
+      query: r.keyword ?? "",
+      position: r.position ?? null,
+      searchVolume: r.searchVolume ?? null,
+    }))
+    .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0))
     .slice(0, 100);
 
   return {
     dateRangeStart: snap.dateRangeStart,
     dateRangeEnd: snap.dateRangeEnd,
+    source: "dataforseo",
     topQueries,
   };
 }

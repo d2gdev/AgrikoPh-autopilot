@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { type MetaAdLibraryAd } from "@/lib/connectors/meta-ad-library";
 import { isApifyMetaEnabled, fetchApifyMetaAdsByPages } from "@/lib/connectors/apify-meta-ads";
 import { fetchShoppingProducts } from "@/lib/connectors/dataforseo-shopping";
+import { fetchRankedKeywords, fetchDomainIntersection, resolveLabsLimit } from "@/lib/connectors/dataforseo-labs";
 import { fetchSerperShoppingProducts, type SerperShoppingProduct } from "@/lib/connectors/serper-shopping";
 import { fetchCatalogProducts, type CatalogProduct } from "@/lib/shopify-admin";
 import { fillCaptureTranslations } from "@/lib/market-intel/translate-captures";
@@ -36,7 +37,20 @@ type MarketIntelSummary = {
   disabledSources: string[];
   catalogProductsFetched: number;
   priceGapInsights: number;
+  rankedKeywordsFetched: number;
+  keywordGapCandidates: number;
+  keywordGapInsights: number;
 };
+
+function bareDomain(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const withoutProtocol = trimmed.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  const hostAndPath = withoutProtocol.split(/[/?#]/)[0] ?? "";
+  const host = hostAndPath.replace(/^www\./i, "").trim().toLowerCase();
+  return host || null;
+}
 
 function slugPart(value: string | null | undefined) {
   return (value ?? "unknown")
@@ -309,6 +323,9 @@ export async function fetchMarketIntelHandler(
     disabledSources: [],
     catalogProductsFetched: 0,
     priceGapInsights: 0,
+    rankedKeywordsFetched: 0,
+    keywordGapCandidates: 0,
+    keywordGapInsights: 0,
   };
 
   if (process.env.MARKET_INTEL_ENABLED === "false") {
@@ -704,6 +721,155 @@ export async function fetchMarketIntelHandler(
         errors.push(`price_gap:${keyword.keyword}: ${String(err)}`);
       }
     }
+  }
+
+  // DataForSEO Labs: ranked keywords for our own domain + competitor keyword-gap
+  // detection. This is a metered API — the whole step is skipped (no fetch, no
+  // RawSnapshot writes) unless DATAFORSEO_LABS_ENABLED=true. Off by default so
+  // nothing spends money until an operator opts in.
+  if (process.env.DATAFORSEO_LABS_ENABLED === "true") {
+    const ownDomain = bareDomain(process.env.MARKET_INTEL_OWN_DOMAIN) ?? "agrikoph.com";
+    const labsLimit = resolveLabsLimit(undefined);
+    const { start: labsDayStart } = captureDayRange(capturedAt);
+
+    try {
+      const ranked = await fetchRankedKeywords(ownDomain, labsLimit);
+      if (ranked.disabled) {
+        console.log("[fetch-market-intel] dataforseo_labs: skipped ranked-keywords fetch (missing credentials)");
+      } else {
+        summary.rankedKeywordsFetched = ranked.items.length;
+        await prisma.rawSnapshot.upsert({
+          where: {
+            source_dateRangeStart_dateRangeEnd: {
+              source: "dataforseo_ranked",
+              dateRangeStart: labsDayStart,
+              dateRangeEnd: labsDayStart,
+            },
+          },
+          create: {
+            source: "dataforseo_ranked",
+            dateRangeStart: labsDayStart,
+            dateRangeEnd: labsDayStart,
+            payload: json({ domain: ownDomain, topQueries: ranked.items }),
+            jobRunId: runId,
+          },
+          update: {
+            payload: json({ domain: ownDomain, topQueries: ranked.items }),
+            jobRunId: runId,
+            fetchedAt: new Date(),
+          },
+        });
+      }
+    } catch (err) {
+      errors.push(`dataforseo_ranked: ${String(err)}`);
+    }
+
+    try {
+      const competitors = await prisma.competitor.findMany({
+        where: { active: true, domain: { not: null } },
+        orderBy: { name: "asc" },
+        take: 3,
+      });
+
+      const gapsByCompetitor: Array<{ competitorId: string; competitorName: string; domain: string; items: Awaited<ReturnType<typeof fetchDomainIntersection>>["items"] }> = [];
+      let labsDisabled = false;
+
+      for (const competitor of competitors) {
+        const competitorDomain = bareDomain(competitor.domain);
+        if (!competitorDomain) continue;
+        try {
+          const intersection = await fetchDomainIntersection(ownDomain, competitorDomain, labsLimit);
+          if (intersection.disabled) {
+            labsDisabled = true;
+            break;
+          }
+          gapsByCompetitor.push({
+            competitorId: competitor.id,
+            competitorName: competitor.name,
+            domain: competitorDomain,
+            items: intersection.items,
+          });
+        } catch (err) {
+          errors.push(`dataforseo_keyword_gap:${competitor.name}: ${String(err)}`);
+        }
+      }
+
+      if (labsDisabled && gapsByCompetitor.length === 0) {
+        console.log("[fetch-market-intel] dataforseo_labs: skipped keyword-gap fetch (missing credentials)");
+      } else if (gapsByCompetitor.length > 0) {
+        await prisma.rawSnapshot.upsert({
+          where: {
+            source_dateRangeStart_dateRangeEnd: {
+              source: "dataforseo_keyword_gap",
+              dateRangeStart: labsDayStart,
+              dateRangeEnd: labsDayStart,
+            },
+          },
+          create: {
+            source: "dataforseo_keyword_gap",
+            dateRangeStart: labsDayStart,
+            dateRangeEnd: labsDayStart,
+            payload: json({ ownDomain, competitors: gapsByCompetitor }),
+            jobRunId: runId,
+          },
+          update: {
+            payload: json({ ownDomain, competitors: gapsByCompetitor }),
+            jobRunId: runId,
+            fetchedAt: new Date(),
+          },
+        });
+
+        // Material gap: competitor ranks top-10, volume >= 100, and we're
+        // absent from the intersection result (fetchDomainIntersection already
+        // filters to "competitor ranks, we don't"). Capped 10/run, deduped by
+        // keyword against any OPEN keyword_gap insight (mirrors price_gap's
+        // dedup-by-open-insight pattern above).
+        outer:
+        for (const group of gapsByCompetitor) {
+          for (const item of group.items) {
+            if (summary.keywordGapInsights >= 10) break outer;
+            if (item.competitorPosition == null || item.competitorPosition > 10) continue;
+            if (item.searchVolume == null || item.searchVolume < 100) continue;
+            summary.keywordGapCandidates++;
+
+            const existingOpen = await prisma.marketInsight.findFirst({
+              where: {
+                type: "keyword_gap",
+                status: "open",
+                evidence: { path: ["keyword"], equals: item.keyword },
+              },
+              select: { id: true },
+            });
+            if (existingOpen) continue;
+
+            await prisma.marketInsight.create({
+              data: {
+                type: "keyword_gap",
+                severity: "info",
+                title: `${group.competitorName} ranks for "${item.keyword}" — we don't`,
+                summary: `${group.competitorName} ranks #${item.competitorPosition} for "${item.keyword}" (search volume ~${item.searchVolume}/mo) while ${ownDomain} does not appear.`,
+                evidence: json({
+                  keyword: item.keyword,
+                  competitorDomain: group.domain,
+                  competitorPosition: item.competitorPosition,
+                  searchVolume: item.searchVolume,
+                  cpc: item.cpc,
+                  ownDomain,
+                }),
+                competitorId: group.competitorId,
+                dedupeKey: `keyword_gap|${group.competitorId}|${slugPart(item.keyword)}|${capturedAt.toISOString()}`,
+              },
+            });
+            summary.insightsCreated++;
+            summary.keywordGapInsights++;
+          }
+        }
+      }
+    } catch (err) {
+      errors.push(`dataforseo_keyword_gap: ${String(err)}`);
+    }
+  } else {
+    console.log("[fetch-market-intel] dataforseo_labs: disabled (set DATAFORSEO_LABS_ENABLED=true to enable)");
   }
 
   const socialPages = sources.includes("meta") ? await prisma.competitorSocialPage.findMany({

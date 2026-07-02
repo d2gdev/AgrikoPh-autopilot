@@ -99,7 +99,41 @@ describe("buildExtraContext", () => {
       expect(gsc.topQueries[1]).toEqual({ query: "a", clicks: 1, impressions: 10, position: "3.0" });
     });
 
-    it("returns null when no gsc snapshot exists at all", async () => {
+    it("falls back to dataforseo_ranked when neither gsc nor gsc_query_page exist", async () => {
+      mockPrisma.rawSnapshot.findFirst
+        .mockResolvedValueOnce(null) // gsc
+        .mockResolvedValueOnce(null) // gsc_query_page
+        .mockResolvedValueOnce({
+          id: "snap-3",
+          dateRangeStart: new Date("2026-07-01"),
+          dateRangeEnd: new Date("2026-07-01"),
+          payload: {
+            domain: "agrikoph.com",
+            topQueries: [
+              { keyword: "turmeric powder", position: 4, searchVolume: 1200, cpc: 0.45, url: "https://agrikoph.com/turmeric" },
+              { keyword: "moringa tea", position: 2, searchVolume: 3000, cpc: 0.3, url: "https://agrikoph.com/moringa" },
+            ],
+          },
+        });
+
+      const result = await buildExtraContext(["gsc"]);
+
+      expect(mockPrisma.rawSnapshot.findFirst).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({ where: { source: "dataforseo_ranked" } })
+      );
+      const gsc = result.gsc as {
+        source: string;
+        topQueries: Array<{ query: string; position: number; searchVolume: number }>;
+      };
+      expect(gsc.source).toBe("dataforseo");
+      // sorted by searchVolume desc; no clicks/impressions fields faked in.
+      expect(gsc.topQueries[0]).toEqual({ query: "moringa tea", position: 2, searchVolume: 3000 });
+      expect(gsc.topQueries[1]).toEqual({ query: "turmeric powder", position: 4, searchVolume: 1200 });
+      expect((gsc.topQueries[0] as Record<string, unknown>).clicks).toBeUndefined();
+    });
+
+    it("returns null when no gsc, gsc_query_page, or dataforseo_ranked snapshot exists", async () => {
       const result = await buildExtraContext(["gsc"]);
       expect(result.gsc).toBeNull();
     });

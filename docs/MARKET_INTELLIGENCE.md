@@ -28,6 +28,7 @@ The module is no longer just scaffolded. These pieces exist in the repo:
 - Connectors:
   - Google Shopping through Serper in `lib/connectors/serper-shopping.ts`
   - DataForSEO fallback in `lib/connectors/dataforseo-shopping.ts`
+  - DataForSEO Labs (ranked keywords + keyword gap) in `lib/connectors/dataforseo-labs.ts`
   - Google Ads keyword planning in `lib/connectors/google-ads.ts`
   - Meta Ad Library API/fallback coordinator in `lib/connectors/meta-ad-library.ts`
   - Temporary Playwright Meta Ad Library fallback in `lib/connectors/meta-ad-library-scraper.ts`
@@ -79,6 +80,37 @@ Still missing:
 - ranking movement insight
 - category-level price bands
 - store-level competitor summaries
+
+### DataForSEO Labs (organic ranked keywords + keyword gap)
+
+Purpose: independent organic-visibility data source, since GSC access is currently 403/unreliable. Uses DataForSEO's Labs `ranked_keywords` and `domain_intersection` live endpoints. Connector: `lib/connectors/dataforseo-labs.ts`.
+
+This is a metered API — the whole ingestion step in `jobs/fetch-market-intel.ts` is gated behind `DATAFORSEO_LABS_ENABLED=true` (default `false`/unset = skipped entirely, no request is made, no RawSnapshot is written). When enabled, a missing `DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD` also causes a non-fatal skip (logged, not an error).
+
+Env vars:
+
+- `DATAFORSEO_LABS_ENABLED` — `true` to enable; anything else (including unset) skips the step.
+- `DATAFORSEO_LABS_LIMIT` — rows per Labs request, clamped to `(0, 100]`, default `20`.
+- `MARKET_INTEL_OWN_DOMAIN` — our domain for ranked-keyword lookups and keyword-gap comparisons, default `agrikoph.com`.
+
+Ranked keywords (own domain):
+
+- Fetches up to `DATAFORSEO_LABS_LIMIT` keywords `MARKET_INTEL_OWN_DOMAIN` ranks for (ordered by search volume).
+- Stored as `RawSnapshot` source `dataforseo_ranked`, one row per day (`dateRangeStart === dateRangeEnd`), payload `{ domain, topQueries: [{ keyword, position, searchVolume, cpc, url }] }`.
+- Feeds the Task 2 skills `gsc` extra-source fallback chain: `gsc` → `gsc_query_page` → `dataforseo_ranked` (see `lib/skills/extra-context.ts`). The DataForSEO branch has a genuinely different shape (no clicks/impressions — those don't exist in this data) and is marked `source: "dataforseo"` in the returned context so skills know the provenance.
+
+Competitor keyword gap:
+
+- For up to 3 active `Competitor` rows with a usable `domain` (bare host extracted defensively — protocol/path stripped, `www.` dropped; competitors without a usable domain are skipped), runs `domain_intersection` between `MARKET_INTEL_OWN_DOMAIN` and the competitor domain.
+- The connector requests the union (`intersections: false`) and filters client-side to rows where the competitor ranks and we don't — the actual "gap" signal.
+- Stored as `RawSnapshot` source `dataforseo_keyword_gap`, one row per day, payload `{ ownDomain, competitors: [{ competitorId, competitorName, domain, items }] }`.
+- Material gaps (competitor ranks top-10, search volume ≥ 100, we're absent) become `MarketInsight` type `keyword_gap`, capped at 10 per run, deduped against any OPEN `keyword_gap` insight for the same keyword (same pattern as `price_gap` above — open-insight dedup rather than per-day dedup).
+
+Still missing:
+
+- ranking-movement tracking across runs (currently only a point-in-time snapshot)
+- own-domain ranked-keyword drop/decline insight
+- UI surfacing of `dataforseo_ranked` / `dataforseo_keyword_gap` snapshots
 
 ### Google Ads Keyword Research
 
