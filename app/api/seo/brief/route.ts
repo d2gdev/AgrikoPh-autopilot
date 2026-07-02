@@ -2,14 +2,16 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { chatCompletionWithFailover } from "@/lib/ai/client";
 import { getLatestGscData, getLatestGa4Data } from "@/lib/seo/data";
 import { groundSeoBriefContext } from "@/lib/seo/brief-grounding";
 
-const SeoBriefSchema = z.string().trim().min(1).max(2_000);
+// Generous ceiling for display; over-length responses are truncated at a line
+// boundary, NOT rejected. (A 2,000-char hard cap used to reject verbose-but-
+// valid briefs with a misleading "empty brief" error — retrying never helped.)
+const MAX_BRIEF_CHARS = 6_000;
 
 function classifyBriefError(err: unknown): { status: number; error: string; detail?: string } {
   const raw = err instanceof Error ? err.message : String(err);
@@ -74,13 +76,19 @@ export async function POST(req: NextRequest) {
       ],
     }, { requestOptions: { signal: aiTimeout } });
 
-    const parsedBrief = SeoBriefSchema.safeParse(content);
-    if (!parsedBrief.success) {
-      console.error("[seo/brief] invalid AI output", parsedBrief.error.flatten());
+    let brief = (content ?? "").trim();
+    if (!brief) {
+      console.error("[seo/brief] AI returned empty content");
       return NextResponse.json({ error: "AI returned an empty brief - please retry" }, { status: 502 });
     }
+    if (brief.length > MAX_BRIEF_CHARS) {
+      console.warn(`[seo/brief] brief over ${MAX_BRIEF_CHARS} chars (${brief.length}); truncating at line boundary`);
+      const cut = brief.slice(0, MAX_BRIEF_CHARS);
+      const lastBreak = cut.lastIndexOf("\n");
+      brief = (lastBreak > MAX_BRIEF_CHARS - 500 ? cut.slice(0, lastBreak) : cut).trimEnd() + "\n…";
+    }
 
-    return NextResponse.json({ brief: parsedBrief.data });
+    return NextResponse.json({ brief });
   } catch (err) {
     if (aiTimeout?.aborted) {
       console.error("[seo/brief] AI completion timed out after 25s");
