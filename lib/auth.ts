@@ -10,6 +10,10 @@ export const PERMISSIONS = {
   SETTINGS_ADMIN: "settings:admin",
   CONTENT_REVIEW: "content:review",
   CONTENT_PUBLISH: "content:publish",
+  AD_APPROVAL_SUBMIT: "ad_approval:submit",
+  AD_APPROVAL_CONVERSION_REVIEW: "ad_approval:conversion_review",
+  AD_APPROVAL_APPROVE: "ad_approval:approve",
+  AD_APPROVAL_ADMIN: "ad_approval:admin",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -27,6 +31,10 @@ const PERMISSION_ENV: Record<Permission, string> = {
   [PERMISSIONS.SETTINGS_ADMIN]: "AUTOPILOT_SETTINGS_ADMIN_ACTORS",
   [PERMISSIONS.CONTENT_REVIEW]: "AUTOPILOT_CONTENT_REVIEW_ACTORS",
   [PERMISSIONS.CONTENT_PUBLISH]: "AUTOPILOT_CONTENT_PUBLISH_ACTORS",
+  [PERMISSIONS.AD_APPROVAL_SUBMIT]: "AUTOPILOT_AD_APPROVAL_SUBMIT_ACTORS",
+  [PERMISSIONS.AD_APPROVAL_CONVERSION_REVIEW]: "AUTOPILOT_AD_APPROVAL_CONVERSION_REVIEW_ACTORS",
+  [PERMISSIONS.AD_APPROVAL_APPROVE]: "AUTOPILOT_AD_APPROVAL_APPROVE_ACTORS",
+  [PERMISSIONS.AD_APPROVAL_ADMIN]: "AUTOPILOT_AD_APPROVAL_ADMIN_ACTORS",
 };
 
 // Constant-time check of the private-tool X-Autopilot-Api-Key header against
@@ -79,6 +87,11 @@ export async function requireAppAuth(request: Request): Promise<NextResponse | n
   if (!shop) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // Best-effort roster capture so Settings can offer real people as reviewers.
+  // Fire-and-forget: adds no latency and never affects the auth outcome.
+  void decodeSessionUser(request)
+    .then((userId) => import("@/lib/ad-approval/app-users").then((m) => m.captureAppUser(userId)))
+    .catch(() => {});
   return null;
 }
 

@@ -23,6 +23,7 @@ export const EMBEDDED_NAVIGATION_SECTIONS: EmbeddedNavigationSection[] = [
     items: [
       { label: "Campaigns", href: "/campaigns", match: "prefix", appBridge: true },
       { label: "Recommendations", href: "/recommendations", match: "prefix", appBridge: true },
+      { label: "Ad Approvals", href: "/ad-approvals", match: "prefix", appBridge: true },
       { label: "Report", href: "/ad-pilot", match: "exact" },
     ],
   },

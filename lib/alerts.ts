@@ -345,3 +345,9 @@ export async function notifyJobFailure(input: JobFailureAlertInput): Promise<voi
 
   await postWebhook(payload);
 }
+
+// Generic ops-webhook passthrough for other subsystems (e.g. ad-approval
+// admin/critical notifications). No-ops when ALERT_WEBHOOK_URL is unset.
+export async function sendOpsWebhook(payload: Record<string, unknown>): Promise<void> {
+  await postWebhook(payload);
+}

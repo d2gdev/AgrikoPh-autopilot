@@ -14,6 +14,7 @@ describe("embedded navigation config", () => {
       "/",
       "/campaigns",
       "/recommendations",
+      "/ad-approvals",
       "/seo",
       "/settings",
     ]);

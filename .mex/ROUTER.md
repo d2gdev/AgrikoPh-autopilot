@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-01T02:40:00Z
+last_updated: 2026-07-02T00:00:00Z
 ---
 
 # Session Bootstrap
@@ -41,6 +41,7 @@ Then read this file fully before doing anything else in this session.
 - Guardrails with DB-configurable thresholds (5-min cache)
 - Job locking, health alerts, data freshness monitoring
 - Odysseus self-hosted AI workspace at https://odysseus.agrikoph.com — Docker Compose on prod, nginx reverse proxy with Let's Encrypt SSL, embedded as iframe dashboard at `/odysseus` in auto-pilot nav
+- Ad Approval workflow (Ad Pilot → Ad Approvals): full state machine, 3 AI review agents (Pre/Brand/Technical, text+HTTP; vision checks stubbed as SKIPPED in v1), Conversion scoring rubric, Penultimate/Final human approval, conflict-of-interest detection, revision history, SLA escalation cron, in-app notifications, Settings reviewer assignment. Code + tests landed and build-clean; **the DB migration `20260702000000_add_ad_approval_workflow` is NOT yet applied** (no local dev DB configured — apply via `npm run db:migrate` against a real DB before use). Async work runs via two new crons: `/api/cron/process-ad-reviews` and `/api/cron/ad-approval-sla` (every 5 min; scheduler is external, see docs/CRON.md).
 
 **Not yet built / in progress:**
 - Social Pilot — page exists but pipeline not fully wired

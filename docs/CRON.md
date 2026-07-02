@@ -17,6 +17,8 @@ Cron scheduling is handled outside the app. The app exposes cron routes that can
 | Mon 05:50 | `/api/cron/fetch-gsc-data` | Captures query+page GSC rows into `GscQuery` for historical search analytics |
 | 06:00 | `/api/cron/execute-approved` | Dry-runs approved execution queue unless live execution is explicitly enabled |
 | Every minute | `/api/cron/drain-jobs?limit=1` | Drains one queued job run and recovers stale claims. This includes `dashboard-refresh`, `fetch-market-intel`, and `fetch-keyword-research` queue entries. |
+| Every 5 min | `/api/cron/process-ad-reviews` | Runs queued/retry AI ad-approval review jobs (Pre/Brand/Technical) and advances the approval workflow. |
+| Every 5 min | `/api/cron/ad-approval-sla` | Escalates ad approvals that breach reviewer SLAs (Conversion 4h, Penultimate 8h, Final 24h). |
 
 ## Job Descriptions
 
@@ -38,6 +40,12 @@ Calls `lib/connectors/gsc.ts` and `lib/connectors/ga4.ts`, merges results into a
 
 ### `/api/cron/snapshot-seo-history`
 Reads the latest GSC raw snapshot and stores a durable `seo_history` point for long-term trend charts.
+
+### `/api/cron/process-ad-reviews`
+Drains queued and retry-ready `AdAIJobQueue` rows (Pre/Brand/Technical review stages). For each job: acquires the workflow lock, moves the approval into its `in_*_review` state, runs the matching AI agent under a timeout (90s / 120s Technical), records an `AdAIReport` + `AdReview`, then advances the approval (pass → next stage; needs-revision/reject → terminal-ish). On failure it reverts to the queue state and retries with exponential backoff (1m/5m/15m, 3 retries) before flagging the approval for manual intervention. Runs under a `JobLock`.
+
+### `/api/cron/ad-approval-sla`
+Escalates ad approvals stuck with a human reviewer past their SLA: Conversion Reviewer 4h (→ backup, else admin flag), Penultimate Approver 8h (→ backup, else escalate to Final skipping the stage), Final Approver 24h (critical admin flag; no auto-skip). Writes audit + notification rows for each action. Runs under a `JobLock`.
 
 ### `/api/cron/fetch-ads-data`
 Calls `lib/connectors/meta.ts` (and `google-ads.ts` if credentials present). Writes a `RawSnapshot` of type `ads`.

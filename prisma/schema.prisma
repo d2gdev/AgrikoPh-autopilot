@@ -705,3 +705,169 @@ model KnowledgeChunk {
   @@unique([sourceType, sourceId, chunkIndex])
   @@index([sourceType])
 }
+
+// ---------------------------------------------------------------------------
+// Ad Approval workflow (see docs/ad-approval-spec.md).
+// Actors are Shopify user-id strings (JWT sub); there is no User model, so
+// reviewer/submitter fields are plain strings like Recommendation.reviewedBy.
+// ---------------------------------------------------------------------------
+
+// Lightweight roster of people who have used the app, auto-captured on login.
+// Populates the reviewer-assignment dropdowns in Settings. displayName/email
+// are null until an admin fills them in (session tokens carry only the user id).
+model AppUser {
+  id            String   @id @default(cuid())
+  shopifyUserId String   @unique
+  displayName   String?
+  email         String?
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+
+  @@index([lastSeenAt])
+}
+
+// Centralized reviewer configuration. Exactly one row per role; roles can be
+// reassigned but never unassigned (enforced in the API, not the DB).
+model ReviewerAssignment {
+  id             String   @id @default(cuid())
+  role           String   @unique // "CONVERSION_REVIEWER" | "PENULTIMATE_APPROVER" | "FINAL_APPROVER"
+  assignedUserId String   // Shopify user id (AppUser.shopifyUserId)
+  backupUserId   String?  // Escalation fallback
+  updatedAt      DateTime @updatedAt
+  updatedBy      String   // admin actor
+}
+
+model AdApproval {
+  id                            String    @id @default(cuid())
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
+
+  campaignId                    String    @unique
+  submitterId                   String    // Shopify user id
+
+  currentRevision               Int       @default(1)
+  // "draft" | "for_ai_pre_review" | "in_ai_pre_review" | "for_brand_review"
+  // | "in_brand_review" | "for_conversion_review" | "in_conversion_review"
+  // | "for_technical_review" | "in_technical_review" | "with_penultimate_approver"
+  // | "with_final_approver" | "approved_to_make_kwarta" | "needs_revision"
+  // | "rejected" | "cancelled"
+  status                        String    @default("draft")
+  // "PRE_REVIEW" | "BRAND" | "CONVERSION" | "TECHNICAL" | "PENULTIMATE" | "FINAL"
+  stage                         String    @default("PRE_REVIEW")
+
+  assignedConversionReviewerId  String?
+  assignedPenultimateApproverId String?
+  assignedFinalApproverId       String?
+
+  approvedAt                    DateTime?
+  rejectedAt                    DateTime?
+
+  // Mutable working copy while status = draft. Frozen into an immutable
+  // AdRevision on submit. Null once submitted (until reset back to draft).
+  draftCopy                     Json?
+  draftCreative                 Json?
+
+  flags                         Json?     // { requires_manual_intervention: true, reason: "..." }
+  version                       Int       @default(0) // optimistic lock counter
+
+  revisions                     AdRevision[]
+  reviews                       AdReview[]
+  aiReports                     AdAIReport[]
+  aiJobs                        AdAIJobQueue[]
+
+  @@index([submitterId, status])
+  @@index([status, stage])
+  @@index([createdAt])
+}
+
+// Immutable snapshot of the ad at each submission. Never edited or deleted.
+model AdRevision {
+  id                 String   @id @default(cuid())
+  approvalId         String
+  approval           AdApproval @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  revisionNumber     Int
+  submittedAt        DateTime @default(now())
+  copy               Json     // { primary_text, headline, description, cta, start_date, end_date }
+  creative           Json     // { image_url, video_url, thumbnail_url, aspect_ratios, logo_placement, captions }
+  statusAtSubmission String   // status the ad was in when this revision was created
+
+  @@unique([approvalId, revisionNumber])
+  @@index([approvalId, revisionNumber])
+}
+
+// Immutable record of a single review decision (AI or human) for one revision.
+model AdReview {
+  id             String    @id @default(cuid())
+  approvalId     String
+  approval       AdApproval @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  revisionNumber Int
+  stage          String    // "PRE_REVIEW" | "BRAND_REVIEW" | "CONVERSION_REVIEW" | "TECHNICAL_REVIEW" | "PENULTIMATE_APPROVAL" | "FINAL_APPROVAL"
+  reviewerType   String    // "AI" | "HUMAN"
+  reviewerId     String?   // Shopify user id if HUMAN, null if AI
+  reviewerName   String    // "AI Pre-Review Agent" or human display name
+  decision       String    // "PASS" | "NEEDS_REVISION" | "REJECTED"
+  score          Int?      // Conversion Review only: total 6-30 (per-question scores in jsonMetadata)
+  comments       String?
+  aiReportId     String?
+  aiReport       AdAIReport? @relation(fields: [aiReportId], references: [id], onDelete: SetNull)
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime  @default(now())
+  jsonMetadata   Json?     // e.g. { questionScores: [4,5,3,4,4,4] }
+
+  @@index([approvalId, revisionNumber, completedAt])
+}
+
+model AdAIReport {
+  id               String   @id @default(cuid())
+  agentName        String   // "Pre-Review Agent" | "Brand Review Agent" | "Technical Review Agent"
+  approvalId       String
+  approval         AdApproval @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  revisionNumber   Int
+  overallResult    String   // "PASS" | "NEEDS_REVISION" | "REJECTED"
+  executiveSummary String
+  validationChecks Json     // [{ check_name, result, confidence, note? }]
+  warnings         String?
+  errors           String?
+  recommendations  String?
+  confidenceScore  Float    // 0.0 - 1.0
+  generatedAt      DateTime @default(now())
+  rawResponse      Json?
+
+  reviews          AdReview[]
+
+  @@index([approvalId, generatedAt])
+}
+
+// Tracks async AI job execution for observability, retries, and backoff.
+model AdAIJobQueue {
+  id             String    @id @default(cuid())
+  approvalId     String
+  approval       AdApproval @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  stage          String    // "PRE_REVIEW" | "BRAND_REVIEW" | "TECHNICAL_REVIEW"
+  status         String    @default("QUEUED") // "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | "RETRY"
+  attemptNumber  Int       @default(1)
+  errorMessage   String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  timeoutSeconds Int       @default(90)
+  nextRetryAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([approvalId, status])
+  @@index([status, nextRetryAt])
+}
+
+// Minimal in-app notification feed (the spec's "existing notification framework").
+model Notification {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  recipientId String    // Shopify user id, or "ADMIN" for admin-targeted alerts
+  type        String    // event key, e.g. "needs_revision" | "assigned_conversion_reviewer"
+  title       String
+  body        String
+  approvalId  String?
+  severity    String    @default("info") // "info" | "critical"
+  readAt      DateTime?
+
+  @@index([recipientId, readAt, createdAt])
+}

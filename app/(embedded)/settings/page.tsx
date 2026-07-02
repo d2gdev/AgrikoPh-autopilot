@@ -18,6 +18,7 @@ import {
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
+import { ReviewerAssignmentsCard } from "./ReviewerAssignmentsCard";
 
 interface Credential {
   key: string;
@@ -311,6 +312,9 @@ export default function SettingsPage() {
               </BlockStack>
             </BlockStack>
           </Card>
+        </Layout.Section>
+        <Layout.Section>
+          <ReviewerAssignmentsCard />
         </Layout.Section>
       </Layout>
 
