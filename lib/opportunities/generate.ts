@@ -17,6 +17,7 @@ type OpportunityClient = Pick<
   | "gscQuery"
   | "marketInsight"
   | "shoppingPriceHistory"
+  | "skillInsight"
 >;
 
 export interface OpportunityInput {
@@ -47,6 +48,17 @@ type MarketInsightRow = {
   competitorId: string | null;
   keywordId: string | null;
   adId: string | null;
+  createdAt: Date;
+};
+
+type SkillInsightRow = {
+  id: string;
+  skillId: string;
+  skillName: string;
+  insightType: string;
+  items: unknown;
+  snapshotId: string;
+  jobRunId: string | null;
   createdAt: Date;
 };
 
@@ -202,6 +214,159 @@ export function opportunityFromPriceHistory(row: PriceHistoryRow): OpportunityIn
   };
 }
 
+function fatigueSeverityScore(status: unknown): number {
+  if (status === "dead") return 90;
+  if (status === "urgent") return 80;
+  if (status === "warning") return 60;
+  return 35;
+}
+
+function opportunityFromFatigueItem(item: Record<string, unknown>, insight: SkillInsightRow): OpportunityInput | null {
+  const adId = typeof item.adId === "string" && item.adId ? item.adId : null;
+  if (!adId) return null;
+  const adName = typeof item.adName === "string" && item.adName ? item.adName : adId;
+  const score = normalizeOpportunityScore(fatigueSeverityScore(item.status));
+
+  return {
+    type: "creative_fatigue",
+    targetType: "ad",
+    targetId: adId,
+    targetName: adName,
+    source: "skill-insight",
+    sourceRunId: insight.jobRunId,
+    dedupeKey: `skill_insight:fatigue-report:${adId}`,
+    score,
+    priority: classifyOpportunityPriority(score),
+    confidence: null,
+    impact: typeof item.status === "string" ? item.status : null,
+    effort: "review",
+    evidence: { insightId: insight.id, insightType: insight.insightType, ...item },
+    proposedAction: {
+      action: "rotate_creative",
+      title: `Creative fatigue: ${adName}`,
+      description: typeof item.rationale === "string" && item.rationale
+        ? item.rationale
+        : `${adName} is showing signs of creative fatigue and may need a new creative.`,
+      adId,
+      adSetName: item.adSetName ?? null,
+    },
+  };
+}
+
+function opportunityFromSearchTermItem(item: Record<string, unknown>, insight: SkillInsightRow): OpportunityInput | null {
+  const searchTerm = typeof item.searchTerm === "string" && item.searchTerm ? item.searchTerm : null;
+  if (!searchTerm) return null;
+  const isNegative = item.isNegativeKeyword === true;
+  const score = normalizeOpportunityScore(isNegative ? 55 : 45);
+
+  return {
+    type: "search_term_opportunity",
+    targetType: "search_term",
+    targetId: searchTerm,
+    targetName: searchTerm,
+    source: "skill-insight",
+    sourceRunId: insight.jobRunId,
+    dedupeKey: `skill_insight:search-term-opportunities:${searchTerm}`,
+    score,
+    priority: classifyOpportunityPriority(score),
+    confidence: null,
+    impact: isNegative ? "potential-negative-keyword" : "potential-new-keyword",
+    effort: "review",
+    evidence: { insightId: insight.id, insightType: insight.insightType, ...item },
+    proposedAction: {
+      action: "review_search_term",
+      title: isNegative
+        ? `Potential negative keyword: "${searchTerm}"`
+        : `Search term opportunity: "${searchTerm}"`,
+      description: `Review search term "${searchTerm}" in Google Ads — Google execution is not available in Autopilot, so this requires manual action.`,
+      searchTerm,
+      recommendedMatchType: item.recommendedMatchType ?? null,
+      isNegativeKeyword: isNegative,
+    },
+  };
+}
+
+function opportunityFromCompetitorItem(item: Record<string, unknown>, insight: SkillInsightRow): OpportunityInput | null {
+  const competitor = typeof item.competitor === "string" && item.competitor ? item.competitor : null;
+  if (!competitor) return null;
+  const score = normalizeOpportunityScore(50);
+
+  return {
+    type: "competitor_creative_review",
+    targetType: "competitor",
+    targetId: competitor,
+    targetName: competitor,
+    source: "skill-insight",
+    sourceRunId: insight.jobRunId,
+    dedupeKey: `skill_insight:competitor-analysis:${competitor}`,
+    score,
+    priority: classifyOpportunityPriority(score),
+    confidence: null,
+    impact: null,
+    effort: "review",
+    evidence: { insightId: insight.id, insightType: insight.insightType, ...item },
+    proposedAction: {
+      action: "review_competitor_creative",
+      title: `Competitor creative review: ${competitor}`,
+      description: `${competitor} shows notable creative activity. Review for gaps and test ideas.`,
+      competitor,
+      gaps: item.gaps ?? [],
+      recommendedTests: item.recommendedTests ?? [],
+    },
+  };
+}
+
+export function opportunitiesFromSkillInsight(insight: SkillInsightRow): OpportunityInput[] {
+  const items = Array.isArray(insight.items) ? insight.items : [];
+  const opportunities: OpportunityInput[] = [];
+
+  for (const raw of items) {
+    if (raw === null || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+
+    let opportunity: OpportunityInput | null = null;
+    if (insight.insightType === "fatigue-report") {
+      opportunity = opportunityFromFatigueItem(item, insight);
+    } else if (insight.insightType === "search-term-opportunities") {
+      opportunity = opportunityFromSearchTermItem(item, insight);
+    } else if (insight.insightType === "competitor-analysis") {
+      opportunity = opportunityFromCompetitorItem(item, insight);
+    }
+
+    if (opportunity) opportunities.push(opportunity);
+  }
+
+  return opportunities;
+}
+
+export async function generateSkillInsightOpportunities(
+  prismaClient: OpportunityClient,
+): Promise<{ generated: number; upserted: number }> {
+  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+  const insights = await prismaClient.skillInsight.findMany({
+    where: {
+      createdAt: { gte: twoDaysAgo },
+      insightType: { in: ["fatigue-report", "search-term-opportunities", "competitor-analysis"] },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 250,
+    select: {
+      id: true,
+      skillId: true,
+      skillName: true,
+      insightType: true,
+      items: true,
+      snapshotId: true,
+      jobRunId: true,
+      createdAt: true,
+    },
+  });
+
+  const opportunities = insights.flatMap((insight) => opportunitiesFromSkillInsight(insight));
+  const result = await upsertOpportunities(prismaClient, opportunities);
+  return { generated: opportunities.length, upserted: result.upserted };
+}
+
 export async function upsertOpportunities(
   prismaClient: OpportunityClient,
   opportunities: OpportunityInput[],
@@ -314,13 +479,21 @@ export async function generateMarketOpportunities(
 
 export async function generateAllOpportunities(
   prismaClient: OpportunityClient,
-): Promise<{ generated: number; upserted: number; content: { generated: number; upserted: number }; market: { generated: number; upserted: number } }> {
+): Promise<{
+  generated: number;
+  upserted: number;
+  content: { generated: number; upserted: number };
+  market: { generated: number; upserted: number };
+  skillInsights: { generated: number; upserted: number };
+}> {
   const content = await generateContentOpportunities(prismaClient);
   const market = await generateMarketOpportunities(prismaClient);
+  const skillInsights = await generateSkillInsightOpportunities(prismaClient);
   return {
-    generated: content.generated + market.generated,
-    upserted: content.upserted + market.upserted,
+    generated: content.generated + market.generated + skillInsights.generated,
+    upserted: content.upserted + market.upserted + skillInsights.upserted,
     content,
     market,
+    skillInsights,
   };
 }

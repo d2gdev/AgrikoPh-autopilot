@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   generateMarketOpportunities,
+  generateSkillInsightOpportunities,
+  opportunitiesFromSkillInsight,
   opportunityFromMarketInsight,
   opportunityFromPriceHistory,
   opportunityFromProposal,
@@ -40,6 +42,9 @@ const mockPrisma = {
   shoppingPriceHistory: {
     findMany: vi.fn(),
   },
+  skillInsight: {
+    findMany: vi.fn(),
+  },
 };
 
 beforeEach(() => {
@@ -47,6 +52,7 @@ beforeEach(() => {
   mockPrisma.opportunity.upsert.mockResolvedValue({});
   mockPrisma.marketInsight.findMany.mockResolvedValue([]);
   mockPrisma.shoppingPriceHistory.findMany.mockResolvedValue([]);
+  mockPrisma.skillInsight.findMany.mockResolvedValue([]);
 });
 
 describe("opportunity scoring", () => {
@@ -209,5 +215,171 @@ describe("market opportunities", () => {
 
     expect(result).toEqual({ generated: 1, upserted: 1 });
     expect(mockPrisma.opportunity.upsert).toHaveBeenCalledOnce();
+  });
+});
+
+function skillInsight(overrides: Partial<Parameters<typeof opportunitiesFromSkillInsight>[0]> = {}) {
+  return {
+    id: "insight-1",
+    skillId: "ad-pilot",
+    skillName: "Ad Pilot",
+    insightType: "fatigue-report",
+    items: [],
+    snapshotId: "snapshot-1",
+    jobRunId: "run-1",
+    createdAt: new Date("2026-07-01T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+describe("opportunitiesFromSkillInsight", () => {
+  it("maps fatigue-report items to rotate_creative opportunities", () => {
+    const result = opportunitiesFromSkillInsight(
+      skillInsight({
+        insightType: "fatigue-report",
+        items: [
+          {
+            adId: "ad-123",
+            adName: "Summer Sale Video",
+            adSetName: "Prospecting",
+            status: "urgent",
+            frequency: 5.2,
+            ctrChange7d: -0.31,
+            daysRunning: 21,
+            estimatedDaysLeft: 3,
+            rationale: "CTR fell sharply over the last week.",
+          },
+        ],
+      }),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "creative_fatigue",
+      targetType: "ad",
+      targetId: "ad-123",
+      dedupeKey: "skill_insight:fatigue-report:ad-123",
+      source: "skill-insight",
+    });
+    expect(result[0]!.proposedAction).toMatchObject({
+      action: "rotate_creative",
+      title: "Creative fatigue: Summer Sale Video",
+    });
+  });
+
+  it("maps search-term-opportunities items to review_search_term opportunities noting Google is unavailable", () => {
+    const result = opportunitiesFromSkillInsight(
+      skillInsight({
+        insightType: "search-term-opportunities",
+        items: [
+          {
+            searchTerm: "organic brown rice philippines",
+            theme: "rice",
+            impressions: 500,
+            clicks: 20,
+            conversions: 2,
+            currentCpaPHP: 150,
+            recommendedMatchType: "phrase",
+            recommendedBidPHP: 12,
+            suggestedAdGroup: "Rice - Broad",
+            isNegativeKeyword: false,
+          },
+        ],
+      }),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "search_term_opportunity",
+      targetType: "search_term",
+      targetId: "organic brown rice philippines",
+      dedupeKey: "skill_insight:search-term-opportunities:organic brown rice philippines",
+    });
+    expect((result[0]!.proposedAction as { action: string; description: string }).action).toBe("review_search_term");
+    expect((result[0]!.proposedAction as { description: string }).description).toMatch(/Google execution is not available/i);
+  });
+
+  it("maps competitor-analysis items to review_competitor_creative opportunities", () => {
+    const result = opportunitiesFromSkillInsight(
+      skillInsight({
+        insightType: "competitor-analysis",
+        items: [
+          {
+            competitor: "RivalBrand",
+            activeAdCount: 12,
+            dominantFormat: "video",
+            messagingThemes: ["discount"],
+            primaryCta: "Shop Now",
+            recentLaunches7d: 3,
+            gaps: ["No bundle offers"],
+            recommendedTests: ["Test a bundle offer"],
+          },
+        ],
+      }),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type: "competitor_creative_review",
+      targetType: "competitor",
+      targetId: "RivalBrand",
+      dedupeKey: "skill_insight:competitor-analysis:RivalBrand",
+    });
+    expect((result[0]!.proposedAction as { action: string }).action).toBe("review_competitor_creative");
+  });
+
+  it("skips malformed items missing their identifier instead of throwing", () => {
+    expect(() =>
+      opportunitiesFromSkillInsight(
+        skillInsight({
+          insightType: "fatigue-report",
+          items: [{ adName: "No id ad" }, null, "not-an-object"],
+        }),
+      ),
+    ).not.toThrow();
+
+    const result = opportunitiesFromSkillInsight(
+      skillInsight({
+        insightType: "fatigue-report",
+        items: [{ adName: "No id ad" }, null, "not-an-object"],
+      }),
+    );
+    expect(result).toHaveLength(0);
+  });
+
+  it("returns an empty array for an empty items list", () => {
+    expect(opportunitiesFromSkillInsight(skillInsight({ items: [] }))).toEqual([]);
+  });
+});
+
+describe("generateSkillInsightOpportunities", () => {
+  it("generates and upserts skill insight opportunities from recent rows", async () => {
+    mockPrisma.skillInsight.findMany.mockResolvedValue([
+      skillInsight({
+        insightType: "fatigue-report",
+        items: [{ adId: "ad-1", adName: "Ad One", status: "warning", rationale: "Frequency is climbing." }],
+      }),
+    ]);
+
+    const result = await generateSkillInsightOpportunities(mockPrisma as any);
+
+    expect(result).toEqual({ generated: 1, upserted: 1 });
+    expect(mockPrisma.opportunity.upsert).toHaveBeenCalledOnce();
+  });
+
+  it("dedupes across two runs using the same stable key", async () => {
+    mockPrisma.skillInsight.findMany.mockResolvedValue([
+      skillInsight({
+        insightType: "fatigue-report",
+        items: [{ adId: "ad-1", adName: "Ad One", status: "warning", rationale: "Frequency is climbing." }],
+      }),
+    ]);
+
+    await generateSkillInsightOpportunities(mockPrisma as any);
+    await generateSkillInsightOpportunities(mockPrisma as any);
+
+    expect(mockPrisma.opportunity.upsert).toHaveBeenCalledTimes(2);
+    const [firstCall, secondCall] = mockPrisma.opportunity.upsert.mock.calls;
+    expect(firstCall![0].where.dedupeKey).toBe(secondCall![0].where.dedupeKey);
   });
 });
