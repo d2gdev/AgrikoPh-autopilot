@@ -148,6 +148,95 @@ export async function fetchProductImages(): Promise<ProductImage[]> {
   return images;
 }
 
+export interface CatalogProductVariant {
+  id: string;
+  title: string;
+  price: string;
+  compareAtPrice: string | null;
+}
+
+export interface CatalogProduct {
+  id: string;
+  title: string;
+  handle: string;
+  variants: CatalogProductVariant[];
+}
+
+type ProductCatalogResponse = {
+  products: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    edges: Array<{
+      node: {
+        id: string;
+        title: string;
+        handle: string;
+        variants: {
+          edges: Array<{
+            node: { id: string; title: string; price: string; compareAtPrice: string | null };
+          }>;
+        };
+      };
+    }>;
+  };
+};
+
+export async function fetchCatalogProducts(): Promise<CatalogProduct[]> {
+  const query = `
+    query CatalogProducts($after: String) {
+      products(first: 100, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        edges {
+          node {
+            id
+            title
+            handle
+            variants(first: 100) {
+              edges {
+                node {
+                  id
+                  title
+                  price
+                  compareAtPrice
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const products: CatalogProduct[] = [];
+  let after: string | null = null;
+  let page = 0;
+  const MAX_PAGES = 50;
+  do {
+    const data: ProductCatalogResponse = await shopifyFetch<ProductCatalogResponse>(query, { after });
+
+    products.push(...data.products.edges.map(({ node }) => ({
+      id: node.id,
+      title: node.title,
+      handle: node.handle,
+      variants: node.variants.edges.map(({ node: variant }) => ({
+        id: variant.id,
+        title: variant.title,
+        price: variant.price,
+        compareAtPrice: variant.compareAtPrice,
+      })),
+    })));
+    after = data.products.pageInfo.hasNextPage ? data.products.pageInfo.endCursor : null;
+    if (++page >= MAX_PAGES && after) {
+      console.warn(`[shopify-admin] fetchCatalogProducts truncated at ${MAX_PAGES} pages`);
+      break;
+    }
+  } while (after);
+
+  return products;
+}
+
 export interface BlogArticle {
   id: string;
   title: string;

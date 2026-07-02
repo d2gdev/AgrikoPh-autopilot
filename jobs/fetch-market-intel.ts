@@ -5,6 +5,7 @@ import { type MetaAdLibraryAd } from "@/lib/connectors/meta-ad-library";
 import { isApifyMetaEnabled, fetchApifyMetaAdsByPages } from "@/lib/connectors/apify-meta-ads";
 import { fetchShoppingProducts } from "@/lib/connectors/dataforseo-shopping";
 import { fetchSerperShoppingProducts, type SerperShoppingProduct } from "@/lib/connectors/serper-shopping";
+import { fetchCatalogProducts, type CatalogProduct } from "@/lib/shopify-admin";
 import { fillCaptureTranslations } from "@/lib/market-intel/translate-captures";
 import { fillCreativeAngles } from "@/lib/market-intel/classify-angles";
 import { recordCompetitorAdCapture } from "@/lib/market-intel/ad-captures";
@@ -33,6 +34,8 @@ type MarketIntelSummary = {
   insightsCreated: number;
   insightsUpdated: number;
   disabledSources: string[];
+  catalogProductsFetched: number;
+  priceGapInsights: number;
 };
 
 function slugPart(value: string | null | undefined) {
@@ -304,6 +307,8 @@ export async function fetchMarketIntelHandler(
     insightsCreated: 0,
     insightsUpdated: 0,
     disabledSources: [],
+    catalogProductsFetched: 0,
+    priceGapInsights: 0,
   };
 
   if (process.env.MARKET_INTEL_ENABLED === "false") {
@@ -325,6 +330,43 @@ export async function fetchMarketIntelHandler(
   }
 
   try {
+  // Own-catalog ingestion: pull Agriko's own products/variants from Shopify Admin
+  // and snapshot them as RawSnapshot("shopify_catalog") for the capture day. Feeds
+  // the price-gap detection step below. Failure here must not block the rest of
+  // market intel (ad captures, shopping results, etc.) — log and continue with an
+  // empty catalog, which naturally yields zero price-gap matches.
+  let ownProducts: CatalogProduct[] = [];
+  if (sources.includes("shopping")) {
+    try {
+      ownProducts = await fetchCatalogProducts();
+      summary.catalogProductsFetched = ownProducts.length;
+      const { start: catalogDayStart } = captureDayRange(capturedAt);
+      await prisma.rawSnapshot.upsert({
+        where: {
+          source_dateRangeStart_dateRangeEnd: {
+            source: "shopify_catalog",
+            dateRangeStart: catalogDayStart,
+            dateRangeEnd: catalogDayStart,
+          },
+        },
+        create: {
+          source: "shopify_catalog",
+          dateRangeStart: catalogDayStart,
+          dateRangeEnd: catalogDayStart,
+          payload: json(ownProducts),
+          jobRunId: runId,
+        },
+        update: {
+          payload: json(ownProducts),
+          jobRunId: runId,
+          fetchedAt: new Date(),
+        },
+      });
+    } catch (err) {
+      errors.push(`shopify_catalog: ${String(err)}`);
+    }
+  }
+
   const keywords = sources.includes("shopping") ? await prisma.marketKeyword.findMany({
     where: { active: true },
     orderBy: { createdAt: "asc" },
@@ -573,6 +615,93 @@ export async function fetchMarketIntelHandler(
         } catch (err) {
           errors.push(`competitor-shopping:${competitor.name}: ${String(err)}`);
         }
+      }
+    }
+  }
+
+  // Own-catalog price-gap detection: runs after all of today's ShoppingResult
+  // rows (both market-search and competitor-search) are persisted above, so it
+  // sees the full picture for the capture day. For each active keyword, match
+  // own products whose title contains the keyword (case-insensitive substring —
+  // deliberately conservative, no fuzzy scoring) and compare the cheapest
+  // variant price against every competitor ShoppingResult row for that keyword.
+  // A catalog-fetch failure above leaves ownProducts empty, which naturally
+  // yields zero matches here (no separate guard needed).
+  if (sources.includes("shopping") && ownProducts.length > 0) {
+    const { start: gapDayStart } = captureDayRange(capturedAt);
+    for (const keyword of keywords) {
+      try {
+        const matchedProducts = ownProducts.filter((p) =>
+          p.title.toLowerCase().includes(keyword.keyword.toLowerCase())
+        );
+        if (matchedProducts.length === 0) continue;
+
+        const latestResults = await prisma.shoppingResult.findMany({
+          where: { keyword: keyword.keyword, captureDate: gapDayStart },
+        });
+        if (latestResults.length === 0) continue;
+
+        for (const ownProduct of matchedProducts) {
+          // Cheapest variant price stands in for "the product's price" when a
+          // product has multiple variants — noted explicitly in evidence below.
+          const variantPrices = ownProduct.variants
+            .map((v) => Number.parseFloat(v.price))
+            .filter((price) => Number.isFinite(price) && price > 0);
+          if (variantPrices.length === 0) continue;
+          const ownPrice = Math.min(...variantPrices);
+
+          for (const result of latestResults) {
+            if (result.price == null || !Number.isFinite(result.price) || result.price <= 0) continue;
+            const store = result.store?.trim();
+            if (!store) continue;
+
+            const gapPct = ((ownPrice - result.price) / ownPrice) * 100;
+            if (gapPct <= 10) continue;
+
+            const existingOpen = await prisma.marketInsight.findFirst({
+              where: {
+                type: "price_gap",
+                status: "open",
+                keywordId: keyword.id,
+                evidence: { path: ["store"], equals: store },
+              },
+              select: { id: true },
+            });
+            if (existingOpen) continue;
+
+            const roundedGap = Math.round(gapPct);
+            const severity = gapPct > 25 ? "critical" : "warning";
+            await prisma.marketInsight.create({
+              data: {
+                type: "price_gap",
+                severity,
+                title: `${store} undercuts ${ownProduct.title} by ${roundedGap}%`,
+                summary: `${store} lists ${result.title} at ${result.price}${result.currency ? ` ${result.currency}` : ""}, ${roundedGap}% below Agriko's ${ownProduct.title} at ${ownPrice}.`,
+                evidence: json({
+                  keyword: keyword.keyword,
+                  store,
+                  ownProductId: ownProduct.id,
+                  ownProductTitle: ownProduct.title,
+                  ownProductHandle: ownProduct.handle,
+                  ownPrice,
+                  ownPriceNote: "cheapest variant price among all of the product's variants",
+                  competitorTitle: result.title,
+                  competitorPrice: result.price,
+                  competitorCurrency: result.currency,
+                  competitorProductUrl: result.productUrl,
+                  competitorShoppingResultId: result.id,
+                  gapPct: roundedGap,
+                }),
+                keywordId: keyword.id,
+                dedupeKey: `price_gap|${keyword.id}|${slugPart(store)}|${capturedAt.toISOString()}`,
+              },
+            });
+            summary.insightsCreated++;
+            summary.priceGapInsights++;
+          }
+        }
+      } catch (err) {
+        errors.push(`price_gap:${keyword.keyword}: ${String(err)}`);
       }
     }
   }
