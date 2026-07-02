@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/db", () => ({
   prisma: {
     competitorAd: { findMany: vi.fn().mockResolvedValue([]) },
+    competitorAdCapture: { findMany: vi.fn().mockResolvedValue([]) },
     shoppingPriceHistory: { findMany: vi.fn().mockResolvedValue([]) },
     marketInsight: { findMany: vi.fn().mockResolvedValue([]) },
   },

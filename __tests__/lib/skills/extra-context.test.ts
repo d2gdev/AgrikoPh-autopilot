@@ -4,6 +4,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     rawSnapshot: { findFirst: vi.fn() },
     competitorAd: { findMany: vi.fn() },
+    competitorAdCapture: { findMany: vi.fn() },
     shoppingPriceHistory: { findMany: vi.fn() },
     marketInsight: { findMany: vi.fn() },
     keywordResearchResult: { findMany: vi.fn() },
@@ -16,6 +17,7 @@ import { buildExtraContext } from "@/lib/skills/extra-context";
 const mockPrisma = prisma as unknown as {
   rawSnapshot: { findFirst: ReturnType<typeof vi.fn> };
   competitorAd: { findMany: ReturnType<typeof vi.fn> };
+  competitorAdCapture: { findMany: ReturnType<typeof vi.fn> };
   shoppingPriceHistory: { findMany: ReturnType<typeof vi.fn> };
   marketInsight: { findMany: ReturnType<typeof vi.fn> };
   keywordResearchResult: { findMany: ReturnType<typeof vi.fn> };
@@ -25,6 +27,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.rawSnapshot.findFirst.mockResolvedValue(null);
   mockPrisma.competitorAd.findMany.mockResolvedValue([]);
+  mockPrisma.competitorAdCapture.findMany.mockResolvedValue([]);
   mockPrisma.shoppingPriceHistory.findMany.mockResolvedValue([]);
   mockPrisma.marketInsight.findMany.mockResolvedValue([]);
   mockPrisma.keywordResearchResult.findMany.mockResolvedValue([]);
@@ -149,11 +152,37 @@ describe("buildExtraContext", () => {
         { type: "price_drop", severity: "warning", title: "Competitor cut price", summary: "Acme dropped price 17%" },
       ]);
 
+      mockPrisma.competitorAdCapture.findMany.mockResolvedValueOnce([
+        {
+          adArchiveId: "arch-1",
+          competitorId: "comp-1",
+          competitor: { name: "Acme" },
+          headline: "Buy now",
+          headlineEn: null,
+          adCopy: "great deal",
+          adCopyEn: null,
+          activeStatus: "ACTIVE",
+          capturedAt: new Date("2026-06-01"),
+        },
+        {
+          adArchiveId: "arch-1",
+          competitorId: "comp-1",
+          competitor: { name: "Acme" },
+          headline: "Buy now",
+          headlineEn: null,
+          adCopy: "great deal",
+          adCopyEn: null,
+          activeStatus: "ACTIVE",
+          capturedAt: new Date("2026-06-10"),
+        },
+      ]);
+
       const result = await buildExtraContext(["market_intel"]);
       const mi = result.market_intel as {
         competitorAds: Array<{ competitor: string; adCopy: string }>;
         priceChanges: unknown[];
         marketInsights: unknown[];
+        longRunningAds: Array<{ competitor: string; headline: string; daysActive: number; stillActive: boolean }>;
       };
 
       expect(mi.competitorAds).toHaveLength(1);
@@ -161,6 +190,8 @@ describe("buildExtraContext", () => {
       expect(mi.competitorAds[0]!.adCopy.length).toBe(200); // truncated to 200 chars
       expect(mi.priceChanges).toHaveLength(1);
       expect(mi.marketInsights).toHaveLength(1);
+      expect(mi.longRunningAds).toHaveLength(1);
+      expect(mi.longRunningAds[0]).toEqual({ competitor: "Acme", headline: "Buy now", daysActive: 9, stillActive: true });
 
       expect(mockPrisma.competitorAd.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ activeStatus: "ACTIVE" }), take: 30 })
@@ -172,7 +203,12 @@ describe("buildExtraContext", () => {
 
     it("returns empty arrays when no market intel data exists", async () => {
       const result = await buildExtraContext(["market_intel"]);
-      expect(result.market_intel).toEqual({ competitorAds: [], priceChanges: [], marketInsights: [] });
+      expect(result.market_intel).toEqual({
+        competitorAds: [],
+        priceChanges: [],
+        marketInsights: [],
+        longRunningAds: [],
+      });
     });
   });
 

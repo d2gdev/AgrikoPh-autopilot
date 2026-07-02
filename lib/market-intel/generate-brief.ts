@@ -3,6 +3,7 @@ import { chatCompletionWithFailover } from "@/lib/ai/client";
 import { getBrandGuidelines } from "@/lib/content-pilot/brand-guidelines";
 import { shopifyFetch } from "@/lib/shopify-admin";
 import { retrieveContext, formatGroundingBlock } from "@/lib/ai/knowledge";
+import { computeAdLongevity } from "@/lib/market-intel/ad-longevity";
 
 // Grounds a market-intel brief's prompt context in the KB corpus. Additive — unchanged when empty.
 export async function groundBriefContext(baseContext: string, query: string): Promise<string> {
@@ -106,7 +107,7 @@ function parseBriefJson(raw: string): BriefSections | null {
 export async function generateBrief(): Promise<BriefSections> {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  const [recentAds, priceHistory, insights, ourProducts, brandGuidelines] = await Promise.all([
+  const [recentAds, priceHistory, insights, ourProducts, brandGuidelines, adLongevity] = await Promise.all([
     prisma.competitorAd.findMany({
       where: { capturedAt: { gte: sevenDaysAgo } },
       select: {
@@ -131,6 +132,7 @@ export async function generateBrief(): Promise<BriefSections> {
     }),
     fetchOurProducts(),
     getBrandGuidelines(),
+    computeAdLongevity(),
   ]);
 
   // Summarise long-running ads (active + started > 30 days ago)
@@ -154,6 +156,15 @@ export async function generateBrief(): Promise<BriefSections> {
       angle: a.creativeAngle,
     })),
     angleDistribution: angleCount,
+    // Long-running competitor ads (proven winners) — ads that have stayed
+    // ACTIVE the longest are the ones a competitor keeps funding, i.e. their
+    // proven performers. Top 10 keeps the brief focused on the strongest signal.
+    longRunningAds: adLongevity.slice(0, 10).map((a) => ({
+      competitor: a.competitor,
+      headline: a.headline,
+      daysActive: a.daysActive,
+      stillActive: a.stillActive,
+    })),
     priceMovements: priceHistory.map((p) => ({
       product: p.title,
       store: p.store,

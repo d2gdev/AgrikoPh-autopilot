@@ -23,6 +23,7 @@ const mockPrisma = vi.hoisted(() => ({
   },
   competitorAdCapture: {
     count: vi.fn(),
+    findMany: vi.fn(),
   },
   jobRun: {
     findFirst: vi.fn(),
@@ -51,6 +52,7 @@ describe("market-intelligence GET route", () => {
     mockPrisma.competitor.findMany.mockResolvedValue([]);
     mockPrisma.marketKeyword.count.mockResolvedValue(4);
     mockPrisma.competitorAdCapture.count.mockResolvedValue(5);
+    mockPrisma.competitorAdCapture.findMany.mockResolvedValue([]);
     mockPrisma.jobRun.findFirst.mockResolvedValue({
       id: "run-1",
       jobName: "fetch-market-intel",

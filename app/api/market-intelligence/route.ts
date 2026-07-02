@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isSpamStoryAd } from "@/lib/market-intel/spam-filter";
+import { computeAdLongevity } from "@/lib/market-intel/ad-longevity";
 
 type MarketIntelligencePayload = Record<string, unknown>;
 
@@ -82,6 +83,7 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
     recentAdCaptures,
     openInsights,
     lastJobRun,
+    adLongevity,
   ] = await Promise.all([
     prisma.marketInsight.findMany({
       orderBy: { createdAt: "desc" },
@@ -149,6 +151,7 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
         status: true,
       },
     }),
+    computeAdLongevity(),
   ]);
 
   // Hide spam serialized-story creatives already stored from earlier scrapes,
@@ -183,6 +186,7 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
       openInsights,
     },
     lastJobRun,
+    adLongevity,
   };
 }
 

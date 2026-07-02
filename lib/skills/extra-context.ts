@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { ExtraSource } from "@/lib/skills/loader";
 import type { GscQueryRow, Ga4PageRow } from "@/lib/seo/types";
+import { computeAdLongevity } from "@/lib/market-intel/ad-longevity";
 
 const MARKET_INTEL_WINDOW_DAYS = 30;
 const PRICE_HISTORY_WINDOW_DAYS = 14;
@@ -79,7 +80,7 @@ async function buildGa4Context(): Promise<unknown> {
 }
 
 async function buildMarketIntelContext(): Promise<unknown> {
-  const [competitorAds, priceChanges, marketInsights] = await Promise.all([
+  const [competitorAds, priceChanges, marketInsights, longRunningAds] = await Promise.all([
     prisma.competitorAd.findMany({
       where: {
         activeStatus: "ACTIVE",
@@ -102,6 +103,7 @@ async function buildMarketIntelContext(): Promise<unknown> {
       orderBy: { createdAt: "desc" },
       take: 10,
     }),
+    computeAdLongevity(),
   ]);
 
   return {
@@ -128,6 +130,14 @@ async function buildMarketIntelContext(): Promise<unknown> {
       severity: m.severity,
       title: m.title,
       summary: m.summary,
+    })),
+    // Top 10 longest-running competitor ads (proven winners) — see
+    // lib/market-intel/ad-longevity.ts for the days-active computation.
+    longRunningAds: longRunningAds.slice(0, 10).map((a) => ({
+      competitor: a.competitor,
+      headline: a.headline,
+      daysActive: a.daysActive,
+      stillActive: a.stillActive,
     })),
   };
 }
