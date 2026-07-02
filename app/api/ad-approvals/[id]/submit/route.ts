@@ -12,6 +12,13 @@ import { resolveActor, isAdmin, loadApproval, auditDenied, forbidden, notFound, 
 
 const REQUIRED_COPY_FIELDS = ["primary_text", "headline", "cta"] as const;
 
+// Thrown inside the submit transaction to roll back on a CAS failure.
+class SubmitRaceError extends Error {
+  constructor(public readonly reason: "lost_race" | "invalid_transition") {
+    super(`submit ${reason}`);
+  }
+}
+
 // POST /api/ad-approvals/[id]/submit — freeze the draft into a new immutable
 // revision and start the workflow. Handles both first submit and resubmit.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -34,37 +41,53 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const missing = REQUIRED_COPY_FIELDS.filter((f) => !copy[f] || String(copy[f]).trim() === "");
   if (missing.length) return badRequest(`Missing required fields: ${missing.join(", ")}`);
 
-  // Revision number = count of existing revisions + 1 (1 on first submit).
-  const existing = await prisma.adRevision.count({ where: { approvalId: id } });
-  const revisionNumber = existing + 1;
+  // Freeze the revision, transition, and enqueue atomically: a concurrent
+  // double-submit must not leave an orphan revision row or a transitioned
+  // approval with no queue job. The (approvalId, revisionNumber) unique
+  // constraint plus the version CAS make the loser fail cleanly.
+  let revisionNumber = 0;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.adRevision.count({ where: { approvalId: id } });
+      revisionNumber = existing + 1;
 
-  await prisma.adRevision.create({
-    data: {
-      approvalId: id,
-      revisionNumber,
-      copy: approval.draftCopy as object,
-      creative: (approval.draftCreative ?? {}) as object,
-      statusAtSubmission: STATUS.DRAFT,
-    },
-  });
+      await tx.adRevision.create({
+        data: {
+          approvalId: id,
+          revisionNumber,
+          copy: approval.draftCopy as object,
+          creative: (approval.draftCreative ?? {}) as object,
+          statusAtSubmission: STATUS.DRAFT,
+        },
+      });
 
-  const result = await transition({
-    approvalId: id,
-    from: STATUS.DRAFT,
-    to: STATUS.FOR_AI_PRE_REVIEW,
-    version: approval.version,
-    actor: ctx.actor,
-    action: revisionNumber === 1 ? "SUBMITTED" : "RE_SUBMITTED",
-    details: { revision_number: revisionNumber },
-    data: { currentRevision: revisionNumber, stage: "PRE_REVIEW" },
-  });
-  if (!result.ok) {
-    return result.reason === "lost_race"
-      ? conflict("Approval state changed; please retry.")
-      : badRequest("Invalid transition.");
+      const result = await transition({
+        approvalId: id,
+        from: STATUS.DRAFT,
+        to: STATUS.FOR_AI_PRE_REVIEW,
+        version: approval.version,
+        actor: ctx.actor,
+        action: revisionNumber === 1 ? "SUBMITTED" : "RE_SUBMITTED",
+        details: { revision_number: revisionNumber },
+        data: { currentRevision: revisionNumber, stage: "PRE_REVIEW" },
+        client: tx,
+      });
+      if (!result.ok) throw new SubmitRaceError(result.reason);
+
+      await enqueueAiJob(id, REVIEW_STAGE.PRE_REVIEW, tx);
+    });
+  } catch (err) {
+    if (err instanceof SubmitRaceError) {
+      return err.reason === "lost_race"
+        ? conflict("Approval state changed; please retry.")
+        : badRequest("Invalid transition.");
+    }
+    if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {
+      return conflict("Approval already submitted (concurrent submission detected).");
+    }
+    console.error("[ad-approvals/submit] error:", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-
-  await enqueueAiJob(id, REVIEW_STAGE.PRE_REVIEW);
 
   // Notify submitter + pre-notify the assigned Conversion Reviewer.
   await createNotification({

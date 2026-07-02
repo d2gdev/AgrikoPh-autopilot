@@ -767,9 +767,14 @@ model AdApproval {
 
   approvedAt                    DateTime?
   rejectedAt                    DateTime?
+  // When the approval entered its current status; set by every transition().
+  // The SLA worker measures stage age from this, not updatedAt (which any
+  // unrelated row write would reset).
+  stageEnteredAt                DateTime?
 
   // Mutable working copy while status = draft. Frozen into an immutable
-  // AdRevision on submit. Null once submitted (until reset back to draft).
+  // AdRevision on submit; retained afterwards (revise restores from the
+  // latest revision).
   draftCopy                     Json?
   draftCreative                 Json?
 

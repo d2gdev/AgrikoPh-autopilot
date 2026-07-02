@@ -61,6 +61,25 @@ describe("transitionToPenultimate (Transition A, worker)", () => {
     expect(res.ok).toBe(false);
     expect(mockPrisma.adApproval.update).toHaveBeenCalled(); // flagged
   });
+
+  it("blocks (never self-assigns) when the submitter is BOTH Penultimate and Final Approver", async () => {
+    mockPrisma.adApproval.findUnique.mockResolvedValue({ id: "ap", campaignId: "c", submitterId: "both-1", version: 3 });
+    mockPrisma.reviewerAssignment.findUnique.mockImplementation(({ where }: { where: { role: string } }) =>
+      Promise.resolve(
+        where.role === REVIEWER_ROLE.PENULTIMATE_APPROVER
+          ? roleRow(where.role, "both-1")
+          : where.role === REVIEWER_ROLE.FINAL_APPROVER
+            ? roleRow(where.role, "both-1")
+            : null,
+      ),
+    );
+
+    const res = await transitionToPenultimate("ap");
+    expect(res).toEqual({ ok: false, blocked: expect.stringContaining("CONFLICT_UNRESOLVABLE") });
+    // No status transition happened — the ad must not land with its own submitter.
+    expect(mockPrisma.adApproval.updateMany).not.toHaveBeenCalled();
+    expect(mockPrisma.adApproval.update).toHaveBeenCalled(); // flagged for manual intervention
+  });
 });
 
 describe("transitionToFinal (Transition B, HTTP)", () => {

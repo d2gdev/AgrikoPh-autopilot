@@ -44,6 +44,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ role: st
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
 
+  // A backup identical to the assignee silently disables SLA escalation
+  // (reassignToBackup requires backup !== current assignee) — reject it here.
+  if (parsed.data.backup_user_id && parsed.data.backup_user_id === parsed.data.assigned_user_id) {
+    return NextResponse.json(
+      { error: "Backup user must be different from the assigned user." },
+      { status: 400 },
+    );
+  }
+
   const previous = await prisma.reviewerAssignment.findUnique({ where: { role } });
 
   const row = await prisma.reviewerAssignment.upsert({

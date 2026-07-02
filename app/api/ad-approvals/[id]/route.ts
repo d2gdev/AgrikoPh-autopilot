@@ -73,11 +73,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!parsed.success) return badRequest("Invalid input", parsed.error.flatten());
 
   // Guarded update — status must still be draft (closes the TOCTOU gap).
+  // Bumping version makes any in-flight submit's CAS fail cleanly instead of
+  // freezing a revision from the pre-edit copy.
   const updated = await prisma.adApproval.updateMany({
     where: { id, status: STATUS.DRAFT },
     data: {
       ...(parsed.data.copy ? { draftCopy: parsed.data.copy as object } : {}),
       ...(parsed.data.creative ? { draftCreative: parsed.data.creative as object } : {}),
+      version: { increment: 1 },
       updatedAt: new Date(),
     },
   });

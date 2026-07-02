@@ -54,6 +54,7 @@ export async function transition(input: TransitionInput): Promise<TransitionResu
       ...data,
       status: to,
       version: nextVersion,
+      stageEnteredAt: new Date(),
       updatedAt: new Date(),
     },
   });

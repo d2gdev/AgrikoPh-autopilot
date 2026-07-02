@@ -1,6 +1,16 @@
 // SLA escalation worker (spec §SLA Escalation Background Job). Runs every 5
 // minutes. Escalates ad approvals that have sat too long with a human reviewer:
 // Conversion 4h, Penultimate 8h, Final 24h. Cron-driven under a JobLock.
+//
+// Correctness notes:
+// - Stage age is measured from stageEnteredAt (set by every transition), not
+//   updatedAt — unrelated row writes must not reset the SLA clock.
+// - Escalation enforces the same conflict-of-interest rule as conflict.ts:
+//   the submitter is never assigned as a reviewer/approver of their own ad.
+// - Approvals already flagged requires_manual_intervention are skipped
+//   (dedupe — the admin has already been alerted).
+// - A lost CAS race (the reviewer acted concurrently) is a no-op, not a
+//   critical alert.
 
 import { prisma } from "@/lib/db";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
@@ -17,12 +27,19 @@ type Summary = {
   escalatedToBackup: number;
   escalatedToFinal: number;
   flaggedForAdmin: number;
+  skippedLostRace: number;
 };
 
 export async function adApprovalSlaHandler(): Promise<JobResult<Summary>> {
   const runId = (await prisma.jobRun.create({ data: { jobName: JOB_NAME } })).id;
   const errors: string[] = [];
-  const summary: Summary = { scanned: 0, escalatedToBackup: 0, escalatedToFinal: 0, flaggedForAdmin: 0 };
+  const summary: Summary = {
+    scanned: 0,
+    escalatedToBackup: 0,
+    escalatedToFinal: 0,
+    flaggedForAdmin: 0,
+    skippedLostRace: 0,
+  };
 
   const now = Date.now();
   const roles = await getReviewerAssignments();
@@ -36,10 +53,22 @@ export async function adApprovalSlaHandler(): Promise<JobResult<Summary>> {
   for (const group of groups) {
     const cutoff = new Date(now - group.thresholdMs);
     const stuck = await prisma.adApproval.findMany({
-      where: { status: group.status, updatedAt: { lt: cutoff } },
+      where: {
+        status: group.status,
+        // stageEnteredAt is the SLA clock; rows migrated before the column
+        // existed fall back to updatedAt.
+        OR: [
+          { stageEnteredAt: { lt: cutoff } },
+          { stageEnteredAt: null, updatedAt: { lt: cutoff } },
+        ],
+      },
       take: BATCH,
     });
     for (const approval of stuck) {
+      // Already flagged — admin has been alerted; don't re-fire every cycle.
+      const flags = approval.flags as { requires_manual_intervention?: boolean } | null;
+      if (flags?.requires_manual_intervention) continue;
+
       summary.scanned++;
       try {
         await escalate(group.kind, approval, roles, summary);
@@ -60,23 +89,26 @@ export async function adApprovalSlaHandler(): Promise<JobResult<Summary>> {
 type Approval = {
   id: string;
   campaignId: string;
+  submitterId: string;
   version: number;
   assignedConversionReviewerId: string | null;
   assignedPenultimateApproverId: string | null;
   assignedFinalApproverId: string | null;
 };
 
+type ReassignResult = "ok" | "lost_race";
+
 async function reassignToBackup(
   approval: Approval,
   field: "assignedConversionReviewerId" | "assignedPenultimateApproverId",
   backupUserId: string,
   reason: string,
-): Promise<boolean> {
+): Promise<ReassignResult> {
   const locked = await prisma.adApproval.updateMany({
     where: { id: approval.id, version: approval.version },
     data: { [field]: backupUserId, version: approval.version + 1, updatedAt: new Date() },
   });
-  if (locked.count === 0) return false;
+  if (locked.count === 0) return "lost_race";
   await prisma.auditLog.create({
     data: {
       actor: "system",
@@ -93,7 +125,7 @@ async function reassignToBackup(
     body: `[${approval.campaignId}] escalated to you — the primary reviewer was unavailable.`,
     approvalId: approval.id,
   });
-  return true;
+  return "ok";
 }
 
 async function flagAdmin(approvalId: string, campaignId: string, reason: string, critical = false): Promise<void> {
@@ -108,6 +140,15 @@ async function flagAdmin(approvalId: string, campaignId: string, reason: string,
   });
 }
 
+/** A backup is usable only if it exists, differs from the current assignee,
+ *  and is NOT the ad's own submitter (conflict of interest). */
+function usableBackup(backup: string | null, currentAssignee: string | null, submitterId: string): string | null {
+  if (!backup) return null;
+  if (backup === currentAssignee) return null;
+  if (backup === submitterId) return null;
+  return backup;
+}
+
 async function escalate(
   kind: "CONVERSION" | "PENULTIMATE" | "FINAL",
   approval: Approval,
@@ -115,30 +156,48 @@ async function escalate(
   summary: Summary,
 ): Promise<void> {
   if (kind === "CONVERSION") {
-    const backup = roles[REVIEWER_ROLE.CONVERSION_REVIEWER]?.backupUserId ?? null;
-    if (backup && backup !== approval.assignedConversionReviewerId) {
-      if (await reassignToBackup(approval, "assignedConversionReviewerId", backup, "Conversion Reviewer unavailable >4h")) {
-        summary.escalatedToBackup++;
-        return;
-      }
+    const backup = usableBackup(
+      roles[REVIEWER_ROLE.CONVERSION_REVIEWER]?.backupUserId ?? null,
+      approval.assignedConversionReviewerId,
+      approval.submitterId,
+    );
+    if (backup) {
+      const res = await reassignToBackup(approval, "assignedConversionReviewerId", backup, "Conversion Reviewer unavailable >4h");
+      if (res === "ok") summary.escalatedToBackup++;
+      else summary.skippedLostRace++; // reviewer acted concurrently — nothing to do
+      return;
     }
-    await flagAdmin(approval.id, approval.campaignId, "Conversion Reviewer SLA breach (>4h), no backup available");
+    await flagAdmin(approval.id, approval.campaignId, "Conversion Reviewer SLA breach (>4h), no usable backup (unset, same as assignee, or is the submitter)");
     summary.flaggedForAdmin++;
     return;
   }
 
   if (kind === "PENULTIMATE") {
-    const backup = roles[REVIEWER_ROLE.PENULTIMATE_APPROVER]?.backupUserId ?? null;
-    if (backup && backup !== approval.assignedPenultimateApproverId) {
-      if (await reassignToBackup(approval, "assignedPenultimateApproverId", backup, "Penultimate Approver unavailable >8h")) {
-        summary.escalatedToBackup++;
-        return;
-      }
+    const backup = usableBackup(
+      roles[REVIEWER_ROLE.PENULTIMATE_APPROVER]?.backupUserId ?? null,
+      approval.assignedPenultimateApproverId,
+      approval.submitterId,
+    );
+    if (backup) {
+      const res = await reassignToBackup(approval, "assignedPenultimateApproverId", backup, "Penultimate Approver unavailable >8h");
+      if (res === "ok") summary.escalatedToBackup++;
+      else summary.skippedLostRace++;
+      return;
     }
     // No usable backup — escalate to Final, skipping the Penultimate stage.
     const final = roles[REVIEWER_ROLE.FINAL_APPROVER];
     if (!final) {
       await flagAdmin(approval.id, approval.campaignId, "Penultimate SLA breach (>8h) and Final Approver unassigned");
+      summary.flaggedForAdmin++;
+      return;
+    }
+    // Conflict of interest: never escalate the ad to its own submitter.
+    if (final.assignedUserId === approval.submitterId) {
+      await flagAdmin(
+        approval.id,
+        approval.campaignId,
+        "Penultimate SLA breach (>8h); cannot escalate to Final Approver — Final Approver is the submitter (conflict of interest)",
+      );
       summary.flaggedForAdmin++;
       return;
     }
@@ -162,6 +221,8 @@ async function escalate(
         body: `[${approval.campaignId}] escalated from Penultimate (primary unavailable). Please review.`,
         approvalId: approval.id,
       });
+    } else {
+      summary.skippedLostRace++; // approver acted concurrently — nothing to do
     }
     return;
   }

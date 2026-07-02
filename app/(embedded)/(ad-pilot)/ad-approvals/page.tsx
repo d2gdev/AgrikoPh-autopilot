@@ -85,6 +85,7 @@ export default function AdApprovalsPage() {
   const [campaignId, setCampaignId] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [unread, setUnread] = useState<Array<{ id: string; title: string; body: string; severity: string }>>([]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -103,6 +104,23 @@ export default function AdApprovalsPage() {
   }, [authFetch]);
 
   useEffect(() => { load(); }, [load]);
+
+  // In-app notifications: unread items surface at the top of the dashboard.
+  const loadNotifications = useCallback(() => {
+    authFetch(`/api/notifications?unread=1&limit=10`)
+      .then((r) => (r.ok ? r.json() : { notifications: [] }))
+      .then((d) => setUnread(d.notifications ?? []))
+      .catch(() => {});
+  }, [authFetch]);
+
+  useEffect(() => { loadNotifications(); }, [loadNotifications]);
+
+  async function markAllRead() {
+    try {
+      await authFetch(`/api/notifications`, { method: "PATCH", body: JSON.stringify({ all: true }) });
+      setUnread([]);
+    } catch { /* non-fatal */ }
+  }
 
   function bucket(tab: string): Approval[] {
     return approvals.filter((a) => {
@@ -158,6 +176,19 @@ export default function AdApprovalsPage() {
       <Layout>
         <Layout.Section>
           {loadError && <Banner tone="critical">{loadError}</Banner>}
+          {unread.length > 0 && (
+            <Banner
+              tone={unread.some((n) => n.severity === "critical") ? "critical" : "info"}
+              title={`${unread.length} unread notification${unread.length === 1 ? "" : "s"}`}
+              action={{ content: "Mark all read", onAction: markAllRead }}
+            >
+              <BlockStack gap="100">
+                {unread.slice(0, 5).map((n) => (
+                  <Text key={n.id} as="p" variant="bodySm"><strong>{n.title}</strong> — {n.body}</Text>
+                ))}
+              </BlockStack>
+            </Banner>
+          )}
           <Card padding="0">
             <Tabs tabs={TABS} selected={selected} onSelect={setSelected} />
             <div style={{ padding: "16px" }}>

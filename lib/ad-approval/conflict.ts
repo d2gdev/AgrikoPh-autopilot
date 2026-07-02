@@ -45,6 +45,20 @@ export async function transitionToPenultimate(approvalId: string): Promise<Confl
       return { ok: false, blocked: "CONFIG_ERROR: escalation target (Final Approver) unassigned" };
     }
 
+    // Spec: if the submitter is ALSO the Final Approver, the escalation path is
+    // exhausted — block and flag rather than handing the ad to its own submitter.
+    if (approval.submitterId === final.assignedUserId) {
+      await flagForManualIntervention({
+        approvalId,
+        reason: "Conflict: submitter is both Penultimate and Final Approver. No escalation path available.",
+      });
+      await notifyAdmin(
+        approvalId,
+        `🚨 CRITICAL: [${approval.campaignId}] — submitter is both Penultimate and Final Approver. Manual intervention required.`,
+      );
+      return { ok: false, blocked: "CONFLICT_UNRESOLVABLE: submitter is Penultimate and Final Approver" };
+    }
+
     const res = await transition({
       approvalId,
       from: STATUS.IN_TECHNICAL_REVIEW,

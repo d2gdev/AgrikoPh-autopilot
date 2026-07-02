@@ -11,8 +11,10 @@ export const PERMISSIONS = {
   CONTENT_REVIEW: "content:review",
   CONTENT_PUBLISH: "content:publish",
   AD_APPROVAL_SUBMIT: "ad_approval:submit",
-  AD_APPROVAL_CONVERSION_REVIEW: "ad_approval:conversion_review",
-  AD_APPROVAL_APPROVE: "ad_approval:approve",
+  // NOTE: per-approval review/approve authority comes from the reviewer
+  // assignment in Settings (actor must match the assigned reviewer), not from
+  // an env allowlist — so there are deliberately no CONVERSION_REVIEW/APPROVE
+  // permissions here.
   AD_APPROVAL_ADMIN: "ad_approval:admin",
 } as const;
 
@@ -32,8 +34,6 @@ const PERMISSION_ENV: Record<Permission, string> = {
   [PERMISSIONS.CONTENT_REVIEW]: "AUTOPILOT_CONTENT_REVIEW_ACTORS",
   [PERMISSIONS.CONTENT_PUBLISH]: "AUTOPILOT_CONTENT_PUBLISH_ACTORS",
   [PERMISSIONS.AD_APPROVAL_SUBMIT]: "AUTOPILOT_AD_APPROVAL_SUBMIT_ACTORS",
-  [PERMISSIONS.AD_APPROVAL_CONVERSION_REVIEW]: "AUTOPILOT_AD_APPROVAL_CONVERSION_REVIEW_ACTORS",
-  [PERMISSIONS.AD_APPROVAL_APPROVE]: "AUTOPILOT_AD_APPROVAL_APPROVE_ACTORS",
   [PERMISSIONS.AD_APPROVAL_ADMIN]: "AUTOPILOT_AD_APPROVAL_ADMIN_ACTORS",
 };
 

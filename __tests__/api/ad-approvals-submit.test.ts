@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockPrisma = vi.hoisted(() => ({
-  adApproval: { findUnique: vi.fn(), updateMany: vi.fn() },
-  adRevision: { count: vi.fn(), create: vi.fn() },
-  auditLog: { create: vi.fn() },
-  reviewerAssignment: { findUnique: vi.fn() },
-  adAIJobQueue: { create: vi.fn() },
-}));
+const mockPrisma = vi.hoisted(() => {
+  const base = {
+    adApproval: { findUnique: vi.fn(), updateMany: vi.fn() },
+    adRevision: { count: vi.fn(), create: vi.fn() },
+    auditLog: { create: vi.fn() },
+    reviewerAssignment: { findUnique: vi.fn() },
+    adAIJobQueue: { create: vi.fn() },
+    $transaction: vi.fn(),
+  };
+  // Interactive-transaction passthrough: the callback receives the same mocks.
+  base.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(base));
+  return base;
+});
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/auth", () => ({
@@ -71,6 +77,15 @@ describe("POST /api/ad-approvals/[id]/submit", () => {
 
   it("returns 409 on duplicate submission (status no longer draft)", async () => {
     mockPrisma.adApproval.findUnique.mockResolvedValue({ ...draft, status: STATUS.FOR_AI_PRE_REVIEW });
+
+    const res = await POST(req(), { params });
+    expect(res.status).toBe(409);
+  });
+
+  it("returns 409 (not 500) when a concurrent submit wins the revision unique constraint", async () => {
+    mockPrisma.adApproval.findUnique.mockResolvedValue(draft);
+    mockPrisma.adRevision.count.mockResolvedValue(0);
+    mockPrisma.adRevision.create.mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" }));
 
     const res = await POST(req(), { params });
     expect(res.status).toBe(409);

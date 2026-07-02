@@ -1,12 +1,17 @@
 // Deterministic HTTP checks for the Brand and Technical review agents. No LLM.
-// All fetches honor the job's AbortSignal (timeout) and fail closed on error.
+// All fetches honor the job's AbortSignal. IMPORTANT: an abort (job timeout)
+// must propagate as a thrown error so the worker retries the job — swallowing
+// it into a FAIL verdict would terminally reject the ad on a transient timeout.
 
 export interface HttpCheck {
   ok: boolean;
   note?: string;
 }
 
-const FETCH_TIMEOUT_MS = 10_000;
+/** Rethrow job-timeout aborts; anything else is a genuine check failure. */
+function rethrowIfAborted(err: unknown, signal: AbortSignal): void {
+  if (signal.aborted || (err instanceof Error && err.name === "AbortError")) throw err;
+}
 
 /** GET a URL following redirects; ok if final status is 2xx. */
 export async function checkUrlReachable(url: string, signal: AbortSignal): Promise<HttpCheck> {
@@ -17,6 +22,7 @@ export async function checkUrlReachable(url: string, signal: AbortSignal): Promi
       note: `HTTP ${res.status}${res.redirected ? " (redirected)" : ""}`,
     };
   } catch (err) {
+    rethrowIfAborted(err, signal);
     return { ok: false, note: `Unreachable: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
@@ -36,6 +42,7 @@ export async function checkRedirectChain(
     try {
       res = await fetch(current, { method: "GET", redirect: "manual", signal });
     } catch (err) {
+      rethrowIfAborted(err, signal);
       return { ok: false, note: `Fetch failed: ${err instanceof Error ? err.message : String(err)}` };
     }
     if (res.status < 300 || res.status >= 400) {
@@ -59,6 +66,7 @@ export async function checkFacebookPixel(url: string, signal: AbortSignal): Prom
       /fbq\(\s*['"]init['"]/i.test(html);
     return { ok: hasPixel, note: hasPixel ? "Pixel detected" : "No Facebook pixel found on page" };
   } catch (err) {
+    rethrowIfAborted(err, signal);
     return { ok: false, note: `Fetch failed: ${err instanceof Error ? err.message : String(err)}` };
   }
 }

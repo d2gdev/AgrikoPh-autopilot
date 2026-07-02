@@ -17,7 +17,9 @@ function approval(overrides: Record<string, unknown>) {
   return {
     id: "ap",
     campaignId: "c",
+    submitterId: "submitter-1",
     version: 1,
+    flags: null,
     assignedConversionReviewerId: "conv-1",
     assignedPenultimateApproverId: "pen-1",
     assignedFinalApproverId: "final-1",
@@ -82,5 +84,52 @@ describe("adApprovalSlaHandler", () => {
     const res = await adApprovalSlaHandler();
     expect(res.summary.flaggedForAdmin).toBe(1);
     expect(mockPrisma.adApproval.updateMany).not.toHaveBeenCalled(); // no status change
+  });
+
+  it("never assigns the submitter as backup (conflict of interest) — flags admin instead", async () => {
+    mockPrisma.reviewerAssignment.findMany.mockResolvedValue([
+      { role: REVIEWER_ROLE.CONVERSION_REVIEWER, assignedUserId: "conv-1", backupUserId: "submitter-1" },
+    ]);
+    findManyForGroup(STATUS.IN_CONVERSION_REVIEW, [approval({ status: STATUS.IN_CONVERSION_REVIEW })]);
+
+    const res = await adApprovalSlaHandler();
+    expect(res.summary.escalatedToBackup).toBe(0);
+    expect(res.summary.flaggedForAdmin).toBe(1);
+    expect(mockPrisma.adApproval.updateMany).not.toHaveBeenCalled(); // no reassignment
+  });
+
+  it("never escalates Penultimate to a Final Approver who is the submitter — flags admin instead", async () => {
+    mockPrisma.reviewerAssignment.findMany.mockResolvedValue([
+      { role: REVIEWER_ROLE.FINAL_APPROVER, assignedUserId: "submitter-1", backupUserId: null },
+    ]);
+    findManyForGroup(STATUS.WITH_PENULTIMATE_APPROVER, [approval({ status: STATUS.WITH_PENULTIMATE_APPROVER })]);
+
+    const res = await adApprovalSlaHandler();
+    expect(res.summary.escalatedToFinal).toBe(0);
+    expect(res.summary.flaggedForAdmin).toBe(1);
+    expect(mockPrisma.adApproval.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("treats a lost CAS race as a no-op, not a critical alert", async () => {
+    mockPrisma.reviewerAssignment.findMany.mockResolvedValue([
+      { role: REVIEWER_ROLE.CONVERSION_REVIEWER, assignedUserId: "conv-1", backupUserId: "conv-backup" },
+    ]);
+    findManyForGroup(STATUS.IN_CONVERSION_REVIEW, [approval({ status: STATUS.IN_CONVERSION_REVIEW })]);
+    mockPrisma.adApproval.updateMany.mockResolvedValue({ count: 0 }); // reviewer acted concurrently
+
+    const res = await adApprovalSlaHandler();
+    expect(res.summary.skippedLostRace).toBe(1);
+    expect(res.summary.flaggedForAdmin).toBe(0);
+    expect(mockPrisma.adApproval.update).not.toHaveBeenCalled(); // no flag written
+  });
+
+  it("skips approvals already flagged for manual intervention (alert dedupe)", async () => {
+    findManyForGroup(STATUS.WITH_FINAL_APPROVER, [
+      approval({ status: STATUS.WITH_FINAL_APPROVER, flags: { requires_manual_intervention: true } }),
+    ]);
+
+    const res = await adApprovalSlaHandler();
+    expect(res.summary.scanned).toBe(0);
+    expect(res.summary.flaggedForAdmin).toBe(0);
   });
 });

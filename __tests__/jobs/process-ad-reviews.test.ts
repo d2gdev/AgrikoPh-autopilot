@@ -31,7 +31,12 @@ const mockRunPreReview = runPreReview as unknown as ReturnType<typeof vi.fn>;
 function baseSetup(job: Record<string, unknown>) {
   mockPrisma.jobRun.create.mockResolvedValue({ id: "run-1" });
   mockPrisma.jobRun.update.mockResolvedValue({});
-  mockPrisma.adAIJobQueue.findMany.mockResolvedValue([job]);
+  // First findMany call is the stale-PROCESSING sweep (empty by default);
+  // the drain query returns the job under test.
+  mockPrisma.adAIJobQueue.findMany.mockImplementation(
+    ({ where }: { where: { status?: string } }) =>
+      Promise.resolve(where?.status === "PROCESSING" ? [] : [job]),
+  );
   mockPrisma.adAIJobQueue.update.mockResolvedValue({});
   mockPrisma.adApproval.findUnique.mockResolvedValue({
     id: "ap-1",
@@ -97,7 +102,7 @@ describe("processAdReviewsHandler", () => {
   });
 
   it("marks FAILED and flags for manual intervention once retries are exhausted", async () => {
-    baseSetup(preReviewJob(4)); // retryIndex 3 >= backoff length 3
+    baseSetup(preReviewJob(4)); // attemptNumber 4 > MAX_JOB_ATTEMPTS 3
     mockRunPreReview.mockRejectedValue(new Error("still failing"));
 
     await processAdReviewsHandler();
@@ -114,5 +119,47 @@ describe("processAdReviewsHandler", () => {
         }),
       }),
     );
+  });
+
+  it("recovers a stale PROCESSING job: reverts the approval and schedules a retry", async () => {
+    const staleJob = {
+      id: "job-stale",
+      approvalId: "ap-1",
+      stage: "PRE_REVIEW",
+      attemptNumber: 1,
+      timeoutSeconds: 90,
+      startedAt: new Date(Date.now() - 30 * 60_000), // 30 min ago >> 90s + 5m buffer
+      createdAt: new Date(Date.now() - 31 * 60_000),
+    };
+    mockPrisma.jobRun.create.mockResolvedValue({ id: "run-1" });
+    mockPrisma.jobRun.update.mockResolvedValue({});
+    mockPrisma.adAIJobQueue.findMany.mockImplementation(
+      ({ where }: { where: { status?: string } }) =>
+        Promise.resolve(where?.status === "PROCESSING" ? [staleJob] : []),
+    );
+    mockPrisma.adAIJobQueue.update.mockResolvedValue({});
+    mockPrisma.adApproval.findUnique.mockResolvedValue({
+      id: "ap-1",
+      campaignId: "c",
+      submitterId: "user-1",
+      status: STATUS.IN_AI_PRE_REVIEW, // orphaned mid-run
+      version: 2,
+    });
+    mockPrisma.adApproval.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.auditLog.create.mockResolvedValue({});
+
+    await processAdReviewsHandler();
+
+    // Approval reverted in_ -> for_ so the retry re-runs from the queue state.
+    const revert = mockPrisma.adApproval.updateMany.mock.calls
+      .map((c) => c[0])
+      .find((u) => u.data.status === STATUS.FOR_AI_PRE_REVIEW);
+    expect(revert).toBeTruthy();
+    // Job rescheduled as RETRY with a bumped attempt.
+    const retry = mockPrisma.adAIJobQueue.update.mock.calls
+      .map((c) => c[0])
+      .find((u) => u.data.status === "RETRY");
+    expect(retry).toBeTruthy();
+    expect(retry.data.attemptNumber).toBe(2);
   });
 });

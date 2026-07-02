@@ -10,6 +10,7 @@ import {
   REVIEW_STAGE,
   DECISION,
   RETRY_BACKOFF_MS,
+  MAX_JOB_ATTEMPTS,
 } from "@/lib/ad-approval/constants";
 import { transition, flagForManualIntervention } from "@/lib/ad-approval/state-machine";
 import { enqueueAiJob } from "@/lib/ad-approval/jobs";
@@ -22,6 +23,9 @@ import type { AgentInput, AgentReport, AdCopy, AdCreative } from "@/lib/ad-appro
 
 const JOB_NAME = "process-ad-reviews";
 const BATCH_SIZE = 10;
+// A job stuck in PROCESSING longer than its timeout plus this buffer is
+// presumed orphaned by a crashed/killed worker and is recovered for retry.
+const STALE_PROCESSING_BUFFER_MS = 5 * 60_000;
 
 interface StageConfig {
   forStatus: string;
@@ -83,6 +87,16 @@ export async function processAdReviewsHandler(): Promise<JobResult<Summary>> {
   const summary: Summary = { jobsProcessed: 0, passed: 0, needsRevision: 0, rejected: 0, retried: 0, exhausted: 0 };
 
   const now = new Date();
+
+  // Recover jobs orphaned in PROCESSING by a crashed/killed worker: revert the
+  // approval to its queue state and reschedule (or exhaust) the job. Without
+  // this, a crash between the in_* CAS and job completion strands both forever.
+  try {
+    await recoverStaleProcessing(now);
+  } catch (err) {
+    errors.push(`stale-recovery: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   const jobs = await prisma.adAIJobQueue.findMany({
     where: { OR: [{ status: "QUEUED" }, { status: "RETRY", nextRetryAt: { lte: now } }] },
     orderBy: { createdAt: "asc" },
@@ -215,8 +229,15 @@ async function applyDecision(
 ): Promise<void> {
   const auditBase = { actor: `AI-${config.agentName}`, action: "REVIEW_COMPLETED" as const };
 
+  // A lost CAS (e.g. concurrent admin force-transition) means the approval is
+  // no longer ours to move — log it and do NOT send a notification that lies
+  // about the ad's state. The review/report rows are already recorded.
+  const bail = (reason: string, to: string) => {
+    console.error(`[${JOB_NAME}] applyDecision: ${config.inStatus} -> ${to} ${reason} for ${approval.id}; skipping notification`);
+  };
+
   if (report.overallResult === DECISION.NEEDS_REVISION) {
-    await transition({
+    const res = await transition({
       approvalId: approval.id,
       from: config.inStatus,
       to: STATUS.NEEDS_REVISION,
@@ -225,6 +246,7 @@ async function applyDecision(
       comment: report.errors ?? report.recommendations ?? "Needs revision",
       details: { decision: DECISION.NEEDS_REVISION },
     });
+    if (!res.ok) return bail(res.reason, STATUS.NEEDS_REVISION);
     await createNotification({
       recipientId: approval.submitterId,
       type: "needs_revision",
@@ -237,7 +259,7 @@ async function applyDecision(
   }
 
   if (report.overallResult === DECISION.REJECTED) {
-    await transition({
+    const res = await transition({
       approvalId: approval.id,
       from: config.inStatus,
       to: STATUS.REJECTED,
@@ -247,6 +269,7 @@ async function applyDecision(
       details: { decision: DECISION.REJECTED },
       data: { rejectedAt: new Date() },
     });
+    if (!res.ok) return bail(res.reason, STATUS.REJECTED);
     await createNotification({
       recipientId: approval.submitterId,
       type: "rejected",
@@ -270,7 +293,8 @@ async function applyDecision(
       data: { stage: "BRAND" },
       details: { decision: DECISION.PASS },
     });
-    if (res.ok) await enqueueAiJob(approval.id, REVIEW_STAGE.BRAND_REVIEW);
+    if (!res.ok) return bail(res.reason, STATUS.FOR_BRAND_REVIEW);
+    await enqueueAiJob(approval.id, REVIEW_STAGE.BRAND_REVIEW);
     await notifyPass(approval, "AI Pre-Review", "Brand Review");
     return;
   }
@@ -285,7 +309,8 @@ async function applyDecision(
       data: { stage: "CONVERSION" },
       details: { decision: DECISION.PASS },
     });
-    if (res.ok) await assignConversionReviewer(approval.id);
+    if (!res.ok) return bail(res.reason, STATUS.FOR_CONVERSION_REVIEW);
+    await assignConversionReviewer(approval.id);
     await notifyPass(approval, "Brand Review", "Conversion Review");
     return;
   }
@@ -335,7 +360,7 @@ async function failOrRetry(
   message: string,
 ): Promise<void> {
   // Revert in_X_review -> for_X_review so the retry re-runs from the queue state.
-  await transition({
+  const reverted = await transition({
     approvalId,
     from: config.inStatus,
     to: config.forStatus,
@@ -343,10 +368,23 @@ async function failOrRetry(
     actor: "system",
     action: "AI_JOB_FAILED",
     comment: message,
-  }).catch(() => {});
+  });
+  if (!reverted.ok) {
+    console.error(`[${JOB_NAME}] failOrRetry: revert ${config.inStatus} -> ${config.forStatus} ${reverted.reason} for ${approvalId}`);
+  }
+  await scheduleRetryOrExhaust(job, approvalId, config, message);
+}
 
-  const retryIndex = job.attemptNumber - 1;
-  if (retryIndex >= RETRY_BACKOFF_MS.length) {
+// Retry/exhaustion policy (spec §Timeout & Retry Strategy): initial attempt
+// plus MAX_JOB_ATTEMPTS retries at 1m/5m/15m backoff, then flag for manual
+// intervention.
+async function scheduleRetryOrExhaust(
+  job: { id: string; attemptNumber: number },
+  approvalId: string,
+  config: StageConfig,
+  message: string,
+): Promise<void> {
+  if (job.attemptNumber > MAX_JOB_ATTEMPTS) {
     // Retries exhausted — flag for manual intervention (spec §Failure Handling).
     await markJob(job.id, "FAILED", message);
     await flagForManualIntervention({
@@ -364,11 +402,45 @@ async function failOrRetry(
     return;
   }
 
+  const retryIndex = Math.min(job.attemptNumber - 1, RETRY_BACKOFF_MS.length - 1);
   const nextRetryAt = new Date(Date.now() + RETRY_BACKOFF_MS[retryIndex]!);
   await prisma.adAIJobQueue.update({
     where: { id: job.id },
     data: { status: "RETRY", attemptNumber: job.attemptNumber + 1, nextRetryAt, errorMessage: message },
   });
+}
+
+// Recover jobs orphaned in PROCESSING (worker crashed/killed mid-run). Revert
+// the approval from in_* back to for_* and put the job through the normal
+// retry/exhaustion policy.
+async function recoverStaleProcessing(now: Date): Promise<void> {
+  const stale = await prisma.adAIJobQueue.findMany({
+    where: { status: "PROCESSING" },
+    take: BATCH_SIZE,
+  });
+  for (const job of stale) {
+    const ageMs = now.getTime() - (job.startedAt?.getTime() ?? job.createdAt.getTime());
+    if (ageMs < job.timeoutSeconds * 1000 + STALE_PROCESSING_BUFFER_MS) continue; // may still be running
+
+    const config = STAGE_CONFIG[job.stage];
+    if (!config) {
+      await markJob(job.id, "FAILED", `Unknown stage ${job.stage} during stale recovery`);
+      continue;
+    }
+    const approval = await prisma.adApproval.findUnique({ where: { id: job.approvalId } });
+    if (!approval) {
+      await markJob(job.id, "FAILED", "Approval not found during stale recovery");
+      continue;
+    }
+    const message = `Stale PROCESSING job recovered (worker crashed or was killed after ${Math.round(ageMs / 60000)}m)`;
+    if (approval.status === config.inStatus) {
+      await failOrRetry(job, approval.id, config, approval.version, message);
+    } else {
+      // Approval already moved on (e.g. admin force-transition) — just requeue/exhaust the job record.
+      await scheduleRetryOrExhaust(job, approval.id, config, message);
+    }
+    console.warn(`[${JOB_NAME}] recovered stale PROCESSING job ${job.id} (${job.stage}) for approval ${job.approvalId}`);
+  }
 }
 
 async function markJob(id: string, status: string, errorMessage: string | null): Promise<void> {

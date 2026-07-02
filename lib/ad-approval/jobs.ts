@@ -16,7 +16,9 @@ export async function enqueueAiJob(approvalId: string, stage: AiStage, client: C
   const timeoutSeconds =
     stage === REVIEW_STAGE.TECHNICAL_REVIEW
       ? JOB_TIMEOUT_SECONDS.TECHNICAL_REVIEW
-      : JOB_TIMEOUT_SECONDS.PRE_REVIEW;
+      : stage === REVIEW_STAGE.BRAND_REVIEW
+        ? JOB_TIMEOUT_SECONDS.BRAND_REVIEW
+        : JOB_TIMEOUT_SECONDS.PRE_REVIEW;
   await client.adAIJobQueue.create({
     data: { approvalId, stage, status: "QUEUED", attemptNumber: 1, timeoutSeconds },
   });
