@@ -765,18 +765,25 @@ export async function fetchMarketIntelHandler(
     }
 
     try {
-      const competitors = await prisma.competitor.findMany({
+      // Fetch a wider candidate set, then filter to competitors whose domain
+      // survives bareDomain() normalization — a non-null-but-unusable value
+      // (whitespace, protocol-only, etc.) must not waste one of the 3 metered
+      // slots. The hard cap of 3 actual intersection API calls is applied
+      // AFTER the usability filter, via slice(0, 3).
+      const competitorCandidates = await prisma.competitor.findMany({
         where: { active: true, domain: { not: null } },
         orderBy: { name: "asc" },
-        take: 3,
+        take: 10,
       });
+      const competitors = competitorCandidates
+        .map((competitor) => ({ competitor, competitorDomain: bareDomain(competitor.domain) }))
+        .filter((entry): entry is { competitor: (typeof competitorCandidates)[number]; competitorDomain: string } => entry.competitorDomain != null)
+        .slice(0, 3);
 
       const gapsByCompetitor: Array<{ competitorId: string; competitorName: string; domain: string; items: Awaited<ReturnType<typeof fetchDomainIntersection>>["items"] }> = [];
       let labsDisabled = false;
 
-      for (const competitor of competitors) {
-        const competitorDomain = bareDomain(competitor.domain);
-        if (!competitorDomain) continue;
+      for (const { competitor, competitorDomain } of competitors) {
         try {
           const intersection = await fetchDomainIntersection(ownDomain, competitorDomain, labsLimit);
           if (intersection.disabled) {

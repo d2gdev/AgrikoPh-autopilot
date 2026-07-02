@@ -246,13 +246,29 @@ describe("DataForSEO Labs step — enabled", () => {
     expect(result.errors.some((e) => e.includes("dataforseo_ranked"))).toBe(true);
   });
 
-  it("caps competitor intersection lookups at 3, only for active competitors with a usable domain", async () => {
+  it("fetches a wider candidate set (take 10) of active competitors with a non-null domain", async () => {
     mockCompetitor.findMany.mockResolvedValue([competitorRow()]);
     await fetchMarketIntelHandler({ profile: "shopping" });
 
     expect(mockCompetitor.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { active: true, domain: { not: null } }, take: 3 })
+      expect.objectContaining({ where: { active: true, domain: { not: null } }, take: 10 })
     );
+  });
+
+  it("caps intersection API calls at 3 usable-domain competitors", async () => {
+    mockCompetitor.findMany.mockResolvedValue([
+      competitorRow({ id: "c1", name: "A", domain: "a.example" }),
+      competitorRow({ id: "c2", name: "B", domain: "b.example" }),
+      competitorRow({ id: "c3", name: "C", domain: "c.example" }),
+      competitorRow({ id: "c4", name: "D", domain: "d.example" }),
+    ]);
+
+    await fetchMarketIntelHandler({ profile: "shopping" });
+
+    expect(mockFetchDomainIntersection).toHaveBeenCalledTimes(3);
+    expect(mockFetchDomainIntersection).toHaveBeenCalledWith("agrikoph.com", "a.example", 20);
+    expect(mockFetchDomainIntersection).toHaveBeenCalledWith("agrikoph.com", "b.example", 20);
+    expect(mockFetchDomainIntersection).toHaveBeenCalledWith("agrikoph.com", "c.example", 20);
   });
 
   it("strips protocol/www/path from competitor domains before calling the intersection API", async () => {
@@ -267,6 +283,23 @@ describe("DataForSEO Labs step — enabled", () => {
     await fetchMarketIntelHandler({ profile: "shopping" });
 
     expect(mockFetchDomainIntersection).not.toHaveBeenCalled();
+  });
+
+  it("does not let an unusable domain waste one of the 3 metered slots — later valid competitors fill it", async () => {
+    // A's domain is non-null but unusable (whitespace) — B, C, D must all be attempted.
+    mockCompetitor.findMany.mockResolvedValue([
+      competitorRow({ id: "c1", name: "A", domain: "   " }),
+      competitorRow({ id: "c2", name: "B", domain: "b.example" }),
+      competitorRow({ id: "c3", name: "C", domain: "c.example" }),
+      competitorRow({ id: "c4", name: "D", domain: "d.example" }),
+    ]);
+
+    await fetchMarketIntelHandler({ profile: "shopping" });
+
+    expect(mockFetchDomainIntersection).toHaveBeenCalledTimes(3);
+    expect(mockFetchDomainIntersection).toHaveBeenCalledWith("agrikoph.com", "b.example", 20);
+    expect(mockFetchDomainIntersection).toHaveBeenCalledWith("agrikoph.com", "c.example", 20);
+    expect(mockFetchDomainIntersection).toHaveBeenCalledWith("agrikoph.com", "d.example", 20);
   });
 
   it("writes a dataforseo_keyword_gap RawSnapshot when at least one competitor has results", async () => {
