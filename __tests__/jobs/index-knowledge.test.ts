@@ -5,7 +5,10 @@ import { collectSourceDocs } from "@/lib/ai/knowledge-sources";
 import { embedTexts } from "@/lib/ai/embeddings";
 import { prisma } from "@/lib/db";
 
-vi.mock("@/lib/ai/knowledge-sources", () => ({ collectSourceDocs: vi.fn() }));
+vi.mock("@/lib/ai/knowledge-sources", () => ({
+  collectSourceDocs: vi.fn(),
+  INDEXED_SOURCE_TYPES: ["article", "review", "brief", "market_insight", "recommendation", "competitor_ad"],
+}));
 vi.mock("@/lib/ai/embeddings", () => ({ embedTexts: vi.fn(), EMBEDDING_DIM: 1024 }));
 vi.mock("@/lib/db", () => ({
   prisma: {
@@ -58,4 +61,23 @@ test("deletes chunks for source rows that no longer exist", async () => {
   const result = await indexKnowledgeHandler();
   expect(mockDelete).toHaveBeenCalled();
   expect(result.summary.deleted).toBeGreaterThan(0);
+});
+
+test("never deletes chunks with a sourceType collectSourceDocs doesn't own (e.g. recommendation_outcome)", async () => {
+  // collectSourceDocs() never emits recommendation_outcome docs — those chunks
+  // are written directly by jobs/check-outcomes.ts. A genuine orphan of an
+  // owned type ("article") should still be deleted in the same run.
+  mockCollect.mockResolvedValue([]);
+  mockExisting.mockResolvedValue([
+    { sourceType: "recommendation_outcome", sourceId: "rec-1", chunkIndex: 0, contentHash: "h1" },
+    { sourceType: "article", sourceId: "gone", chunkIndex: 0, contentHash: "h2" },
+  ]);
+  const result = await indexKnowledgeHandler();
+
+  expect(mockDelete).toHaveBeenCalledOnce();
+  const where = mockDelete.mock.calls[0]![0].where;
+  const deletedKeys = where.OR.map((o: { sourceType: string; sourceId: string }) => `${o.sourceType}:${o.sourceId}`);
+  expect(deletedKeys).not.toContain("recommendation_outcome:rec-1");
+  expect(deletedKeys).toContain("article:gone");
+  expect(result.summary.deleted).toBe(1);
 });

@@ -8,6 +8,20 @@ export interface SourceDoc {
   metadata: Record<string, unknown>;
 }
 
+// sourceTypes that collectSourceDocs() owns and fully enumerates on every call.
+// jobs/index-knowledge.ts uses this list to scope its orphan-deletion pass —
+// chunks whose sourceType isn't in this list (e.g. "recommendation_outcome",
+// written directly by jobs/check-outcomes.ts) are never candidates for deletion
+// here, since this job has no visibility into whether they're still live.
+export const INDEXED_SOURCE_TYPES = [
+  "article",
+  "review",
+  "brief",
+  "market_insight",
+  "recommendation",
+  "competitor_ad",
+] as const;
+
 function stripHtml(html: string | null | undefined): string {
   return (html ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }

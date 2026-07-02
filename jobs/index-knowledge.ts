@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
-import { collectSourceDocs } from "@/lib/ai/knowledge-sources";
+import { collectSourceDocs, INDEXED_SOURCE_TYPES } from "@/lib/ai/knowledge-sources";
 import { chunkText } from "@/lib/ai/chunk";
 import { embedTexts } from "@/lib/ai/embeddings";
 
@@ -70,8 +70,16 @@ export async function indexKnowledgeHandler(): Promise<JobResult<Summary>> {
       }
     }
 
-    // Delete chunks whose live key no longer exists.
-    const orphans = existing.filter((e) => !liveKeys.has(`${e.sourceType}:${e.sourceId}:${e.chunkIndex}`));
+    // Delete chunks whose live key no longer exists — but only among sourceTypes
+    // this job actually owns/enumerates via collectSourceDocs(). Chunks with
+    // other sourceTypes (e.g. "recommendation_outcome", written directly by
+    // jobs/check-outcomes.ts) are never candidates for deletion here: this job
+    // has no visibility into whether they're still live, so treating their
+    // absence from `docs` as "orphaned" would wipe externally-managed data.
+    const ownedSourceTypes = new Set<string>(INDEXED_SOURCE_TYPES);
+    const orphans = existing.filter(
+      (e) => ownedSourceTypes.has(e.sourceType) && !liveKeys.has(`${e.sourceType}:${e.sourceId}:${e.chunkIndex}`),
+    );
     if (orphans.length > 0) {
       await prisma.knowledgeChunk.deleteMany({
         where: { OR: orphans.map((o) => ({ sourceType: o.sourceType, sourceId: o.sourceId, chunkIndex: o.chunkIndex })) },

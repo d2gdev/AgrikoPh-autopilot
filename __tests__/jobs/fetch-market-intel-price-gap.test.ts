@@ -314,6 +314,37 @@ describe("price-gap threshold and severity", () => {
   });
 });
 
+describe("price-gap own-listing exclusion", () => {
+  it("does not create a price_gap insight when the ShoppingResult store is Agriko's own listing", async () => {
+    // own=100, "competitor" store is actually Agriko's own storefront at 50 -> would be a 50% gap if not excluded.
+    mockShoppingResult.findMany.mockResolvedValue([
+      competitorRow({ store: "Agriko Official Store", price: 50 }),
+    ]);
+
+    await fetchMarketIntelHandler({ profile: "shopping" });
+
+    expect(mockMarketInsight.create).not.toHaveBeenCalled();
+  });
+
+  it("does not create a price_gap insight when the ShoppingResult productUrl is on the own domain", async () => {
+    mockShoppingResult.findMany.mockResolvedValue([
+      competitorRow({ store: "SomeMarketplaceStore", price: 50, productUrl: "https://www.agrikoph.com/products/turmeric-powder" }),
+    ]);
+
+    await fetchMarketIntelHandler({ profile: "shopping" });
+
+    expect(mockMarketInsight.create).not.toHaveBeenCalled();
+  });
+
+  it("still creates a price_gap insight for a genuine competitor row", async () => {
+    mockShoppingResult.findMany.mockResolvedValue([competitorRow({ price: 50 })]);
+
+    await fetchMarketIntelHandler({ profile: "shopping" });
+
+    expect(mockMarketInsight.create).toHaveBeenCalledOnce();
+  });
+});
+
 describe("price-gap dedup", () => {
   it("skips creating a new insight when an OPEN price_gap insight already exists for the same keyword+store", async () => {
     mockShoppingResult.findMany.mockResolvedValue([competitorRow({ price: 85 })]);

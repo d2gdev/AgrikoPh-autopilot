@@ -61,6 +61,18 @@ function slugPart(value: string | null | undefined) {
     .slice(0, 120) || "unknown";
 }
 
+// Google Shopping results can include Agriko's own listings (own site, or own
+// storefronts on marketplaces) alongside genuine competitors. Price-gap
+// detection must never compare Agriko's own price against itself and flag it
+// as a "competitor" undercut. MARKET_INTEL_OWN_DOMAIN lets prod configure the
+// own storefront domain if it ever differs from the default.
+function isOwnListing(store: string | null | undefined, productUrl: string | null | undefined): boolean {
+  const ownDomain = (process.env.MARKET_INTEL_OWN_DOMAIN?.trim() || "agrikoph.com").toLowerCase();
+  const domain = bareDomain(productUrl);
+  if (domain && (domain === ownDomain || domain.endsWith(`.${ownDomain}`))) return true;
+  return (store ?? "").toLowerCase().includes("agriko");
+}
+
 function normalizeUrl(value: string | null | undefined) {
   if (!value) return "";
   try {
@@ -671,6 +683,7 @@ export async function fetchMarketIntelHandler(
             if (result.price == null || !Number.isFinite(result.price) || result.price <= 0) continue;
             const store = result.store?.trim();
             if (!store) continue;
+            if (isOwnListing(store, result.productUrl)) continue;
 
             const gapPct = ((ownPrice - result.price) / ownPrice) * 100;
             if (gapPct <= 10) continue;

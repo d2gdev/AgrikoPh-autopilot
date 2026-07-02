@@ -135,6 +135,7 @@ describe("skills loader", () => {
         platform: "google_ads",
         enabled: true,
         extraSources: ["keyword_research", "gsc"],
+        insightBlock: "search-term-opportunities",
       }),
     );
   });

@@ -5,6 +5,7 @@ enabled: true
 metadata:
   platform: Google
   extraSources: [keyword_research, gsc]
+  insightBlock: search-term-opportunities
 ---
 
 # 46/ Keyword Gap Analysis — Google
@@ -21,6 +22,15 @@ Claude builds three keyword sets from the payload: (1) active Google Ads keyword
 
 ## Output contract — recommendations
 This skill's recommendations MUST use only the **executable** action types: `pause_campaign`, `pause_ad`, `adjust_budget`. Do not emit `change_bid` or `add_negative_keyword` recommendation objects — keyword-level actions (new keywords, negative keywords, bid changes) are not executed by the pipeline and belong in the narrative analysis as opportunities for a human to action manually. When a low-volume/underperforming keyword doesn't map cleanly onto a campaign- or ad-level entity in the data, describe it in the narrative instead of forcing a recommendation object. Follow the exact recommendation JSON schema and field rules given in the system instructions (fenced ```recommendations block, PHP numeric proposedValue for adjust_budget, null proposedValue for pause actions).
+
+## Output contract — insights
+BEFORE the recommendations block, also output a fenced ```search-term-opportunities block containing a JSON array matching the schema given in the system instructions. This is how a Google-platform skill's findings persist and reach a human, since `google_ads` recommendation objects are filtered out at generation time and never saved — the insight block is the only output this skill produces that survives. These items are routed straight to the operator's Opportunity feed.
+
+Map both directions of the keyword-gap diff into `searchTerm` items:
+- **High-volume, no-presence keywords** (whitespace opportunities): one item per keyword, with `searchTerm` set to the keyword text, `impressions`/`clicks`/`conversions` set to `0` (no paid or organic presence exists yet), `currentCpaPHP` set to `null`, `recommendedBidPHP` set from the keyword-research bid range, `recommendedMatchType` chosen based on competition/intent, and **`isNegativeKeyword: false`**.
+- **Low-volume keywords eating budget** (waste terms): one item per keyword, with `searchTerm` set to the keyword text, the paid keyword's real `impressions`/`clicks`/`conversions`/`currentCpaPHP`, and **`isNegativeKeyword: true`** to flag it as a candidate for exclusion.
+
+If neither direction has data, output an empty array `[]`. Set `theme` to a short cluster label consistent with the recommendations narrative, and `suggestedAdGroup` to the ad group name when the keyword maps to one, or `null` otherwise.
 
 ## What you get back
 - A ranked list of high-volume keyword gaps (search volume, competition, estimated bid range) with no current paid or organic presence
