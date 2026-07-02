@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import pLimit from "p-limit";
 import { prisma } from "@/lib/db";
 import { checkGuardrails } from "@/lib/guardrails";
+import { isSupportedAction } from "@/lib/executor";
 import { loadAllSkillsSync } from "@/lib/skills/loader";
 import type { SkillDefinition } from "@/lib/skills/loader";
 import type { RawSnapshot } from "@prisma/client";
@@ -15,6 +16,8 @@ type RunSkillsSummary = {
   skillsSkipped: number;
   skillsTotal: number;
   skillHashes: Record<string, string>;
+  skillLastRun: Record<string, string>;
+  unsupportedSkipped: number;
 };
 
 type RunSkillsResult = JobResult<RunSkillsSummary> & { newRecs: number };
@@ -40,6 +43,8 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
       skillsSkipped: 0,
       skillsTotal: 0,
       skillHashes: {},
+      skillLastRun: {},
+      unsupportedSkipped: 0,
     };
     const errors = ["No snapshots available — run data fetch first"];
     await prisma.jobRun.update({
@@ -67,6 +72,9 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
   const lastSkillHashes = (
     (lastRun?.summary as Record<string, unknown> | null)?.skillHashes ?? {}
   ) as Record<string, string>;
+  const lastSkillLastRun = (
+    (lastRun?.summary as Record<string, unknown> | null)?.skillLastRun ?? {}
+  ) as Record<string, string>;
 
   const allSkills = loadAllSkillsSync().filter((s) => s.enabled);
 
@@ -84,15 +92,21 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
     console.warn(`[run-skills] ${eligibleSkills.length - MAX_SKILLS_PER_RUN} skills deferred to next run (round-robin)`);
   }
 
-  // H-7: sort oldest-first by lastRunAt so starved skills get priority each cycle
-  // SkillDefinition does not carry lastRunAt (loaded from files); absent field sorts to 0 (always first)
+  // H-7: sort oldest-first by last-run timestamp (persisted in JobRun summary as skillLastRun)
+  // so starved skills get priority each cycle. A skill missing from the map (never run) sorts
+  // as epoch 0, i.e. runs first.
   const applicableSkills = eligibleSkills
     .sort((a, b) => {
-      const aLast = ((a as unknown as Record<string, unknown>).lastRunAt as Date | undefined)?.getTime() ?? 0;
-      const bLast = ((b as unknown as Record<string, unknown>).lastRunAt as Date | undefined)?.getTime() ?? 0;
+      const aTs = lastSkillLastRun[a.id];
+      const bTs = lastSkillLastRun[b.id];
+      const aLast = aTs ? new Date(aTs).getTime() : 0;
+      const bLast = bTs ? new Date(bTs).getTime() : 0;
       return aLast - bLast;
     })
     .slice(0, MAX_SKILLS_PER_RUN);
+
+  // Fix A: a single shared timestamp for every skill dispatched this run (executed or hash-skipped)
+  const dispatchTimestamp = new Date().toISOString();
 
   function snapshotForSkill(skill: SkillDefinition): RawSnapshot | null {
     if (skill.platform === "meta") return metaSnap;
@@ -110,21 +124,22 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
 
   let totalRecs = 0;
   let skipped = 0;
+  let unsupportedSkipped = 0;
   const errors: string[] = [];
 
-  type SkillResult = { count: number; skillId: string; skillName: string; snapshotId: string; hash: string; insights: unknown[]; wasSkipped?: boolean };
+  type SkillResult = { count: number; skillId: string; skillName: string; snapshotId: string; hash: string; insights: unknown[]; wasSkipped?: boolean; unsupportedCount: number };
 
   const limit = pLimit(4); // max 4 concurrent skill executions
 
   const results = await Promise.allSettled(
     applicableSkills.map((skill): Promise<SkillResult> => limit(async () => {
       const snapshot = snapshotForSkill(skill);
-      if (!snapshot) return { count: 0, skillId: skill.id, skillName: skill.name, snapshotId: "", hash: "", insights: [] };
+      if (!snapshot) return { count: 0, skillId: skill.id, skillName: skill.name, snapshotId: "", hash: "", insights: [], unsupportedCount: 0 };
 
       const currentHash = hashForSkill(skill);
       if (currentHash && lastSkillHashes[skill.id] === currentHash) {
         // H-8: return currentHash (not "") so the stored hash stays valid across skipped runs
-        return { count: 0, skillId: skill.id, skillName: skill.name, snapshotId: snapshot.id, hash: currentHash, insights: [], wasSkipped: true };
+        return { count: 0, skillId: skill.id, skillName: skill.name, snapshotId: snapshot.id, hash: currentHash, insights: [], wasSkipped: true, unsupportedCount: 0 };
       }
 
       const { recs: recommendations, insights, truncated } = await Promise.race([
@@ -134,15 +149,24 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
       if (truncated) {
         // Don't throw — a truncated response is a permanent data-size issue; retrying won't help.
         console.warn(`[run-skills] skill ${skill.id} response truncated by token limit — skipping`);
-        return { count: 0, skillId: skill.id, skillName: skill.name, snapshotId: snapshot.id, hash: "", insights: [], wasSkipped: true };
+        return { count: 0, skillId: skill.id, skillName: skill.name, snapshotId: snapshot.id, hash: "", insights: [], wasSkipped: true, unsupportedCount: 0 };
       }
       let count = 0;
+      let unsupportedCount = 0;
       const platform = snapshot.source === "meta" ? "meta" : "google_ads";
 
       for (const rec of recommendations) {
         if (rec.actionType === "adjust_budget") {
           const numeric = parseFloat((rec.proposedValue ?? "").replace(/[^0-9.]/g, ""));
           if (!numeric || isNaN(numeric) || numeric <= 0) continue;
+        }
+
+        // Fix B: don't persist recs whose actionType is not executable on this platform
+        // (e.g. change_bid/add_negative_keyword on meta, or any action on google_ads which
+        // has no supported actions this release). Skill narrative/insight output is unaffected.
+        if (!isSupportedAction(platform, rec.actionType)) {
+          unsupportedCount++;
+          continue;
         }
 
         const guard = await checkGuardrails(rec);
@@ -188,16 +212,24 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
         }
       }
 
-      return { count, skillId: skill.id, skillName: skill.name, snapshotId: snapshot.id, hash: currentHash, insights };
+      if (unsupportedCount > 0) {
+        console.warn(`[run-skills] skill ${skill.id}: skipped ${unsupportedCount} unsupported recommendation(s) (actionType not executable on platform "${platform}")`);
+      }
+
+      return { count, skillId: skill.id, skillName: skill.name, snapshotId: snapshot.id, hash: currentHash, insights, unsupportedCount };
     }))
   );
 
-  // Collect hash updates and insights after all concurrent work completes — avoids mid-flight mutation
+  // Collect hash/lastRun updates and insights after all concurrent work completes — avoids mid-flight mutation
   const hashUpdates: Array<{ skillId: string; hash: string }> = [];
+  const lastRunUpdates: string[] = [];
   const insightRows: Array<{ skillId: string; skillName: string; insightType: string; items: unknown[]; snapshotId: string }> = [];
   for (const [i, r] of results.entries()) {
     if (r.status === "fulfilled") {
-      const { count, skillId, skillName, snapshotId, hash, insights, wasSkipped } = r.value;
+      const { count, skillId, skillName, snapshotId, hash, insights, wasSkipped, unsupportedCount } = r.value;
+      unsupportedSkipped += unsupportedCount;
+      // Fix A: any dispatched skill that completed (executed or hash-skipped) counts as "ran"
+      lastRunUpdates.push(skillId);
       if (wasSkipped) {
         skipped++;
         // H-8: preserve the current hash for skipped skills so next run still sees it
@@ -235,6 +267,13 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
     updatedSkillHashes[skillId] = hash;
   }
 
+  // Fix A: merge fresh timestamps for skills dispatched this run over the previous run's map,
+  // so skills not dispatched this run keep their prior timestamp (round-robin bookkeeping).
+  const updatedSkillLastRun: Record<string, string> = { ...lastSkillLastRun };
+  for (const skillId of lastRunUpdates) {
+    updatedSkillLastRun[skillId] = dispatchTimestamp;
+  }
+
   const status: JobStatus = errors.length === 0 ? "success" : "partial";
   const summary: RunSkillsSummary = {
     recommendationsGenerated: totalRecs,
@@ -242,6 +281,8 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
     skillsSkipped: skipped,
     skillsTotal: allSkills.length,
     skillHashes: updatedSkillHashes,
+    skillLastRun: updatedSkillLastRun,
+    unsupportedSkipped,
   };
 
   await prisma.jobRun.update({
