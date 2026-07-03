@@ -51,7 +51,7 @@ Then read this file fully before doing anything else in this session.
 - Store Pilot — images page and store-pilot page exist; scope TBD
 
 **Known issues:**
-- GSC data density is low until GSC access is fully fixed and Agriko's property is confirmed — peso-sizing insights return ~₱0 until resolved
+- ~~GSC 403 / access blocked~~ RESOLVED (verified 2026-07-03): service account `analytics-ga-4@gen-lang-client-0853027342` is siteOwner on `sc-domain:agrikoph.com`, fetch-seo-data/fetch-gsc-data succeed daily, 13.8k GscQuery rows, live query probe returns real PH rankings. Remaining caveat is genuine low click volume (small site, ~1 click/query) — peso-sizing insights are limited by traffic, not access
 - Competitor price stream has noisy data; de-noising is needed before price-based recommendations are reliable
 - Legacy direct-analysis routes still use OpenRouter instead of DeepSeek primary — gradual migration ongoing
 - `better-sqlite3` competitor scraper DB is local-only; prod market intel uses Serper/DataForSEO instead
