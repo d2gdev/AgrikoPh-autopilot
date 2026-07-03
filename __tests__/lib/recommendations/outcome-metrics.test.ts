@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { findEntityMetrics, computeOutcome } from "@/lib/recommendations/outcome-metrics";
 
 describe("findEntityMetrics", () => {
-  it("reads metrics directly off a google_ads campaign entity", () => {
+  it("reads metrics directly off a campaign entity with inline fields (no nested insights)", () => {
     const payload = {
       campaigns: [
         { id: "123", name: "Brand", spend: 100, roas: 3.2, conversions: 10 },

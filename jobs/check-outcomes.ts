@@ -25,9 +25,9 @@ function json(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-// "both" recs (rare) may have landed against either connector's snapshot.
+// "both" recs (rare) resolve to Meta — Google Ads is not a supported platform.
 function platformSources(platform: string): string[] {
-  return platform === "both" ? ["meta", "google_ads"] : [platform];
+  return platform === "both" ? ["meta"] : [platform];
 }
 
 async function findSnapshotBefore(sources: string[], cutoff: Date) {

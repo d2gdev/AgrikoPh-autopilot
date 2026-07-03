@@ -41,8 +41,7 @@ const ENTITY_ARRAYS_BY_TYPE: Record<string, string[]> = {
 const ALL_ENTITY_ARRAYS = ["campaigns", "adSets", "adGroups", "ads", "keywords"];
 
 // Meta's `insights` rows carry per-entity spend/ctr/conversions keyed by one of
-// these id fields (level=ad rows carry all three); google_ads payloads embed
-// metrics directly on the entity objects instead.
+// these id fields (level=ad rows carry all three).
 const INSIGHT_ID_FIELDS_BY_TYPE: Record<string, string[]> = {
   campaign: ["campaign_id"],
   ad_set: ["adset_id"],
@@ -124,8 +123,8 @@ function aggregateInsights(
 /**
  * Tolerant lookup of a recommendation's target entity in a RawSnapshot
  * payload, returning whatever of {spend, roas, ctr, cpa, conversions} it can
- * find. Handles both connector shapes:
- *  - google_ads: metrics live directly on the campaign/adGroup/keyword object
+ * find. Handles two shapes:
+ *  - metrics inline directly on the campaign/adGroup/keyword object
  *  - meta: campaign/adSet/ad objects carry no metrics; metrics live in a
  *    separate `insights` array keyed by campaign_id/adset_id/ad_id
  * Missing arrays/keys/entities never throw — returns undefined when nothing
