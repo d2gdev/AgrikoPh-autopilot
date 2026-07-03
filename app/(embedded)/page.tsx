@@ -28,6 +28,7 @@ import {
   type PanelState,
 } from "@/lib/dashboard/client-state";
 import { StatGrid } from "@/components/ui/stat-grid";
+import { timeAgo, actionLabel, formatPhp } from "@/lib/format";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -185,20 +186,6 @@ const STALENESS_ORDER: Record<"critical" | "warning" | "success", number> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function timeAgo(iso: string) {
-  const time = new Date(iso).getTime();
-  if (!Number.isFinite(time)) return "unknown time";
-  const diff = Date.now() - time;
-  const absDiff = Math.abs(diff);
-  const mins = Math.floor(absDiff / 60000);
-  const suffix = diff < 0 ? " from now" : " ago";
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m${suffix}`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h${suffix}`;
-  return `${Math.floor(hrs / 24)}d${suffix}`;
-}
-
 function stalenessTone(lastSuccessAt: string | null): "success" | "warning" | "critical" {
   if (!lastSuccessAt) return "critical";
   const hrs = (Date.now() - new Date(lastSuccessAt).getTime()) / 3600000;
@@ -211,14 +198,6 @@ function stalenessStyle(tone: "success" | "warning" | "critical"): React.CSSProp
   if (tone === "success") return { backgroundColor: "#f1f8f5", borderRadius: 8 };
   if (tone === "warning") return { backgroundColor: "#fff5ea", borderRadius: 8 };
   return { backgroundColor: "#fff4f4", borderRadius: 8 };
-}
-
-function actionLabel(s: string) {
-  return s.replace(/_/g, " ");
-}
-
-function formatPhp(value: number): string {
-  return `₱${value.toLocaleString("en-PH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 function errorMessage(err: unknown) {
@@ -955,6 +934,71 @@ export default function DashboardPage() {
             </Layout.Section>
           )}
 
+          {/* ── Pending rec inbox ── */}
+          {(data?.topPendingRecs?.length ?? 0) > 0 && (
+            <>
+              <Layout.Section>
+                <Card>
+                  <BlockStack gap="300">
+                    <Text variant="headingMd" as="h2">
+                      Pending Review ({data!.pendingCount})
+                    </Text>
+                    <BlockStack gap="300">
+                      {data!.topPendingRecs!.map((rec) => {
+                        const state = recAction[rec.id];
+                        const busy = state === "approving" || state === "rejecting";
+                        if (state === "done") return null;
+                        return (
+                          <BlockStack key={rec.id} gap="150">
+                            <InlineStack align="space-between" blockAlign="start">
+                              <BlockStack gap="100">
+                                <InlineStack gap="200">
+                                  <Text as="p" fontWeight="semibold">{actionLabel(rec.actionType)}</Text>
+                                  <Text as="p" tone="subdued">—</Text>
+                                  <Text as="p">{rec.targetEntityName}</Text>
+                                  {rec.guardStatus !== "clear" && (
+                                    <Badge tone={rec.guardStatus === "hard_block" ? "critical" : "warning"}>
+                                      {rec.guardStatus.replace(/_/g, " ")}
+                                    </Badge>
+                                  )}
+                                </InlineStack>
+                                <Text as="p" tone="subdued">{rec.rationale}</Text>
+                                {rec.estimatedImpact && (
+                                  <Text as="p" tone="subdued">{rec.estimatedImpact}</Text>
+                                )}
+                              </BlockStack>
+                              <InlineStack gap="200">
+                                <Button
+                                  size="slim"
+                                  variant="primary"
+                                  loading={state === "approving"}
+                                  disabled={busy || rec.guardStatus === "hard_block"}
+                                  onClick={() => approveRec(rec.id)}
+                                >
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="slim"
+                                  loading={state === "rejecting"}
+                                  disabled={busy}
+                                  onClick={() => rejectRec(rec.id)}
+                                >
+                                  Reject
+                                </Button>
+                              </InlineStack>
+                            </InlineStack>
+                            <Divider />
+                          </BlockStack>
+                        );
+                      })}
+                    </BlockStack>
+                  </BlockStack>
+                </Card>
+              </Layout.Section>
+              <Layout.Section><Divider /></Layout.Section>
+            </>
+          )}
+
           {/* ── Operations row ── */}
           <Layout.Section>
             <BlockStack gap="300">
@@ -987,7 +1031,7 @@ export default function DashboardPage() {
                         </Link>
                         {data?.estimatedValueExecuted != null && (
                           <Text as="p" tone="subdued">
-                            est. {formatPhp(data.estimatedValueExecuted)} impact
+                            est. {formatPhp(data.estimatedValueExecuted, 0)} impact
                           </Text>
                         )}
                       </BlockStack>
@@ -1043,12 +1087,12 @@ export default function DashboardPage() {
                         <Text variant="headingMd" as="h2">Ad Spend (Latest)</Text>
                         <Link href="/ad-pilot" style={{ textDecoration: "none", color: "inherit" }}>
                           <Text variant="heading2xl" as="p">
-                            {spend && spend.current > 0 ? formatPhp(spend.current) : "—"}
+                            {spend && spend.current > 0 ? formatPhp(spend.current, 0) : "—"}
                           </Text>
                         </Link>
                         {spend && spend.previous > 0 && (
                           <Text as="p" tone={spend.delta <= 0 ? "success" : "critical"}>
-                            {spendSign}{formatPhp(spend.delta)}
+                            {spendSign}{formatPhp(spend.delta, 0)}
                             {spend.deltaPct != null && ` (${spendSign}${spend.deltaPct.toFixed(1)}%)`}
                             {" vs prior"}
                           </Text>
@@ -1205,71 +1249,6 @@ export default function DashboardPage() {
               </StatGrid>
             </BlockStack>
           </Layout.Section>
-
-          {/* ── Pending rec inbox ── */}
-          {(data?.topPendingRecs?.length ?? 0) > 0 && (
-            <>
-              <Layout.Section><Divider /></Layout.Section>
-              <Layout.Section>
-                <Card>
-                  <BlockStack gap="300">
-                    <Text variant="headingMd" as="h2">
-                      Pending Review ({data!.pendingCount})
-                    </Text>
-                    <BlockStack gap="300">
-                      {data!.topPendingRecs!.map((rec) => {
-                        const state = recAction[rec.id];
-                        const busy = state === "approving" || state === "rejecting";
-                        if (state === "done") return null;
-                        return (
-                          <BlockStack key={rec.id} gap="150">
-                            <InlineStack align="space-between" blockAlign="start">
-                              <BlockStack gap="100">
-                                <InlineStack gap="200">
-                                  <Text as="p" fontWeight="semibold">{actionLabel(rec.actionType)}</Text>
-                                  <Text as="p" tone="subdued">—</Text>
-                                  <Text as="p">{rec.targetEntityName}</Text>
-                                  {rec.guardStatus !== "clear" && (
-                                    <Badge tone={rec.guardStatus === "hard_block" ? "critical" : "warning"}>
-                                      {rec.guardStatus.replace(/_/g, " ")}
-                                    </Badge>
-                                  )}
-                                </InlineStack>
-                                <Text as="p" tone="subdued">{rec.rationale}</Text>
-                                {rec.estimatedImpact && (
-                                  <Text as="p" tone="subdued">{rec.estimatedImpact}</Text>
-                                )}
-                              </BlockStack>
-                              <InlineStack gap="200">
-                                <Button
-                                  size="slim"
-                                  variant="primary"
-                                  loading={state === "approving"}
-                                  disabled={busy || rec.guardStatus === "hard_block"}
-                                  onClick={() => approveRec(rec.id)}
-                                >
-                                  Approve
-                                </Button>
-                                <Button
-                                  size="slim"
-                                  loading={state === "rejecting"}
-                                  disabled={busy}
-                                  onClick={() => rejectRec(rec.id)}
-                                >
-                                  Reject
-                                </Button>
-                              </InlineStack>
-                            </InlineStack>
-                            <Divider />
-                          </BlockStack>
-                        );
-                      })}
-                    </BlockStack>
-                  </BlockStack>
-                </Card>
-              </Layout.Section>
-            </>
-          )}
 
           <Layout.Section><Divider /></Layout.Section>
 
