@@ -5,7 +5,7 @@ vi.mock("@/lib/config/resolver", () => ({
 }));
 
 import { getSecret } from "@/lib/config/resolver";
-import { shopifyFetch } from "@/lib/shopify-admin";
+import { shopifyFetch, updateProductSeo } from "@/lib/shopify-admin";
 
 describe("shopifyFetch", () => {
   beforeEach(() => {
@@ -38,5 +38,45 @@ describe("shopifyFetch", () => {
         }),
       })
     );
+  });
+});
+
+describe("updateProductSeo", () => {
+  beforeEach(() => {
+    vi.mocked(getSecret).mockImplementation(async (key: string) => {
+      if (key === "SHOPIFY_STORE_DOMAIN") return "test.myshopify.com";
+      if (key === "SHOPIFY_ADMIN_ACCESS_TOKEN") return "admin-token";
+      throw new Error(`Unexpected key ${key}`);
+    });
+  });
+
+  it("sends productUpdate with the seo input and returns the updated seo", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: {
+          productUpdate: {
+            product: { id: "gid://shopify/Product/1", seo: { title: "T", description: "D" } },
+            userErrors: [],
+          },
+        },
+      }),
+    }) as unknown as typeof fetch;
+
+    const result = await updateProductSeo("gid://shopify/Product/1", { title: "T", description: "D" });
+    expect(result.seo.title).toBe("T");
+    const body = JSON.parse((vi.mocked(global.fetch).mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.variables.product).toEqual({ id: "gid://shopify/Product/1", seo: { title: "T", description: "D" } });
+  });
+
+  it("throws on userErrors", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: { productUpdate: { product: null, userErrors: [{ field: ["seo"], message: "Title too long" }] } },
+      }),
+    }) as unknown as typeof fetch;
+
+    await expect(updateProductSeo("gid://shopify/Product/1", { title: "x" })).rejects.toThrow("Title too long");
   });
 });

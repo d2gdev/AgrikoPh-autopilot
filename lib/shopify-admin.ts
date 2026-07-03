@@ -190,6 +190,41 @@ export async function updateProductMediaAlt(
   return media;
 }
 
+export async function updateProductSeo(
+  productId: string,
+  seo: { title?: string; description?: string }
+): Promise<{ id: string; seo: { title: string | null; description: string | null } }> {
+  const mutation = `
+    mutation UpdateProductSeo($product: ProductUpdateInput!) {
+      productUpdate(product: $product) {
+        product {
+          id
+          seo {
+            title
+            description
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+  const data = await shopifyFetch<{
+    productUpdate: {
+      product: { id: string; seo: { title: string | null; description: string | null } } | null;
+      userErrors: Array<{ field: string[] | null; message: string }>;
+    };
+  }>(mutation, { product: { id: productId, seo } });
+
+  const errors = data.productUpdate.userErrors;
+  if (errors?.length) throw new Error(errors[0]!.message);
+  const product = data.productUpdate.product;
+  if (!product) throw new Error("Shopify returned no product in productUpdate response");
+  return product;
+}
+
 export interface CatalogProductVariant {
   id: string;
   title: string;
