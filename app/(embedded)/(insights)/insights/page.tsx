@@ -1,9 +1,9 @@
 "use client";
 
 import {
-  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, Button, Divider,
+  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, Button, Divider, Banner,
 } from "@shopify/polaris";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
@@ -45,11 +45,20 @@ export default function InsightsPilotPage() {
   const [storeMetrics, setStoreMetrics] = useState<{ label: string; value: string }[]>(() => getCache<{ label: string; value: string }[]>("/api/images:insights-metrics") ?? []);
   const [storeLoading, setStoreLoading] = useState(() => !getCache("/api/images:insights-metrics"));
 
-  useEffect(() => {
-    authFetch("/api/jobs/status").then((r) => r.json()).then((d) => { setCache("/api/jobs/status", d); setJobStatus(d); });
+  const [loadError, setLoadError] = useState<string | null>(null);
 
+  const loadAll = useCallback(() => {
+    setLoadError(null);
+    const fail = () => setLoadError("Some data failed to load. Metrics showing “—” may be stale or missing.");
+
+    authFetch("/api/jobs/status")
+      .then((r) => { if (!r.ok) throw new Error(`jobs/status ${r.status}`); return r.json(); })
+      .then((d) => { setCache("/api/jobs/status", d); setJobStatus(d); })
+      .catch(fail);
+
+    setAdLoading(true);
     authFetch("/api/campaigns")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(`campaigns ${r.status}`); return r.json(); })
       .then((d) => {
         const cams = d.campaigns ?? [];
         const active = cams.filter((c: { status: string }) => c.status === "ACTIVE").length;
@@ -59,12 +68,13 @@ export default function InsightsPilotPage() {
         ];
         setCache("/api/campaigns:insights-metrics", metrics);
         setAdMetrics(metrics);
-        setAdLoading(false);
       })
-      .catch(() => setAdLoading(false));
+      .catch(fail)
+      .finally(() => setAdLoading(false));
 
+    setSeoLoading(true);
     authFetch("/api/seo")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(`seo ${r.status}`); return r.json(); })
       .then((d) => {
         const clicks = (d.topQueries ?? []).reduce((s: number, q: { clicks: number }) => s + (q.clicks ?? 0), 0);
         const pages = (d.topPages ?? []).length;
@@ -74,12 +84,13 @@ export default function InsightsPilotPage() {
         ];
         setCache("/api/seo:insights-metrics", metrics);
         setSeoMetrics(metrics);
-        setSeoLoading(false);
       })
-      .catch(() => setSeoLoading(false));
+      .catch(fail)
+      .finally(() => setSeoLoading(false));
 
+    setStoreLoading(true);
     authFetch("/api/images")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(`images ${r.status}`); return r.json(); })
       .then((d) => {
         const pct = d.total > 0 ? Math.round(((d.total - d.missingAltText) / d.total) * 100) : 0;
         const metrics = [
@@ -88,10 +99,12 @@ export default function InsightsPilotPage() {
         ];
         setCache("/api/images:insights-metrics", metrics);
         setStoreMetrics(metrics);
-        setStoreLoading(false);
       })
-      .catch(() => setStoreLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      .catch(fail)
+      .finally(() => setStoreLoading(false));
+  }, [authFetch]);
+
+  useEffect(() => { loadAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pilots: PilotCard[] = [
     {
@@ -137,6 +150,19 @@ export default function InsightsPilotPage() {
       subtitle="Unified view across all pilots"
     >
       <Layout>
+        {loadError && (
+          <Layout.Section>
+            <Banner
+              tone="critical"
+              title="Failed to load some metrics"
+              action={{ content: "Retry", onAction: loadAll }}
+              onDismiss={() => setLoadError(null)}
+            >
+              <Text as="p">{loadError}</Text>
+            </Banner>
+          </Layout.Section>
+        )}
+
         {/* System health bar */}
         <Layout.Section>
           <Card>
