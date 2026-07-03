@@ -256,7 +256,7 @@ describe("sendOperatorAlert", () => {
     vi.stubEnv("ALERT_WEBHOOK_URL", "https://hooks.example.test/x");
     await sendOperatorAlert("daily_digest", { pendingRecommendations: 5 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
     expect(body.type).toBe("daily_digest");
     expect(body.pendingRecommendations).toBe(5);
     expect(typeof body.timestamp).toBe("string");
