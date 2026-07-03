@@ -148,7 +148,9 @@ export async function fetchRankedKeywords(domain: string, limit?: number): Promi
   const taskPayload = [{
     target: domain,
     language_code: "en",
-    location_name: process.env.MARKET_INTEL_DEFAULT_LOCATION ?? "Philippines",
+    // Labs-only location override — lets Labs calls target a different Google
+    // database than shopping/keyword research if ever needed.
+    location_name: process.env.DATAFORSEO_LABS_LOCATION ?? process.env.MARKET_INTEL_DEFAULT_LOCATION ?? "Philippines",
     limit: resolvedLimit,
     order_by: ["keyword_data.keyword_info.search_volume,desc"],
   }];
@@ -174,7 +176,9 @@ export async function fetchDomainIntersection(
     target1: ourDomain,
     target2: competitorDomain,
     language_code: "en",
-    location_name: process.env.MARKET_INTEL_DEFAULT_LOCATION ?? "Philippines",
+    // Labs-only location override — lets Labs calls target a different Google
+    // database than shopping/keyword research if ever needed.
+    location_name: process.env.DATAFORSEO_LABS_LOCATION ?? process.env.MARKET_INTEL_DEFAULT_LOCATION ?? "Philippines",
     limit: resolvedLimit,
     // `intersections: true` (the API default) returns only keywords BOTH
     // domains rank for — useless for gap-finding. We want the union (keywords
