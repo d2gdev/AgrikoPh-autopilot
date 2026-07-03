@@ -6,6 +6,7 @@ import { deriveGuardrailInputs } from "@/lib/recommendations/guardrail-inputs";
 import { classifyMetaError, serializableMetaError } from "@/lib/connectors/meta-errors";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
 import { materializeJobsStatusSnapshot } from "@/lib/dashboard/jobs-status";
+import { sendOperatorAlert } from "@/lib/alerts";
 
 type ExecuteApprovedOptions = {
   dryRun?: boolean;
@@ -274,6 +275,12 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
               }),
               audit,
             ]);
+            await sendOperatorAlert("hard_block", {
+              recommendationId: rec.id,
+              targetEntityName: rec.targetEntityName,
+              actionType: rec.actionType,
+              reason: guard.reason,
+            });
           }
           continue;
         }
@@ -373,6 +380,12 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
           }),
           audit,
         ]);
+        await sendOperatorAlert("execution_failed", {
+          recommendationId: rec.id,
+          targetEntityName: rec.targetEntityName,
+          actionType: rec.actionType,
+          error: safeError,
+        });
       }
     }
   }
