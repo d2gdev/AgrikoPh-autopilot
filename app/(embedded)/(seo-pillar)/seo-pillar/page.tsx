@@ -2,13 +2,14 @@
 
 import {
   Page, Layout, Card, Text, Badge, InlineStack, BlockStack, DataTable, Banner,
-  Button, TextField, Tabs, Spinner, Tooltip,
+  Button, TextField, Tabs, Spinner, Tooltip, List, Select,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import { KEYWORD_CLUSTERS, PRIMARY_TARGETS, SECONDARY_BANK, ROADMAP, ALL_PRIMARY_KEYWORDS, type PrimaryTarget } from "@/lib/seo/keyword-strategy";
+import { timeAgo } from "@/lib/format";
 
 // ── response types ──
 interface Query { query: string; clicks: number; impressions: number; ctr: string; position: string }
@@ -45,19 +46,65 @@ interface Health { totals: HealthTotals; worstOffenders: HealthOffender[] }
 interface KeywordRow { keyword: string; position: number | null; clicks: number; impressions: number; positionDelta: number | null; status: string; alert: boolean }
 interface Cluster { topic: string; articleCount: number; keywordCount: number; gapScore: number }
 
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const hrs = Math.floor(diff / 3600000);
-  if (hrs < 1) return "< 1h ago";
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
 const gapKey = (g: { query: string; suggestedTitle: string }) => `${g.query}::${g.suggestedTitle}`;
 const opportunityKey = (o: Pick<Opportunity, "query" | "page" | "type">) => JSON.stringify([o.query, o.page ?? "", o.type]);
 
 // fractions 0–1 → "x.x%", null → "—"
 const fmtPct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(1)}%`);
+
+// ── AI brief renderer (ported from the retired /seo page) ──
+
+function InlineBold({ text }: { text: string }) {
+  const parts = text.split(/\*\*(.+?)\*\*/g);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? <strong key={i}>{part}</strong> : <span key={i}>{part}</span>
+      )}
+    </>
+  );
+}
+
+function BriefRenderer({ text }: { text: string }) {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  const pendingBullets: string[] = [];
+
+  function flushBullets() {
+    if (pendingBullets.length === 0) return;
+    elements.push(
+      <List key={`b-${elements.length}`} type="bullet">
+        {pendingBullets.map((b, i) => (
+          <List.Item key={i}><InlineBold text={b} /></List.Item>
+        ))}
+      </List>,
+    );
+    pendingBullets.length = 0;
+  }
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { flushBullets(); continue; }
+
+    const bullet = line.match(/^[-•*]\s+(.+)/) ?? line.match(/^\d+\.\s+(.+)/);
+    if (bullet) { pendingBullets.push(bullet[1]!); continue; }
+
+    flushBullets();
+    const heading = line.match(/^#{1,3}\s+(.+)/);
+    if (heading) {
+      elements.push(
+        <Text key={elements.length} variant="headingSm" as="h3">{heading[1]}</Text>,
+      );
+    } else {
+      elements.push(
+        <Text key={elements.length} as="p"><InlineBold text={line} /></Text>,
+      );
+    }
+  }
+  flushBullets();
+
+  return <BlockStack gap="200">{elements}</BlockStack>;
+}
 
 // render a page path/url as a subdued span (or link when it looks like a path/url)
 const pagePath = (p: string | null | undefined) => {
@@ -161,6 +208,16 @@ export default function SeoPillarReportPage() {
   const [planningKw, setPlanningKw] = useState<Set<string>>(new Set());
   const [plannedKw, setPlannedKw] = useState<Set<string>>(new Set());
   const [newKeyword, setNewKeyword] = useState("");
+  // AI SEO brief (ported from the retired /seo page)
+  const [brief, setBrief] = useState<string | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
+  // Opportunities / Keywords tab controls
+  const [oppSearch, setOppSearch] = useState("");
+  const [oppType, setOppType] = useState("all");
+  const [oppSort, setOppSort] = useState<{ index: number; dir: "ascending" | "descending" } | null>(null);
+  const [kwSearch, setKwSearch] = useState("");
+  const [kwSort, setKwSort] = useState<{ index: number; dir: "ascending" | "descending" } | null>(null);
 
   const loadCore = useCallback(async () => {
     const r = await authFetch("/api/seo");
@@ -418,7 +475,27 @@ export default function SeoPillarReportPage() {
     String(m.clicks),
   ]);
 
-  const oppRows = (data?.opportunities ?? []).map((o) => [
+  const oppTypeOptions = [
+    { label: "All types", value: "all" },
+    ...Array.from(new Set((data?.opportunities ?? []).map((o) => o.type))).map((t) => ({ label: OPP_LABEL[t] ?? t, value: t })),
+  ];
+  const filteredOpps = (data?.opportunities ?? [])
+    .filter((o) => oppType === "all" || o.type === oppType)
+    .filter((o) => {
+      if (!oppSearch) return true;
+      const q = oppSearch.toLowerCase();
+      return o.query.toLowerCase().includes(q) || (o.page ?? "").toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      if (!oppSort) return 0;
+      const dir = oppSort.dir === "ascending" ? 1 : -1;
+      if (oppSort.index === 3) return dir * (a.impressions - b.impressions);
+      if (oppSort.index === 6) return dir * ((a.volume ?? -1) - (b.volume ?? -1));
+      if (oppSort.index === 8) return dir * (a.potentialClicks - b.potentialClicks);
+      return 0;
+    });
+
+  const oppRows = filteredOpps.map((o) => [
     o.query,
     <Badge key={o.query} tone={o.type === "high_impression_no_click" ? "critical" : o.type === "low_ctr" ? "warning" : "info"}>{OPP_LABEL[o.type] ?? o.type}</Badge>,
     o.page
@@ -444,6 +521,27 @@ export default function SeoPillarReportPage() {
   const gaps = analysis?.contentGaps ?? [];
   const unpromotedGaps = gaps.filter((g) => !promoted.has(gapKey(g)));
 
+  async function generateBrief() {
+    setBriefLoading(true);
+    setBrief(null);
+    setBriefError(null);
+    try {
+      const res = await authFetch("/api/seo/brief", { method: "POST" });
+      const d = await res.json();
+      if (!res.ok) {
+        const message = [d.error, d.detail].filter(Boolean).join(": ");
+        setBriefError(message || "Failed to generate brief");
+        return;
+      }
+      setBrief(d.brief);
+    } catch (err) {
+      console.error("[seo/brief]", err);
+      setBriefError("Failed to generate brief. Please try again.");
+    } finally {
+      setBriefLoading(false);
+    }
+  }
+
   const tabs = [
     { id: "overview", content: "Overview" },
     { id: "opps", content: `Opportunities${data?.opportunities?.length ? ` (${data.opportunities.length})` : ""}` },
@@ -463,7 +561,7 @@ export default function SeoPillarReportPage() {
       primaryAction={{ content: "AI Analysis", onAction: runSeoAnalysis, loading: analyzing }}
       secondaryActions={[
         { content: "Refresh data", onAction: refreshData, loading: refreshing },
-        { content: "SEO Details", onAction: () => router.push(withShopifyContextUrl("/seo")) },
+        { content: "Generate SEO Brief", onAction: generateBrief, loading: briefLoading },
       ]}
     >
       <Layout>
@@ -482,6 +580,11 @@ export default function SeoPillarReportPage() {
             <Banner tone="critical" title="AI Analysis failed" onDismiss={() => setAnalysisError(null)}><p>{analysisError}</p></Banner>
           </Layout.Section>
         )}
+        {briefError && (
+          <Layout.Section>
+            <Banner tone="critical" title="Brief generation failed" onDismiss={() => setBriefError(null)}><p>{briefError}</p></Banner>
+          </Layout.Section>
+        )}
 
         <Layout.Section>
           <Card padding="0">
@@ -494,6 +597,14 @@ export default function SeoPillarReportPage() {
                   {/* ── OVERVIEW ── */}
                   {tab === 0 && (
                     <BlockStack gap="400">
+                      {brief && (
+                        <Card>
+                          <BlockStack gap="300">
+                            <Text variant="headingMd" as="h2">AI SEO Brief</Text>
+                            <BriefRenderer text={brief} />
+                          </BlockStack>
+                        </Card>
+                      )}
                       <InlineStack gap="400" wrap>
                         {[
                           { label: "Total Clicks", val: cur?.clicks?.toLocaleString() ?? "—", node: cur && <Delta curr={cur.clicks} prev={prev?.clicks} /> },
@@ -619,12 +730,31 @@ export default function SeoPillarReportPage() {
                     <BlockStack gap="300">
                       <Text variant="headingMd" as="h2">CTR & ranking opportunities</Text>
                       <Text as="p" tone="subdued">Queries where a title/meta rewrite or a small ranking push could win clicks you&apos;re already close to. &ldquo;Potential&rdquo; estimates extra monthly clicks at benchmark CTR.</Text>
-                      {oppRows.length === 0 ? <Text as="p" tone="subdued">No opportunities surfaced. Fetch fresh GSC data first.</Text> : (
+                      {(data?.opportunities?.length ?? 0) > 0 && (
+                        <InlineStack gap="200" blockAlign="end" wrap>
+                          <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+                            <TextField label="Search opportunities" labelHidden placeholder="Search query or page…" value={oppSearch} onChange={setOppSearch}
+                              autoComplete="off" clearButton onClearButtonClick={() => setOppSearch("")} />
+                          </div>
+                          <div style={{ minWidth: 170 }}>
+                            <Select label="Filter by type" labelHidden options={oppTypeOptions} value={oppType} onChange={setOppType} />
+                          </div>
+                        </InlineStack>
+                      )}
+                      {oppRows.length === 0 ? (
+                        <Text as="p" tone="subdued">
+                          {(data?.opportunities?.length ?? 0) > 0 ? "No opportunities match the current search/filter." : "No opportunities surfaced. Fetch fresh GSC data first."}
+                        </Text>
+                      ) : (
                         <DataTable
                           columnContentTypes={["text", "text", "text", "numeric", "numeric", "numeric", "numeric", "text", "numeric", "text"]}
                           headings={["Query", "Type", "Landing page", "Impr.", "CTR", "Position", "Volume", "Difficulty", "Potential", "Action"]}
                           rows={oppRows}
                           sortable={[false, false, false, true, false, false, true, false, true, false]}
+                          onSort={(index, direction) => {
+                            if (direction === "none") setOppSort(null);
+                            else setOppSort({ index, dir: direction });
+                          }}
                         />
                       )}
                     </BlockStack>
@@ -787,17 +917,40 @@ export default function SeoPillarReportPage() {
                     <BlockStack gap="400">
                       <Text variant="headingMd" as="h2">Tracked keyword positions</Text>
                       <Text as="p" tone="subdued">Positions are derived from your GSC snapshots. Add target keywords to monitor rank movement and get drop alerts.</Text>
-                      <InlineStack gap="200" blockAlign="end">
+                      <InlineStack gap="200" blockAlign="end" wrap>
                         <div style={{ minWidth: 280 }}>
                           <TextField label="Add keyword" labelHidden autoComplete="off" value={newKeyword} onChange={setNewKeyword} placeholder="e.g. organic black rice philippines" />
                         </div>
                         <Button onClick={addKeyword}>Track</Button>
+                        <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                          <TextField label="Search keywords" labelHidden placeholder="Search…" value={kwSearch} onChange={setKwSearch}
+                            autoComplete="off" clearButton onClearButtonClick={() => setKwSearch("")} />
+                        </div>
                       </InlineStack>
                       {keywords.length === 0 ? <Text as="p" tone="subdued">No keywords tracked yet.</Text> : (
                         <DataTable
                           columnContentTypes={["text", "numeric", "text", "numeric", "numeric", "text"]}
                           headings={["Keyword", "Position", "Δ Pos", "Clicks", "Impr.", "Status"]}
-                          rows={keywords.map((k) => [
+                          sortable={[true, true, true, true, true, false]}
+                          onSort={(index, direction) => {
+                            if (direction === "none") setKwSort(null);
+                            else setKwSort({ index, dir: direction });
+                          }}
+                          rows={keywords
+                            .filter((k) => !kwSearch || k.keyword.toLowerCase().includes(kwSearch.toLowerCase()))
+                            .sort((a, b) => {
+                              if (!kwSort) return 0;
+                              const dir = kwSort.dir === "ascending" ? 1 : -1;
+                              switch (kwSort.index) {
+                                case 0: return dir * a.keyword.localeCompare(b.keyword);
+                                case 1: return dir * ((a.position ?? Number.MAX_VALUE) - (b.position ?? Number.MAX_VALUE));
+                                case 2: return dir * ((a.positionDelta ?? 0) - (b.positionDelta ?? 0));
+                                case 3: return dir * (a.clicks - b.clicks);
+                                case 4: return dir * (a.impressions - b.impressions);
+                                default: return 0;
+                              }
+                            })
+                            .map((k) => [
                             k.keyword,
                             k.position === null ? "—" : k.position.toFixed(1),
                             k.positionDelta === null ? "—" : `${k.positionDelta < 0 ? "▲" : "▼"} ${Math.abs(k.positionDelta).toFixed(1)}`,
