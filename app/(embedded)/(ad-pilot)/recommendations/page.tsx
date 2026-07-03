@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { ApproveConfirmationModal } from "@/components/ui/approve-confirmation-modal";
 import { timeAgo } from "@/lib/format";
-import { recommendationStatusTone } from "@/lib/ui/tones";
+import { recommendationStatusTone, outcomeTone } from "@/lib/ui/tones";
 import { ListSkeleton } from "@/components/ui/states";
 
 interface Recommendation {
@@ -29,6 +29,8 @@ interface Recommendation {
   createdAt: string;
   executedAt: string | null;
   executionResult: Record<string, unknown> | null;
+  outcome: { verdict?: string } | null;
+  outcomeCheckedAt: string | null;
 }
 
 const TABS = [
@@ -319,6 +321,17 @@ export default function RecommendationsPage() {
 
                     {rec.executedAt && (
                       <Text as="p" tone="subdued">Executed {timeAgo(rec.executedAt)}</Text>
+                    )}
+
+                    {rec.status === "executed" && rec.outcome?.verdict && (
+                      <InlineStack gap="150" blockAlign="center">
+                        <Badge tone={outcomeTone(rec.outcome.verdict)}>
+                          {rec.outcome.verdict.replace(/_/g, " ")}
+                        </Badge>
+                        {rec.outcomeCheckedAt && (
+                          <Text as="p" tone="subdued">checked {timeAgo(rec.outcomeCheckedAt)}</Text>
+                        )}
+                      </InlineStack>
                     )}
 
                     {rec.guardReason && (
