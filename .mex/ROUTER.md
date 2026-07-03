@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-03T10:10:00Z
+last_updated: 2026-07-03T10:30:00Z
 ---
 
 # Session Bootstrap
@@ -36,6 +36,7 @@ Then read this file fully before doing anything else in this session.
 - Market intelligence: competitor ads, shopping price history, keyword research
 - Content Pilot: proposal generation → draft generation → publish to Shopify blog
 - ROAS health badges and inline recommendation approval on campaigns page
+- Silent-failure fixes (2026-07-03, audit Tier 2): Insights/Ad Pilot/Settings/Images pages surface fetch failures as critical Banners with Retry (previously `.catch(() => setLoading(false))` rendered failures as "—"/empty tables; a failed Settings load left Save disabled with no explanation). Images alt-text loop closed end-to-end: `fetchProductImages` now queries the `media` connection (imageId is a MediaImage GID), new `updateProductMediaAlt` + `PATCH /api/images` write alt text to Shopify via `productUpdateMedia` (operator-initiated, audit-logged as `image_alt_text_applied`, rate-limited 30/min, busts the server payload cache), and the Images page shows full-text suggestions with Apply/Copy/Regenerate. Ad-approvals list pages through all records (cap 1000) instead of silently dropping item #101, with a truncation banner when capped.
 - Review-action safety UX (2026-07-03, audit Tier 1): Approve on Campaigns + Recommendations opens a shared confirmation modal (`components/ui/approve-confirmation-modal.tsx`) showing the concrete current→proposed change before committing; reject/override modals and Settings credential delete now check `res.ok` and surface failures; approve/reject show a success Toast with Undo backed by a new `POST /api/recommendations/[id]/revert` route (atomic approved/rejected→pending, audit-logged, 409s once the executor claims the rec; override_approved excluded). Also fixed: campaigns reject sent `{reason}` but the API reads `note`, so rejection notes were silently dropped.
 - Dashboard v2: ad spend delta, content pilot stats, rec breakdown by action type, collapsible job rows with trend dots + staleness tinting, loading skeletons
 - GSC + GA4 data ingestion and SEO pillar dashboard
