@@ -230,3 +230,42 @@ describe("alerts", () => {
     ]);
   });
 });
+
+describe("sendOperatorAlert", () => {
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("no-ops when ALERT_WEBHOOK_URL is unset", async () => {
+    const { sendOperatorAlert } = await import("@/lib/alerts");
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    await sendOperatorAlert("new_recommendations", { count: 3 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("posts kind as type plus payload and timestamp when configured", async () => {
+    const { sendOperatorAlert } = await import("@/lib/alerts");
+    vi.stubEnv("ALERT_WEBHOOK_URL", "https://hooks.example.test/x");
+    await sendOperatorAlert("daily_digest", { pendingRecommendations: 5 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.type).toBe("daily_digest");
+    expect(body.pendingRecommendations).toBe(5);
+    expect(typeof body.timestamp).toBe("string");
+  });
+
+  it("never throws when the webhook fails", async () => {
+    const { sendOperatorAlert } = await import("@/lib/alerts");
+    vi.stubEnv("ALERT_WEBHOOK_URL", "https://hooks.example.test/x");
+    fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    await expect(sendOperatorAlert("execution_failed", {})).resolves.toBeUndefined();
+  });
+});

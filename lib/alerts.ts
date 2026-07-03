@@ -351,3 +351,24 @@ export async function notifyJobFailure(input: JobFailureAlertInput): Promise<voi
 export async function sendOpsWebhook(payload: Record<string, unknown>): Promise<void> {
   await postWebhook(payload);
 }
+
+export type OperatorAlertKind =
+  | "new_recommendations"
+  | "execution_failed"
+  | "hard_block"
+  | "sla_escalation"
+  | "daily_digest";
+
+// Typed operator-alert wrapper over the ops webhook. Never throws; no-ops
+// when ALERT_WEBHOOK_URL is unset (both guaranteed by postWebhook).
+export async function sendOperatorAlert(
+  kind: OperatorAlertKind,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await postWebhook({
+    type: kind,
+    appUrl: process.env.SHOPIFY_APP_URL ?? null,
+    timestamp: new Date().toISOString(),
+    ...payload,
+  });
+}
