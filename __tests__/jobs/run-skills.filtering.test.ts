@@ -53,7 +53,7 @@ const mockRunSkill = runSkill as ReturnType<typeof vi.fn>;
 
 const metaSnapshot = { id: "snap-meta", source: "meta", payload: { campaigns: [] }, fetchedAt: new Date() };
 
-function makeSkill(id: string, platform: "meta" | "both" | "linkedin" | "reddit" = "meta") {
+function makeSkill(id: string, platform: "meta" | "both" | "linkedin" | "reddit" | "seo" = "meta") {
   return { id, name: `Skill ${id}`, platform, enabled: true };
 }
 
@@ -156,6 +156,20 @@ describe("runSkillsHandler generation-time action filtering (Fix B)", () => {
     expect(mockRunSkill).not.toHaveBeenCalled();
     expect(mockPrisma.recommendation.create).not.toHaveBeenCalled();
     expect(result.newRecs).toBe(0);
+  });
+
+  it("seo platform skill IS dispatched when a meta snapshot exists", async () => {
+    const skill = { ...makeSkill("seo-skill", "seo"), extraSources: ["keyword_research", "gsc"] };
+    mockLoadAllSkillsSync.mockReturnValue([skill]);
+
+    mockRunSkill.mockResolvedValue({
+      recs: [],
+      truncated: false,
+    });
+
+    await runSkillsHandler();
+
+    expect(mockRunSkill).toHaveBeenCalledTimes(1);
   });
 
   it("does not affect skill insight/narrative output when recs are filtered out", async () => {

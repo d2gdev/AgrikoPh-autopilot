@@ -146,4 +146,16 @@ describe("assembleDataPayload", () => {
     expect(section.length).toBeLessThan(9000);
     expect(section).not.toContain("keyword-number-1999");
   });
+
+  it("for a seo-platform skill, includes keyword-research data and omits ad-account sections", () => {
+    const skill = makeSkill({ platform: "seo", extraSources: ["keyword_research"] });
+    const result = assembleDataPayload(
+      skill,
+      { campaigns: [{ id: "1" }] },
+      { keyword_research: [{ keyword: "moringa" }] }
+    );
+
+    expect(result).toContain("## Keyword Research");
+    expect(result).not.toContain("## Campaigns");
+  });
 });

@@ -77,11 +77,12 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
   const allSkills = loadAllSkillsSync().filter((s) => s.enabled);
 
   // H-9: filter to dispatchable platforms BEFORE cap so linkedin/reddit don't starve real skills
-  const DISPATCHABLE_PLATFORMS: SkillDefinition["platform"][] = ["meta", "both"];
+  const DISPATCHABLE_PLATFORMS: SkillDefinition["platform"][] = ["meta", "both", "seo"];
   const eligibleSkills = allSkills.filter((s) => {
     if (!DISPATCHABLE_PLATFORMS.includes(s.platform)) return false;
     if (s.platform === "meta") return !!metaSnap;
     if (s.platform === "both") return !!metaSnap;
+    if (s.platform === "seo") return !!metaSnap && (s.extraSources?.length ?? 0) > 0;
     return false;
   });
 

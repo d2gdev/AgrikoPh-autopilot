@@ -253,25 +253,30 @@ export function assembleDataPayload(
   payload: Record<string, unknown>,
   extraContext?: Record<string, unknown>
 ): string {
-  const sections: string[] = [`# Ad Account Data for Analysis\n`];
+  const includeAdAccountData = skill.platform !== "seo";
+  const sections: string[] = [
+    includeAdAccountData
+      ? `# Ad Account Data for Analysis\n`
+      : `# Keyword & Organic Search Data for Analysis\n`,
+  ];
 
-  if (payload.campaigns) {
+  if (includeAdAccountData && payload.campaigns) {
     sections.push(`## Campaigns\n\`\`\`json\n${JSON.stringify(payload.campaigns, null, 2)}\n\`\`\``);
   }
-  if (payload.adSets || payload.adGroups) {
+  if (includeAdAccountData && (payload.adSets || payload.adGroups)) {
     sections.push(`## Ad Sets / Ad Groups\n\`\`\`json\n${JSON.stringify(payload.adSets ?? payload.adGroups, null, 2)}\n\`\`\``);
   }
-  if (payload.ads) {
+  if (includeAdAccountData && payload.ads) {
     sections.push(`## Ads\n\`\`\`json\n${JSON.stringify(payload.ads, null, 2)}\n\`\`\``);
   }
-  if (payload.keywords) {
+  if (includeAdAccountData && payload.keywords) {
     sections.push(`## Keywords\n\`\`\`json\n${JSON.stringify(payload.keywords, null, 2)}\n\`\`\``);
   }
-  if (payload.searchTerms && skill.id.includes("search-term")) {
+  if (includeAdAccountData && payload.searchTerms && skill.id.includes("search-term")) {
     sections.push(`## Search Terms\n\`\`\`json\n${JSON.stringify(payload.searchTerms, null, 2)}\n\`\`\``);
   }
 
-  if (payload.insights) {
+  if (includeAdAccountData && payload.insights) {
     sections.push(`## Performance Insights (ROAS / CTR / Spend / Frequency)\n\`\`\`json\n${JSON.stringify(payload.insights, null, 2)}\n\`\`\``);
   }
 
