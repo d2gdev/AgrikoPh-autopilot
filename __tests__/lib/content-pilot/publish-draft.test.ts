@@ -21,8 +21,8 @@ vi.mock("@/lib/content-pilot/generate-draft", async () => {
       switch (proposalType) {
         case "seo-fix":
           return z.object({
-            metaTitle: z.string().trim().min(1),
-            metaDescription: z.string().trim().min(1),
+            metaTitle: z.string().trim().min(1).max(70),
+            metaDescription: z.string().trim().min(1).max(320),
           });
         case "internal-link":
           return z.object({
@@ -338,5 +338,21 @@ describe("publishDraft", () => {
         }),
       ),
     ).rejects.toThrow("Target article 'stale-article' no longer exists in Shopify");
+  });
+
+  it("rejects a seo-fix draft whose metaTitle exceeds 70 chars before any Shopify call", async () => {
+    await expect(
+      publishDraft(
+        proposal({
+          proposalType: "seo-fix",
+          articleHandle: "some-article",
+          draftContent: {
+            metaTitle: "x".repeat(71),
+            metaDescription: "ok description",
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(mockShopifyFetch).not.toHaveBeenCalled();
   });
 });

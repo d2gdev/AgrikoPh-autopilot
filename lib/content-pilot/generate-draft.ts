@@ -20,8 +20,8 @@ export type DraftContent = SeoFixDraft | InternalLinkDraft | BodyHtmlDraft | New
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
 const SeoFixSchema = z.object({
-  metaTitle: z.string().trim().min(1),
-  metaDescription: z.string().trim().min(1),
+  metaTitle: z.string().trim().min(1).max(70),
+  metaDescription: z.string().trim().min(1).max(320),
 });
 
 const InternalLinkSchema = z.object({
