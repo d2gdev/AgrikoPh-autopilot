@@ -2,12 +2,13 @@
 
 import {
   Page, Layout, Card, Text, Badge, Tabs, EmptyState, Button, Banner,
-  BlockStack, InlineStack, Spinner, Collapsible, Box, Divider,
+  BlockStack, InlineStack, Spinner, Collapsible, Box, Divider, Toast,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
+import { ApproveConfirmationModal } from "@/components/ui/approve-confirmation-modal";
 
 interface Campaign {
   id: string;
@@ -34,6 +35,9 @@ interface Rec {
   actionType: string;
   targetEntityName: string;
   targetEntityType: string;
+  currentValue: string | null;
+  proposedValue: string | null;
+  changePercent: number | null;
   rationale: string;
   estimatedImpact: string | null;
   guardStatus: string;
@@ -165,6 +169,9 @@ export default function CampaignsPage() {
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<{ rec: Rec; campaignId: string } | null>(null);
+  const [toast, setToast] = useState<{ message: string; undo?: { rec: Rec; campaignId: string } } | null>(null);
+  const [undoing, setUndoing] = useState(false);
 
   const platform = PLATFORM_TABS[selected]!.id;
 
@@ -215,33 +222,60 @@ export default function CampaignsPage() {
     }
   }
 
-  async function approve(recId: string, campaignId: string) {
-    setApprovingId(recId);
+  function removeRecFromCampaign(recId: string, campaignId: string) {
+    setCampaignRecs((prev) => ({ ...prev, [campaignId]: (prev[campaignId] ?? []).filter((r) => r.id !== recId) }));
+    setCampaigns((prev) => prev.map((c) => c.id === campaignId ? { ...c, pendingRecs: Math.max(0, c.pendingRecs - 1) } : c));
+  }
+
+  function restoreRecToCampaign(rec: Rec, campaignId: string) {
+    setCampaignRecs((prev) => ({ ...prev, [campaignId]: [rec, ...(prev[campaignId] ?? []).filter((r) => r.id !== rec.id)] }));
+    setCampaigns((prev) => prev.map((c) => c.id === campaignId ? { ...c, pendingRecs: c.pendingRecs + 1 } : c));
+  }
+
+  async function approve(rec: Rec, campaignId: string) {
+    setApprovingId(rec.id);
     setActionError(null);
     try {
-      const res = await authFetch(`/api/recommendations/${recId}/approve`, { method: "POST", body: JSON.stringify({}) });
+      const res = await authFetch(`/api/recommendations/${rec.id}/approve`, { method: "POST", body: JSON.stringify({}) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error((d as { error?: string }).error ?? `Error ${res.status}`); }
-      setCampaignRecs((prev) => ({ ...prev, [campaignId]: (prev[campaignId] ?? []).filter((r) => r.id !== recId) }));
-      setCampaigns((prev) => prev.map((c) => c.id === campaignId ? { ...c, pendingRecs: Math.max(0, c.pendingRecs - 1) } : c));
+      removeRecFromCampaign(rec.id, campaignId);
+      setConfirmTarget(null);
+      setToast({ message: "Approved — queued for live execution", undo: { rec, campaignId } });
     } catch (err) {
+      setConfirmTarget(null);
       setActionError(err instanceof Error ? err.message : "Approve failed");
     } finally {
       setApprovingId(null);
     }
   }
 
-  async function reject(recId: string, campaignId: string) {
-    setRejectingId(recId);
+  async function reject(rec: Rec, campaignId: string) {
+    setRejectingId(rec.id);
     setActionError(null);
     try {
-      const res = await authFetch(`/api/recommendations/${recId}/reject`, { method: "POST", body: JSON.stringify({ reason: "Rejected from campaigns view" }) });
+      const res = await authFetch(`/api/recommendations/${rec.id}/reject`, { method: "POST", body: JSON.stringify({ note: "Rejected from campaigns view" }) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error((d as { error?: string }).error ?? `Error ${res.status}`); }
-      setCampaignRecs((prev) => ({ ...prev, [campaignId]: (prev[campaignId] ?? []).filter((r) => r.id !== recId) }));
-      setCampaigns((prev) => prev.map((c) => c.id === campaignId ? { ...c, pendingRecs: Math.max(0, c.pendingRecs - 1) } : c));
+      removeRecFromCampaign(rec.id, campaignId);
+      setToast({ message: "Recommendation rejected", undo: { rec, campaignId } });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Reject failed");
     } finally {
       setRejectingId(null);
+    }
+  }
+
+  async function undoReview(rec: Rec, campaignId: string) {
+    setUndoing(true);
+    try {
+      const res = await authFetch(`/api/recommendations/${rec.id}/revert`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error((d as { error?: string }).error ?? `Undo failed (${res.status})`); }
+      restoreRecToCampaign(rec, campaignId);
+      setToast({ message: "Decision reverted — back in pending" });
+    } catch (err) {
+      setToast(null);
+      setActionError(err instanceof Error ? err.message : "Undo failed");
+    } finally {
+      setUndoing(false);
     }
   }
 
@@ -514,7 +548,7 @@ export default function CampaignsPage() {
                                                 variant="primary"
                                                 loading={approvingId === rec.id}
                                                 disabled={rejectingId !== null}
-                                                onClick={() => approve(rec.id, c.id)}
+                                                onClick={() => setConfirmTarget({ rec, campaignId: c.id })}
                                               >
                                                 ✓ Approve
                                               </Button>
@@ -522,7 +556,7 @@ export default function CampaignsPage() {
                                                 size="slim"
                                                 loading={rejectingId === rec.id}
                                                 disabled={approvingId !== null}
-                                                onClick={() => reject(rec.id, c.id)}
+                                                onClick={() => reject(rec, c.id)}
                                               >
                                                 ✗ Reject
                                               </Button>
@@ -546,6 +580,26 @@ export default function CampaignsPage() {
           )}
         </Layout.Section>
       </Layout>
+
+      <ApproveConfirmationModal
+        rec={confirmTarget?.rec ?? null}
+        open={confirmTarget !== null}
+        loading={approvingId !== null}
+        onConfirm={() => { if (confirmTarget) approve(confirmTarget.rec, confirmTarget.campaignId); }}
+        onCancel={() => { if (approvingId === null) setConfirmTarget(null); }}
+      />
+
+      {toast && (
+        <Toast
+          content={toast.message}
+          duration={8000}
+          onDismiss={() => setToast(null)}
+          action={toast.undo ? {
+            content: undoing ? "Undoing…" : "Undo",
+            onAction: () => { if (!undoing && toast.undo) undoReview(toast.undo.rec, toast.undo.campaignId); },
+          } : undefined}
+        />
+      )}
     </Page>
   );
 }

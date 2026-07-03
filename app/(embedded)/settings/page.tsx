@@ -145,9 +145,21 @@ export default function SettingsPage() {
   }, [authFetch, newCredKey, newCredValue, loadCredentials, loadConnectorHealth]);
 
   const deleteCredential = useCallback(async (key: string) => {
-    await authFetch(`/api/settings/credentials/${key}`, { method: "DELETE" });
-    loadCredentials();
-    loadConnectorHealth(true);
+    setCredError(null);
+    setCredSuccess(null);
+    try {
+      const res = await authFetch(`/api/settings/credentials/${key}`, { method: "DELETE" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setCredError((d as { error?: string }).error ?? `Failed to delete ${key} (${res.status})`);
+        return;
+      }
+      setCredSuccess(`Deleted ${key}`);
+      loadCredentials();
+      loadConnectorHealth(true);
+    } catch (err) {
+      setCredError(String(err));
+    }
   }, [authFetch, loadCredentials, loadConnectorHealth]);
 
   const hardBlocks = guardrails.filter((g) =>

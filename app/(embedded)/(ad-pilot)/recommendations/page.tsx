@@ -2,10 +2,11 @@
 
 import {
   Page, Layout, Card, Text, Button, Badge, BlockStack, InlineStack,
-  Tabs, EmptyState, Spinner, Collapsible, Modal, TextField, Banner,
+  Tabs, EmptyState, Spinner, Collapsible, Modal, TextField, Banner, Toast,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
+import { ApproveConfirmationModal } from "@/components/ui/approve-confirmation-modal";
 
 interface Recommendation {
   id: string;
@@ -67,12 +68,19 @@ export default function RecommendationsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [confirmRec, setConfirmRec] = useState<Recommendation | null>(null);
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
+  const [rejectError, setRejectError] = useState<string | null>(null);
   const [overrideModalOpen, setOverrideModalOpen] = useState(false);
   const [overrideText, setOverrideText] = useState("");
   const [pendingOverrideId, setPendingOverrideId] = useState<string | null>(null);
+  const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+  const [overrideError, setOverrideError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; undoId?: string } | null>(null);
+  const [undoing, setUndoing] = useState(false);
 
   const status = TABS[selected]!.id;
 
@@ -112,10 +120,31 @@ export default function RecommendationsPage() {
 
       setRecs((prev) => prev.filter((rec) => rec.id !== id));
       setTotal((prev) => Math.max(0, prev - 1));
+      setConfirmRec(null);
+      setToast({ message: "Approved — queued for live execution", undoId: id });
     } catch (err) {
+      setConfirmRec(null);
       setActionError(errorMessage(err));
     } finally {
       setApprovingId(null);
+    }
+  }
+
+  async function undoReview(id: string) {
+    setUndoing(true);
+    try {
+      const res = await authFetch(`/api/recommendations/${id}/revert`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error(await responseError(res, "Undo failed"));
+      setToast({ message: "Decision reverted — back in Pending" });
+      load(true);
+    } catch (err) {
+      setToast(null);
+      setActionError(errorMessage(err));
+    } finally {
+      setUndoing(false);
     }
   }
 
@@ -278,7 +307,7 @@ export default function RecommendationsPage() {
                             tone="success"
                             loading={approvingId === rec.id}
                             disabled={approvingId !== null && approvingId !== rec.id}
-                            onClick={() => approve(rec.id)}
+                            onClick={() => setConfirmRec(rec)}
                           >
                             Approve
                           </Button>
@@ -309,69 +338,126 @@ export default function RecommendationsPage() {
         </Layout.Section>
       </Layout>
 
+      <ApproveConfirmationModal
+        rec={confirmRec}
+        open={confirmRec !== null}
+        loading={approvingId !== null}
+        onConfirm={() => { if (confirmRec) approve(confirmRec.id); }}
+        onCancel={() => { if (approvingId === null) setConfirmRec(null); }}
+      />
+
       <Modal
         open={rejectModalOpen}
-        onClose={() => { setRejectModalOpen(false); setRejectingId(null); setRejectReason(""); }}
+        onClose={() => { setRejectModalOpen(false); setRejectingId(null); setRejectReason(""); setRejectError(null); }}
         title="Reject recommendation"
         primaryAction={{
           content: "Reject",
           destructive: true,
+          loading: rejectSubmitting,
           onAction: async () => {
             if (!rejectingId) return;
-            await authFetch(`/api/recommendations/${rejectingId}/reject`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ note: rejectReason || undefined }),
-            });
-            setRejectModalOpen(false);
-            setRejectingId(null);
-            setRejectReason("");
-            load(true);
+            setRejectSubmitting(true);
+            setRejectError(null);
+            try {
+              const res = await authFetch(`/api/recommendations/${rejectingId}/reject`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ note: rejectReason || undefined }),
+              });
+              if (!res.ok) throw new Error(await responseError(res, "Reject failed"));
+              const rejectedId = rejectingId;
+              setRejectModalOpen(false);
+              setRejectingId(null);
+              setRejectReason("");
+              setToast({ message: "Recommendation rejected", undoId: rejectedId });
+              load(true);
+            } catch (err) {
+              setRejectError(errorMessage(err));
+            } finally {
+              setRejectSubmitting(false);
+            }
           },
         }}
-        secondaryActions={[{ content: "Cancel", onAction: () => { setRejectModalOpen(false); setRejectingId(null); setRejectReason(""); } }]}
+        secondaryActions={[{ content: "Cancel", disabled: rejectSubmitting, onAction: () => { setRejectModalOpen(false); setRejectingId(null); setRejectReason(""); setRejectError(null); } }]}
       >
         <Modal.Section>
-          <TextField
-            label="Reason for rejection"
-            value={rejectReason}
-            onChange={setRejectReason}
-            multiline={3}
-            autoComplete="off"
-          />
+          <BlockStack gap="300">
+            {rejectError && (
+              <Banner tone="critical" onDismiss={() => setRejectError(null)}>
+                <Text as="p">{rejectError}</Text>
+              </Banner>
+            )}
+            <TextField
+              label="Reason for rejection"
+              value={rejectReason}
+              onChange={setRejectReason}
+              multiline={3}
+              autoComplete="off"
+            />
+          </BlockStack>
         </Modal.Section>
       </Modal>
       <Modal
         open={overrideModalOpen}
-        onClose={() => { setOverrideModalOpen(false); setPendingOverrideId(null); setOverrideText(""); }}
+        onClose={() => { setOverrideModalOpen(false); setPendingOverrideId(null); setOverrideText(""); setOverrideError(null); }}
         title="Override hard block"
         primaryAction={{
           content: "Submit override",
+          loading: overrideSubmitting,
           onAction: async () => {
             if (!pendingOverrideId || !overrideText.trim()) return;
-            await authFetch(`/api/recommendations/${pendingOverrideId}/request-override`, {
-              method: "POST",
-              body: JSON.stringify({ justification: overrideText }),
-            });
-            setOverrideModalOpen(false);
-            setPendingOverrideId(null);
-            setOverrideText("");
-            load(true);
+            setOverrideSubmitting(true);
+            setOverrideError(null);
+            try {
+              const res = await authFetch(`/api/recommendations/${pendingOverrideId}/request-override`, {
+                method: "POST",
+                body: JSON.stringify({ justification: overrideText }),
+              });
+              if (!res.ok) throw new Error(await responseError(res, "Override failed"));
+              setOverrideModalOpen(false);
+              setPendingOverrideId(null);
+              setOverrideText("");
+              setToast({ message: "Override approved — queued for live execution" });
+              load(true);
+            } catch (err) {
+              setOverrideError(errorMessage(err));
+            } finally {
+              setOverrideSubmitting(false);
+            }
           },
         }}
-        secondaryActions={[{ content: "Cancel", onAction: () => { setOverrideModalOpen(false); setPendingOverrideId(null); setOverrideText(""); } }]}
+        secondaryActions={[{ content: "Cancel", disabled: overrideSubmitting, onAction: () => { setOverrideModalOpen(false); setPendingOverrideId(null); setOverrideText(""); setOverrideError(null); } }]}
       >
         <Modal.Section>
-          <TextField
-            label="Override reason"
-            value={overrideText}
-            onChange={setOverrideText}
-            autoComplete="off"
-            multiline={3}
-            helpText="Explain why you are overriding the guardrail hard block"
-          />
+          <BlockStack gap="300">
+            {overrideError && (
+              <Banner tone="critical" onDismiss={() => setOverrideError(null)}>
+                <Text as="p">{overrideError}</Text>
+              </Banner>
+            )}
+            <TextField
+              label="Override reason"
+              value={overrideText}
+              onChange={setOverrideText}
+              autoComplete="off"
+              multiline={3}
+              helpText="Explain why you are overriding the guardrail hard block"
+            />
+          </BlockStack>
         </Modal.Section>
       </Modal>
+
+      {toast && (
+        <Toast
+          content={toast.message}
+          duration={8000}
+          onDismiss={() => setToast(null)}
+          action={toast.undoId ? {
+            content: undoing ? "Undoing…" : "Undo",
+            onAction: () => { if (!undoing && toast.undoId) undoReview(toast.undoId); },
+          } : undefined}
+        />
+      )}
     </Page>
   );
 }
