@@ -227,6 +227,73 @@ function buildKeywordMap(
   return result;
 }
 
+const MAX_COMPETITOR_SEEDS_TOTAL = 6;
+const MAX_TESTS_PER_COMPETITOR = 2;
+
+// Builds "counter-angle" ContentProposal seeds from the latest competitor-analysis
+// SkillInsight. Runs inside generateProposals (not a standalone producer) because the
+// daily cron wipes all pending proposals and regenerates from this function nightly —
+// a standalone producer's rows would be lost within 24h.
+function competitorFindings(insight: { id: string; items: unknown } | null): ProposalInput[] {
+  if (!insight) return [];
+  const items = Array.isArray(insight.items) ? insight.items : [];
+  const proposals: ProposalInput[] = [];
+
+  for (const raw of items) {
+    if (proposals.length >= MAX_COMPETITOR_SEEDS_TOTAL) break;
+    if (raw === null || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+
+    const competitor = typeof item.competitor === "string" && item.competitor ? item.competitor : null;
+    if (!competitor) continue;
+
+    const gaps = Array.isArray(item.gaps)
+      ? item.gaps.filter((g): g is string => typeof g === "string" && g.length > 0)
+      : [];
+    const recommendedTests = Array.isArray(item.recommendedTests)
+      ? item.recommendedTests.filter((t): t is string => typeof t === "string" && t.length > 0)
+      : [];
+
+    for (const test of recommendedTests.slice(0, MAX_TESTS_PER_COMPETITOR)) {
+      if (proposals.length >= MAX_COMPETITOR_SEEDS_TOTAL) break;
+
+      const finding: ContentFinding = {
+        type: "new-content-gap",
+        trafficScore: 20,
+        businessValue: 20,
+        severity: "medium",
+        confidence: 0.75,
+        risk: "low",
+        changeType: "new_article",
+        title: `Counter-angle: ${test}`.slice(0, 240),
+        description:
+          `Competitor ${competitor} is testing this angle` +
+          (gaps.length > 0 ? ` while leaving gaps: ${gaps.join("; ")}.` : ".") +
+          ` Ship a counter-angle article before they own the search intent.`,
+        evidence: { insightId: insight.id, competitor, gaps },
+        proposedState: { targetKeyword: test, angle: test, competitor },
+      };
+
+      const score = scoreFinding(finding);
+      proposals.push({
+        articleHandle: null,
+        proposalType: "new-content",
+        changeType: "new_article",
+        priority: "medium",
+        impact: findingToImpact(score),
+        effort: changeTypeToEffort(finding.changeType),
+        title: finding.title,
+        description: finding.description,
+        proposedState: finding.proposedState,
+        sourceData: finding.evidence,
+        priorityScore: score,
+      });
+    }
+  }
+
+  return proposals;
+}
+
 function articleHandleFromPage(page: string): string {
   return page.split(/[?#]/)[0]?.split("/").filter(Boolean).pop() ?? "";
 }
@@ -265,7 +332,7 @@ function buildQueryLandingMap(
 }
 
 export async function generateProposals(prismaClient: PrismaClient): Promise<ProposalInput[]> {
-  const [articles, latestGscWindow, gscSnap, gscQueryPageSnap] = await Promise.all([
+  const [articles, latestGscWindow, gscSnap, gscQueryPageSnap, competitorInsight] = await Promise.all([
     prismaClient.articleRecord.findMany({
       select: {
         handle: true,
@@ -283,6 +350,10 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
     getLatestGscWindow(prismaClient),
     prismaClient.rawSnapshot.findFirst({ where: { source: "gsc" }, orderBy: { fetchedAt: "desc" } }),
     prismaClient.rawSnapshot.findFirst({ where: { source: "gsc_query_page" }, orderBy: { fetchedAt: "desc" } }),
+    prismaClient.skillInsight.findFirst({
+      where: { insightType: "competitor-analysis" },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
 
   // GSC connector stores position as a string (e.g. "11.4") — normalise to number here.
@@ -318,7 +389,9 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
   const articlesByHandle = new Map(articles.map((article) => [article.handle, article]));
   const queryLandingMap = buildQueryLandingMap(queryPagePairs, new Set(articlesByHandle.keys()));
 
-  if (articles.length === 0 && gscQueries.length === 0) return [];
+  const competitorProposals = competitorFindings(competitorInsight);
+
+  if (articles.length === 0 && gscQueries.length === 0 && competitorProposals.length === 0) return [];
 
   const findings: ContentFinding[] = [];
   const now = Date.now();
@@ -491,13 +564,14 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
     });
   }
 
-  const scored = findings
-    .map((f) => ({ finding: f, proposal: toProposal(f) }))
-    .sort((a, b) => b.proposal.priorityScore - a.proposal.priorityScore);
+  const scored = [
+    ...findings.map((f) => toProposal(f)),
+    ...competitorProposals,
+  ].sort((a, b) => b.priorityScore - a.priorityScore);
 
   const seen = new Set<string>();
   const deduped: ProposalInput[] = [];
-  for (const { proposal } of scored) {
+  for (const proposal of scored) {
     // For handle-less proposals (e.g. new-content gaps) the articleHandle is null,
     // so keying on handle+type alone collapses every gap into one bucket. Add a
     // discriminator (target keyword / title) so distinct gaps survive dedup.

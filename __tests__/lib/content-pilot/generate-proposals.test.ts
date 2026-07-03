@@ -5,6 +5,7 @@ const mockPrisma = {
   articleRecord: { findMany: vi.fn() },
   rawSnapshot: { findFirst: vi.fn() },
   gscQuery: { findFirst: vi.fn(), findMany: vi.fn() },
+  skillInsight: { findFirst: vi.fn() },
 };
 
 beforeEach(() => {
@@ -14,6 +15,7 @@ beforeEach(() => {
   mockPrisma.rawSnapshot.findFirst.mockResolvedValue(null);
   mockPrisma.gscQuery.findFirst.mockResolvedValue(null);
   mockPrisma.gscQuery.findMany.mockResolvedValue([]);
+  mockPrisma.skillInsight.findFirst.mockResolvedValue(null);
 });
 
 describe("generateProposals", () => {
@@ -222,5 +224,57 @@ describe("generateProposals", () => {
     });
     expect(result.some((p) => p.title.includes("stale raw keyword"))).toBe(false);
     expect(result.some((p) => p.articleHandle == null && p.proposalType === "content-refresh")).toBe(false);
+  });
+
+  it("seeds counter-angle new-content proposals from the latest competitor-analysis insight", async () => {
+    mockPrisma.skillInsight.findFirst.mockResolvedValue({
+      id: "insight-1",
+      items: [
+        {
+          competitor: "RiceCo",
+          activeAdCount: 4,
+          dominantFormat: "video",
+          messagingThemes: ["health"],
+          primaryCta: "Shop Now",
+          recentLaunches7d: 2,
+          gaps: ["no diabetic-friendly messaging"],
+          recommendedTests: ["Diabetic-friendly black rice angle", "Athlete recovery angle"],
+        },
+      ],
+    });
+
+    const result = await generateProposals(mockPrisma as any);
+    const competitorProposals = result.filter((p) => p.title.startsWith("Counter-angle:"));
+
+    expect(competitorProposals).toHaveLength(2);
+    for (const p of competitorProposals) {
+      expect(p.proposalType).toBe("new-content");
+      expect(p.changeType).toBe("new_article");
+      expect(p.articleHandle).toBeNull();
+      expect(p.proposedState.competitor).toBe("RiceCo");
+      expect(p.description).toContain("RiceCo");
+    }
+    const targetKeywords = competitorProposals.map((p) => p.proposedState.targetKeyword);
+    expect(new Set(targetKeywords).size).toBe(2);
+  });
+
+  it("produces zero competitor proposals when no competitor-analysis insight exists, without affecting other findings", async () => {
+    mockPrisma.skillInsight.findFirst.mockResolvedValue(null);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      {
+        handle: "no-meta",
+        title: "No Meta Article",
+        publishedAt: new Date("2025-03-01"),
+        wordCount: 1000,
+        inboundCount: 2,
+        internalLinkCount: 3,
+        seoData: { score: 65, issues: ["missing-meta-description"] },
+        topicsData: [],
+      },
+    ]);
+
+    const result = await generateProposals(mockPrisma as any);
+    expect(result.some((p) => p.title.startsWith("Counter-angle:"))).toBe(false);
+    expect(result.some((p) => p.proposalType === "seo-fix")).toBe(true);
   });
 });
