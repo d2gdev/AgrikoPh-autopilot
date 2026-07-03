@@ -122,7 +122,7 @@ export async function POST(
       data: {
         entityType: "ContentProposal",
         entityId: id,
-        action: "published",
+        action: fresh.proposalType === "seo-fix" ? "seo_meta_applied" : "published",
         actor,
         before: { draftStatus: "ready" },
         after: { draftStatus: "published", shopifyId, handle },
