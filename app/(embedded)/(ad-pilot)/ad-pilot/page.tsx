@@ -1,9 +1,9 @@
 "use client";
 
 import {
-  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, DataTable, Button,
+  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, DataTable, Button, Banner,
 } from "@shopify/polaris";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
@@ -35,19 +35,25 @@ export default function AdPilotReportPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => getCache<Campaign[]>("/api/campaigns") ?? []);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(() => getCache<JobStatus>("/api/jobs/status"));
   const [loading, setLoading] = useState(() => !getCache("/api/campaigns") || !getCache("/api/jobs/status"));
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
     Promise.all([
-      authFetch("/api/campaigns").then((r) => r.json()),
-      authFetch("/api/jobs/status").then((r) => r.json()),
+      authFetch("/api/campaigns").then((r) => { if (!r.ok) throw new Error(`Campaigns failed (${r.status})`); return r.json(); }),
+      authFetch("/api/jobs/status").then((r) => { if (!r.ok) throw new Error(`Job status failed (${r.status})`); return r.json(); }),
     ]).then(([camData, jData]) => {
       setCache("/api/campaigns", camData.campaigns ?? []);
       setCache("/api/jobs/status", jData);
       setCampaigns(camData.campaigns ?? []);
       setJobStatus(jData);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch((err: Error) => {
+      setLoadError(err.message || "Failed to load Ad Pilot data");
+    }).finally(() => setLoading(false));
   }, [authFetch]); // authFetch from useCallback in hook — stable reference
+
+  useEffect(() => { load(); }, [load]);
 
   const active = campaigns.filter((c) => c.status === "ACTIVE").length;
   const totalPendingRecs = campaigns.reduce((s, c) => s + c.pendingRecs, 0);
@@ -78,6 +84,19 @@ export default function AdPilotReportPage() {
       ]}
     >
       <Layout>
+        {loadError && (
+          <Layout.Section>
+            <Banner
+              tone="critical"
+              title="Failed to load Ad Pilot data"
+              action={{ content: "Retry", onAction: load }}
+              onDismiss={() => setLoadError(null)}
+            >
+              <Text as="p">{loadError}</Text>
+            </Banner>
+          </Layout.Section>
+        )}
+
         <Layout.Section>
           <InlineStack gap="400" wrap={false}>
             <Card>
