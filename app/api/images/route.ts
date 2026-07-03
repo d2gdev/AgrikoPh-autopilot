@@ -3,8 +3,9 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { fetchProductImages } from "@/lib/shopify-admin";
+import { fetchProductImages, updateProductMediaAlt } from "@/lib/shopify-admin";
 import { getSessionShop, getSessionUser, requireAppAuth } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
 
@@ -122,5 +123,50 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ altText: validated.data, imageId, productId });
   } catch (err) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+const ApplyAltTextInput = z.object({
+  imageId: z.string().startsWith("gid://shopify/").max(100),
+  productId: z.string().startsWith("gid://shopify/Product/").max(100),
+  altText: z.string().trim().min(1).max(125),
+});
+
+// Operator-initiated Shopify write (like Content Pilot publish) — the Apply click
+// is the approval. Not gated on EXECUTE_APPROVED_LIVE_ENABLED, but always audit-logged.
+export async function PATCH(req: NextRequest) {
+  const authError = await requireAppAuth(req);
+  if (authError) return authError;
+
+  const actor = await getSessionShop(req) ?? await getSessionUser(req) ?? "embedded-app";
+  if (!checkRateLimit(`alttext-apply:${actor}`, 30, 60_000)) {
+    return NextResponse.json({ error: "Rate limit exceeded — max 30 alt-text applies per minute" }, { status: 429 });
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const parsed = ApplyAltTextInput.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
+  }
+  const { imageId, productId, altText } = parsed.data;
+
+  try {
+    const media = await updateProductMediaAlt(productId, imageId, altText);
+    imagesCache = null; // the stored payload predates this write
+
+    await prisma.auditLog.create({
+      data: {
+        actor,
+        action: "image_alt_text_applied",
+        entityType: "product_image",
+        entityId: imageId,
+        after: { productId, altText },
+      },
+    }).catch((err) => console.error("[images] apply audit failed:", err));
+
+    return NextResponse.json({ ok: true, imageId, altText: media.alt ?? altText });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Shopify update failed";
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

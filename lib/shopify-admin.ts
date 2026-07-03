@@ -83,9 +83,9 @@ type ProductImagesResponse = {
       node: {
         id: string;
         title: string;
-        images: {
+        media: {
           edges: Array<{
-            node: { id: string; url: string; altText: string | null };
+            node: { id?: string; alt?: string | null; image?: { url: string } | null };
           }>;
         };
       };
@@ -93,9 +93,11 @@ type ProductImagesResponse = {
   };
 };
 
+// Queries `media` rather than the deprecated `images` connection so imageId is a
+// MediaImage GID — the only ID type productUpdateMedia/fileUpdate accept for alt-text writes.
 export async function fetchProductImages(): Promise<ProductImage[]> {
   const query = `
-    query ProductImages($after: String) {
+    query ProductMediaImages($after: String) {
       products(first: 100, after: $after) {
         pageInfo {
           hasNextPage
@@ -105,12 +107,16 @@ export async function fetchProductImages(): Promise<ProductImage[]> {
           node {
             id
             title
-            images(first: 250) {
+            media(first: 250) {
               edges {
                 node {
-                  id
-                  url
-                  altText
+                  ... on MediaImage {
+                    id
+                    alt
+                    image {
+                      url
+                    }
+                  }
                 }
               }
             }
@@ -128,13 +134,16 @@ export async function fetchProductImages(): Promise<ProductImage[]> {
     const data: ProductImagesResponse = await shopifyFetch<ProductImagesResponse>(query, { after });
 
     for (const { node: product } of data.products.edges) {
-      for (const { node: image } of product.images.edges) {
+      for (const { node: media } of product.media.edges) {
+        // Non-image media surface as empty objects from the inline fragment;
+        // images still processing have no url yet — skip both.
+        if (!media.id || !media.image?.url) continue;
         images.push({
-          imageId: image.id,
+          imageId: media.id,
           productId: product.id,
           productTitle: product.title,
-          imageUrl: image.url,
-          altText: image.altText ?? null,
+          imageUrl: media.image.url,
+          altText: media.alt?.trim() ? media.alt : null,
         });
       }
     }
@@ -146,6 +155,39 @@ export async function fetchProductImages(): Promise<ProductImage[]> {
   } while (after);
 
   return images;
+}
+
+export async function updateProductMediaAlt(
+  productId: string,
+  mediaId: string,
+  alt: string
+): Promise<{ id: string; alt: string | null }> {
+  const mutation = `
+    mutation UpdateImageAlt($productId: ID!, $media: [UpdateMediaInput!]!) {
+      productUpdateMedia(productId: $productId, media: $media) {
+        media {
+          id
+          alt
+        }
+        mediaUserErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+  const data = await shopifyFetch<{
+    productUpdateMedia: {
+      media: Array<{ id: string; alt: string | null }> | null;
+      mediaUserErrors: Array<{ field: string[] | null; message: string }>;
+    };
+  }>(mutation, { productId, media: [{ id: mediaId, alt }] });
+
+  const errors = data.productUpdateMedia.mediaUserErrors;
+  if (errors?.length) throw new Error(errors[0]!.message);
+  const media = data.productUpdateMedia.media?.[0];
+  if (!media) throw new Error("Shopify returned no media in productUpdateMedia response");
+  return media;
 }
 
 export interface CatalogProductVariant {
