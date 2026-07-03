@@ -86,21 +86,36 @@ export default function AdApprovalsPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [unread, setUnread] = useState<Array<{ id: string; title: string; body: string; severity: string }>>([]);
+  const [truncatedTotal, setTruncatedTotal] = useState<number | null>(null);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
+    const PAGE_LIMIT = 100;
+    const MAX_RECORDS = 1000;
     setLoading(true);
     setLoadError(null);
-    authFetch(`/api/ad-approvals?limit=100`)
-      .then(async (r) => {
+    setTruncatedTotal(null);
+    try {
+      const all: Approval[] = [];
+      let total = 0;
+      let actorId = "";
+      let offset = 0;
+      do {
+        const r = await authFetch(`/api/ad-approvals?limit=${PAGE_LIMIT}&offset=${offset}`);
         if (!r.ok) throw new Error(await responseError(r, "Failed to load approvals"));
-        return r.json();
-      })
-      .then((d) => {
-        setApprovals(d.approvals ?? []);
-        setActor(d.actor ?? "");
-      })
-      .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setLoading(false));
+        const d = await r.json();
+        all.push(...(d.approvals ?? []));
+        total = d.total ?? all.length;
+        actorId = d.actor ?? "";
+        offset += PAGE_LIMIT;
+      } while (all.length < total && offset < MAX_RECORDS);
+      setApprovals(all);
+      setActor(actorId);
+      if (all.length < total) setTruncatedTotal(total);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
   }, [authFetch]);
 
   useEffect(() => { load(); }, [load]);
@@ -176,6 +191,13 @@ export default function AdApprovalsPage() {
       <Layout>
         <Layout.Section>
           {loadError && <Banner tone="critical">{loadError}</Banner>}
+          {truncatedTotal !== null && (
+            <Banner tone="warning" title="List truncated">
+              <Text as="p">
+                Showing the {approvals.length} most recently updated of {truncatedTotal} approvals — older items are not listed in any tab.
+              </Text>
+            </Banner>
+          )}
           {unread.length > 0 && (
             <Banner
               tone={unread.some((n) => n.severity === "critical") ? "critical" : "info"}
