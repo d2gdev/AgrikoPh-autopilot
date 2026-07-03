@@ -9,7 +9,7 @@ const VALID_STATUSES = new Set([
   "executing", "executed", "failed",
 ]);
 
-const VALID_PLATFORMS = new Set(["meta", "google_ads"]);
+const VALID_PLATFORMS = new Set(["meta"]);
 
 export async function GET(req: NextRequest) {
   const authError = await requireAppAuth(req);

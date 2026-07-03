@@ -172,9 +172,7 @@ export default function RecommendationsPage() {
   }
 
   function platformBadge(p: string) {
-    if (p === "google_ads") return <Badge tone="info">Google</Badge>;
-    if (p === "meta")       return <Badge>Meta</Badge>;
-    return <Badge>Both</Badge>;
+    return <Badge>{p === "meta" ? "Meta" : "Both"}</Badge>;
   }
 
   function statusBadge(s: string) {
@@ -222,7 +220,6 @@ export default function RecommendationsPage() {
                 options={[
                   { label: "All platforms", value: "all" },
                   { label: "Meta", value: "meta" },
-                  { label: "Google Ads", value: "google_ads" },
                 ]}
                 value={platform}
                 onChange={setPlatform}
