@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-03T11:40:00Z
+last_updated: 2026-07-04T00:00:00Z
 ---
 
 # Session Bootstrap
@@ -30,10 +30,11 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **Google Ads removed entirely (2026-07-04, user directive — Meta only, permanently)**: `lib/connectors/google-ads.ts` (ad execution — already inert, `SUPPORTED_ACTIONS.google_ads` was `[]` — plus the actively-configured Keyword Planner integration) is deleted. `jobs/fetch-keyword-research.ts` now sources monthly search volume from DataForSEO (`source: "dataforseo"` on `KeywordResearchResult`, migration `20260704000000_keyword_research_default_dataforseo`) instead of Google Ads Keyword Planner. **Real capability lost, not silently**: competition/competition-index/bid-range fields and long-tail keyword-idea discovery + auto-promotion into the active `MarketKeyword` seed list have no DataForSEO equivalent — documented in code comments, `docs/MARKET_INTELLIGENCE.md`, and here. Market Intelligence's keyword bid/competition columns show blank for new captures going forward (historical rows untouched). 10 permanently-inert/duplicate Google-Ads-only skill prompts deleted from `skills-source/`; 4 organic-SEO skills mislabeled `platform: Google` relabeled `platform: seo` (skill 46 also got a body rewrite — it assumed a live paid-Google-Ads-keyword list that never existed for a skill that was never dispatched). Recommendations platform filter/API/badge is Meta-only. `skills/loader.ts`'s `SkillDefinition.platform` union no longer includes `google_ads`; any skill frontmatter still declaring a Google platform degrades to `seo` with a console warning rather than a dead platform value. `scripts/google-ads-oauth.mjs` deleted (its connector is gone); `docs/CRON.md`/`DEVELOPMENT.md`/`DEPLOYMENT.md`/`OPERATIONS.md`/`MARKET_INTELLIGENCE.md`/`.env.example` updated to match. `GOOGLE_ADS_*` vars remain in prod `.env` (harmless, nothing reads them) — safe for the operator to remove independently. Full plan: `docs/superpowers/plans/2026-07-03-phase0-google-ads-removal.md`.
 - Full daily cron pipeline: fetch-ads-data, fetch-seo-data, fetch-blog-content → run-skills → recommendations
 - Operator review UI in Shopify admin (approve/reject/override recommendations)
 - execute-approved cron (live execution active in prod via `EXECUTE_APPROVED_LIVE_ENABLED=true`)
-- Market intelligence: competitor ads, shopping price history, keyword research
+- Market intelligence: competitor ads, shopping price history, keyword research (DataForSEO volume-only)
 - Content Pilot: proposal generation → draft generation → publish to Shopify blog
 - ROAS health badges and inline recommendation approval on campaigns page
 - Audit quick wins (2026-07-03, items 14–15) + **prod deploy of the full audit batch (Tiers 1–4 + quick wins) via linode-deploy, health check clean**: Odysseus iframe now requires `NEXT_PUBLIC_ODYSSEUS_URL` (no hardcoded fallback URL; unconfigured builds show a banner; loading spinner + open-in-tab fallback; var documented in `.env.example`, set in local `.env` used for prod builds). Content-pilot draft editor: `buildDraftContent()` merges edited fields over the original `draftContent` (previously dropped AI-provided fields outside the form whitelist on every save), Cancel has a discard-confirmation when dirty, saves show a "Draft saved" toast.
