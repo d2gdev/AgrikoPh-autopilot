@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import pLimit from "p-limit";
 import { prisma } from "@/lib/db";
+import { sendOperatorAlert } from "@/lib/alerts";
 import { checkGuardrails } from "@/lib/guardrails";
 import { isSupportedAction } from "@/lib/executor";
 import { loadAllSkillsSync } from "@/lib/skills/loader";
@@ -297,6 +298,14 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
       errorLog: errors.length > 0 ? errors.join("\n").slice(0, 10_000) : null,
     },
   });
+
+  if (totalRecs > 0) {
+    await sendOperatorAlert("new_recommendations", {
+      count: totalRecs,
+      runId,
+      skillsRun: summary.skillsRun,
+    });
+  }
 
   return { newRecs: totalRecs, jobName: "run-skills", runId, status, summary, errors };
 }
