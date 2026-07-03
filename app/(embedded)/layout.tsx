@@ -1,16 +1,19 @@
 "use client";
 
 import { Providers } from "@/app/providers";
-import { Frame, Navigation } from "@shopify/polaris";
+import { Frame, Navigation, TopBar } from "@shopify/polaris";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { AppBridgeAuthGate } from "@/components/app-bridge-auth-gate";
 import { withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { EMBEDDED_NAVIGATION_SECTIONS, matchesNavigationItem } from "@/lib/navigation";
 import { usePathname } from "next/navigation";
+import { useCallback, useState } from "react";
 
 export default function EmbeddedLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const navUrl = (href: string) => withShopifyContextUrl(href);
+  const [mobileNavActive, setMobileNavActive] = useState(false);
+  const toggleMobileNav = useCallback(() => setMobileNavActive((v) => !v), []);
 
   const nav = (
     <Navigation location={pathname}>
@@ -31,7 +34,12 @@ export default function EmbeddedLayout({ children }: { children: React.ReactNode
 
   return (
     <Providers>
-      <Frame navigation={nav}>
+      <Frame
+        navigation={nav}
+        topBar={<TopBar showNavigationToggle onNavigationToggle={toggleMobileNav} />}
+        showMobileNavigation={mobileNavActive}
+        onNavigationDismiss={toggleMobileNav}
+      >
         <ErrorBoundary>
           <AppBridgeAuthGate>{children}</AppBridgeAuthGate>
         </ErrorBoundary>

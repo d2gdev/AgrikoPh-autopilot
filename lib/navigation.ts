@@ -31,8 +31,7 @@ export const EMBEDDED_NAVIGATION_SECTIONS: EmbeddedNavigationSection[] = [
     title: "SEO Pilot",
     separator: true,
     items: [
-      { label: "SEO", href: "/seo", match: "prefix", appBridge: true },
-      { label: "Report", href: "/seo-pillar", match: "exact" },
+      { label: "SEO", href: "/seo-pillar", match: "prefix", appBridge: true },
     ],
   },
   {
@@ -47,21 +46,21 @@ export const EMBEDDED_NAVIGATION_SECTIONS: EmbeddedNavigationSection[] = [
     title: "Content Pilot",
     separator: true,
     items: [
-      { label: "Content", href: "/content-pilot", match: "prefix" },
+      { label: "Content", href: "/content-pilot", match: "prefix", appBridge: true },
     ],
   },
   {
     title: "Social Pilot",
     separator: true,
     items: [
-      { label: "Social", href: "/social-pilot", match: "prefix" },
+      { label: "Social", href: "/social-pilot", match: "prefix", appBridge: true },
     ],
   },
   {
     title: "Market Intelligence",
     separator: true,
     items: [
-      { label: "Competitors", href: "/market-intelligence", match: "prefix" },
+      { label: "Competitors", href: "/market-intelligence", match: "prefix", appBridge: true },
     ],
   },
   {
@@ -69,7 +68,7 @@ export const EMBEDDED_NAVIGATION_SECTIONS: EmbeddedNavigationSection[] = [
     separator: true,
     items: [
       { label: "Growth Brief", href: "/growth-brief", match: "prefix" },
-      { label: "Unified Report", href: "/insights", match: "prefix" },
+      { label: "Unified Report", href: "/insights", match: "prefix", appBridge: true },
     ],
   },
   {
@@ -89,7 +88,6 @@ export const EMBEDDED_NAVIGATION_SECTIONS: EmbeddedNavigationSection[] = [
 
 export function matchesNavigationItem(pathname: string, item: EmbeddedNavigationItem): boolean {
   if (item.match === "exact") return pathname === item.href;
-  if (item.href === "/seo") return pathname.startsWith("/seo") && pathname !== "/seo-pillar";
   if (item.href === "/images") return pathname.startsWith("/images") && pathname !== "/store-pilot";
   return pathname.startsWith(item.href);
 }

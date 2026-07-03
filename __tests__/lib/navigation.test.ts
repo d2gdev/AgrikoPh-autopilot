@@ -15,18 +15,25 @@ describe("embedded navigation config", () => {
       "/campaigns",
       "/recommendations",
       "/ad-approvals",
-      "/seo",
+      "/seo-pillar",
+      "/content-pilot",
+      "/social-pilot",
+      "/market-intelligence",
+      "/insights",
       "/settings",
     ]);
   });
 
+  it("routes the SEO nav entry to the pillar dashboard (/seo is a redirect)", () => {
+    const allItems = EMBEDDED_NAVIGATION_SECTIONS.flatMap((section) => section.items);
+    expect(allItems.map((item) => item.href)).not.toContain("/seo");
+    const seo = { label: "SEO", href: "/seo-pillar", match: "prefix" as const };
+    expect(matchesNavigationItem("/seo-pillar", seo)).toBe(true);
+  });
+
   it("preserves special active matching rules", () => {
-    const seo = { label: "SEO", href: "/seo", match: "prefix" as const };
     const images = { label: "Images", href: "/images", match: "prefix" as const };
 
-    expect(matchesNavigationItem("/seo", seo)).toBe(true);
-    expect(matchesNavigationItem("/seo/queries", seo)).toBe(true);
-    expect(matchesNavigationItem("/seo-pillar", seo)).toBe(false);
     expect(matchesNavigationItem("/images", images)).toBe(true);
     expect(matchesNavigationItem("/store-pilot", images)).toBe(false);
   });
