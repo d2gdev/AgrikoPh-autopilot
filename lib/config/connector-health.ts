@@ -96,30 +96,6 @@ const DEFINITIONS: ConnectorDefinition[] = [
     jobName: "fetch-market-intel",
   },
   {
-    id: "google_ads_keyword_research",
-    label: "Keyword Planner Research",
-    requirements: [
-      { label: "Developer token", keys: ["GOOGLE_ADS_DEVELOPER_TOKEN"], mode: "all" },
-      { label: "Customer ID", keys: ["GOOGLE_ADS_CUSTOMER_ID"], mode: "all" },
-      {
-        label: "Service account or OAuth credentials",
-        keys: [
-          "GA_SERVICE_ACCOUNT_JSON_PATH",
-          "GA_SERVICE_ACCOUNT_JSON",
-          "GOOGLE_ADS_OAUTH_CLIENT_JSON_PATH",
-          "GOOGLE_ADS_CLIENT_SECRET_JSON_PATH",
-          "GOOGLE_ADS_REFRESH_TOKEN",
-          "GOOGLE_ADS_OAUTH_REFRESH_TOKEN",
-          "GA_ADS_REFRESH_TOKEN",
-        ],
-        mode: "any",
-      },
-    ],
-    optionalKeys: ["GOOGLE_ADS_LOGIN_CUSTOMER_ID", "GOOGLE_ADS_KEYWORD_GEO_TARGET_ID", "GOOGLE_ADS_KEYWORD_LANGUAGE_ID"],
-    notes: ["Uses Google's Keyword Planner API for SEO research; paid Google Ads campaign snapshots remain disabled unless explicitly enabled."],
-    jobName: "fetch-keyword-research",
-  },
-  {
     id: "ga4",
     label: "GA4",
     requirements: [

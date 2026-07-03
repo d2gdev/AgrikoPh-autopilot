@@ -2,13 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // executor.ts uses dynamic imports, so we use vi.doMock before importing the module.
 // vi.mock hoisting won't intercept dynamic import() calls — vi.doMock runs at call time.
-const mockExecuteGoogleAdsAction = vi.fn().mockResolvedValue({ success: true });
 const mockExecuteMetaAction = vi.fn().mockResolvedValue({ success: true });
-
-vi.doMock("@/lib/connectors/google-ads", () => ({
-  executeGoogleAdsAction: mockExecuteGoogleAdsAction,
-  fetchGoogleAdsData: vi.fn().mockResolvedValue({}),
-}));
 
 vi.doMock("@/lib/connectors/meta", () => ({
   executeMetaAction: mockExecuteMetaAction,
@@ -50,7 +44,6 @@ const baseRec = {
 describe("executeRecommendation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExecuteGoogleAdsAction.mockResolvedValue({ success: true });
     mockExecuteMetaAction.mockResolvedValue({ success: true });
   });
 
@@ -58,14 +51,6 @@ describe("executeRecommendation", () => {
     const rec = { ...baseRec, platform: "meta" as const };
     await executeRecommendation(rec as any);
     expect(mockExecuteMetaAction).toHaveBeenCalledWith(rec);
-    expect(mockExecuteGoogleAdsAction).not.toHaveBeenCalled();
-  });
-
-  it("routes google_ads platform to executeGoogleAdsAction", async () => {
-    const rec = { ...baseRec, platform: "google_ads" as const };
-    await executeRecommendation(rec as any);
-    expect(mockExecuteGoogleAdsAction).toHaveBeenCalledWith(rec);
-    expect(mockExecuteMetaAction).not.toHaveBeenCalled();
   });
 
   it("throws on unknown platform", async () => {
@@ -73,15 +58,14 @@ describe("executeRecommendation", () => {
     await expect(executeRecommendation(rec as any)).rejects.toThrow(/unknown_platform/i);
   });
 
+  it("throws on google_ads — not a recognized platform", async () => {
+    const rec = { ...baseRec, platform: "google_ads" as const };
+    await expect(executeRecommendation(rec as any)).rejects.toThrow(/google_ads/i);
+  });
+
   it("returns the result from the meta connector", async () => {
     mockExecuteMetaAction.mockResolvedValueOnce({ paused: true, campaignId: "camp-1" });
     const result = await executeRecommendation({ ...baseRec, platform: "meta" } as any);
     expect(result).toEqual({ paused: true, campaignId: "camp-1" });
-  });
-
-  it("returns the result from the google_ads connector", async () => {
-    mockExecuteGoogleAdsAction.mockResolvedValueOnce({ updated: true, adGroupId: "ag-42" });
-    const result = await executeRecommendation({ ...baseRec, platform: "google_ads" } as any);
-    expect(result).toEqual({ updated: true, adGroupId: "ag-42" });
   });
 });

@@ -10,15 +10,6 @@ export function deriveGuardrailInputsFromPayload(
   rec: Pick<GuardrailRecommendation, "platform" | "targetEntityId">,
   payload: Record<string, unknown>
 ): { conversionCount: number | null; dailyBudgetPhp: number } {
-  if (rec.platform === "google_ads") {
-    const campaigns = (payload.campaigns as Array<Record<string, unknown>>) ?? [];
-    const adGroups = (payload.adGroups as Array<Record<string, unknown>>) ?? [];
-    const entity = [...campaigns, ...adGroups].find((e) => e.id === rec.targetEntityId);
-    const dailyBudgetPhp = Number(entity?.spend ?? 0);
-    const conversions = entity?.conversions != null ? Number(entity.conversions) : null;
-    return { conversionCount: conversions !== null ? Math.round(conversions) : null, dailyBudgetPhp };
-  }
-
   let dailyBudgetPhp = 0;
   const campaigns = (payload.campaigns as Array<Record<string, unknown>>) ?? [];
   const adSets = (payload.adSets as Array<Record<string, unknown>>) ?? [];
