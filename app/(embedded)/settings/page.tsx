@@ -63,12 +63,16 @@ export default function SettingsPage() {
   const [credSuccess, setCredSuccess] = useState<string | null>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [keyToDelete, setKeyToDelete] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadGuardrails = useCallback(() => {
     authFetch("/api/settings")
-      .then((r) => r.json())
-      .then((d) => { setGuardrails(d.guardrails ?? []); setGuardrailsLoaded(true); });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      .then((r) => { if (!r.ok) throw new Error(`Settings failed to load (${r.status})`); return r.json(); })
+      .then((d) => { setGuardrails(d.guardrails ?? []); setGuardrailsLoaded(true); })
+      .catch((err: Error) => setLoadError(err.message || "Settings failed to load"));
+  }, [authFetch]);
+
+  useEffect(() => { loadGuardrails(); }, [loadGuardrails]);
 
   function updateValue(key: string, value: string) {
     setGuardrails((prev) =>
@@ -100,17 +104,17 @@ export default function SettingsPage() {
 
   const loadCredentials = useCallback(() => {
     authFetch("/api/settings/credentials")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then((d) => setCredentials(d.credentials ?? []))
-      .catch(() => {});
+      .catch(() => setLoadError("Credentials failed to load"));
   }, [authFetch]);
 
   const loadConnectorHealth = useCallback((forceRefresh = false) => {
     setConnectorHealthLoaded(false);
     authFetch(forceRefresh ? "/api/settings/connector-health?refresh=1" : "/api/settings/connector-health")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then((d) => setConnectorHealth(d.connectors ?? []))
-      .catch(() => {})
+      .catch(() => setLoadError("Connector health failed to load"))
       .finally(() => setConnectorHealthLoaded(true));
   }, [authFetch]);
 
@@ -190,6 +194,18 @@ export default function SettingsPage() {
         {saveError && (
           <Layout.Section>
             <Banner tone="critical" onDismiss={() => setSaveError(null)}>{saveError}</Banner>
+          </Layout.Section>
+        )}
+        {loadError && (
+          <Layout.Section>
+            <Banner
+              tone="critical"
+              title="Failed to load settings"
+              action={{ content: "Retry", onAction: () => { setLoadError(null); loadGuardrails(); loadCredentials(); loadConnectorHealth(true); } }}
+              onDismiss={() => setLoadError(null)}
+            >
+              <Text as="p">{loadError} — the Save button stays disabled until settings load.</Text>
+            </Banner>
           </Layout.Section>
         )}
 
