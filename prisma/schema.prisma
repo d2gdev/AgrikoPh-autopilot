@@ -9,7 +9,7 @@ generator client {
 
 model RawSnapshot {
   id             String          @id @default(cuid())
-  source         String          // "google_ads" | "meta" | "ga4" | "gsc" | "blog"
+  source         String          // "meta" | "ga4" | "gsc" | "blog"
   fetchedAt      DateTime        @default(now())
   dateRangeStart DateTime
   dateRangeEnd   DateTime
@@ -25,7 +25,7 @@ model Recommendation {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  platform         String    // "google_ads" | "meta" | "both"
+  platform         String    // "meta" | "both"
   skillId          String
   skillName        String
 
@@ -471,7 +471,7 @@ model KeywordResearchResult {
   marketKeyword              MarketKeyword? @relation(fields: [marketKeywordId], references: [id], onDelete: SetNull)
   seedKeyword                String
   keyword                    String
-  source                     String        @default("google_ads")
+  source                     String        @default("dataforseo")
   locationName               String?
   languageCode               String?
   avgMonthlySearches         Int?

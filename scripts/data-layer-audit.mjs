@@ -46,7 +46,7 @@ const STREAMS = [
   { model: "competitorAdCapture",   ts: "capturedAt", job: "fetch-market-intel",        staleDays: 8,  label: "Competitor Ad Captures" },
   { model: "shoppingResult",        ts: "capturedAt", job: "fetch-market-intel",        staleDays: 2,  label: "Shopping Results" },
   { model: "shoppingPriceHistory",  ts: "capturedAt", job: "fetch-market-intel",        staleDays: 2,  label: "Price History" },
-  { model: "keywordResearchResult", ts: "capturedAt", job: "fetch-keyword-research",    staleDays: 8,  label: "Keyword Planner Research" },
+  { model: "keywordResearchResult", ts: "capturedAt", job: "fetch-keyword-research",    staleDays: 8,  label: "Keyword Research (DataForSEO)" },
   { model: "gscQuery",              ts: "capturedAt", job: "fetch-gsc-data",            staleDays: 8,  label: "GSC Search Analytics (Agriko)" },
   { model: "pageAnalytics",         ts: "capturedAt", job: "fetch-seo-data",            staleDays: 8,  label: "GA4 Page Analytics" },
   { model: "marketInsight",         ts: "createdAt",  job: null,                        staleDays: 8,  label: "Market Insights" },
@@ -59,17 +59,6 @@ const STREAMS = [
   { model: "marketKeyword",         ts: "createdAt",  job: null,                        staleDays: null, label: "Market Keywords (config)" },
   { model: "articleRecord",         ts: "updatedAt",  job: "fetch-blog-content",        staleDays: 8,  label: "Blog Articles" },
 ];
-
-if (process.env.GOOGLE_ADS_CAMPAIGN_SNAPSHOTS_ENABLED === "true") {
-  STREAMS.splice(6, 0, {
-    model: "rawSnapshot",
-    ts: "fetchedAt",
-    job: "fetch-ads-data",
-    rawSource: "google_ads",
-    staleDays: 8,
-    label: "Raw Snapshot: Google Ads",
-  });
-}
 
 function fmtAge(date) {
   if (!date) return "—";

@@ -29,7 +29,7 @@ The module is no longer just scaffolded. These pieces exist in the repo:
   - Google Shopping through Serper in `lib/connectors/serper-shopping.ts`
   - DataForSEO fallback in `lib/connectors/dataforseo-shopping.ts`
   - DataForSEO Labs (ranked keywords + keyword gap) in `lib/connectors/dataforseo-labs.ts`
-  - Google Ads keyword planning in `lib/connectors/google-ads.ts`
+  - DataForSEO bulk search-volume keyword research in `lib/connectors/dataforseo-keywords.ts`
   - Meta Ad Library API/fallback coordinator in `lib/connectors/meta-ad-library.ts`
   - Temporary Playwright Meta Ad Library fallback in `lib/connectors/meta-ad-library-scraper.ts`
 - UI:
@@ -112,23 +112,24 @@ Still missing:
 - own-domain ranked-keyword drop/decline insight
 - UI surfacing of `dataforseo_ranked` / `dataforseo_keyword_gap` snapshots
 
-### Google Ads Keyword Research
+### Keyword Research (DataForSEO)
 
-Purpose: keyword research only.
+Purpose: keyword search-volume research only.
 
-The connector is explicitly read-only for keyword planning. It should not be used for campaign reads, bidding, budget changes, ad execution, or optimization.
+Google Ads is not a supported data source (removed 2026-07) — this previously used Google Ads Keyword Planner and has been retargeted to DataForSEO's bulk search-volume API (`lib/connectors/dataforseo-keywords.ts`, `fetchSearchVolume`).
 
 Stored fields:
 
 - seed keyword
 - returned keyword
 - average monthly searches
-- competition
-- competition index
-- low top-of-page bid micros
-- high top-of-page bid micros
-- monthly search volume history
 - capture timestamp
+
+No longer populated (no DataForSEO equivalent used here):
+
+- competition / competition index
+- low/high top-of-page bid micros
+- monthly search volume history
 - raw payload
 
 Still missing:
@@ -137,6 +138,7 @@ Still missing:
 - trend detection across captures
 - cluster/category rollups
 - UI filters for keyword research data
+- long-tail keyword-idea discovery and auto-promotion into the active seed list (the previous Google Ads Keyword Planner integration provided this; DataForSEO's bulk search-volume endpoint only returns volume for keywords already supplied, it does not expand or discover new ones — revisit with DataForSEO Labs or a similar vendor if this capability is wanted back)
 
 ### Meta Ad Library
 
@@ -643,7 +645,7 @@ The module is ready for regular use when all of these pass:
 
 - [ ] A smoke run can execute with one shopping keyword and one Meta target.
 - [ ] A shopping run stores products and price history without inline image blobs.
-- [ ] A keyword research run stores Google Ads keyword metrics.
+- [ ] A keyword research run stores DataForSEO keyword search-volume metrics.
 - [ ] A Meta page run stores competitor ads.
 - [ ] A Meta keyword run stores active Philippines niche ads.
 - [ ] An active Meta ad older than 30 days creates a long-running-ad insight.
