@@ -640,8 +640,10 @@ export default function DraftReviewPage() {
           <Layout.Section>
             <Banner tone="success">
               {proposal.publishedAt
-                ? `Published to Shopify on ${new Date(proposal.publishedAt).toLocaleString()}.`
-                : "Published to Shopify."}
+                ? `${proposal.proposalType === "seo-fix" ? "Applied to store" : "Published to Shopify"} on ${new Date(proposal.publishedAt).toLocaleString()}.`
+                : proposal.proposalType === "seo-fix"
+                  ? "Applied to store — SEO title and meta description updated."
+                  : "Published to Shopify."}
             </Banner>
           </Layout.Section>
         )}
@@ -716,7 +718,7 @@ export default function DraftReviewPage() {
                         onClick={() => setPublishConfirm(true)}
                         disabled={isGenerating}
                       >
-                        Publish to Shopify
+                        {proposal?.proposalType === "seo-fix" ? "Apply to store" : "Publish to Shopify"}
                       </Button>
                     ) : (
                       <BlockStack gap="200">
