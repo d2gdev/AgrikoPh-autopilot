@@ -1076,7 +1076,7 @@ export default function DashboardPage() {
                               {Math.round((data.outcomeWinRate.improved / data.outcomeWinRate.total) * 100)}%
                             </Text>
                             <Text as="p" tone="subdued">
-                              {data.outcomeWinRate.improved} improved · {data.outcomeWinRate.worsened} worsened · {data.outcomeWinRate.total} checked
+                              {data.outcomeWinRate.improved} improved · {data.outcomeWinRate.worsened} worsened · {Math.max(0, data.outcomeWinRate.total - data.outcomeWinRate.improved - data.outcomeWinRate.worsened)} neutral/insufficient · {data.outcomeWinRate.total} checked
                             </Text>
                           </BlockStack>
                         ) : (
