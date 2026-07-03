@@ -122,7 +122,7 @@ describe("skills loader", () => {
     );
   });
 
-  it("loads the keyword gap analysis skill (46) with 'google_ads' platform and keyword_research+gsc extraSources", async () => {
+  it("loads the keyword gap analysis skill (46) with 'seo' platform and keyword_research+gsc extraSources", async () => {
     process.chdir(originalCwd);
     vi.resetModules();
 
@@ -132,7 +132,7 @@ describe("skills loader", () => {
 
     expect(skill).toEqual(
       expect.objectContaining({
-        platform: "google_ads",
+        platform: "seo",
         enabled: true,
         extraSources: ["keyword_research", "gsc"],
         insightBlock: "search-term-opportunities",

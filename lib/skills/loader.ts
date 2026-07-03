@@ -10,7 +10,7 @@ export interface SkillDefinition {
   id: string;
   name: string;
   description: string;
-  platform: "google_ads" | "meta" | "both" | "seo" | "linkedin" | "reddit";
+  platform: "meta" | "both" | "seo" | "linkedin" | "reddit";
   pilotGroup: string;
   enabled: boolean;
   fullPrompt: string;
@@ -105,11 +105,11 @@ function mapPlatform(raw: string): SkillDefinition["platform"] {
   const lower = raw.toLowerCase();
   if (lower.includes("google") && lower.includes("meta")) return "both";
   if (lower.includes("meta")) return "meta";
-  if (lower.includes("google")) return "google_ads";
   // seo/linkedin/reddit skills are parsed but not dispatched by run-skills — log at load time
   if (lower.includes("seo")) { console.warn(`[skills] Platform "seo" is not dispatched by run-skills`); return "seo"; }
   if (lower.includes("linkedin")) { console.warn(`[skills] Platform "linkedin" is not dispatched by run-skills`); return "linkedin"; }
   if (lower.includes("reddit")) { console.warn(`[skills] Platform "reddit" is not dispatched by run-skills`); return "reddit"; }
+  if (lower.includes("google")) { console.warn(`[skills] Platform "Google" (Ads) is no longer supported — treating "${raw}" as "seo"; relabel this skill's frontmatter`); return "seo"; }
   return "both";
 }
 
