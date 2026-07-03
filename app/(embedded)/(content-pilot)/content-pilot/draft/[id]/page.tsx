@@ -22,6 +22,7 @@ import {
   Divider,
   TextField,
   Modal,
+  Toast,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 
@@ -246,29 +247,41 @@ function DraftEditor({
     setFields((prev) => ({ ...prev, [key]: value }));
 
   const buildDraftContent = (): Record<string, unknown> => {
-    switch (proposal.proposalType) {
-      case "seo-fix":
-        return {
-          metaTitle: fields.metaTitle ?? "",
-          metaDescription: fields.metaDescription ?? "",
-        };
-      case "internal-link":
-        return {
-          suggestedParagraph: fields.suggestedParagraph ?? "",
-          anchorText: fields.anchorText ?? "",
-          targetHandle: fields.targetHandle ?? "",
-        };
-      case "new-content":
-        return {
-          title: fields.title ?? "",
-          metaDescription: fields.metaDescription ?? "",
-          tags: (fields.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean),
-          bodyHtml: fields.bodyHtml ?? "",
-        };
-      default:
-        return { bodyHtml: fields.bodyHtml ?? "" };
-    }
+    // Merge edited fields over the original draftContent so AI-provided fields
+    // outside this form's whitelist survive a save instead of being dropped.
+    const edited = (() => {
+      switch (proposal.proposalType) {
+        case "seo-fix":
+          return {
+            metaTitle: fields.metaTitle ?? "",
+            metaDescription: fields.metaDescription ?? "",
+          };
+        case "internal-link":
+          return {
+            suggestedParagraph: fields.suggestedParagraph ?? "",
+            anchorText: fields.anchorText ?? "",
+            targetHandle: fields.targetHandle ?? "",
+          };
+        case "new-content":
+          return {
+            title: fields.title ?? "",
+            metaDescription: fields.metaDescription ?? "",
+            tags: (fields.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean),
+            bodyHtml: fields.bodyHtml ?? "",
+          };
+        default:
+          return { bodyHtml: fields.bodyHtml ?? "" };
+      }
+    })();
+    return { ...initial, ...edited };
   };
+
+  const dirty = Object.entries(fields).some(([k, v]) => {
+    const orig = initial[k];
+    const origStr = Array.isArray(orig) ? orig.join(", ") : String(orig ?? "");
+    return v !== origStr;
+  });
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   let formFields;
   if (proposal.proposalType === "seo-fix") {
@@ -365,13 +378,25 @@ function DraftEditor({
   return (
     <BlockStack gap="400">
       {formFields}
-      <InlineStack gap="200">
+      <InlineStack gap="200" blockAlign="center">
         <Button variant="primary" loading={saving} onClick={() => onSave(buildDraftContent())}>
           Save changes
         </Button>
-        <Button onClick={onCancel} disabled={saving}>
-          Cancel
+        <Button
+          tone={confirmDiscard ? "critical" : undefined}
+          onClick={() => {
+            if (dirty && !confirmDiscard) { setConfirmDiscard(true); return; }
+            onCancel();
+          }}
+          disabled={saving}
+        >
+          {confirmDiscard ? "Discard unsaved changes?" : "Cancel"}
         </Button>
+        {confirmDiscard && (
+          <Button variant="plain" onClick={() => setConfirmDiscard(false)} disabled={saving}>
+            Keep editing
+          </Button>
+        )}
       </InlineStack>
     </BlockStack>
   );
@@ -392,6 +417,7 @@ export default function DraftReviewPage() {
   const [publishConfirm, setPublishConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savedToast, setSavedToast] = useState(false);
   // Publish scheduling
   const [scheduledAt, setScheduledAt] = useState("");
   const [scheduling, setScheduling] = useState(false);
@@ -467,6 +493,7 @@ export default function DraftReviewPage() {
       const d = await safeJson(res);
       if (!res.ok) { setError((d.error as string) ?? "Save failed"); return; }
       setEditing(false);
+      setSavedToast(true);
       await load();
     } catch (e) {
       setError(String(e));
@@ -829,6 +856,8 @@ export default function DraftReviewPage() {
           )}
         </Modal.Section>
       </Modal>
+
+      {savedToast && <Toast content="Draft saved" onDismiss={() => setSavedToast(false)} />}
     </Page>
   );
 }
