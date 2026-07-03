@@ -4,7 +4,7 @@
 >
 > **Structure note (scope check):** This spec spans ~12 independent subsystems. Per writing-plans scope rules, it is decomposed into **phases, each a self-contained sub-plan boundary that ships working, testable software on its own**. Execute phases in order (dependencies noted). Before starting a phase, write its code-complete task plan as `docs/superpowers/plans/YYYY-MM-DD-phase<N>-<slug>.md` using superpowers:writing-plans (the pattern used for the 2026-07-03 tier2 and tier34 plans), then execute it. This master document locks scope, order, file boundaries, interfaces, schema changes, and acceptance criteria for every phase.
 
-**Goal:** Close every identified functionality gap — the plugin currently observes far more than it acts — plus audit items 13 (ad-approvals stepper/timeline/names), 16 (monolith splits), 17 (a11y/theming), and remove all Google Ads code.
+**Goal:** Close every identified functionality gap — the plugin currently observes far more than it acts — plus audit items 13 (ad-approvals stepper/timeline/names), 16 (monolith splits), 17 (a11y/theming), and remove all Google Ads *advertising* code (Keyword Planner keyword research is kept — see Global Constraints).
 
 **Architecture:** Reuse the proven loop pattern everywhere: ingest → insight → recommendation/task → operator approval → gated executor → audit log → outcome check. New write paths copy the alt-text apply pattern (operator-clicked, Zod-validated, rate-limited, audit-logged Shopify/Meta mutation). External notifications reuse the existing `lib/alerts.ts` webhook transport. No new frameworks.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **No Google Ads, ever** (user directive 2026-07-03). Phase 0 deletes those code paths; no later phase may reference `google_ads`.
+- **No Google Ads *advertising*, ever** (user directive 2026-07-03, clarified same day: the ban covers ad spend / campaign management / ad execution only — **it was never meant to cover keyword research**). The Google Ads Keyword Planner integration (`lib/connectors/google-ads.ts` research exports, `jobs/fetch-keyword-research.ts` 05:45 cron, `google_ads_keyword_research` connector-health entry, `GOOGLE_ADS_*` env vars) is Agriko's keyword-research tool: it is **kept, live, and must not be removed** by any phase. Phase 0 deletes the ad-execution code paths only; no later phase may add Google Ads ad execution.
 - Live external writes (Meta or Shopify) only via operator approval; recommendation-driven executions additionally require `EXECUTE_APPROVED_LIVE_ENABLED=true` AND status `approved`/`override_approved`. New execution surfaces get their own env kill-switch, defaulting off.
 - `pause_ad` must never enter `CONVERSION_SENSITIVE_ACTIONS` in `lib/guardrails.ts`.
 - All DB access via `import { prisma } from "@/lib/db"`. Embedded API routes: `await requireAppAuth(req)` first statement. Cron routes: `requireCronAuth(req)` then `acquireJobLock`.
@@ -43,18 +43,20 @@
 
 ---
 
-## Phase 0 — Google Ads removal (housekeeping)
+## Phase 0 — Google Ads *advertising* removal (housekeeping)
 
-**Rationale:** Directive: Meta only. Dead branches add risk and UI noise (the Recommendations platform filter currently offers "Google Ads").
+> **Status: executed 2026-07-03 (with a corrected scope).** An initial execution also removed the Keyword Planner keyword-research integration on an over-read of the directive; that removal was reverted (`86853e6`) after the user clarified the ban covers advertising only. Detailed corrected plan: `docs/superpowers/plans/2026-07-03-phase0-google-ads-removal.md`.
+
+**Rationale:** Directive: Meta-only *ad execution*. Dead ad-execution branches add risk and UI noise (the Recommendations platform filter offered "Google Ads"). Keyword Planner keyword research is a live, working data source feeding Market Intelligence and is explicitly **kept**.
 
 **Files:**
-- Delete: `lib/connectors/google-ads.ts`
-- Modify: `jobs/fetch-ads-data.ts` (remove google fetch step), `jobs/execute-approved.ts` (remove the `rec.platform === "google_ads"` branch ~line 288 and google before-state import), `jobs/check-outcomes.ts` (remove google snapshot comparison if present), `lib/guardrails.ts` / `lib/skills/*` (remove google-specific action support in `isSupportedAction`), `app/api/recommendations/route.ts` (drop `google_ads` from `VALID_PLATFORMS`), `app/(embedded)/(ad-pilot)/recommendations/page.tsx` (remove the Google Ads option from the platform Select — with only Meta left, remove the Select entirely), `platformBadge` in the same file (Meta-only), any `SkillInsight` producers with Google vocabulary (see Phase 3 note on search-term insights).
-- Tests: update any tests referencing `google_ads` (grep `__tests__` for it); add a regression test asserting `VALID_PLATFORMS` = `{meta}` and that a `google_ads` rec is rejected by `isSupportedAction`.
+- Keep (do NOT delete): `lib/connectors/google-ads.ts` (keyword-research exports stay live; unused ad-execution exports left in place), `jobs/fetch-keyword-research.ts` + cron, `lib/config/connector-health.ts` `google_ads_keyword_research` entry, `scripts/google-ads-oauth.mjs`, `GOOGLE_ADS_*` env vars.
+- Modify: `jobs/fetch-ads-data.ts` (remove google campaign-snapshot fetch step), `jobs/execute-approved.ts` (remove the `rec.platform === "google_ads"` branch and google before-state import), `jobs/check-outcomes.ts` (remove google snapshot comparison if present), `lib/executor.ts` / `lib/skills/*` (remove google-specific action support in `isSupportedAction` and skill dispatch), `app/api/recommendations/route.ts` (drop `google_ads` from `VALID_PLATFORMS`), `app/(embedded)/(ad-pilot)/recommendations/page.tsx` (remove the Google Ads option from the platform Select; `platformBadge` Meta-only), delete the 6 pure-Google-Ads skill prompts in `skills-source/`; relabel mislabeled organic-SEO skills to `platform: SEO`.
+- Tests: update any ad-execution tests referencing `google_ads`; add a regression test asserting `VALID_PLATFORMS` = `{meta}` and that a `google_ads` rec is rejected by `isSupportedAction`. Keyword-research tests unchanged.
 
-**Tasks:** (1) grep-driven inventory of every `google_ads`/`google-ads` reference; (2) delete connector + executor branch + fetch step with test updates; (3) UI cleanup; (4) verify gate + commit.
+**Tasks:** (1) grep-driven inventory of every `google_ads`/`google-ads` reference, classified kept-research vs. removed-advertising; (2) delete executor branch + fetch step with test updates; (3) UI cleanup; (4) verify gate + commit.
 
-**Acceptance:** `rtk grep -rn "google.ads\|google_ads" app lib jobs --max 5` returns only comments/migrations; suite green.
+**Acceptance:** `rtk grep -rn "google.ads\|google_ads" app lib jobs --max 10` returns only the kept keyword-research surface (connector, `fetch-keyword-research`, connector-health entry) plus comments/migrations; no ad-execution/dispatch/UI hit remains; suite green.
 
 ---
 
@@ -104,7 +106,7 @@
 **Design locked:**
 - **Fatigue → `pause_ad` recommendations:** new skill step (in `jobs/run-skills.ts` skill roster or a dedicated skill under `lib/skills/`) that reads the latest `SkillInsight` fatigue items with status `urgent`/`dead`, and creates `Recommendation` rows (`platform: "meta"`, `actionType: "pause_ad"`, target = the ad, rationale from the insight, confidence from fatigue severity). Dedup rule: skip if a pending/approved rec already targets the same ad with the same action (mirror the idempotency style used in `jobs/fetch-market-intel.ts`). `pause_ad` is already executable and — by standing rule — never conversion-gated.
 - **Fatigue "refresh creative" → `StoreTask`:** for `urgent` (not yet dead) ads, create a `StoreTask` ("Refresh creative for {ad}") so it lands in the operator task list rather than pretending to be executable.
-- **Search-term insights:** their vocabulary (bids, match types, negative keywords) is Google Ads — **out of scope by directive**. The phase-plan must either delete the search-term skill or re-target it as Meta search/audience commentary; decide by reading `lib/skills/` at phase-plan time and prefer deletion if it's Google-flavored.
+- **Search-term insights: do NOT delete skill 46.** The only remaining producer of `search-term-opportunities` insights is `skills-source/46-google-keyword-gap-analysis.md` — it consumes the **kept** Keyword Planner (`keyword_research`) + GSC data, and `lib/opportunities/generate.ts` + the dashboard read its insight type (one of only three powering the Opportunities feature). Its ads-flavored filename/wording is cosmetic; its data sources are keyword research and organic queries. The real Phase 3 work is the opposite of deletion: skill 46 currently never runs (`platform: seo` is not in `DISPATCHABLE_PLATFORMS`), so decide at phase-plan time how to actually dispatch it (or a successor) over keyword-research + GSC data, rewording any bid/match-type framing to organic keyword-gap framing if wanted.
 - **Competitor insights:** create `ContentProposal` seeds ("competitor is testing X — draft a counter-angle") — advisory only.
 
 **Files:** Modify `jobs/run-skills.ts` + relevant `lib/skills/*`; tests in `__tests__/jobs/` (given a fatigue insight fixture → expect a pause_ad Recommendation with dedup on second run).
@@ -199,7 +201,7 @@ Order: `content-pilot/page.tsx` (1,820 lines) → dashboard `page.tsx` (~1,430) 
 ## Explicitly resolved scope questions
 
 - **Store Pilot scope (gap #9):** resolved without a new pillar build — Store Pilot becomes the home of operator tasks produced by Phases 2 (meta fixes), 3 (creative-refresh tasks), and 6 (pricing reviews). Its page gets the task queue treatment during Phase 8/9, not a bespoke feature set.
-- **Search-term insights:** Google-flavored → delete or re-target in Phase 3; never rebuilt for Google.
+- **Search-term insights:** skill 46 (keyword-gap-analysis) is KEPT — it runs on kept Keyword Planner + GSC data, not on a Google Ads account. Phase 3 re-targets/dispatches it; nothing is ever rebuilt for Google Ads *ad execution*.
 - **Notifications transport:** webhook (`ALERT_WEBHOOK_URL`) — no email infra will be added in this roadmap.
 - **Repricing:** advisory tasks only; automatic price changes are out of scope until the operator asks.
 

@@ -2,34 +2,36 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove every Google Ads code path — including the actively-configured Keyword Planner integration — per the user's explicit, repeated directive that Agriko will never use Google Ads in any form.
+**Goal:** Remove every Google Ads *advertising* code path — ad execution, campaign management, and ads-only skill prompts — per the user's directive that Agriko will never use Google Ads **for advertising**. The Google Ads **Keyword Planner keyword-research integration is explicitly kept**: it is the tool Agriko uses to conduct keyword research (volume, competition, and bid-range data feeding Market Intelligence) and is out of scope for removal.
 
-**Architecture:** This is larger than the master roadmap's one-line description assumed. Discovery during fact-finding: (1) ad-execution support for `google_ads` was already fully inert (`SUPPORTED_ACTIONS.google_ads = []`), but (2) Google Ads Keyword Planner credentials are **actively configured** in `.env` and a daily cron (`fetch-keyword-research`, 05:45) calls Google's API to populate `KeywordResearchResult` rows that feed real bid/competition/volume columns on the Market Intelligence page. Removing this is a live data-source change, not pure dead-code deletion. (3) The `skills-source/` library contains 6 skill prompts that are genuinely and permanently about Google Ads (search-term reports, bid strategy, Quality Score, ad extensions, keyword cannibalization, full account audit) and 3 more that are organic-SEO content mislabeled with `platform: Google` metadata (a pre-existing bug, unrelated to Ads, that this audit surfaced).
+> **Scope correction (2026-07-03):** an earlier draft of this plan read the directive as "no Google Ads in any form" and removed the Keyword Planner integration too. That removal was executed and then reverted (`86853e6`); the user clarified the ban covers **advertising only, never keyword research**. This document now reflects the corrected scope — nothing below removes or retargets keyword research. Do not re-apply the reverted DataForSEO retarget.
 
-**Decision (no user response received within the ask-window; proceeding on the literal, safer reading of the "never use Google Ads" directive, fully reversible via git):**
-- Delete `lib/connectors/google-ads.ts` entirely (ad-execution + Keyword Planner functions).
-- Retarget `jobs/fetch-keyword-research.ts` to DataForSEO's `fetchSearchVolume` (`lib/connectors/dataforseo-keywords.ts`, already built, needs zero new API integration) for the volume-lookup half. The "keyword ideas / long-tail discovery" half has no DataForSEO equivalent in this codebase today — it is removed, not replaced, and explicitly logged as a known capability gap (not silently dropped).
-- Delete the 6 permanently-inert pure-Google-Ads skill files; relabel the 3 mislabeled organic-SEO skill files to `platform: seo` so they remain (in)dispatchable the same way other `seo`-platform skills already are — no worse off than before, metadata now honest.
-- `KeywordResearchResult` rows already in the database are untouched (history preserved); only future writes change source and lose competition/bid-range fields until/unless a later phase adds a DataForSEO endpoint with that data.
+**Architecture:** Discovery during fact-finding: (1) ad-execution support for `google_ads` was already fully inert (`SUPPORTED_ACTIONS.google_ads = []`) — pure dead-code deletion. (2) Google Ads Keyword Planner credentials are **actively configured** in `.env` and a daily cron (`fetch-keyword-research`, 05:45) calls Google's API to populate `KeywordResearchResult` rows that feed real bid/competition/volume columns on the Market Intelligence page — this is a live, working data source and **must be kept untouched**. (3) The `skills-source/` library contains 6 skill prompts that are genuinely and permanently about running Google Ads campaigns (search-term reports, bid strategy, Quality Score, ad extensions, keyword cannibalization, full account audit) and 3 more that are organic-SEO content mislabeled with `platform: Google` metadata (a pre-existing bug, unrelated to Ads, that this audit surfaced).
+
+**Scope decision (per user clarification: "never Google Ads" = advertising only, not keyword research):**
+- **Keep** `lib/connectors/google-ads.ts` on disk. Its keyword-research exports (`fetchGoogleAdsKeywordResearch`, `fetchGoogleAdsKeywordIdeas`) stay live; the ad-execution/campaign-snapshot exports become unused after this phase and are left in place (harmless, nothing calls them) rather than splitting the file.
+- **Keep untouched:** `jobs/fetch-keyword-research.ts` + its test, the 05:45 cron, the `google_ads_keyword_research` connector-health entry, `scripts/google-ads-oauth.mjs`, the `GOOGLE_ADS_*` env vars (actively read), and the `KeywordResearchResult.source` default of `"google_ads"` — no schema migration in this phase.
+- Delete the 6 permanently-inert pure-Google-Ads skill files; relabel the mislabeled organic-SEO skill files to `platform: SEO`. Skill 46 (keyword-gap-analysis) keeps its original content — it consumes Keyword Planner data, which remains available.
+- Remove `google_ads` from every ad-execution/dispatch/platform-filter surface: executor, guardrail-inputs, execute-approved, check-outcomes, fetch-ads-data, run-skills, recommendations UI/API.
 
 **Tech Stack:** Next.js 14 App Router API routes, Prisma/PostgreSQL, Vitest.
 
 ## Global Constraints
 
-- No Google Ads code, credentials, or vocabulary may remain reachable after this phase (`rtk grep -rn "google_ads\|GoogleAds" app lib jobs --max 20` should return zero functional hits — only historical comments referencing the removal itself, if any).
+- No Google Ads **ad-execution** code may remain reachable after this phase. Keyword-research code is expected to remain: `lib/connectors/google-ads.ts`, `jobs/fetch-keyword-research.ts` + test, and the `google_ads_keyword_research` connector-health entry are the only legitimate `google_ads`/`google-ads` hits in `app lib jobs __tests__` after this phase.
 - `pause_ad` must never enter `CONVERSION_SENSITIVE_ACTIONS` in `lib/guardrails.ts` (unaffected by this phase — confirmed `lib/guardrails.ts` has zero Google references today).
 - Every deleted/changed file gets its test suite updated in the same task, not deferred.
 - `npx tsc --noEmit` clean, `npm test` green, `npm run build` clean at the end.
-- This phase includes a Prisma migration (schema default change) — `npm run db:migrate` on prod is part of the deploy step, per `.mex/patterns/deploy.md`.
-- `GOOGLE_ADS_*` env vars stay in prod's `.env` for now (harmless once nothing reads them) — do not delete server secrets as part of a code-only phase; note removal as optional operator cleanup in the final summary, not a task.
+- No Prisma migration in this phase — `KeywordResearchResult.source` keeps its `"google_ads"` default because the Keyword Planner source is kept.
+- `GOOGLE_ADS_*` env vars stay in prod's `.env` — they are **actively read** by the kept Keyword Planner integration. Do not remove them.
 
 ---
 
 ### Task 1: Executor + guardrail-inputs — strip google_ads ad-execution support
 
 **Files:**
-- Modify: `lib/executor.ts`, `lib/recommendations/guardrail-inputs.ts`, `lib/config/connector-health.ts`
-- Test: `__tests__/lib/executor.test.ts`, `__tests__/lib/config/connector-health.test.ts`
+- Modify: `lib/executor.ts`, `lib/recommendations/guardrail-inputs.ts`
+- Test: `__tests__/lib/executor.test.ts`
 
 **Interfaces:**
 - Produces: `isSupportedAction(platform, actionType)` — `"google_ads"` is no longer a recognized platform key at all (was already `[]`, now absent — same runtime effect, cleaner surface). `executeRecommendation(rec)` throws `Unknown platform: google_ads` if ever called with that platform (should never happen post-Phase-0, since nothing creates such recs — see Task 5).
@@ -55,7 +57,7 @@ it("throws on an unrecognized platform", async () => {
 - [ ] **Step 3: Run the test to verify it fails (executor.ts still routes google_ads)**
 
 Run: `npx vitest run __tests__/lib/executor.test.ts`
-Expected: FAIL — `executeRecommendation` still imports `@/lib/connectors/google-ads`, which the test no longer mocks, so the dynamic `import()` throws a module-not-found only after Task 8 deletes the file; right now it should fail because the test's mock removal means the real (still-existing) `google-ads.ts` module gets dynamically imported instead of the deleted mock — expect an assertion mismatch on the error message, not a hard crash. If the run passes unexpectedly, proceed to Step 4 regardless (the real fix lands there).
+Expected: FAIL — `executeRecommendation` still routes `google_ads` to the (kept) connector's ad-execution export instead of throwing, so the new unknown-platform assertion mismatches. If the run passes unexpectedly, proceed to Step 4 regardless (the real fix lands there).
 
 - [ ] **Step 4: Rewrite `lib/executor.ts`**
 
@@ -120,24 +122,20 @@ export function deriveGuardrailInputsFromPayload(
 
 **Do not guess the omitted middle** — open the file, delete only the `if (rec.platform === "google_ads") { ...; return {...}; }` block (the four lines shown in the fact-finding excerpt), and leave every line after it untouched. The `rec.platform` parameter stays in the type signature (still passed by callers) even though it's no longer branched on — do not remove it from `GuardrailRecommendation` or the function signature.
 
-- [ ] **Step 7: Remove the `google_ads_keyword_research` connector-health entry**
+- [ ] **Step 7: Leave the `google_ads_keyword_research` connector-health entry in place**
 
-In `lib/config/connector-health.ts`, delete the entire object (id through closing `},`) for `id: "google_ads_keyword_research"` (the block from `label: "Keyword Planner Research"` through `jobName: "fetch-keyword-research"`, shown in full in fact-finding). Check `__tests__/lib/config/connector-health.test.ts` for any assertion counting connector ids or asserting this id's presence:
+The entry in `lib/config/connector-health.ts` (`label: "Keyword Planner Research"`, `jobName: "fetch-keyword-research"`) monitors the **kept** Keyword Planner cron — do not touch it or its tests. No changes to `lib/config/connector-health.ts` in this phase.
 
-Run: `grep -n "google_ads_keyword_research\|Keyword Planner" __tests__/lib/config/connector-health.test.ts`
+- [ ] **Step 8: Run the affected test set**
 
-If it appears, remove/update that assertion the same way (delete the specific expectation; do not weaken unrelated assertions).
-
-- [ ] **Step 8: Run the full affected test set**
-
-Run: `npx vitest run __tests__/lib/executor.test.ts __tests__/lib/config/connector-health.test.ts`
+Run: `npx vitest run __tests__/lib/executor.test.ts`
 Expected: PASS.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add lib/executor.ts lib/recommendations/guardrail-inputs.ts lib/config/connector-health.ts __tests__/lib/executor.test.ts __tests__/lib/config/connector-health.test.ts
-git commit -m "refactor(google-ads): strip inert google_ads execution/guardrail/health support"
+git add lib/executor.ts lib/recommendations/guardrail-inputs.ts __tests__/lib/executor.test.ts
+git commit -m "refactor(google-ads): strip inert google_ads execution/guardrail support"
 ```
 
 ---
@@ -448,12 +446,12 @@ git commit -m "refactor(google-ads): remove google_ads from run-skills dispatch"
 
 - [ ] **Step 1: Update the test**
 
-Find `it("loads the keyword gap analysis skill (46) with 'google_ads' platform and keyword_research+gsc extraSources", ...)` (~line 125). Skill 46 (`keyword-gap-analysis`) is being relabeled to `platform: seo` in Task 9 of this plan — update this test's expected platform to `"seo"` and rename the test to `it("loads the keyword gap analysis skill (46) with 'seo' platform and keyword_research+gsc extraSources", ...)`.
+Find `it("loads the keyword gap analysis skill (46) with 'google_ads' platform and keyword_research+gsc extraSources", ...)` (~line 125). Skill 46 (`keyword-gap-analysis`) keeps its `platform: Google` frontmatter (its content stands — it consumes kept Keyword Planner data), but with `google_ads` dropped from the platform union, `mapPlatform`'s Google fallback (Step 3 below) degrades it to `"seo"`. Update this test's expected platform to `"seo"` and rename the test to `it("loads the keyword gap analysis skill (46) with 'seo' platform and keyword_research+gsc extraSources", ...)`.
 
 - [ ] **Step 2: Run to verify it fails against the still-unrelabeled skill file**
 
 Run: `npx vitest run __tests__/lib/skills/loader.test.ts`
-Expected: FAIL (skill 46's frontmatter still says `platform: Google` until Task 9 runs). This is expected — proceed; Task 9 makes this pass. Do not skip ahead to edit the skill markdown here; keep task boundaries clean.
+Expected: FAIL (the union still contains `google_ads` and `mapPlatform` still maps `Google` to it until Step 3 lands).
 
 - [ ] **Step 3: Update `lib/skills/loader.ts`**
 
@@ -491,7 +489,7 @@ function mapPlatform(raw: string): SkillDefinition["platform"] {
 - [ ] **Step 4: Run the test again**
 
 Run: `npx vitest run __tests__/lib/skills/loader.test.ts`
-Expected: still FAIL until Task 9 relabels skill 46's frontmatter — this is correct; do not force it to pass here.
+Expected: PASS — skill 46's `platform: Google` frontmatter now degrades to `"seo"` via the fallback branch, matching Step 1's updated expectation.
 
 - [ ] **Step 5: Commit**
 
@@ -500,200 +498,42 @@ git add lib/skills/loader.ts __tests__/lib/skills/loader.test.ts
 git commit -m "refactor(google-ads): drop google_ads from skill platform union, degrade unknown Google labels to seo"
 ```
 
-(Test suite will be red between this commit and Task 9's — acceptable within this plan since both land in the same phase before the final verify gate; if executing via subagent-driven-development with a hard per-task green-suite gate, merge Task 6 and Task 9 into one commit instead.)
 
 ---
 
-### Task 7: Retarget fetch-keyword-research.ts to DataForSEO volume-only
+### Task 7: Keyword research — KEPT, no changes
 
-**Files:**
-- Modify: `jobs/fetch-keyword-research.ts`
-- Test: `__tests__/jobs/fetch-keyword-research.test.ts`
+Per the scope clarification, the Keyword Planner keyword-research integration is untouched:
 
-**Interfaces:**
-- Consumes: `fetchSearchVolume(keywords: string[], opts: { locationName?: string; languageCode?: string }): Promise<{ disabled?: boolean; volumes: Map<string, number> }>` from `@/lib/connectors/dataforseo-keywords` (already exists, unchanged).
-- Produces: `KeywordResearchResult` rows with `source: "dataforseo"`, `avgMonthlySearches` populated, `competition`/`competitionIndex`/`lowTopOfPageBidMicros`/`highTopOfPageBidMicros` left `null` (no DataForSEO equivalent wired up in this phase). The "ideas" (`source: "google_ads_ideas"`) long-tail discovery path is removed — `summary.ideaRowsStored` etc. now always report `0`, and `summary.disabledSources` reports `["dataforseo"]` only when DataForSEO itself is unconfigured.
+- `jobs/fetch-keyword-research.ts` continues to call `fetchGoogleAdsKeywordResearch` / `fetchGoogleAdsKeywordIdeas` from `@/lib/connectors/google-ads` on the daily 05:45 cron.
+- `KeywordResearchResult` rows keep `source: "google_ads"` / `"google_ads_ideas"`, with competition, competition-index, bid-range fields, and long-tail keyword-idea discovery all still populated — these feed the Market Intelligence bid/competition/volume columns.
+- `__tests__/jobs/fetch-keyword-research.test.ts` is unchanged.
 
-- [ ] **Step 1: Read the full current test file**
-
-Run: `cat __tests__/jobs/fetch-keyword-research.test.ts` and identify every assertion keyed to `google_ads`/`google_ads_ideas` sources, the `fetchGoogleAdsKeywordResearch`/`fetchGoogleAdsKeywordIdeas` mocks, and any assertion on `ideaRowsStored`/`ideaRowsCreated`/`ideaRowsUpdated` being non-zero.
-
-- [ ] **Step 2: Rewrite the test's mocks and source-string assertions**
-
-Replace:
-```typescript
-vi.mock("@/lib/connectors/google-ads", () => ({
-  fetchGoogleAdsKeywordResearch: vi.fn(),
-  fetchGoogleAdsKeywordIdeas: vi.fn(),
-}));
-...
-import { fetchGoogleAdsKeywordResearch, fetchGoogleAdsKeywordIdeas } from "@/lib/connectors/google-ads";
-...
-const mockFetchResearch = fetchGoogleAdsKeywordResearch as ReturnType<typeof vi.fn>;
-const mockFetchIdeas = fetchGoogleAdsKeywordIdeas as ReturnType<typeof vi.fn>;
-```
-with:
-```typescript
-vi.mock("@/lib/connectors/dataforseo-keywords", () => ({
-  fetchSearchVolume: vi.fn(),
-}));
-...
-import { fetchSearchVolume } from "@/lib/connectors/dataforseo-keywords";
-...
-const mockFetchSearchVolume = fetchSearchVolume as ReturnType<typeof vi.fn>;
-```
-
-Update every `source: "google_ads"` assertion/fixture to `source: "dataforseo"`. Delete every assertion referencing `source: "google_ads_ideas"` or non-zero idea-row counts — those code paths are gone. Rewrite `mockFetchResearch.mockResolvedValue({...})`-style setup to instead configure `mockFetchSearchVolume.mockResolvedValue({ volumes: new Map([["keyword", 1000]]) })` (shape per `SearchVolumeResult`), and adjust field-level assertions: expect `avgMonthlySearches` populated from the map, and `competition`/`competitionIndex`/`lowTopOfPageBidMicros`/`highTopOfPageBidMicros` to be `null` on written rows (since the volume-only endpoint provides none of those).
-
-Keep any test asserting the `disabledSources` behavior, but repoint it at `fetchSearchVolume` returning `{ disabled: true, volumes: new Map() }` → expect `summary.disabledSources` to include `"dataforseo"`.
-
-- [ ] **Step 3: Run to verify it fails against unchanged production code**
-
-Run: `npx vitest run __tests__/jobs/fetch-keyword-research.test.ts`
-Expected: FAIL (imports still point at the real, not-yet-deleted `google-ads.ts`, or the handler hasn't changed).
-
-- [ ] **Step 4: Rewrite `jobs/fetch-keyword-research.ts`**
-
-Replace the import:
-```typescript
-import { fetchGoogleAdsKeywordResearch, fetchGoogleAdsKeywordIdeas } from "@/lib/connectors/google-ads";
-```
-with:
-```typescript
-import { fetchSearchVolume } from "@/lib/connectors/dataforseo-keywords";
-```
-
-Change the `source` default in `saveKeywordResearchResult`:
-```typescript
-const source = String(data.source ?? "google_ads");
-```
-to:
-```typescript
-const source = String(data.source ?? "dataforseo");
-```
-
-Replace the summary type's field (keep `disabledSources: string[]` as-is — it's generic) and simplify the handler body. Replace the volume-lookup block:
-
-```typescript
-    const research = await fetchGoogleAdsKeywordResearch({
-      keywords: seeds.map((seed) => seed.keyword),
-    });
-    if (research.disabled) {
-      summary.disabledSources.push("google_ads");
-    }
-
-    for (const result of research.results) {
-      const seed = seeds.find((item) => item.keyword.toLowerCase() === result.keyword.toLowerCase())
-        ?? seeds.find((item) => result.closeVariants.map((variant) => variant.toLowerCase()).includes(item.keyword.toLowerCase()));
-      const write = await saveKeywordResearchResult({
-        jobRunId: runId,
-        marketKeywordId: seed?.id,
-        seedKeyword: seed?.keyword ?? result.keyword,
-        keyword: result.keyword,
-        source: "google_ads",
-        locationName: seed?.locationName ?? process.env.MARKET_INTEL_DEFAULT_LOCATION ?? "Philippines",
-        languageCode: seed?.languageCode ?? "en",
-        avgMonthlySearches: result.avgMonthlySearches,
-        competition: result.competition,
-        competitionIndex: result.competitionIndex,
-        lowTopOfPageBidMicros: micros(result.lowTopOfPageBidMicros),
-        highTopOfPageBidMicros: micros(result.highTopOfPageBidMicros),
-        monthlySearchVolumes: json(result.monthlySearchVolumes),
-        rawPayload: json(result.rawPayload),
-        capturedAt,
-      });
-      summary.researchRowsStored++;
-      if (write === "created") summary.researchRowsCreated++;
-      else summary.researchRowsUpdated++;
-    }
-```
-
-with:
-
-```typescript
-    const volumeResult = await fetchSearchVolume(seeds.map((seed) => seed.keyword));
-    if (volumeResult.disabled) {
-      summary.disabledSources.push("dataforseo");
-    }
-
-    for (const seed of seeds) {
-      const avgMonthlySearches = volumeResult.volumes.get(seed.keyword.toLowerCase().trim()) ?? null;
-      if (avgMonthlySearches === null) continue;
-      const write = await saveKeywordResearchResult({
-        jobRunId: runId,
-        marketKeywordId: seed.id,
-        seedKeyword: seed.keyword,
-        keyword: seed.keyword,
-        source: "dataforseo",
-        locationName: seed.locationName ?? process.env.MARKET_INTEL_DEFAULT_LOCATION ?? "Philippines",
-        languageCode: seed.languageCode ?? "en",
-        avgMonthlySearches,
-        competition: null,
-        competitionIndex: null,
-        lowTopOfPageBidMicros: null,
-        highTopOfPageBidMicros: null,
-        monthlySearchVolumes: Prisma.JsonNull,
-        rawPayload: Prisma.JsonNull,
-        capturedAt,
-      });
-      summary.researchRowsStored++;
-      if (write === "created") summary.researchRowsCreated++;
-      else summary.researchRowsUpdated++;
-    }
-```
-
-Delete the entire "Long-tail discovery" idea-expansion block that follows (the `if (ideaLimit > 0 && seeds.length > 0) { ... }` section calling `fetchGoogleAdsKeywordIdeas`) — there is no DataForSEO replacement for keyword-idea expansion in this codebase. Leave `summary.ideaRowsStored`/`ideaRowsCreated`/`ideaRowsUpdated` in the summary type (harmless, always `0` now) rather than restructuring the return type, to minimize blast radius on any dashboard code reading this job's summary shape.
-
-Add a one-line comment above the deleted block's former location:
-```typescript
-  // Long-tail keyword-idea discovery (previously via Google Ads Keyword Planner)
-  // has no equivalent here — Google Ads is not a supported data source. Revisit
-  // with DataForSEO Labs or a similar vendor if this capability is wanted back.
-```
-
-- [ ] **Step 5: Run the test**
-
-Run: `npx vitest run __tests__/jobs/fetch-keyword-research.test.ts`
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add jobs/fetch-keyword-research.ts __tests__/jobs/fetch-keyword-research.test.ts
-git commit -m "refactor(google-ads): retarget keyword research to DataForSEO volume-only; drop idea-discovery (no replacement)"
-```
+(An earlier draft of this task retargeted the job to DataForSEO volume-only, dropping competition/bid-range data and idea discovery. It was executed and reverted in `86853e6` — do not re-apply it.)
 
 ---
 
-### Task 8: Delete the google-ads connector
+### Task 8: Keep the google-ads connector — verify only intended importers remain
 
 **Files:**
-- Delete: `lib/connectors/google-ads.ts`
+- Keep (do NOT delete): `lib/connectors/google-ads.ts`
 
-- [ ] **Step 1: Confirm nothing still imports it**
+- [ ] **Step 1: Verify the remaining importers are keyword-research only**
 
 Run: `rtk grep -rln "connectors/google-ads" app lib jobs __tests__ --max 20`
-Expected: **zero matches** (Tasks 1–7 removed every importer). If any remain, stop and fix them before deleting — do not delete a file something still imports.
+Expected: exactly `jobs/fetch-keyword-research.ts` and `__tests__/jobs/fetch-keyword-research.test.ts`. Tasks 1–6 removed every ad-execution importer. If any other file still imports it, stop and fix that file — do not touch the connector.
 
-- [ ] **Step 2: Delete the file**
+- [ ] **Step 2: Leave the unused ad-execution exports in place**
 
-```bash
-git rm lib/connectors/google-ads.ts
-```
+After Tasks 1–6, the connector's ad-execution/campaign-snapshot exports have no callers. Leave them in the file rather than splitting or trimming it — deleting them buys nothing and risks the keyword-research half. Nothing here is a commit; this task is verification only.
 
 - [ ] **Step 3: Full verification**
 
 Run: `npx tsc --noEmit`
-Expected: no errors (confirms no dangling import survived Step 1's grep).
+Expected: no errors.
 
 Run: `npm test`
 Expected: all green.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git commit -m "refactor(google-ads): delete the google-ads connector — no remaining importers"
-```
 
 ---
 
@@ -701,7 +541,8 @@ git commit -m "refactor(google-ads): delete the google-ads connector — no rema
 
 **Files:**
 - Delete: `skills-source/07-google-search-term-mining.md`, `skills-source/11-google-bid-strategy-recommendations.md`, `skills-source/14-google-quality-score-breakdown.md`, `skills-source/20-google-keyword-cannibalization-check.md`, `skills-source/21-google-ad-extension-audit.md`, `skills-source/37-google-ads-audit.md`, `skills-source/seo-pillar/07-google-search-term-mining.md`, `skills-source/seo-pillar/14-google-quality-score-breakdown.md`, `skills-source/seo-pillar/20-google-keyword-cannibalization-check.md`, `skills-source/seo-pillar/21-google-ad-extension-audit.md`
-- Modify: `skills-source/42-google-programmatic-seo-builder.md`, `skills-source/46-google-keyword-gap-analysis.md`, `skills-source/seo-pillar/42-google-programmatic-seo-builder.md`, `skills-source/seo-pillar/35-google-e2e-seo-assistant.md` (frontmatter `platform:` field only)
+- Modify: `skills-source/42-google-programmatic-seo-builder.md`, `skills-source/seo-pillar/42-google-programmatic-seo-builder.md`, `skills-source/seo-pillar/35-google-e2e-seo-assistant.md` (frontmatter `platform:` field only)
+- Keep unchanged: `skills-source/46-google-keyword-gap-analysis.md` — its content references Keyword Planner volume/bid-range data, which is kept; Task 6's `mapPlatform` fallback handles its `platform: Google` label.
 
 **Rationale (do not delete more than this list, do not relabel skills not named here):** the 6 deleted skills are genuinely and exclusively about running/optimizing Google Ads campaigns (search term reports, bid strategy, Quality Score, ad extensions, keyword cannibalization within Google Ads auctions, full Google Ads account audits) — they can never produce actionable output again and have zero organic-SEO content to salvage. The relabeled files are organic/technical-SEO content that happened to declare `platform: Google` (ambiguous with "Google Ads") — confirmed by reading each file's description in fact-finding — and are switched to `platform: seo` so they're honestly categorized (same non-dispatched-by-run-skills status as before; this is a metadata correction, not a new capability).
 
@@ -720,9 +561,9 @@ git rm skills-source/seo-pillar/20-google-keyword-cannibalization-check.md
 git rm skills-source/seo-pillar/21-google-ad-extension-audit.md
 ```
 
-- [ ] **Step 2: Relabel the 4 organic-SEO files' frontmatter**
+- [ ] **Step 2: Relabel the 3 organic-SEO files' frontmatter**
 
-In each of `skills-source/42-google-programmatic-seo-builder.md`, `skills-source/46-google-keyword-gap-analysis.md`, `skills-source/seo-pillar/42-google-programmatic-seo-builder.md`, `skills-source/seo-pillar/35-google-e2e-seo-assistant.md`, change the frontmatter line:
+In each of `skills-source/42-google-programmatic-seo-builder.md`, `skills-source/seo-pillar/42-google-programmatic-seo-builder.md`, `skills-source/seo-pillar/35-google-e2e-seo-assistant.md`, change the frontmatter line:
 ```
   platform: Google
 ```
@@ -733,17 +574,9 @@ to:
 
 (loader.ts's `mapPlatform` lower-cases before matching, so `SEO` → `"seo"` — matches the existing `if (lower.includes("seo"))` branch.)
 
-- [ ] **Step 3: Update skill 46's description to drop the Google Ads framing**
+- [ ] **Step 3: Leave skill 46 untouched**
 
-In `skills-source/46-google-keyword-gap-analysis.md`, the description currently reads:
-```
-description: Compares keyword-research volume and bid-range data against current Google Ads keywords and GSC organic queries to surface high-volume keywords with no presence at all, and low-volume keywords quietly eating budget.
-```
-Change to:
-```
-description: Compares keyword-research volume data (DataForSEO) against GSC organic queries to surface high-volume keywords with no organic presence at all, and to flag keyword-research gaps worth targeting with content.
-```
-(Read the rest of the file's body for any inline Google-Ads-specific instructions — e.g., "check your Google Ads keyword list" — and reword those sentences to reference `KeywordResearchResult` / DataForSEO data generically, consistent with Task 7's source-field change. Do not rewrite sections that are already platform-agnostic.)
+`skills-source/46-google-keyword-gap-analysis.md` keeps its original description and body — the keyword-research volume/bid-range data it references comes from the kept Keyword Planner integration. (An earlier draft rewrote it for a DataForSEO switch; that switch was reverted — do not re-apply.)
 
 - [ ] **Step 4: Run the loader test from Task 6**
 
@@ -821,86 +654,55 @@ git commit -m "fix(google-ads): Meta-only platform filter and badge on Recommend
 
 ---
 
-### Task 11: Schema default, docs, and final verification
+### Task 11: Docs and final verification
 
 **Files:**
-- Create: `prisma/migrations/<timestamp>_keyword_research_default_dataforseo/migration.sql`
-- Modify: `prisma/schema.prisma`, `docs/CRON.md`, `.mex/ROUTER.md`
+- Modify: `docs/CRON.md` (execution wording only), `.mex/ROUTER.md`
+- No schema change: `prisma/schema.prisma` and `KeywordResearchResult.source`'s `"google_ads"` default are untouched.
 
-- [ ] **Step 1: Update the Prisma schema default**
+- [ ] **Step 1: Update `docs/CRON.md` — execution wording only**
 
-In `prisma/schema.prisma`, change:
-```prisma
-  source                     String        @default("google_ads")
+Leave the `fetch-keyword-research` row and its detail section exactly as they are (still Google Ads Keyword Planner — the integration is kept). Only replace the execution line:
 ```
-to:
-```prisma
-  source                     String        @default("dataforseo")
+4. **Execution** — calls the appropriate supported mutation. Google Ads mutations are blocked for this release; Google Ads is keyword research only.
 ```
-
-- [ ] **Step 2: Generate the migration**
-
-Run: `npx prisma migrate dev --name keyword_research_default_dataforseo`
-Expected: Prisma generates a migration file containing an `ALTER TABLE "KeywordResearchResult" ALTER COLUMN "source" SET DEFAULT 'dataforseo';` statement (or equivalent). This does not touch existing row data — it only changes the default applied to future inserts that omit the column (which no code path does, since Task 7 always passes `source` explicitly).
-
-- [ ] **Step 3: Regenerate the Prisma client**
-
-Run: `npm run db:generate`
-
-- [ ] **Step 4: Update `docs/CRON.md`**
-
-Change the `fetch-keyword-research` row description:
+with:
 ```
-| 05:45 | `/api/cron/fetch-keyword-research` | Captures Google Ads keyword planning metrics for tracked market keywords |
-```
-to:
-```
-| 05:45 | `/api/cron/fetch-keyword-research` | Captures DataForSEO search-volume metrics for tracked market keywords |
+4. **Execution** — calls the appropriate supported mutation. Only Meta is a supported execution platform; Google Ads is keyword research only.
 ```
 
-And its detail section (currently starting `### /api/cron/fetch-keyword-research` / `Uses Google Ads API keyword planning to capture historical keyword metrics...`):
-```
-### `/api/cron/fetch-keyword-research`
-Uses DataForSEO's bulk search-volume API to capture monthly search volume for active `MarketKeyword` records, stored in `KeywordResearchResult` with `source: "dataforseo"`. Competition, competition index, and bid-range fields are no longer populated (Google Ads Keyword Planner, which provided them, is not a supported data source — see 2026-07 removal). If DataForSEO credentials are missing or the account is out of quota, the job records `dataforseo` in `disabledSources` and skips cleanly.
-```
-
-Remove the line `4. **Execution** — calls the appropriate supported mutation. Google Ads mutations are blocked for this release; Google Ads is keyword research only.` and replace with:
-```
-4. **Execution** — calls the appropriate supported mutation. Only Meta is a supported execution platform.
-```
-
-- [ ] **Step 5: Update `.mex/ROUTER.md`**
+- [ ] **Step 2: Update `.mex/ROUTER.md`**
 
 Add a bullet to "Current Project State" (and bump `last_updated`):
 ```
-- Google Ads removed entirely (2026-07-04, user directive): the `lib/connectors/google-ads.ts` connector (ad execution — already inert — and the actively-configured Keyword Planner integration) is deleted. `jobs/fetch-keyword-research.ts` now sources monthly search volume from DataForSEO (`source: "dataforseo"` on `KeywordResearchResult`) instead of Google Ads Keyword Planner; competition/competition-index/bid-range fields and long-tail keyword-idea discovery have no DataForSEO equivalent and are gone (documented gap, not silently dropped) — Market Intelligence's keyword bid/competition columns will show blank for new captures going forward. 6 permanently-inert Google-Ads-only skill prompts deleted from `skills-source/`; 4 organic-SEO skills that were mislabeled `platform: Google` are relabeled `platform: seo`. Recommendations platform filter/API is Meta-only. `GOOGLE_ADS_*` env vars remain in prod `.env` (harmless, nothing reads them) — safe for the operator to remove independently.
+- Google Ads advertising removed (2026-07-03, user directive — the ban covers ad spend/campaign management only, NOT keyword research): executor/dispatch/platform surfaces are Meta-only; 6 pure-Google-Ads-account-optimization skill prompts deleted from `skills-source/`; 3 organic-SEO skills mislabeled `platform: Google` relabeled to `platform: SEO`. The Keyword Planner keyword-research integration is KEPT and live: `lib/connectors/google-ads.ts` research exports, `jobs/fetch-keyword-research.ts` (05:45 cron), the `google_ads_keyword_research` connector-health entry, and the `GOOGLE_ADS_*` env vars all remain — this is Agriko's keyword-research tool. Do not remove it under the "no Google Ads" directive.
 ```
 
-- [ ] **Step 6: Final full verification gate**
+- [ ] **Step 3: Final full verification gate**
 
 Run: `npx tsc --noEmit` — expect no errors.
 Run: `npm test` — expect all green (record the test-file/test count).
 Run: `npm run build` — expect clean build.
-Run: `rtk grep -rn "google_ads\|GoogleAds\|google-ads" app lib jobs --max 30` — expect **zero remaining functional matches** (only acceptable hits: this plan's own filename references, if grepped over `docs/`, and the DataForSEO endpoint URL string `keywords_data/google_ads/search_volume` in `lib/connectors/dataforseo-keywords.ts`, which is DataForSEO's own endpoint naming, not our code calling Google — confirm this is the only survivor).
+Run: `rtk grep -rn "google_ads\|GoogleAds\|google-ads" app lib jobs --max 30` — every remaining match must belong to the kept keyword-research surface (`lib/connectors/google-ads.ts`, `jobs/fetch-keyword-research.ts`, `lib/config/connector-health.ts`'s `google_ads_keyword_research` entry) or be the DataForSEO endpoint URL string `keywords_data/google_ads/search_volume` in `lib/connectors/dataforseo-keywords.ts` (DataForSEO's own endpoint naming). No ad-execution/dispatch/UI match may remain.
 
-- [ ] **Step 7: Commit and push**
+- [ ] **Step 4: Commit and push**
 
 ```bash
-git add prisma/schema.prisma prisma/migrations docs/CRON.md .mex/ROUTER.md
-git commit -m "docs(google-ads): update CRON docs, ROUTER state, and keyword-research schema default for the DataForSEO switch"
+git add docs/CRON.md .mex/ROUTER.md
+git commit -m "docs(google-ads): Meta-only execution wording; record kept Keyword Planner scope"
 git push origin main
 ```
 
-- [ ] **Step 8: Deploy**
+- [ ] **Step 5: Deploy**
 
-Follow `.mex/patterns/deploy.md`: `npm run build:remote` (or confirm `node scripts/linode-deploy.mjs` builds remotely as it always does), run `node scripts/linode-deploy.mjs`, then **run the migration on prod** (`ssh autopilot-prod`, `cd /opt/autopilot`, `npm run db:migrate`, `pm2 restart autopilot`) since this phase includes a schema change — do not skip the migration step. Verify: `curl https://autopilot.agrikoph.com/api/health`.
+Follow `.mex/patterns/deploy.md`: `npm run build:remote` (or confirm `node scripts/linode-deploy.mjs` builds remotely as it always does), then run `node scripts/linode-deploy.mjs` and `pm2 restart autopilot`. No migration step — this phase has no schema change. Verify: `curl https://autopilot.agrikoph.com/api/health`.
 
 ---
 
 ## Self-review notes
 
-- Every google_ads reference found in fact-finding (14 files) is covered by a task: executor.ts/guardrail-inputs.ts/connector-health.ts (1), execute-approved.ts (2), check-outcomes.ts/outcome-metrics.ts (3), fetch-ads-data.ts (4), run-skills.ts (5), loader.ts (6), fetch-keyword-research.ts (7), google-ads.ts deletion (8), skills-source content (9), recommendations route/page (10), schema/docs (11). ✔
-- No placeholders: every code step shows real before/after code from the actual files read during fact-finding, or explicit instructions to read the exact surrounding lines before editing when the fact-finding excerpt was partial (Task 4 Step 2, Task 5 Step 3, Task 9 Step 3) — flagged explicitly rather than guessed.
-- Type/interface consistency: `isSupportedAction`/`executeRecommendation` signatures unchanged (Task 1) and consumed identically by Task 2's execute-approved.ts. `SkillDefinition.platform` union (Task 6) matches every `makeSkill()` fixture narrowing in Task 5. `fetchSearchVolume`'s real signature (confirmed by reading `dataforseo-keywords.ts` in full) matches Task 7's usage exactly (`keywords: string[], opts?: {...}` → `{ disabled?, volumes: Map<string, number> }`).
-- Deliberate scope boundary: this plan does NOT touch `skills-source/*google-and-meta-*.md` files (they map to `"both"`, still function on Meta data alone) and does NOT attempt to build a DataForSEO replacement for competition/bid-range/keyword-ideas data — that's real feature work for a future phase if wanted, not silently smuggled into a removal phase.
-- **Open item for the user:** the AskUserQuestion about keeping vs. removing the actively-configured Keyword Planner integration received no response before this plan was finalized; the "remove everything" branch was taken as the safer reading of the standing directive. If this was wrong, `git revert` the Task 7–11 commits (or restore `lib/connectors/google-ads.ts` from git history) to reinstate it — nothing here deletes historical `KeywordResearchResult` data.
+- Every google_ads reference found in fact-finding (14 files) is either removed by a task or explicitly kept: executor.ts/guardrail-inputs.ts (1), execute-approved.ts (2), check-outcomes.ts/outcome-metrics.ts (3), fetch-ads-data.ts (4), run-skills.ts (5), loader.ts (6), skills-source content (9), recommendations route/page (10), docs (11); **kept by design:** fetch-keyword-research.ts + test (7), google-ads.ts connector (8), connector-health.ts keyword-research entry (Task 1 Step 7), skill 46 (Task 9 Step 3). ✔
+- No placeholders: every code step shows real before/after code from the actual files read during fact-finding, or explicit instructions to read the exact surrounding lines before editing when the fact-finding excerpt was partial — flagged explicitly rather than guessed.
+- Type/interface consistency: `isSupportedAction`/`executeRecommendation` signatures unchanged (Task 1) and consumed identically by Task 2's execute-approved.ts. `SkillDefinition.platform` union (Task 6) matches every `makeSkill()` fixture narrowing in Task 5; skill 46's `platform: Google` frontmatter degrades to `"seo"` via the Task 6 fallback, so no skill-file edit is needed for it.
+- Deliberate scope boundary: this plan does NOT touch `skills-source/*google-and-meta-*.md` files (they map to `"both"`, still function on Meta data alone) and does NOT touch any part of the Keyword Planner keyword-research pipeline — that is a kept, live data source, not a removal target.
+- **Resolved scope question (2026-07-03):** the original draft's open question — keep or remove the actively-configured Keyword Planner integration — was answered by the user: **keep it.** The "never Google Ads" directive covers advertising only; Keyword Planner is Agriko's keyword-research tool. The earlier removal was reverted in `86853e6`, scope docs corrected in `07f56cd`, and the incident recorded in `e2ab390`.
