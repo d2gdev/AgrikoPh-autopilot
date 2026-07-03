@@ -56,6 +56,7 @@ interface GscMover {
 
 interface DashboardData {
   pendingCount: number;
+  outcomeWinRate: { improved: number; worsened: number; total: number } | null;
   hardBlockedCount: number;
   executedThisMonth: number;
   failedCount: number;
@@ -1005,7 +1006,7 @@ export default function DashboardPage() {
               <Text variant="headingMd" as="h2">Operations</Text>
               <StatGrid>
                 {loading ? (
-                  <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
+                  <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
                 ) : (
                   <>
                     <Card>
@@ -1062,6 +1063,24 @@ export default function DashboardPage() {
                           </BlockStack>
                         ) : (
                           <Text as="p" tone="subdued">Never run</Text>
+                        )}
+                      </BlockStack>
+                    </Card>
+
+                    <Card>
+                      <BlockStack gap="200">
+                        <Text variant="headingMd" as="h2">Outcome Win Rate (90d)</Text>
+                        {data?.outcomeWinRate ? (
+                          <BlockStack gap="100">
+                            <Text variant="heading2xl" as="p">
+                              {Math.round((data.outcomeWinRate.improved / data.outcomeWinRate.total) * 100)}%
+                            </Text>
+                            <Text as="p" tone="subdued">
+                              {data.outcomeWinRate.improved} improved · {data.outcomeWinRate.worsened} worsened · {data.outcomeWinRate.total} checked
+                            </Text>
+                          </BlockStack>
+                        ) : (
+                          <Text as="p" tone="subdued">No outcomes checked yet</Text>
                         )}
                       </BlockStack>
                     </Card>

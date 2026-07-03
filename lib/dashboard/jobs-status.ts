@@ -95,6 +95,7 @@ export type JobsStatusPayload = {
   recsPendingOver7Days: number;
   contentLift: { count: number; avgLiftPts: number } | null;
   dbLatencyMs: number;
+  outcomeWinRate: { improved: number; worsened: number; total: number } | null;
 };
 
 export type JobRunStatusPayload = {
@@ -281,6 +282,19 @@ export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
   const dbPingStart = Date.now();
   await prisma.$queryRaw`SELECT 1`;
   const dbLatencyMs = Date.now() - dbPingStart;
+
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 3_600_000);
+  const outcomeRows = await prisma.recommendation.findMany({
+    where: { status: "executed", outcomeCheckedAt: { gte: ninetyDaysAgo } },
+    select: { outcome: true },
+  });
+  let outcomesImproved = 0;
+  let outcomesWorsened = 0;
+  for (const row of outcomeRows) {
+    const verdict = (row.outcome as { verdict?: string } | null)?.verdict;
+    if (verdict === "improved") outcomesImproved++;
+    else if (verdict === "worsened") outcomesWorsened++;
+  }
 
   const [
     recommendationStatusCounts,
@@ -603,6 +617,9 @@ export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
     recsPendingOver7Days: recsPendingOver7DaysCount,
     contentLift,
     dbLatencyMs,
+    outcomeWinRate: outcomeRows.length > 0
+      ? { improved: outcomesImproved, worsened: outcomesWorsened, total: outcomeRows.length }
+      : null,
   };
 }
 
