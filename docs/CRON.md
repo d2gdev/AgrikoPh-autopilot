@@ -17,6 +17,7 @@ Cron scheduling is handled outside the app. The app exposes cron routes that can
 | Mon 05:50 | `/api/cron/fetch-gsc-data` | Captures query+page GSC rows into `GscQuery` for historical search analytics |
 | 06:00 | `/api/cron/execute-approved` | Dry-runs approved execution queue unless live execution is explicitly enabled |
 | 07:00 | `/api/cron/check-outcomes` | Measures whether executed recommendations helped by comparing before/after platform metrics |
+| 08:00 | `/api/cron/daily-digest` | Posts a one-message operator digest (pending recs, yesterday's executions + outcomes, failed jobs, content published, approvals awaiting review) to ALERT_WEBHOOK_URL |
 | Every minute | `/api/cron/drain-jobs?limit=1` | Drains one queued job run and recovers stale claims. This includes `dashboard-refresh`, `fetch-market-intel`, and `fetch-keyword-research` queue entries. |
 | Every 5 min | `/api/cron/process-ad-reviews` | Runs queued/retry AI ad-approval review jobs (Pre/Brand/Technical) and advances the approval workflow. |
 | Every 5 min | `/api/cron/ad-approval-sla` | Escalates ad approvals that breach reviewer SLAs (Conversion 4h, Penultimate 8h, Final 24h). |
@@ -92,6 +93,9 @@ Outcome feedback loop: selects up to 50 `Recommendation` rows with `status: "exe
 
 **Deploy ordering:** migration `20260702100000_add_recommendation_outcome` MUST be applied (`npm run db:migrate`) BEFORE deploying code that reads it — the regenerated Prisma client selects the new `outcome`/`outcomeCheckedAt` columns on every `Recommendation` read, so deploying first breaks the daily pipeline and the approvals UI with a Prisma `P2022` error.
 
+### `/api/cron/daily-digest`
+Assembles a trailing-24h digest — pending recommendations (with >7-day staleness count), executions and their outcome verdicts, failed job runs, content published, and ad-approvals awaiting review — and sends it as a single `daily_digest` webhook message via `lib/alerts.ts`. No-ops the webhook (but still records the JobRun summary) when `ALERT_WEBHOOK_URL` is unset.
+
 ### `/api/cron/drain-jobs`
 Claims one queued job run at a time from `JobRun`, updates a heartbeat while the job executes, and releases queue ownership when complete. Stale claimed runs are requeued or failed according to `JOB_QUEUE_STALE_MINUTES` and `maxAttempts`.
 
@@ -106,6 +110,8 @@ If you use the suggested schedule above, `run-skills` at 02:00 runs before `fetc
 05:30 fetch-market-intel (market and competitor dashboard data)
 05:45 fetch-keyword-research (keyword planner dashboard data)
 06:00 execute-approved dry-run safety check
+07:00 check-outcomes (verdicts on 7+ day old executions)
+08:00 daily-digest (operator webhook summary)
 ```
 
 If you need every dashboard stream refreshed immediately, use the Dashboard's Run Now button. It queues `dashboard-refresh`, which runs the core data jobs under locks and records one trackable parent `JobRun`.
