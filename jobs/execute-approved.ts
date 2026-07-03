@@ -285,9 +285,6 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
         if (rec.platform === "meta") {
           const { fetchMetaEntityState } = await import("@/lib/connectors/meta");
           beforeState = await fetchMetaEntityState(rec.targetEntityId);
-        } else if (rec.platform === "google_ads") {
-          const { fetchGoogleAdsBeforeState } = await import("@/lib/connectors/google-ads");
-          beforeState = await fetchGoogleAdsBeforeState(rec);
         }
       } catch {
         beforeState = { error: "Could not fetch before-state" };

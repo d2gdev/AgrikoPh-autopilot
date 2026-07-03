@@ -39,11 +39,6 @@ vi.mock("@/lib/connectors/meta", () => ({
   fetchMetaEntityState: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock("@/lib/connectors/google-ads", () => ({
-  executeGoogleAdsAction: vi.fn(),
-  fetchGoogleAdsBeforeState: vi.fn().mockResolvedValue({}),
-}));
-
 import { prisma } from "@/lib/db";
 import { checkGuardrails } from "@/lib/guardrails";
 import { executeRecommendation } from "@/lib/executor";
@@ -253,34 +248,4 @@ describe("executeApprovedHandler", () => {
     });
   });
 
-  describe("Google Ads guardrail input derivation", () => {
-    it("uses the spend field (not daily_budget / 100) for Google Ads budget guardrail check", async () => {
-      const googleRec = {
-        ...baseRec,
-        platform: "google_ads",
-        targetEntityId: "campaign-google-1",
-      };
-      const googleSnapshot = {
-        id: "snap-google",
-        source: "google_ads",
-        payload: {
-          campaigns: [{ id: "campaign-google-1", spend: 500, conversions: 30 }],
-          adGroups: [],
-        },
-      };
-
-      mockPrisma.recommendation.findMany
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([googleRec]);
-      mockPrisma.rawSnapshot.findUnique.mockResolvedValue(googleSnapshot);
-
-      await executeApprovedHandler();
-
-      expect(mockCheckGuardrails).toHaveBeenCalledWith(
-        expect.objectContaining({
-          dailyBudgetPhp: 500, // spend directly, not daily_budget / 100
-        })
-      );
-    });
-  });
 });
