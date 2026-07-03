@@ -52,9 +52,8 @@ const mockLoadAllSkillsSync = loadAllSkillsSync as ReturnType<typeof vi.fn>;
 const mockRunSkill = runSkill as ReturnType<typeof vi.fn>;
 
 const metaSnapshot = { id: "snap-meta", source: "meta", payload: { campaigns: [] }, fetchedAt: new Date() };
-const googleSnapshot = { id: "snap-google", source: "google_ads", payload: { campaigns: [] }, fetchedAt: new Date() };
 
-function makeSkill(id: string, platform: "meta" | "google_ads" | "both" | "linkedin" | "reddit" = "meta") {
+function makeSkill(id: string, platform: "meta" | "both" | "linkedin" | "reddit" = "meta") {
   return { id, name: `Skill ${id}`, platform, enabled: true };
 }
 
@@ -80,9 +79,7 @@ beforeEach(() => {
   mockPrisma.jobRun.create.mockResolvedValue({ id: "run-1" });
   mockPrisma.jobRun.findFirst.mockResolvedValue(null);
   mockPrisma.jobRun.update.mockResolvedValue({});
-  mockPrisma.rawSnapshot.findFirst
-    .mockResolvedValueOnce(metaSnapshot)
-    .mockResolvedValueOnce(googleSnapshot);
+  mockPrisma.rawSnapshot.findFirst.mockResolvedValue(metaSnapshot);
   mockPrisma.recommendation.create.mockResolvedValue({});
   mockPrisma.recommendation.findFirst.mockResolvedValue(null);
   mockRunSkill.mockResolvedValue({ recs: [], truncated: false });
@@ -145,8 +142,8 @@ describe("runSkillsHandler generation-time action filtering (Fix B)", () => {
     consoleSpy.mockRestore();
   });
 
-  it("all google_ads recs are unsupported (SUPPORTED_ACTIONS.google_ads = [])", async () => {
-    const skill = makeSkill("google-skill", "google_ads");
+  it("google_ads is not a dispatchable platform — the skill never runs", async () => {
+    const skill = { id: "google-skill", name: "Skill google-skill", platform: "google_ads" as unknown as "meta", enabled: true };
     mockLoadAllSkillsSync.mockReturnValue([skill]);
 
     mockRunSkill.mockResolvedValue({
@@ -156,6 +153,7 @@ describe("runSkillsHandler generation-time action filtering (Fix B)", () => {
 
     const result = await runSkillsHandler();
 
+    expect(mockRunSkill).not.toHaveBeenCalled();
     expect(mockPrisma.recommendation.create).not.toHaveBeenCalled();
     expect(result.newRecs).toBe(0);
   });

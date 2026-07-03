@@ -51,9 +51,8 @@ const mockLoadAllSkillsSync = loadAllSkillsSync as ReturnType<typeof vi.fn>;
 const mockRunSkill = runSkill as ReturnType<typeof vi.fn>;
 
 const metaSnapshot = { id: "snap-meta", source: "meta", payload: { campaigns: [] }, fetchedAt: new Date() };
-const googleSnapshot = { id: "snap-google", source: "google_ads", payload: { campaigns: [] }, fetchedAt: new Date() };
 
-function makeSkill(id: string, platform: "meta" | "google_ads" | "both" | "linkedin" | "reddit" = "meta") {
+function makeSkill(id: string, platform: "meta" | "both" | "linkedin" | "reddit" = "meta") {
   return { id, name: `Skill ${id}`, platform, enabled: true };
 }
 
@@ -63,9 +62,7 @@ beforeEach(() => {
   mockPrisma.jobRun.create.mockResolvedValue({ id: "run-1" });
   mockPrisma.jobRun.findFirst.mockResolvedValue(null); // no last run
   mockPrisma.jobRun.update.mockResolvedValue({});
-  mockPrisma.rawSnapshot.findFirst
-    .mockResolvedValueOnce(metaSnapshot) // meta
-    .mockResolvedValueOnce(googleSnapshot); // google
+  mockPrisma.rawSnapshot.findFirst.mockResolvedValue(metaSnapshot);
   mockPrisma.recommendation.create.mockResolvedValue({});
   mockPrisma.recommendation.findFirst.mockResolvedValue(null); // no existing pending rec
   mockRunSkill.mockResolvedValue({ recs: [], truncated: false });
@@ -91,9 +88,7 @@ describe("runSkillsHandler", () => {
       const staticPayload = { campaigns: [], stable: true };
       const staticSnap = { ...metaSnapshot, payload: staticPayload };
       mockPrisma.rawSnapshot.findFirst.mockReset();
-      mockPrisma.rawSnapshot.findFirst
-        .mockResolvedValueOnce(staticSnap)
-        .mockResolvedValueOnce(googleSnapshot);
+      mockPrisma.rawSnapshot.findFirst.mockResolvedValue(staticSnap);
 
       // Pre-compute what the handler will compute for the hash
       const crypto = await import("crypto");

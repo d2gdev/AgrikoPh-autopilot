@@ -5,7 +5,6 @@ import { checkGuardrails } from "@/lib/guardrails";
 import { isSupportedAction } from "@/lib/executor";
 import { loadAllSkillsSync } from "@/lib/skills/loader";
 import type { SkillDefinition } from "@/lib/skills/loader";
-import type { RawSnapshot } from "@prisma/client";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
 
 const MAX_SKILLS_PER_RUN = 30;
@@ -31,12 +30,9 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
     await prisma.jobRun.create({ data: { jobName: "run-skills" } })
   ).id;
 
-  const [metaSnap, googleSnap] = await Promise.all([
-    prisma.rawSnapshot.findFirst({ where: { source: "meta" }, orderBy: { fetchedAt: "desc" } }),
-    prisma.rawSnapshot.findFirst({ where: { source: "google_ads" }, orderBy: { fetchedAt: "desc" } }),
-  ]);
+  const metaSnap = await prisma.rawSnapshot.findFirst({ where: { source: "meta" }, orderBy: { fetchedAt: "desc" } });
 
-  if (!metaSnap && !googleSnap) {
+  if (!metaSnap) {
     const summary: RunSkillsSummary = {
       recommendationsGenerated: 0,
       skillsRun: 0,
@@ -62,7 +58,6 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
   // Hash each platform's current payload
   const currentHashes: Record<string, string> = {};
   if (metaSnap) currentHashes.meta = hashPayload(metaSnap.payload);
-  if (googleSnap) currentHashes.google_ads = hashPayload(googleSnap.payload);
 
   // Load per-skill hashes stored from the last successful run
   const lastRun = await prisma.jobRun.findFirst({
@@ -79,12 +74,11 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
   const allSkills = loadAllSkillsSync().filter((s) => s.enabled);
 
   // H-9: filter to dispatchable platforms BEFORE cap so linkedin/reddit don't starve real skills
-  const DISPATCHABLE_PLATFORMS: SkillDefinition["platform"][] = ["meta", "google_ads", "both"];
+  const DISPATCHABLE_PLATFORMS: SkillDefinition["platform"][] = ["meta", "both"];
   const eligibleSkills = allSkills.filter((s) => {
     if (!DISPATCHABLE_PLATFORMS.includes(s.platform)) return false;
     if (s.platform === "meta") return !!metaSnap;
-    if (s.platform === "google_ads") return !!googleSnap;
-    if (s.platform === "both") return !!(metaSnap ?? googleSnap);
+    if (s.platform === "both") return !!metaSnap;
     return false;
   });
 
@@ -108,16 +102,9 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
   // Fix A: a single shared timestamp for every skill dispatched this run (executed or hash-skipped)
   const dispatchTimestamp = new Date().toISOString();
 
-  function snapshotForSkill(skill: SkillDefinition): RawSnapshot | null {
-    if (skill.platform === "meta") return metaSnap;
-    if (skill.platform === "google_ads") return googleSnap;
-    return metaSnap ?? googleSnap;
-  }
-
-  function hashForSkill(skill: SkillDefinition): string {
-    const snap = snapshotForSkill(skill);
-    if (!snap) return "";
-    return currentHashes[snap.source] ?? currentHashes.meta ?? currentHashes.google_ads ?? "";
+  function hashForSkill(): string {
+    if (!metaSnap) return "";
+    return currentHashes[metaSnap.source] ?? currentHashes.meta ?? "";
   }
 
   const { runSkill } = await import("@/lib/skills/runner");
@@ -150,10 +137,10 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
 
   const results = await Promise.allSettled(
     applicableSkills.map((skill): Promise<SkillResult> => limit(async () => {
-      const snapshot = snapshotForSkill(skill);
+      const snapshot = metaSnap;
       if (!snapshot) return { count: 0, skillId: skill.id, skillName: skill.name, snapshotId: "", hash: "", insights: [], unsupportedCount: 0 };
 
-      const currentHash = hashForSkill(skill);
+      const currentHash = hashForSkill();
       if (currentHash && lastSkillHashes[skill.id] === currentHash) {
         // H-8: return currentHash (not "") so the stored hash stays valid across skipped runs
         return { count: 0, skillId: skill.id, skillName: skill.name, snapshotId: snapshot.id, hash: currentHash, insights: [], wasSkipped: true, unsupportedCount: 0 };
@@ -170,7 +157,7 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
       }
       let count = 0;
       let unsupportedCount = 0;
-      const platform = snapshot.source === "meta" ? "meta" : "google_ads";
+      const platform = snapshot.source;
 
       for (const rec of recommendations) {
         if (rec.actionType === "adjust_budget") {
@@ -179,8 +166,7 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
         }
 
         // Fix B: don't persist recs whose actionType is not executable on this platform
-        // (e.g. change_bid/add_negative_keyword on meta, or any action on google_ads which
-        // has no supported actions this release). Skill narrative/insight output is unaffected.
+        // (e.g. change_bid/add_negative_keyword on meta). Skill narrative/insight output is unaffected.
         if (!isSupportedAction(platform, rec.actionType)) {
           unsupportedCount++;
           continue;
