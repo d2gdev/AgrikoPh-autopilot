@@ -43,3 +43,11 @@ export function severityTone(severity: string): Tone {
   if (severity === "success") return "success";
   return "info";
 }
+
+// Outcome verdicts from check-outcomes (Verdict union in lib/recommendations/outcome-metrics.ts).
+export function outcomeTone(verdict: string): Tone {
+  if (verdict === "improved") return "success";
+  if (verdict === "worsened") return "critical";
+  if (verdict === "neutral") return "info";
+  return "attention"; // insufficient_data / unknown
+}
