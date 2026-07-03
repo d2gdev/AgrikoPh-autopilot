@@ -45,6 +45,7 @@ export default function ImagesPage() {
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [applying, setApplying] = useState<Set<string>>(new Set());
 
   const loadImages = useCallback((refresh = false) => {
     setLoading(true);
@@ -86,8 +87,45 @@ export default function ImagesPage() {
       await generate(img);
     }
     setBulkRunning(false);
-    setToast({ message: "Suggestions generated — copy alt text to apply manually" });
+    setToast({ message: "Suggestions generated — review and click Apply to write them to Shopify" });
   }, [data, suggestions, generate]);
+
+  const applyAlt = useCallback(async (img: ImageRow, altText: string) => {
+    setApplying((p) => new Set(p).add(img.imageId));
+    try {
+      const res = await authFetch("/api/images", {
+        method: "PATCH",
+        body: JSON.stringify({ imageId: img.imageId, productId: img.productId, altText }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((d as { error?: string }).error ?? `Apply failed (${res.status})`);
+      setData((prev) => {
+        if (!prev) return prev;
+        const next = {
+          ...prev,
+          images: prev.images.map((i) => i.imageId === img.imageId ? { ...i, altText } : i),
+          missingAltText: Math.max(0, prev.missingAltText - (img.altText ? 0 : 1)),
+        };
+        setCache(IMAGES_CACHE_KEY, next);
+        return next;
+      });
+      setSuggestions((p) => { const n = { ...p }; delete n[img.imageId]; return n; });
+      setToast({ message: "Alt text applied to Shopify" });
+    } catch (e) {
+      setToast({ message: e instanceof Error ? e.message : "Apply failed", error: true });
+    } finally {
+      setApplying((p) => { const n = new Set(p); n.delete(img.imageId); return n; });
+    }
+  }, [authFetch]);
+
+  const copyAlt = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setToast({ message: "Copied to clipboard" });
+    } catch {
+      setToast({ message: "Copy failed — select the text manually", error: true });
+    }
+  }, []);
 
   const rows = (data?.images ?? []).map((img) => {
     const suggestion = suggestions[img.imageId];
@@ -97,30 +135,32 @@ export default function ImagesPage() {
     const altTextCell = hasError ? (
       <Badge tone="critical">{hasError}</Badge>
     ) : suggestion ? (
-      <Text as="span" variant="bodySm">
-        {suggestion.slice(0, 60)}{suggestion.length > 60 ? "…" : ""}
-      </Text>
+      <Text as="span" variant="bodySm">{suggestion}</Text>
     ) : img.altText ? (
       <InlineStack gap="200" align="start">
         <Badge tone="success">Set</Badge>
-        <Text as="span" variant="bodySm" tone="subdued">
-          {img.altText.slice(0, 40)}{img.altText.length > 40 ? "…" : ""}
-        </Text>
+        <Text as="span" variant="bodySm" tone="subdued">{img.altText}</Text>
       </InlineStack>
     ) : (
       <Badge tone="critical">Missing</Badge>
     );
 
-    const actionCell = img.altText && !hasError && !suggestion ? (
+    const isApplying = applying.has(img.imageId);
+    const actionCell = suggestion ? (
+      <InlineStack gap="150">
+        <Button size="slim" variant="primary" loading={isApplying} onClick={() => applyAlt(img, suggestion)}>
+          Apply
+        </Button>
+        <Button size="slim" onClick={() => copyAlt(suggestion)}>Copy</Button>
+        <Button size="slim" variant="plain" loading={isGenerating} onClick={() => generate(img)}>
+          Regenerate
+        </Button>
+      </InlineStack>
+    ) : img.altText && !hasError ? (
       <></>
     ) : (
-      <Button
-        size="slim"
-        onClick={() => generate(img)}
-        loading={isGenerating}
-        disabled={!!suggestion}
-      >
-        {hasError ? "Retry" : suggestion ? "Generated" : "Generate"}
+      <Button size="slim" onClick={() => generate(img)} loading={isGenerating}>
+        {hasError ? "Retry" : "Generate"}
       </Button>
     );
 
