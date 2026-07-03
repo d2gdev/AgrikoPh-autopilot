@@ -18,6 +18,7 @@ import { STATUS, REVIEWER_ROLE, SLA_MS } from "@/lib/ad-approval/constants";
 import { transition, flagForManualIntervention } from "@/lib/ad-approval/state-machine";
 import { getReviewerAssignments } from "@/lib/ad-approval/reviewers";
 import { createNotification, ADMIN_RECIPIENT } from "@/lib/notifications";
+import { sendOperatorAlert } from "@/lib/alerts";
 
 const JOB_NAME = "ad-approval-sla";
 const BATCH = 50;
@@ -137,6 +138,12 @@ async function flagAdmin(approvalId: string, campaignId: string, reason: string,
     body: `[${campaignId}] ${reason}`,
     approvalId,
     severity: "critical",
+  });
+  await sendOperatorAlert("sla_escalation", {
+    approvalId,
+    campaignId,
+    reason,
+    critical,
   });
 }
 

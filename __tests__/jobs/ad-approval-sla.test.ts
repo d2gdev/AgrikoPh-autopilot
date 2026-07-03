@@ -9,6 +9,7 @@ const mockPrisma = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/notifications", () => ({ createNotification: vi.fn(), ADMIN_RECIPIENT: "ADMIN" }));
+vi.mock("@/lib/alerts", () => ({ sendOperatorAlert: vi.fn() }));
 
 import { adApprovalSlaHandler } from "@/jobs/ad-approval-sla";
 import { STATUS, REVIEWER_ROLE } from "@/lib/ad-approval/constants";
