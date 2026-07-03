@@ -114,6 +114,8 @@ Still missing:
 
 ### Google Ads Keyword Research
 
+> **This integration is deliberately KEPT and must not be deleted.** "No Google Ads" refers to ad spend/execution only — this is read-only keyword data, actively used. It was mistakenly deleted and deployed to prod on 2026-07-03, then reverted the same session (no data was lost — verified against prod). See `.mex/events/decisions.jsonl` for the incident record. If asked to remove Google Ads code again, confirm explicitly whether this connector is in scope before touching it.
+
 Purpose: keyword research only.
 
 The connector is explicitly read-only for keyword planning. It should not be used for campaign reads, bidding, budget changes, ad execution, or optimization.
