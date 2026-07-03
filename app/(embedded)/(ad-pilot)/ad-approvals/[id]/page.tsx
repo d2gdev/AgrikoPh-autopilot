@@ -8,6 +8,7 @@ import type { BadgeProps } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
+import { adApprovalStatusTone } from "@/lib/ui/tones";
 
 type Json = Record<string, unknown>;
 
@@ -31,13 +32,6 @@ const STATUS_LABELS: Record<string, string> = {
   approved_to_make_kwarta: "Approved to Make Kwarta", needs_revision: "Needs Revision",
   rejected: "Rejected", cancelled: "Cancelled",
 };
-function statusTone(s: string): BadgeProps["tone"] {
-  if (s === "approved_to_make_kwarta") return "success";
-  if (s === "rejected" || s === "cancelled") return "critical";
-  if (s === "needs_revision") return "warning";
-  if (s === "draft") return undefined;
-  return "info";
-}
 function decisionTone(d: string): BadgeProps["tone"] {
   if (d === "PASS") return "success";
   if (d === "REJECTED") return "critical";
@@ -130,7 +124,7 @@ export default function AdApprovalDetailPage() {
     <Page
       title={a.campaignId}
       backAction={{ content: "Ad Approvals", onAction: () => router.push("/ad-approvals") }}
-      titleMetadata={<Badge tone={statusTone(a.status)}>{STATUS_LABELS[a.status] ?? a.status}</Badge>}
+      titleMetadata={<Badge tone={adApprovalStatusTone(a.status)}>{STATUS_LABELS[a.status] ?? a.status}</Badge>}
       subtitle={`Revision ${a.currentRevision} · stage ${a.stage}`}
     >
       <Layout>

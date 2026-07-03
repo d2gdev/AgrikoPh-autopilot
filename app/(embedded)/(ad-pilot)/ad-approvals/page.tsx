@@ -2,12 +2,14 @@
 
 import {
   Page, Layout, Card, Text, Button, Badge, BlockStack, InlineStack,
-  Tabs, EmptyState, Spinner, Banner, Modal, TextField, FormLayout,
+  Tabs, EmptyState, Banner, Modal, TextField, FormLayout,
 } from "@shopify/polaris";
-import type { BadgeProps } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
+import { timeAgo } from "@/lib/format";
+import { adApprovalStatusTone } from "@/lib/ui/tones";
+import { ListSkeleton } from "@/components/ui/states";
 
 interface Approval {
   id: string;
@@ -42,23 +44,6 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-function statusTone(status: string): BadgeProps["tone"] {
-  if (status === "approved_to_make_kwarta") return "success";
-  if (status === "rejected" || status === "cancelled") return "critical";
-  if (status === "needs_revision") return "warning";
-  if (status === "draft") return undefined;
-  return "info";
-}
-
-function timeAgo(iso: string) {
-  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
 const TABS = [
   { id: "drafts", content: "My Drafts" },
   { id: "awaiting", content: "Awaiting My Review" },
@@ -87,6 +72,7 @@ export default function AdApprovalsPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [unread, setUnread] = useState<Array<{ id: string; title: string; body: string; severity: string }>>([]);
   const [truncatedTotal, setTruncatedTotal] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const load = useCallback(async () => {
     const PAGE_LIMIT = 100;
@@ -180,7 +166,12 @@ export default function AdApprovalsPage() {
     }
   }
 
-  const rows = bucket(TABS[selected]!.id);
+  const query = searchQuery.trim().toLowerCase();
+  const rows = bucket(TABS[selected]!.id).filter((a) =>
+    !query ||
+    a.campaignId.toLowerCase().includes(query) ||
+    a.submitterId.toLowerCase().includes(query)
+  );
 
   return (
     <Page
@@ -214,8 +205,12 @@ export default function AdApprovalsPage() {
           <Card padding="0">
             <Tabs tabs={TABS} selected={selected} onSelect={setSelected} />
             <div style={{ padding: "16px" }}>
+              <div style={{ marginBottom: 16 }}>
+                <TextField label="Search approvals" labelHidden placeholder="Search by campaign or submitter…" value={searchQuery} onChange={setSearchQuery}
+                  autoComplete="off" clearButton onClearButtonClick={() => setSearchQuery("")} />
+              </div>
               {loading ? (
-                <InlineStack align="center"><Spinner accessibilityLabel="Loading" size="large" /></InlineStack>
+                <ListSkeleton lines={6} />
               ) : rows.length === 0 ? (
                 <EmptyState heading="Nothing here yet" image="">
                   <p>No ads in this section.</p>
@@ -228,7 +223,7 @@ export default function AdApprovalsPage() {
                         <InlineStack align="space-between" blockAlign="center">
                           <InlineStack gap="200" blockAlign="center">
                             <Text as="span" variant="headingMd">{a.campaignId}</Text>
-                            <Badge tone={statusTone(a.status)}>{STATUS_LABELS[a.status] ?? a.status}</Badge>
+                            <Badge tone={adApprovalStatusTone(a.status)}>{STATUS_LABELS[a.status] ?? a.status}</Badge>
                             <Badge>{`Rev ${a.currentRevision}`}</Badge>
                             {a.flags?.requires_manual_intervention && <Badge tone="critical">Needs intervention</Badge>}
                           </InlineStack>

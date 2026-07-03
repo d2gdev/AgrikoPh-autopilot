@@ -9,6 +9,9 @@ import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import { ApproveConfirmationModal } from "@/components/ui/approve-confirmation-modal";
+import { timeAgo, formatPhp, fmtNum, actionLabel } from "@/lib/format";
+import { campaignStatusTone } from "@/lib/ui/tones";
+import { ListSkeleton } from "@/components/ui/states";
 
 interface Campaign {
   id: string;
@@ -50,26 +53,6 @@ const ROAS_THRESHOLD = 0.7;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
-function fmtPHP(n: number) {
-  return "₱" + n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function fmtNum(n: number) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 10_000)   return (n / 1_000).toFixed(1) + "K";
-  return n.toLocaleString();
-}
-
 function roasTone(v: number | null): "success" | "warning" | "critical" | "info" {
   if (v === null) return "info";
   if (v >= 1.0)  return "success";
@@ -82,23 +65,6 @@ function roasBarColor(v: number | null): string {
   if (v >= 1.0)  return "#007f5f";
   if (v >= ROAS_THRESHOLD) return "#b98900";
   return "#d72c0d";
-}
-
-function statusTone(s: string): "success" | "warning" | "critical" | "info" {
-  if (s === "ENABLED" || s === "ACTIVE") return "success";
-  if (s === "PAUSED") return "warning";
-  if (s === "REMOVED") return "critical";
-  return "info";
-}
-
-function actionLabel(t: string) {
-  const map: Record<string, string> = {
-    pause_campaign: "Pause Campaign",
-    pause_ad: "Pause Ad",
-    adjust_budget: "Adjust Budget",
-    enable_campaign: "Enable Campaign",
-  };
-  return map[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function actionTone(t: string): "critical" | "warning" | "attention" | "info" {
@@ -329,11 +295,11 @@ export default function CampaignsPage() {
                 <InlineStack gap="800" wrap>
                   <BlockStack gap="100">
                     <Text as="p" variant="bodySm" tone="subdued">Total spend</Text>
-                    <Text as="p" variant="headingMd">{fmtPHP(totalSpend)}</Text>
+                    <Text as="p" variant="headingMd">{formatPhp(totalSpend)}</Text>
                   </BlockStack>
                   <BlockStack gap="100">
                     <Text as="p" variant="bodySm" tone="subdued">Revenue</Text>
-                    <Text as="p" variant="headingMd">{fmtPHP(totalConversionValue)}</Text>
+                    <Text as="p" variant="headingMd">{formatPhp(totalConversionValue)}</Text>
                   </BlockStack>
                   <BlockStack gap="100">
                     <Text as="p" variant="bodySm" tone="subdued">Blended ROAS</Text>
@@ -365,12 +331,7 @@ export default function CampaignsPage() {
         {/* ── Campaign list ────────────────────────────────────────── */}
         <Layout.Section>
           {loading ? (
-            <Card>
-              <InlineStack gap="300" blockAlign="center">
-                <Spinner size="small" />
-                <Text as="p" tone="subdued">Loading campaigns…</Text>
-              </InlineStack>
-            </Card>
+            <Card><ListSkeleton lines={6} /></Card>
           ) : campaigns.length === 0 ? (
             <EmptyState
               heading="No campaign data yet"
@@ -400,7 +361,7 @@ export default function CampaignsPage() {
                           <BlockStack gap="150">
                             <Text as="h2" variant="headingMd" fontWeight="bold">{c.name}</Text>
                             <InlineStack gap="200" blockAlign="center">
-                              <Badge tone={statusTone(c.status)}>{c.status}</Badge>
+                              <Badge tone={campaignStatusTone(c.status)}>{c.status}</Badge>
                               {c.objective && (
                                 <Text as="span" variant="bodySm" tone="subdued">
                                   {String(c.objective).replace(/_/g, " ").toLowerCase()}

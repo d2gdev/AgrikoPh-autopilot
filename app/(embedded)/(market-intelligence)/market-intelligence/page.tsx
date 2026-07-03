@@ -22,6 +22,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
+import { formatMoney, formatPhp } from "@/lib/format";
 import { SectionCard } from "@/components/ui/section-card";
 import { EmptyMessage } from "@/components/ui/states";
 import {
@@ -93,11 +94,6 @@ type TriggerResponse = {
 };
 
 const MARKET_INTELLIGENCE_CACHE_KEY = "/api/market-intelligence";
-
-function money(price?: number | null, currency?: string | null) {
-  if (price == null) return "-";
-  return `${currency ?? ""} ${price.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`.trim();
-}
 
 // Safely parse a response body. A crashed/bodiless 500 yields an empty string,
 // which would otherwise throw "Unexpected end of JSON input" on res.json().
@@ -482,7 +478,7 @@ export default function MarketIntelligencePage() {
       result.keyword,
       title.length > 72 ? `${title.slice(0, 72)}...` : title,
       result.store ?? "-",
-      money(result.price, result.currency),
+      result.price != null ? formatMoney(result.price, result.currency) : "-",
       result.searchPosition != null ? String(result.searchPosition) : "-",
       shortDate(result.capturedAt),
       ];
@@ -548,8 +544,8 @@ export default function MarketIntelligencePage() {
     result.avgMonthlySearches != null ? result.avgMonthlySearches.toLocaleString("en-PH") : "-",
     result.competition ?? "-",
     result.competitionIndex != null ? String(result.competitionIndex) : "-",
-    result.lowTopOfPageBidMicros ? (Number(result.lowTopOfPageBidMicros) / 1_000_000).toFixed(2) : "-",
-    result.highTopOfPageBidMicros ? (Number(result.highTopOfPageBidMicros) / 1_000_000).toFixed(2) : "-",
+    result.lowTopOfPageBidMicros ? formatPhp(Number(result.lowTopOfPageBidMicros) / 1_000_000) : "-",
+    result.highTopOfPageBidMicros ? formatPhp(Number(result.highTopOfPageBidMicros) / 1_000_000) : "-",
     shortDate(result.capturedAt),
   ]), [data?.keywordResearch, cutoff]);
 

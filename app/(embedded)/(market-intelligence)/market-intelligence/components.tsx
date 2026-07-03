@@ -4,6 +4,10 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Badge, Banner, BlockStack, Box, Button, Card, Divider, InlineStack, Link, SkeletonBodyText, Text } from "@shopify/polaris";
 import { RefreshIcon } from "@shopify/polaris-icons";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
+import { timeAgo, formatMoney } from "@/lib/format";
+import { severityTone } from "@/lib/ui/tones";
+
+export { severityTone };
 
 export interface MarketInsight {
   id: string;
@@ -48,13 +52,6 @@ export function adRunningDays(ad: { startDate?: string | null; endDate?: string 
   return Math.max(0, Math.floor((end - start) / 86_400_000));
 }
 
-export function severityTone(severity: string): "success" | "info" | "warning" | "critical" | undefined {
-  if (severity === "critical") return "critical";
-  if (severity === "warning") return "warning";
-  if (severity === "success") return "success";
-  return "info";
-}
-
 // Severity ordering for sorting insights (lower = more urgent, shown first).
 export const SEVERITY_RANK: Record<string, number> = { critical: 0, warning: 1, info: 2, success: 3 };
 
@@ -66,18 +63,7 @@ export function shortDate(value?: string | null) {
 // Human-friendly relative time, falling back to an absolute date for older values.
 export function relativeTime(value?: string | null): string {
   if (!value) return "Never";
-  const then = new Date(value).getTime();
-  if (Number.isNaN(then)) return "";
-  const diffMs = Date.now() - then;
-  const sec = Math.floor(diffMs / 1000);
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day}d ago`;
-  return shortDate(value);
+  return timeAgo(value);
 }
 
 /**
@@ -329,7 +315,7 @@ export function PriceComparisonCard({
 }) {
   const badge = marketBadge(product.price, matches);
   const fmt = (price: number | null | undefined, currency: string | null | undefined) =>
-    price == null ? "-" : `${currency ?? ""} ${price.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
+    price == null ? "-" : formatMoney(price, currency);
 
   return (
     <Card>

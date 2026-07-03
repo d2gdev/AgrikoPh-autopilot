@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
+import { timeAgo } from "@/lib/format";
 
 type BriefTone = "success" | "warning" | "critical" | "info";
 
@@ -68,20 +69,6 @@ const CACHE_KEY = "/api/growth-brief";
 
 function toneForBadge(tone: BriefTone): "success" | "warning" | "critical" | "info" {
   return tone;
-}
-
-function timeAgo(iso: string | null) {
-  if (!iso) return "unknown";
-  const time = new Date(iso).getTime();
-  if (!Number.isFinite(time)) return "unknown";
-  const diff = Date.now() - time;
-  const mins = Math.floor(Math.abs(diff) / 60000);
-  const suffix = diff < 0 ? " from now" : " ago";
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m${suffix}`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h${suffix}`;
-  return `${Math.floor(hrs / 24)}d${suffix}`;
 }
 
 function Stat({ label, value, tone }: { label: string; value: string | number; tone?: BriefTone }) {

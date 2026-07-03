@@ -6,6 +6,7 @@ import {
 import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
+import { timeAgo } from "@/lib/format";
 
 interface Post {
   id: string;
@@ -19,15 +20,6 @@ interface Post {
 }
 
 interface PageInfo { id: string; name: string; }
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const days = Math.floor(diff / 86400000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString("en-PH", { month: "short", day: "numeric" });
-}
 
 function engagementTone(total: number): "success" | "warning" | undefined {
   if (total >= 50) return "success";

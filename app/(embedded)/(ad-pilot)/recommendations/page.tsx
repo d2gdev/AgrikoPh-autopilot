@@ -2,11 +2,14 @@
 
 import {
   Page, Layout, Card, Text, Button, Badge, BlockStack, InlineStack,
-  Tabs, EmptyState, Spinner, Collapsible, Modal, TextField, Banner, Toast,
+  Tabs, EmptyState, Collapsible, Modal, TextField, Select, Banner, Toast,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { ApproveConfirmationModal } from "@/components/ui/approve-confirmation-modal";
+import { timeAgo } from "@/lib/format";
+import { recommendationStatusTone } from "@/lib/ui/tones";
+import { ListSkeleton } from "@/components/ui/states";
 
 interface Recommendation {
   id: string;
@@ -26,16 +29,6 @@ interface Recommendation {
   createdAt: string;
   executedAt: string | null;
   executionResult: Record<string, unknown> | null;
-}
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 const TABS = [
@@ -81,6 +74,9 @@ export default function RecommendationsPage() {
   const [overrideError, setOverrideError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; undoId?: string } | null>(null);
   const [undoing, setUndoing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [platform, setPlatform] = useState("all");
+  const [sortKey, setSortKey] = useState("newest");
 
   const status = TABS[selected]!.id;
 
@@ -90,7 +86,8 @@ export default function RecommendationsPage() {
     else setLoadingMore(true);
     setLoadError(null);
 
-    authFetch(`/api/recommendations?status=${status}&limit=${PAGE_SIZE}&offset=${offset}`)
+    const platformParam = platform === "all" ? "" : `&platform=${platform}`;
+    authFetch(`/api/recommendations?status=${status}&limit=${PAGE_SIZE}&offset=${offset}${platformParam}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(await responseError(r, "Failed to load recommendations"));
         return r.json();
@@ -103,9 +100,9 @@ export default function RecommendationsPage() {
         setLoadError(errorMessage(err));
       })
       .finally(() => { setLoading(false); setLoadingMore(false); });
-  }, [status, recs.length, authFetch]);
+  }, [status, platform, recs.length, authFetch]);
 
-  useEffect(() => { load(true); }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(true); }, [status, platform]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function approve(id: string) {
     setApprovingId(id);
@@ -181,19 +178,69 @@ export default function RecommendationsPage() {
   }
 
   function statusBadge(s: string) {
-    if (s === "executed")          return <Badge tone="success">Executed</Badge>;
-    if (s === "failed")            return <Badge tone="critical">Failed</Badge>;
-    if (s === "rejected")          return <Badge tone="warning">Rejected</Badge>;
-    if (s === "override_approved") return <Badge tone="attention">Override Approved</Badge>;
-    if (s === "executing")         return <Badge tone="info">Executing</Badge>;
-    return null;
+    const labels: Record<string, string> = {
+      executed: "Executed",
+      failed: "Failed",
+      rejected: "Rejected",
+      override_approved: "Override Approved",
+      executing: "Executing",
+    };
+    const tone = recommendationStatusTone(s);
+    if (!tone) return null;
+    return <Badge tone={tone}>{labels[s] ?? s}</Badge>;
   }
+
+  const query = searchQuery.trim().toLowerCase();
+  const filtered = query
+    ? recs.filter((rec) =>
+        [rec.targetEntityName, rec.skillName, rec.rationale].some((field) =>
+          field.toLowerCase().includes(query)
+        )
+      )
+    : recs;
+  const visible = sortKey === "confidence"
+    ? [...filtered].sort((a, b) => (b.confidenceScore ?? 0) - (a.confidenceScore ?? 0))
+    : filtered;
 
   return (
     <Page title="Recommendations">
       <Layout>
         <Layout.Section>
           <Tabs tabs={TABS} selected={selected} onSelect={(i) => { setSelected(i); }} />
+        </Layout.Section>
+
+        <Layout.Section>
+          <InlineStack gap="200" blockAlign="end" wrap>
+            <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+              <TextField label="Search recommendations" labelHidden placeholder="Search…" value={searchQuery} onChange={setSearchQuery}
+                autoComplete="off" clearButton onClearButtonClick={() => setSearchQuery("")} />
+            </div>
+            <div style={{ minWidth: 150 }}>
+              <Select
+                label="Filter by platform"
+                labelHidden
+                options={[
+                  { label: "All platforms", value: "all" },
+                  { label: "Meta", value: "meta" },
+                  { label: "Google Ads", value: "google_ads" },
+                ]}
+                value={platform}
+                onChange={setPlatform}
+              />
+            </div>
+            <div style={{ minWidth: 130 }}>
+              <Select
+                label="Sort by"
+                labelHidden
+                options={[
+                  { label: "Newest", value: "newest" },
+                  { label: "Confidence", value: "confidence" },
+                ]}
+                value={sortKey}
+                onChange={setSortKey}
+              />
+            </div>
+          </InlineStack>
         </Layout.Section>
 
         {(loadError || actionError) && (
@@ -206,12 +253,7 @@ export default function RecommendationsPage() {
 
         <Layout.Section>
           {loading ? (
-            <Card>
-              <InlineStack align="center" gap="200">
-                <Spinner size="small" />
-                <Text as="p" tone="subdued">Loading…</Text>
-              </InlineStack>
-            </Card>
+            <Card><ListSkeleton lines={6} /></Card>
           ) : recs.length === 0 ? (
             <EmptyState heading="No recommendations" image="https://cdn.shopify.com/s/files/1/0757/9955/files/empty-state.svg">
               <Text as="p">
@@ -226,9 +268,13 @@ export default function RecommendationsPage() {
             </EmptyState>
           ) : (
             <BlockStack gap="400">
-              <Text as="p" tone="subdued">Showing {recs.length} of {total}</Text>
+              <Text as="p" tone="subdued">
+                {query
+                  ? `Showing ${visible.length} matching of ${recs.length} loaded`
+                  : `Showing ${recs.length} of ${total}`}
+              </Text>
 
-              {recs.map((rec) => (
+              {visible.map((rec) => (
                 <Card key={rec.id}>
                   <BlockStack gap="300">
                     <InlineStack align="space-between" blockAlign="start">

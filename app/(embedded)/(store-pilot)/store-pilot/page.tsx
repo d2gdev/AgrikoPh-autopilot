@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
+import { priorityTone } from "@/lib/ui/tones";
 
 interface ProductImage {
   id: string;
@@ -67,8 +68,7 @@ function formatDate(value: string | null) {
 }
 
 function PriorityBadge({ priority }: { priority: string }) {
-  const tone = priority === "P0" || priority === "P1" ? "critical" : priority === "P2" ? "attention" : "info";
-  return <Badge tone={tone}>{priority}</Badge>;
+  return <Badge tone={priorityTone(priority)}>{priority}</Badge>;
 }
 
 export default function StorePilotReportPage() {

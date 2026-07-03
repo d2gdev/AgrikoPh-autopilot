@@ -12,12 +12,14 @@ import {
   Thumbnail,
   DataTable,
   Toast,
-  Spinner,
   Banner,
+  TextField,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
+import { timeAgo } from "@/lib/format";
+import { ListSkeleton } from "@/components/ui/states";
 
 interface ImageRow {
   imageId: string;
@@ -31,7 +33,17 @@ interface PageData {
   images: ImageRow[];
   total: number;
   missingAltText: number;
+  cachedAt?: string;
 }
+
+const FILTERS = [
+  { id: "all", label: "All" },
+  { id: "missing", label: "Missing" },
+  { id: "suggested", label: "Suggested" },
+  { id: "set", label: "Set" },
+] as const;
+
+type FilterId = (typeof FILTERS)[number]["id"];
 
 const IMAGES_CACHE_KEY = "/api/images";
 
@@ -46,6 +58,8 @@ export default function ImagesPage() {
   const [bulkRunning, setBulkRunning] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [applying, setApplying] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<FilterId>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const loadImages = useCallback((refresh = false) => {
     setLoading(true);
@@ -127,7 +141,22 @@ export default function ImagesPage() {
     }
   }, []);
 
-  const rows = (data?.images ?? []).map((img) => {
+  const allImages = data?.images ?? [];
+  const filterCounts: Record<FilterId, number> = {
+    all: allImages.length,
+    missing: allImages.filter((i) => !i.altText && !suggestions[i.imageId]).length,
+    suggested: allImages.filter((i) => !!suggestions[i.imageId]).length,
+    set: allImages.filter((i) => !!i.altText).length,
+  };
+  const query = searchQuery.trim().toLowerCase();
+  const filteredImages = allImages.filter((img) => {
+    if (filter === "missing" && (img.altText || suggestions[img.imageId])) return false;
+    if (filter === "suggested" && !suggestions[img.imageId]) return false;
+    if (filter === "set" && !img.altText) return false;
+    return !query || img.productTitle.toLowerCase().includes(query);
+  });
+
+  const rows = filteredImages.map((img) => {
     const suggestion = suggestions[img.imageId];
     const isGenerating = generating.has(img.imageId);
     const hasError = errors[img.imageId];
@@ -201,34 +230,59 @@ export default function ImagesPage() {
             </Layout.Section>
           )}
           <Layout.Section>
-            <InlineStack gap="400" wrap={false}>
-              <Card>
-                <BlockStack gap="200">
-                  <Text variant="headingMd" as="h2">Total Images</Text>
-                  <Text variant="heading2xl" as="p">{data?.total ?? "—"}</Text>
-                </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="200">
-                  <Text variant="headingMd" as="h2">Missing Alt Text</Text>
-                  <Text variant="heading2xl" as="p">{data?.missingAltText ?? "—"}</Text>
-                </BlockStack>
-              </Card>
-            </InlineStack>
+            <BlockStack gap="200">
+              <InlineStack gap="400" wrap={false}>
+                <Card>
+                  <BlockStack gap="200">
+                    <Text variant="headingMd" as="h2">Total Images</Text>
+                    <Text variant="heading2xl" as="p">{data?.total ?? "—"}</Text>
+                  </BlockStack>
+                </Card>
+                <Card>
+                  <BlockStack gap="200">
+                    <Text variant="headingMd" as="h2">Missing Alt Text</Text>
+                    <Text variant="heading2xl" as="p">{data?.missingAltText ?? "—"}</Text>
+                  </BlockStack>
+                </Card>
+              </InlineStack>
+              {data?.cachedAt && (
+                <Text as="p" variant="bodySm" tone="subdued">Updated {timeAgo(data.cachedAt)}</Text>
+              )}
+            </BlockStack>
           </Layout.Section>
 
           <Layout.Section>
-            <Card>
-              {loading ? (
-                <InlineStack align="center"><Spinner /></InlineStack>
-              ) : (
-                <DataTable
-                  columnContentTypes={["text", "text", "text", "text"]}
-                  headings={["Product", "Image", "Alt Text", "Action"]}
-                  rows={rows}
-                />
-              )}
-            </Card>
+            <BlockStack gap="300">
+              <InlineStack gap="200" blockAlign="end" wrap>
+                <InlineStack gap="100">
+                  {FILTERS.map((f) => (
+                    <Button
+                      key={f.id}
+                      size="slim"
+                      variant={filter === f.id ? "primary" : undefined}
+                      onClick={() => setFilter(f.id)}
+                    >
+                      {`${f.label} (${loading ? "…" : filterCounts[f.id]})`}
+                    </Button>
+                  ))}
+                </InlineStack>
+                <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                  <TextField label="Search products" labelHidden placeholder="Search…" value={searchQuery} onChange={setSearchQuery}
+                    autoComplete="off" clearButton onClearButtonClick={() => setSearchQuery("")} />
+                </div>
+              </InlineStack>
+              <Card>
+                {loading ? (
+                  <ListSkeleton lines={6} />
+                ) : (
+                  <DataTable
+                    columnContentTypes={["text", "text", "text", "text"]}
+                    headings={["Product", "Image", "Alt Text", "Action"]}
+                    rows={rows}
+                  />
+                )}
+              </Card>
+            </BlockStack>
           </Layout.Section>
         </Layout>
       </Page>

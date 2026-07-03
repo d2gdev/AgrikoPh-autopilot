@@ -1,6 +1,7 @@
 "use client";
 
 import { Modal, Text, BlockStack, InlineStack, Badge, Box } from "@shopify/polaris";
+import { actionLabel } from "@/lib/format";
 
 export interface ApprovableRecommendation {
   id: string;
@@ -12,16 +13,6 @@ export interface ApprovableRecommendation {
   guardStatus?: string;
   guardReason?: string | null;
   estimatedImpact?: string | null;
-}
-
-function actionLabel(t: string) {
-  const map: Record<string, string> = {
-    pause_campaign: "Pause Campaign",
-    pause_ad: "Pause Ad",
-    adjust_budget: "Adjust Budget",
-    enable_campaign: "Enable Campaign",
-  };
-  return map[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**

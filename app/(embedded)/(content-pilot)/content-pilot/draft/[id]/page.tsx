@@ -48,6 +48,7 @@ function countWords(html: string): number {
 }
 import { useParams, useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
+import { priorityTone } from "@/lib/ui/tones";
 import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
 import { GroundingCitations } from "@/components/content-pilot/grounding-citations";
 import type { DraftCitation } from "@/lib/content-pilot/generate-draft";
@@ -593,7 +594,6 @@ export default function DraftReviewPage() {
     );
   }
 
-  const priorityTone = proposal.priority === "P1" ? "critical" : proposal.priority === "P2" ? "attention" : "info";
   const isPublished = proposal.draftStatus === "published";
   const hasDraft = proposal.draftStatus === "ready";
   const isGenerating = proposal.draftStatus === "generating" || generating;
@@ -632,7 +632,7 @@ export default function DraftReviewPage() {
               <BlockStack gap="300">
                 <Text variant="headingMd" as="h2">Proposal</Text>
                 <InlineStack gap="200">
-                  <Badge tone={priorityTone}>{proposal.priority}</Badge>
+                  <Badge tone={priorityTone(proposal.priority)}>{proposal.priority}</Badge>
                   <Badge>{proposal.proposalType}</Badge>
                 </InlineStack>
                 <Text variant="headingSm" as="h3">{proposal.title}</Text>

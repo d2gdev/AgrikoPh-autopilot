@@ -7,6 +7,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
+import { campaignStatusTone } from "@/lib/ui/tones";
+import { StatGridSkeleton, ListSkeleton } from "@/components/ui/states";
 
 interface Campaign {
   id: string;
@@ -60,7 +62,7 @@ export default function AdPilotReportPage() {
 
   const rows = campaigns.map((c) => [
     c.name,
-    <Badge tone={c.status === "ACTIVE" ? "success" : undefined}>{c.status}</Badge>,
+    <Badge tone={campaignStatusTone(c.status)}>{c.status}</Badge>,
     c.budget,
     c.spend7d,
     c.roas,
@@ -98,32 +100,36 @@ export default function AdPilotReportPage() {
         )}
 
         <Layout.Section>
-          <InlineStack gap="400" wrap={false}>
-            <Card>
-              <BlockStack gap="100">
-                <Text variant="headingSm" as="h3" tone="subdued">Active Campaigns</Text>
-                <Text variant="heading2xl" as="p">{loading ? "—" : active}</Text>
-              </BlockStack>
-            </Card>
-            <Card>
-              <BlockStack gap="100">
-                <Text variant="headingSm" as="h3" tone="subdued">Total Campaigns</Text>
-                <Text variant="heading2xl" as="p">{loading ? "—" : campaigns.length}</Text>
-              </BlockStack>
-            </Card>
-            <Card>
-              <BlockStack gap="100">
-                <Text variant="headingSm" as="h3" tone="subdued">Pending Recs</Text>
-                <Text variant="heading2xl" as="p">{jobStatus?.pendingCount ?? "—"}</Text>
-              </BlockStack>
-            </Card>
-            <Card>
-              <BlockStack gap="100">
-                <Text variant="headingSm" as="h3" tone="subdued">Executed (Month)</Text>
-                <Text variant="heading2xl" as="p">{jobStatus?.executedThisMonth ?? "—"}</Text>
-              </BlockStack>
-            </Card>
-          </InlineStack>
+          {loading ? (
+            <StatGridSkeleton count={4} />
+          ) : (
+            <InlineStack gap="400" wrap={false}>
+              <Card>
+                <BlockStack gap="100">
+                  <Text variant="headingSm" as="h3" tone="subdued">Active Campaigns</Text>
+                  <Text variant="heading2xl" as="p">{active}</Text>
+                </BlockStack>
+              </Card>
+              <Card>
+                <BlockStack gap="100">
+                  <Text variant="headingSm" as="h3" tone="subdued">Total Campaigns</Text>
+                  <Text variant="heading2xl" as="p">{campaigns.length}</Text>
+                </BlockStack>
+              </Card>
+              <Card>
+                <BlockStack gap="100">
+                  <Text variant="headingSm" as="h3" tone="subdued">Pending Recs</Text>
+                  <Text variant="heading2xl" as="p">{jobStatus?.pendingCount ?? "—"}</Text>
+                </BlockStack>
+              </Card>
+              <Card>
+                <BlockStack gap="100">
+                  <Text variant="headingSm" as="h3" tone="subdued">Executed (Month)</Text>
+                  <Text variant="heading2xl" as="p">{jobStatus?.executedThisMonth ?? "—"}</Text>
+                </BlockStack>
+              </Card>
+            </InlineStack>
+          )}
         </Layout.Section>
 
         <Layout.Section>
@@ -131,7 +137,7 @@ export default function AdPilotReportPage() {
             <BlockStack gap="300">
               <Text variant="headingMd" as="h2">Campaign Performance</Text>
               {loading ? (
-                <Text as="p" tone="subdued">Loading…</Text>
+                <ListSkeleton lines={5} />
               ) : rows.length === 0 ? (
                 <Text as="p" tone="subdued">No data yet — run the analyzer from the Dashboard.</Text>
               ) : (

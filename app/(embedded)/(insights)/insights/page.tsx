@@ -7,6 +7,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
+import { timeAgo } from "@/lib/format";
+import { ListSkeleton } from "@/components/ui/states";
 
 interface PilotCard {
   name: string;
@@ -20,14 +22,6 @@ interface JobStatus {
   pendingCount: number;
   executedThisMonth: number;
   lastJobRun: { status: string; startedAt: string } | null;
-}
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const hrs = Math.floor(diff / 3600000);
-  if (hrs < 1) return "< 1h ago";
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 export default function InsightsPilotPage() {
@@ -215,7 +209,7 @@ export default function InsightsPilotPage() {
                       </InlineStack>
 
                       {pilot.loading ? (
-                        <Text as="p" tone="subdued">Loading…</Text>
+                        <ListSkeleton lines={2} />
                       ) : pilot.metrics.length > 0 ? (
                         <InlineStack gap="400">
                           {pilot.metrics.map((m) => (
