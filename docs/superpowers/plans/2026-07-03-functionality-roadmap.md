@@ -33,12 +33,13 @@
 | 4 | Shopify orders ingestion + real-revenue ROAS | M | — |
 | 5 | Ad-approvals stepper, timeline, human names (item 13) | M | — |
 | 6 | Market Intelligence → advisory recommendations | M | 4 (margin-aware pricing) |
-| 7 | Social Pilot MVP (blog → Facebook page posts) | L | — |
-| 8 | Ad launch: approved ads → Meta (paused) | L | 5 |
-| 9 | Monolith splits (item 16) | M×3 | best after 3,5,6 land their UI |
-| 10 | A11y/theming pass (item 17) | M | folded into 9 per page + final sweep |
+| 7 | Ad launch: approved ads → Meta (paused) | L | 5 |
+| 8 | Monolith splits (item 16) | M×3 | best after 3,5,6 land their UI |
+| 9 | A11y/theming pass (item 17) | M | folded into 8 per page + final sweep |
 
-🚀 Deploy checkpoints: after Phase 1, after Phase 4, after Phase 8, after Phase 10.
+🚀 Deploy checkpoints: after Phase 1, after Phase 4, after Phase 7, after Phase 9.
+
+> **Removed by user decision (2026-07-03):** Social Pilot MVP (blog → Facebook page posts) is explicitly out of scope for this roadmap — do not build it or propose it as part of these phases. Gap #5 (Social Pilot is a shell) stays open and unaddressed by choice; the social-pilot page remains as-is apart from the Phase 8/9 refactor-and-theming treatment every page gets.
 
 ---
 
@@ -155,22 +156,7 @@
 
 ---
 
-## Phase 7 — Social Pilot MVP (gap #5)
-
-**Design locked (scope decision):** MVP = **operator-approved reposting of published blog content to the Facebook Page**, closing the content→distribution loop with the platform we already have credentials for.
-- New model `SocialPost` (`id`, `articleRecordId?`, `message`, `linkUrl`, `status: draft|approved|posted|failed`, `scheduledAt?`, `postedAt?`, `fbPostId?`, `error?`).
-- Generation: when Content Pilot publishes an article, create a draft `SocialPost` (AI-written caption via the existing `getAiClient` pattern, ≤ 280 chars, brand voice prompt).
-- Approval UI on `app/(embedded)/(social-pilot)/social-pilot/page.tsx`: queue of drafts with edit-caption, Approve, Reject (reuse confirm/toast/undo patterns).
-- Execution: `jobs/post-social.ts` cron posts approved items via Meta Graph API `POST /{page-id}/feed` (page access token — verify the existing Meta token's scopes include `pages_manage_posts` at phase-plan time; if not, surface the re-auth requirement to the operator before building UI). Gated by `SOCIAL_POST_LIVE_ENABLED=true` (defaults off; dry-run mode logs what would post).
-- Metrics: extend `lib/connectors/meta-organic.ts` to pull post impressions/reactions for posted items back onto the SocialPost row and page UI.
-
-**Files:** Migration (SocialPost), `jobs/post-social.ts` + cron route, `lib/connectors/meta-pages.ts` (or extend `meta-organic.ts`), social-pilot page rebuild, content-pilot publish hook, tests for the job (dry-run + live-gated) and caption generation route.
-
-**Acceptance:** Publishing a blog article yields a draft social post; approving it posts to the Page when the flag is on (dry-run logs otherwise); the post's metrics appear within a day.
-
----
-
-## Phase 8 — Ad launch: approved ads → Meta, paused (gap #1)
+## Phase 7 — Ad launch: approved ads → Meta, paused (gap #1)
 
 **Rationale:** The largest gap: `approved_to_make_kwarta` has no consumer. Close it conservatively — the system creates the ad **in PAUSED state**; a human presses go in Ads Manager (or via a follow-up `enable_campaign`-style action later).
 
@@ -186,7 +172,7 @@
 
 ---
 
-## Phase 9 — Monolith splits (item 16) — one sub-plan per page
+## Phase 8 — Monolith splits (item 16) — one sub-plan per page
 
 Order: `content-pilot/page.tsx` (1,820 lines) → dashboard `page.tsx` (~1,430) → `seo-pillar/page.tsx` (~1,100). Each is its own execution plan with the same recipe:
 - Extract each rendered section into `app/(embedded)/<route>/components/<Section>.tsx` files (co-located, not in the global `components/`), moving section-scoped state down and lifting only shared state; target: page file < 400 lines of composition.
@@ -197,14 +183,14 @@ Order: `content-pilot/page.tsx` (1,820 lines) → dashboard `page.tsx` (~1,430) 
 
 ---
 
-## Phase 10 — A11y & theming pass (item 17)
+## Phase 9 — A11y & theming pass (item 17)
 
 **Rule going forward + retrofit:**
 - Replace hardcoded hexes with Polaris tokens (`var(--p-color-...)`): known offenders `roasBarColor`/`ConfBar` (campaigns), `stalenessStyle`/`STATUS_DOT_COLOR` (dashboard), sparkline colors, market-intelligence bars.
 - Replace emoji-as-icons (▲▼ ✓ ✗ 💰 ⚠) with Polaris icons (`@shopify/polaris-icons`) + text labels; keep emoji only in human-facing copy where decorative.
 - Color-only signals get a shape/text second channel (trend arrows with sr-only text, badges instead of bare colored bars).
 - Focus/keyboard: custom clickable divs become `Button variant="monochromePlain"` or get `tabIndex`/`role`/`onKeyDown`; scrollable HTML previews get `tabIndex={0}` + `role="region"` + label.
-- Execution: fold into each Phase-9 page as it's split (the retrofit is cheap when the section is already being moved), then one final sweep over the remaining pages with the chrome-devtools a11y-debugging skill as the checker (contrast + keyboard walk on Dashboard, Campaigns, Recommendations, Ad Approvals).
+- Execution: fold into each Phase-8 page as it's split (the retrofit is cheap when the section is already being moved), then one final sweep over the remaining pages with the chrome-devtools a11y-debugging skill as the checker (contrast + keyboard walk on Dashboard, Campaigns, Recommendations, Ad Approvals).
 
 **Acceptance:** No raw hex colors in `app/(embedded)` (`rtk grep -rn "#[0-9a-f]\{6\}" app/(embedded)` clean except third-party requirements); keyboard-only walk can reach and trigger every action on the four core pages; dark mode renders legibly. 🚀 Final deploy.
 
@@ -212,14 +198,14 @@ Order: `content-pilot/page.tsx` (1,820 lines) → dashboard `page.tsx` (~1,430) 
 
 ## Explicitly resolved scope questions
 
-- **Store Pilot scope (gap #9):** resolved without a new pillar build — Store Pilot becomes the home of operator tasks produced by Phases 2 (meta fixes), 3 (creative-refresh tasks), and 6 (pricing reviews). Its page gets the task queue treatment during Phase 9/10, not a bespoke feature set.
+- **Store Pilot scope (gap #9):** resolved without a new pillar build — Store Pilot becomes the home of operator tasks produced by Phases 2 (meta fixes), 3 (creative-refresh tasks), and 6 (pricing reviews). Its page gets the task queue treatment during Phase 8/9, not a bespoke feature set.
 - **Search-term insights:** Google-flavored → delete or re-target in Phase 3; never rebuilt for Google.
 - **Notifications transport:** webhook (`ALERT_WEBHOOK_URL`) — no email infra will be added in this roadmap.
 - **Repricing:** advisory tasks only; automatic price changes are out of scope until the operator asks.
 
 ## Self-review notes
 
-- Coverage: gaps #1→Phase 8, #2→3, #3→2, #4→4, #5→7, #6→6, #7→1A, #8→1B, #9→resolved scope note; item 13→Phase 5, 16→9, 17→10; Google Ads removal→Phase 0. ✔
+- Coverage: gaps #1→Phase 7, #2→3, #3→2, #4→4, #5→deferred by user decision (2026-07-03), #6→6, #7→1A, #8→1B, #9→resolved scope note; item 13→Phase 5, 16→8, 17→9; Google Ads removal→Phase 0. ✔
 - Every phase names exact files, models, env flags, and acceptance criteria; code-complete steps are deliberately deferred to per-phase plans per the scope-check decomposition declared in the header.
-- Interface names introduced here and reused later: `sendOperatorAlert` (1A, used by 6 and 8), `outcomeTone` (1B), `stageProgress` (5, extended by 8), `DailySales` (4), `SocialPost` (7). Consistent throughout.
-- External-scope risks called out where a phase can dead-end (Shopify `read_orders` scope in 4, Meta `pages_manage_posts` in 7, Marketing API ad-create permissions in 8): each phase's first task is the permission check, stop-and-surface if blocked.
+- Interface names introduced here and reused later: `sendOperatorAlert` (1A, used by 6 and 7), `outcomeTone` (1B), `stageProgress` (5, extended by 7), `DailySales` (4). Consistent throughout.
+- External-scope risks called out where a phase can dead-end (Shopify `read_orders` scope in 4, Marketing API ad-create permissions in 7): each phase's first task is the permission check, stop-and-surface if blocked.
