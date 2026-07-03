@@ -18,6 +18,7 @@ type RunSkillsSummary = {
   skillHashes: Record<string, string>;
   skillLastRun: Record<string, string>;
   unsupportedSkipped: number;
+  fatigueActions: { pauseRecs: number; refreshTasks: number };
 };
 
 type RunSkillsResult = JobResult<RunSkillsSummary> & { newRecs: number };
@@ -42,6 +43,7 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
       skillHashes: {},
       skillLastRun: {},
       unsupportedSkipped: 0,
+      fatigueActions: { pauseRecs: 0, refreshTasks: 0 },
     };
     const errors = ["No snapshots available — run data fetch first"];
     await prisma.jobRun.update({
@@ -264,6 +266,17 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
     });
   }
 
+  let fatigueActions = { pauseRecs: 0, refreshTasks: 0 };
+  if (insightRows.length > 0) {
+    const { createFatigueActions } = await import("@/lib/skills/insight-actions");
+    try {
+      fatigueActions = await createFatigueActions({ runId, rows: insightRows });
+      totalRecs += fatigueActions.pauseRecs; // counts toward the Phase 1 new_recommendations alert
+    } catch (err) {
+      errors.push(`insight-actions: ${String(err)}`);
+    }
+  }
+
   // Only preserve hashes for skills that completed (fulfilled). Failed skills get no hash
   // entry, so they re-run next cycle instead of being permanently frozen by a stale hash.
   const updatedSkillHashes: Record<string, string> = {};
@@ -287,6 +300,7 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
     skillHashes: updatedSkillHashes,
     skillLastRun: updatedSkillLastRun,
     unsupportedSkipped,
+    fatigueActions,
   };
 
   await prisma.jobRun.update({
