@@ -13,6 +13,7 @@ import {
   DataTable,
   Toast,
   Spinner,
+  Banner,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
@@ -43,13 +44,19 @@ export default function ImagesPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [bulkRunning, setBulkRunning] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    authFetch(IMAGES_CACHE_KEY)
-      .then((r) => r.json())
-      .then((d) => { setCache(IMAGES_CACHE_KEY, d); setData(d); setLoading(false); })
-      .catch(() => { setLoading(false); });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const loadImages = useCallback((refresh = false) => {
+    setLoading(true);
+    setLoadError(null);
+    authFetch(refresh ? `${IMAGES_CACHE_KEY}?refresh=1` : IMAGES_CACHE_KEY)
+      .then((r) => { if (!r.ok) throw new Error(`Images failed to load (${r.status})`); return r.json(); })
+      .then((d) => { setCache(IMAGES_CACHE_KEY, d); setData(d); })
+      .catch((err: Error) => setLoadError(err.message || "Images failed to load"))
+      .finally(() => setLoading(false));
+  }, [authFetch]);
+
+  useEffect(() => { loadImages(); }, [loadImages]);
 
   const generate = useCallback(async (img: ImageRow): Promise<string | null> => {
     setGenerating((p) => new Set(p).add(img.imageId));
@@ -141,6 +148,18 @@ export default function ImagesPage() {
         }
       >
         <Layout>
+          {loadError && (
+            <Layout.Section>
+              <Banner
+                tone="critical"
+                title="Failed to load images"
+                action={{ content: "Retry", onAction: () => loadImages() }}
+                onDismiss={() => setLoadError(null)}
+              >
+                <Text as="p">{loadError}</Text>
+              </Banner>
+            </Layout.Section>
+          )}
           <Layout.Section>
             <InlineStack gap="400" wrap={false}>
               <Card>
