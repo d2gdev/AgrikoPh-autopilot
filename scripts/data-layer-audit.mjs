@@ -46,7 +46,7 @@ const STREAMS = [
   { model: "competitorAdCapture",   ts: "capturedAt", job: "fetch-market-intel",        staleDays: 8,  label: "Competitor Ad Captures" },
   { model: "shoppingResult",        ts: "capturedAt", job: "fetch-market-intel",        staleDays: 2,  label: "Shopping Results" },
   { model: "shoppingPriceHistory",  ts: "capturedAt", job: "fetch-market-intel",        staleDays: 2,  label: "Price History" },
-  { model: "keywordResearchResult", ts: "capturedAt", job: "fetch-keyword-research",    staleDays: 8,  label: "Keyword Research (DataForSEO)" },
+  { model: "keywordResearchResult", ts: "capturedAt", job: "fetch-keyword-research",    staleDays: 8,  label: "Keyword Planner Research" },
   { model: "gscQuery",              ts: "capturedAt", job: "fetch-gsc-data",            staleDays: 8,  label: "GSC Search Analytics (Agriko)" },
   { model: "pageAnalytics",         ts: "capturedAt", job: "fetch-seo-data",            staleDays: 8,  label: "GA4 Page Analytics" },
   { model: "marketInsight",         ts: "createdAt",  job: null,                        staleDays: 8,  label: "Market Insights" },

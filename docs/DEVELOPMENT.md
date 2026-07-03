@@ -24,7 +24,7 @@ CREDENTIALS_ENCRYPTION_KEY=<32-byte hex: openssl rand -hex 32>
 CRON_SECRET=<any string>
 ```
 
-Connector keys (Meta, GA4, DataForSEO, etc.) are optional — the app runs without them, returning empty data for those pilots.
+Connector keys (Meta, Google Ads, GA4, etc.) are optional — the app runs without them, returning empty data for those pilots.
 
 ## Shopify Admin Token
 
@@ -149,13 +149,13 @@ Skills are pure Markdown — no code changes needed.
    ```yaml
    ---
    title: My Skill Name
-   platform: meta        # meta | both
+   platform: meta        # meta | google_ads | both
    enabled: true
    ---
    ```
 2. Write the skill prompt in the body — describe what the AI should analyse and recommend
 3. The loader picks it up automatically on next `run-skills` job run
 
-**Supported platforms:** `meta`, `both` (Google Ads is not a supported platform). Skills with `linkedin`, `reddit`, or `seo` platform will load but never be dispatched (logged as warnings).
+**Supported platforms:** `meta`, `google_ads`, `both`. Skills with `linkedin`, `reddit`, or `seo` platform will load but never be dispatched (logged as warnings).
 
 **Root-level files win** over identically-named files in subdirectories (deduplication).

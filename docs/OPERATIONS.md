@@ -65,7 +65,7 @@ The cron file reads `CRON_SECRET` from `/opt/autopilot/.env` at runtime — it d
 | 04:30 | `/api/cron/snapshot-seo-history` | Store durable SEO trend point |
 | 05:00 | `/api/cron/fetch-ads-data` | Pull Meta ad snapshots |
 | 05:30 | `/api/cron/fetch-market-intel` | Shopping + Meta Ad Library captures |
-| 05:45 | `/api/cron/fetch-keyword-research` | DataForSEO keyword-volume metrics |
+| 05:45 | `/api/cron/fetch-keyword-research` | Google Ads keyword metrics |
 | Mon 05:50 | `/api/cron/fetch-gsc-data` | Store query+page GSC rows |
 | 06:00 | `/api/cron/execute-approved` | Dry-run approved execution queue |
 | Every minute | `/api/cron/drain-jobs?limit=1` | Drain durable dashboard refresh queue |

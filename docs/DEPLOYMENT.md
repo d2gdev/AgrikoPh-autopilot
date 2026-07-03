@@ -39,6 +39,11 @@ Set these in `.env` (copy from `.env.example`).
 | `META_ACCESS_TOKEN` | Optional | Meta Ads user access token |
 | `META_AD_ACCOUNT_ID` | Optional | Meta ad account ID (e.g. `act_123456`) |
 | `META_PAGE_ID` | Optional | Facebook Page ID for organic posts. Falls back to first page in account. |
+| `GOOGLE_ADS_DEVELOPER_TOKEN` | Optional | Google Ads developer token |
+| `GOOGLE_ADS_CUSTOMER_ID` | Optional | Google Ads customer ID |
+| `GOOGLE_ADS_CLIENT_ID` | Optional | OAuth client ID |
+| `GOOGLE_ADS_CLIENT_SECRET` | Optional | OAuth client secret |
+| `GOOGLE_ADS_REFRESH_TOKEN` | Optional | OAuth refresh token (see Google Ads OAuth below) |
 | `GA4_PROPERTY_ID` | Optional | Google Analytics 4 property ID |
 | `GA4_SERVICE_ACCOUNT_JSON_PATH` | Optional | Path to service account JSON file |
 | `GA4_SERVICE_ACCOUNT_JSON` | Optional | Service account JSON inline (paste full JSON string) |
@@ -60,6 +65,18 @@ npm run db:seed
 ```
 
 Run these after first setup or after pulling new migrations.
+
+---
+
+## Google Ads OAuth
+
+The Google Ads connector uses OAuth (not a service account). Run the one-time setup script to generate a refresh token:
+
+```bash
+node scripts/google-ads-oauth.mjs
+```
+
+Follow the browser prompt, then copy the printed refresh token into `GOOGLE_ADS_REFRESH_TOKEN`.
 
 ---
 

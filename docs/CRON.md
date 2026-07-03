@@ -13,7 +13,7 @@ Cron scheduling is handled outside the app. The app exposes cron routes that can
 | 04:30 | `/api/cron/snapshot-seo-history` | Stores a durable SEO trend point from the latest GSC snapshot |
 | 05:00 | `/api/cron/fetch-ads-data` | Pulls Meta campaigns, ad sets, ads, insights into a `RawSnapshot` |
 | 05:30 | `/api/cron/fetch-market-intel` | Captures Google Shopping competitor products/prices and Meta Ad Library creative intel |
-| 05:45 | `/api/cron/fetch-keyword-research` | Captures DataForSEO search-volume metrics for tracked market keywords |
+| 05:45 | `/api/cron/fetch-keyword-research` | Captures Google Ads keyword planning metrics for tracked market keywords |
 | Mon 05:50 | `/api/cron/fetch-gsc-data` | Captures query+page GSC rows into `GscQuery` for historical search analytics |
 | 06:00 | `/api/cron/execute-approved` | Dry-runs approved execution queue unless live execution is explicitly enabled |
 | 07:00 | `/api/cron/check-outcomes` | Measures whether executed recommendations helped by comparing before/after platform metrics |
@@ -49,7 +49,7 @@ Drains queued and retry-ready `AdAIJobQueue` rows (Pre/Brand/Technical review st
 Escalates ad approvals stuck with a human reviewer past their SLA: Conversion Reviewer 4h (→ backup, else admin flag), Penultimate Approver 8h (→ backup, else escalate to Final skipping the stage), Final Approver 24h (critical admin flag; no auto-skip). Writes audit + notification rows for each action. Runs under a `JobLock`.
 
 ### `/api/cron/fetch-ads-data`
-Calls `lib/connectors/meta.ts`. Writes a `RawSnapshot` of type `ads`.
+Calls `lib/connectors/meta.ts` (and `google-ads.ts` if credentials present). Writes a `RawSnapshot` of type `ads`.
 
 > **Meta pagination limit:** Single-page fetches only. Accounts with >100 campaigns, >200 ad sets, or >500 insight rows will be silently truncated.
 
@@ -64,7 +64,9 @@ If a provider is not configured, the job records it in the `JobRun.summary.disab
 Default spend controls are intentionally conservative: 5 keywords, 20 shopping results per keyword, 10 competitor pages, and 50 ads per page per run. Tune `MARKET_INTEL_KEYWORD_LIMIT`, `MARKET_INTEL_RESULTS_PER_KEYWORD`, `MARKET_INTEL_COMPETITOR_PAGE_LIMIT`, and `MARKET_INTEL_ADS_PER_PAGE_LIMIT` only after confirming provider costs.
 
 ### `/api/cron/fetch-keyword-research`
-Uses DataForSEO's bulk search-volume API to capture monthly search volume for active `MarketKeyword` records, stored in `KeywordResearchResult` with `source: "dataforseo"`. Competition, competition index, and bid-range fields are no longer populated, and long-tail keyword-idea discovery/auto-promotion is gone — Google Ads Keyword Planner, which provided both, is not a supported data source (removed 2026-07). If DataForSEO credentials are missing or the account is out of quota, the job records `dataforseo` in `disabledSources` and skips cleanly.
+Uses Google Ads API keyword planning to capture historical keyword metrics for active `MarketKeyword` records. It stores average monthly searches, competition, competition index, low/high top-of-page bid micros, and monthly search volume history in `KeywordResearchResult`.
+
+Default geo/language values are Philippines (`GOOGLE_ADS_KEYWORD_GEO_TARGET_ID=2608`) and English (`GOOGLE_ADS_KEYWORD_LANGUAGE_ID=1000`). If Google Ads credentials are missing, the job records `google_ads` in `disabledSources`.
 
 ### `/api/cron/fetch-gsc-data`
 Stores first-party GSC query+page rows in `GscQuery`. This stream is separate from raw SEO snapshots so the dashboard has durable row-level history for Agriko's own ranking data.
@@ -73,7 +75,7 @@ Stores first-party GSC query+page rows in `GscQuery`. This stream is separate fr
 1. **Stuck-lock recovery** — resets any rec stuck in `"executing"` for >10 minutes to `"failed"` with audit entry
 2. **Guardrail re-check** — re-validates approved recs against current guardrail thresholds using `deriveGuardrailInputs()` (re-derives from snapshot, not AI fields). Skipped for `override_approved` recs.
 3. **Before-state capture** — records current platform state before making changes
-4. **Execution** — calls the appropriate supported mutation. Only Meta is a supported execution platform.
+4. **Execution** — calls the appropriate supported mutation. Google Ads mutations are blocked for this release; Google Ads is keyword research only.
 5. **Audit trail** — writes `AuditLog` entry with before/after state, intended change, dry-run flag, linked `JobRun`, and outcome
 
 The route is dry-run by default. It captures before-state and writes audit records, but does not call mutation connectors and does not change recommendation status.
@@ -102,7 +104,7 @@ If you use the suggested schedule above, `run-skills` at 02:00 runs before `fetc
 04:30 snapshot-seo-history (durable SEO trend point)
 05:00 fetch-ads-data (refreshes snapshot for tomorrow's skills run)
 05:30 fetch-market-intel (market and competitor dashboard data)
-05:45 fetch-keyword-research (DataForSEO keyword-volume dashboard data)
+05:45 fetch-keyword-research (keyword planner dashboard data)
 06:00 execute-approved dry-run safety check
 ```
 

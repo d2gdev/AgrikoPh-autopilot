@@ -471,7 +471,7 @@ model KeywordResearchResult {
   marketKeyword              MarketKeyword? @relation(fields: [marketKeywordId], references: [id], onDelete: SetNull)
   seedKeyword                String
   keyword                    String
-  source                     String        @default("dataforseo")
+  source                     String        @default("google_ads")
   locationName               String?
   languageCode               String?
   avgMonthlySearches         Int?
