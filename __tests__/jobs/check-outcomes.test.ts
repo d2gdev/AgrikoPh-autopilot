@@ -6,6 +6,7 @@ vi.mock("@/lib/db", () => ({
     jobRun: { create: vi.fn().mockResolvedValue({ id: "run-1" }), update: vi.fn() },
     recommendation: { findMany: vi.fn(), update: vi.fn() },
     rawSnapshot: { findFirst: vi.fn() },
+    dailySales: { aggregate: vi.fn() },
     $executeRawUnsafe: vi.fn(),
   },
 }));
@@ -18,6 +19,7 @@ import { checkOutcomesHandler } from "@/jobs/check-outcomes";
 const mockFindMany = prisma.recommendation.findMany as Mock;
 const mockUpdate = prisma.recommendation.update as Mock;
 const mockSnapshotFindFirst = prisma.rawSnapshot.findFirst as Mock;
+const mockDailySalesAggregate = prisma.dailySales.aggregate as Mock;
 const mockEmbed = embedTexts as Mock;
 const mockExecRaw = prisma.$executeRawUnsafe as Mock;
 
@@ -58,6 +60,7 @@ beforeEach(() => {
   mockUpdate.mockResolvedValue({});
   mockEmbed.mockImplementation((texts: string[]) => Promise.resolve(texts.map(() => Array(1024).fill(0.1))));
   mockExecRaw.mockResolvedValue(undefined);
+  mockDailySalesAggregate.mockResolvedValue({ _sum: { revenue: null } });
 });
 
 describe("checkOutcomesHandler selection", () => {
@@ -176,6 +179,36 @@ describe("checkOutcomesHandler verdicts", () => {
     expect(result.summary.indexed).toBe(0);
     expect(result.status).toBe("success");
     expect(mockUpdate).toHaveBeenCalled();
+  });
+
+  it("attaches advisory storeRevenue before/after sums without affecting the verdict", async () => {
+    mockFindMany.mockResolvedValue([baseRec()]);
+    mockSnapshotFindFirst
+      .mockResolvedValueOnce(snapshot({ payload: { campaigns: [{ id: "123", spend: 100, roas: 2 }] } })) // before
+      .mockResolvedValueOnce(
+        snapshot({
+          id: "snap-2",
+          fetchedAt: new Date(EXECUTED_8D_AGO.getTime() + 8 * 24 * 60 * 60 * 1000),
+          payload: { campaigns: [{ id: "123", spend: 100, roas: 2.5 }] },
+        }),
+      ); // after
+    mockDailySalesAggregate
+      .mockResolvedValueOnce({ _sum: { revenue: 15000 } }) // before window
+      .mockResolvedValueOnce({ _sum: { revenue: null } }); // after window, no rows
+
+    const result = await checkOutcomesHandler();
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          outcome: expect.objectContaining({
+            verdict: "improved",
+            storeRevenue: { before: 15000, after: null, windowDays: expect.any(Number) },
+          }),
+        }),
+      }),
+    );
+    expect(result.status).toBe("success");
   });
 
   it("reports success with zero checked when there is nothing to do", async () => {

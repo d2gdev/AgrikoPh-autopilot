@@ -19,7 +19,34 @@ type OutcomePayload = {
   deltas: OutcomeResult["deltas"];
   windowDays: number;
   checkedAt: string;
+  storeRevenue: { before: number | null; after: number | null; windowDays: number };
 };
+
+async function computeStoreRevenue(
+  executedAt: Date,
+  windowDays: number,
+): Promise<OutcomePayload["storeRevenue"]> {
+  const windowMs = windowDays * 24 * 60 * 60 * 1000;
+  const beforeStart = new Date(executedAt.getTime() - windowMs);
+  const afterEnd = new Date(executedAt.getTime() + windowMs);
+
+  const [beforeAgg, afterAgg] = await Promise.all([
+    prisma.dailySales.aggregate({
+      _sum: { revenue: true },
+      where: { date: { gte: beforeStart, lt: executedAt } },
+    }),
+    prisma.dailySales.aggregate({
+      _sum: { revenue: true },
+      where: { date: { gte: executedAt, lt: afterEnd } },
+    }),
+  ]);
+
+  return {
+    before: beforeAgg._sum.revenue != null ? Number(beforeAgg._sum.revenue) : null,
+    after: afterAgg._sum.revenue != null ? Number(afterAgg._sum.revenue) : null,
+    windowDays,
+  };
+}
 
 function json(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -147,6 +174,9 @@ export async function checkOutcomesHandler(): Promise<JobResult<Summary>> {
             ? Math.max(1, Math.round((afterSnapshot.fetchedAt.getTime() - beforeSnapshot.fetchedAt.getTime()) / (24 * 60 * 60 * 1000)))
             : CHECK_WINDOW_DAYS;
 
+        // Advisory-only context — computed after the verdict and never fed back into it.
+        const storeRevenue = await computeStoreRevenue(rec.executedAt, windowDays);
+
         const outcome: OutcomePayload = {
           verdict: result.verdict,
           metricsBefore: result.metricsBefore,
@@ -154,6 +184,7 @@ export async function checkOutcomesHandler(): Promise<JobResult<Summary>> {
           deltas: result.deltas,
           windowDays,
           checkedAt: new Date().toISOString(),
+          storeRevenue,
         };
 
         await prisma.recommendation.update({
