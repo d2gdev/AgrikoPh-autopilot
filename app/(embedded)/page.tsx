@@ -3,17 +3,13 @@
 import {
   Page,
   Layout,
-  Card,
   Text,
   Button,
-  Badge,
   Banner,
   InlineStack,
   BlockStack,
   Divider,
   Toast,
-  SkeletonBodyText,
-  Collapsible,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
@@ -25,18 +21,11 @@ import {
   readyPanel,
   type PanelState,
 } from "@/lib/dashboard/client-state";
-import { StatGrid } from "@/components/ui/stat-grid";
-import { timeAgo, actionLabel } from "@/lib/format";
 import type {
-  GscMover,
   DashboardData,
-  FatigueItem,
-  SearchTermItem,
-  CompetitorItem,
   AuditEntry,
   AuditLogResponse,
   JobHistoryMap,
-  SparklineDay,
   GscMoversPayload,
   ActivityPayload,
   AdTrendPoint,
@@ -63,17 +52,16 @@ import {
   hasGscMoverData,
   hasActivityData,
   hasAdTrendData,
-  PanelNotice,
-  StatCardSkeleton,
 } from "./components/dashboard/helpers";
-import { Sparkline } from "./components/dashboard/Sparkline";
-import { TrendDots, JobRow, JobHealthSkeleton } from "./components/dashboard/JobHealth";
-import { FatigueCard, SearchTermCard, CompetitorCard } from "./components/dashboard/InsightCards";
 import { StaleAlertBanner } from "./components/dashboard/sections/StaleAlertBanner";
 import { PendingRecInbox } from "./components/dashboard/sections/PendingRecInbox";
 import { OperationsRow } from "./components/dashboard/sections/OperationsRow";
 import { PerformanceRow } from "./components/dashboard/sections/PerformanceRow";
 import { IntelRow } from "./components/dashboard/sections/IntelRow";
+import { SkillInsightsSection } from "./components/dashboard/sections/SkillInsightsSection";
+import { JobHealthSection } from "./components/dashboard/sections/JobHealthSection";
+import { TrendsSection } from "./components/dashboard/sections/TrendsSection";
+import { RecentActivity } from "./components/dashboard/sections/RecentActivity";
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -452,179 +440,44 @@ export default function DashboardPage() {
           <Layout.Section><Divider /></Layout.Section>
 
           {/* ── Skill Insights ── */}
-          <Layout.Section>
-            <BlockStack gap="300">
-              <Text variant="headingMd" as="h2">Skill Insights</Text>
-              <StatGrid>
-                {loading ? (
-                  <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
-                ) : (() => {
-                  const insights = data?.latestInsights ?? [];
-                  const fatigue = insights.find((i) => i.insightType === "fatigue-report");
-                  const searchTerms = insights.find((i) => i.insightType === "search-term-opportunities");
-                  const competitors = insights.find((i) => i.insightType === "competitor-analysis");
-                  return (
-                    <>
-                      <FatigueCard
-                        items={(fatigue?.items ?? []) as FatigueItem[]}
-                        updatedAt={fatigue?.createdAt ?? null}
-                      />
-                      <SearchTermCard
-                        items={(searchTerms?.items ?? []) as SearchTermItem[]}
-                        updatedAt={searchTerms?.createdAt ?? null}
-                      />
-                      <CompetitorCard
-                        items={(competitors?.items ?? []) as CompetitorItem[]}
-                        updatedAt={competitors?.createdAt ?? null}
-                      />
-                    </>
-                  );
-                })()}
-              </StatGrid>
-            </BlockStack>
-          </Layout.Section>
+          <SkillInsightsSection loading={loading} data={data} />
 
           <Layout.Section><Divider /></Layout.Section>
 
           {/* ── Job Health ── */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="300">
-                <BlockStack gap="100">
-                  <Text variant="headingMd" as="h2">Job Health</Text>
-                  <Text as="p" tone="subdued">
-                    Row colour: green = on track, amber = one cycle missed (&gt;26h), red = two+ cycles missed (&gt;50h). Dots = last 7 runs, newest right.
-                  </Text>
-                </BlockStack>
-                <PanelNotice
-                  panel={jobHistoryPanel}
-                  label="Job history"
-                  staleLabel="Job history"
-                  onRetry={() => retryPanel("jobHistory")}
-                />
-                {loading ? (
-                  <JobHealthSkeleton />
-                ) : !sortedJobs.length ? (
-                  <Text as="p" tone="subdued">No job history yet.</Text>
-                ) : (
-                  <BlockStack gap="150">
-                    {sortedJobs.map((job) => (
-                      <JobRow
-                        key={job.jobName}
-                        job={job}
-                        history={jobHistory[job.jobName] ?? []}
-                        onTrigger={triggerJob}
-                        onToast={setToast}
-                      />
-                    ))}
-                  </BlockStack>
-                )}
-              </BlockStack>
-            </Card>
-          </Layout.Section>
+          <JobHealthSection
+            loading={loading}
+            jobHistoryPanel={jobHistoryPanel}
+            jobHistory={jobHistory}
+            sortedJobs={sortedJobs}
+            onRetryJobHistory={() => retryPanel("jobHistory")}
+            onTrigger={triggerJob}
+            onToast={setToast}
+          />
 
           <Layout.Section><Divider /></Layout.Section>
 
           {/* ── Trends ── */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="400">
-                <Text variant="headingMd" as="h2">Trends</Text>
-                <PanelNotice
-                  panel={activityPanel}
-                  label="Activity trend"
-                  staleLabel="Activity trend"
-                  onRetry={() => retryPanel("activity")}
-                />
-                <PanelNotice
-                  panel={adTrendPanel}
-                  label="Ad spend trend"
-                  staleLabel="Ad spend trend"
-                  onRetry={() => retryPanel("adTrend")}
-                />
-                <StatGrid>
-                  <BlockStack gap="150">
-                    <Text as="p" fontWeight="semibold">Activity (30d)</Text>
-                    {activityPanel.status === "loading" && activityDays.length === 0 ? (
-                      <SkeletonBodyText lines={2} />
-                    ) : activityDays.length > 0 && hasActivityData({ days: activityDays }) ? (
-                      <>
-                        <Sparkline data={activityDays.map((d) => d.count)} color="#2c6ecb" label="Activity events over the last 30 days" />
-                        <Text as="p" tone="subdued">
-                          {activityDays.reduce((s, d) => s + d.count, 0)} events
-                        </Text>
-                      </>
-                    ) : (
-                      <Text as="p" tone="subdued">No audit events in the activity window.</Text>
-                    )}
-                  </BlockStack>
-
-                  <BlockStack gap="150">
-                    <Text as="p" fontWeight="semibold">Ad Spend trend</Text>
-                    {adTrendPanel.status === "loading" && adTrend.length === 0 ? (
-                      <SkeletonBodyText lines={2} />
-                    ) : adTrend.length > 0 ? (
-                      <>
-                        <Sparkline data={adTrend.map((t) => t.spend)} color="#008060" label="Ad spend snapshots" />
-                        <Text as="p" tone="subdued">
-                          {`${adTrend.length} snapshots · latest ROAS ${adTrend[adTrend.length - 1]?.roas?.toFixed(2) ?? "—"}x`}
-                        </Text>
-                      </>
-                    ) : (
-                      <Text as="p" tone="subdued">No ad snapshots available yet.</Text>
-                    )}
-                  </BlockStack>
-
-                  {data?.contentLift && (
-                    <BlockStack gap="150">
-                      <Text as="p" fontWeight="semibold">Content SEO lift</Text>
-                      <Text variant="headingLg" as="p">
-                        {`${contentLiftSign}${contentLiftValue.toFixed(1)} pts`}
-                      </Text>
-                      <Text as="p" tone="subdued">
-                        avg across {data.contentLift.count} re-scored article{data.contentLift.count !== 1 ? "s" : ""}
-                      </Text>
-                    </BlockStack>
-                  )}
-                </StatGrid>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
+          <TrendsSection
+            activityPanel={activityPanel}
+            adTrendPanel={adTrendPanel}
+            activityDays={activityDays}
+            adTrend={adTrend}
+            contentLift={data?.contentLift}
+            contentLiftValue={contentLiftValue}
+            contentLiftSign={contentLiftSign}
+            onRetryActivity={() => retryPanel("activity")}
+            onRetryAdTrend={() => retryPanel("adTrend")}
+          />
 
           <Layout.Section><Divider /></Layout.Section>
 
           {/* ── Recent Activity ── */}
-          <Layout.Section>
-            <Card>
-              <BlockStack gap="300">
-                <Text variant="headingMd" as="h2">Recent Activity</Text>
-                <PanelNotice
-                  panel={auditPanel}
-                  label="Recent activity"
-                  staleLabel="Recent activity"
-                  onRetry={() => retryPanel("audit")}
-                />
-                {auditPanel.status === "loading" && logs.length === 0 ? (
-                  <SkeletonBodyText lines={4} />
-                ) : logs.length === 0 ? (
-                  <Text as="p" tone="subdued">No audit events yet. Run a job or review a recommendation to create activity.</Text>
-                ) : (
-                  <BlockStack gap="200">
-                    {logs.slice(0, 10).map((log) => (
-                      <InlineStack key={log.id} align="space-between">
-                        <InlineStack gap="200">
-                          <Badge tone={log.actor === "user" ? "info" : "new"}>{log.actor}</Badge>
-                          <Text as="p">{actionLabel(log.action)}</Text>
-                          <Text as="p" tone="subdued">{log.entityType}</Text>
-                        </InlineStack>
-                        <Text as="p" tone="subdued">{timeAgo(log.createdAt)}</Text>
-                      </InlineStack>
-                    ))}
-                  </BlockStack>
-                )}
-              </BlockStack>
-            </Card>
-          </Layout.Section>
+          <RecentActivity
+            auditPanel={auditPanel}
+            logs={logs}
+            onRetry={() => retryPanel("audit")}
+          />
         </Layout>
       </Page>
 
