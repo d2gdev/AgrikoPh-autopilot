@@ -27,6 +27,7 @@ const mockPrisma = {
   marketInsight: { groupBy: vi.fn() },
   storeTask: { count: vi.fn() },
   skillInsight: { groupBy: vi.fn(), findMany: vi.fn() },
+  dailySales: { findMany: vi.fn() },
   $queryRaw: vi.fn(),
 };
 
@@ -60,6 +61,7 @@ beforeEach(() => {
   mockPrisma.storeTask.count.mockResolvedValue(0);
   mockPrisma.skillInsight.groupBy.mockResolvedValue([]);
   mockPrisma.skillInsight.findMany.mockResolvedValue([]);
+  mockPrisma.dailySales.findMany.mockResolvedValue([]);
   mockPrisma.$queryRaw.mockResolvedValue([{ "?column?": 1 }]);
 });
 

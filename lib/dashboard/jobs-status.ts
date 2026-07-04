@@ -96,6 +96,14 @@ export type JobsStatusPayload = {
   contentLift: { count: number; avgLiftPts: number } | null;
   dbLatencyMs: number;
   outcomeWinRate: { improved: number; worsened: number; total: number } | null;
+  revenueVsMeta: {
+    shopifyRevenue: number;
+    metaConversionValue: number | null;
+    periodStart: string;
+    periodEnd: string;
+    daysCovered: number;
+    currency: string;
+  } | null;
 };
 
 export type JobRunStatusPayload = {
@@ -162,6 +170,53 @@ function sumSpendFromSnapshot(snap: MetaSpendSnapshot | undefined): number {
   const m = emptyMetrics();
   for (const row of insights) addInsightRow(m, row);
   return m.spend;
+}
+
+// Sums payload.insights[].action_values[] entries with action_type "purchase"
+// or "omni_purchase". Returns null when none of the snapshot's insight rows
+// carry an action_values array at all (no data), as distinct from carrying
+// one that simply has zero matching purchase entries (no purchases).
+function sumConversionValueFromSnapshot(snap: MetaSpendSnapshot | undefined): number | null {
+  if (!snap) return null;
+  const p = snap.payload as Record<string, unknown>;
+  const insights = (p.insights as Array<Record<string, unknown>>) ?? [];
+  let hasActionValues = false;
+  let total = 0;
+  for (const row of insights) {
+    const actionValues = row.action_values as Array<{ action_type?: string; value?: string }> | undefined;
+    if (!actionValues) continue;
+    hasActionValues = true;
+    for (const av of actionValues) {
+      if (av.action_type === "purchase" || av.action_type === "omni_purchase") {
+        total += parseFloat(av.value ?? "0") || 0;
+      }
+    }
+  }
+  return hasActionValues ? total : null;
+}
+
+// Window-aligned Shopify-vs-Meta comparison: both figures are computed over
+// the latest Meta snapshot's own date range (not a fixed 7d/30d window) so a
+// 30-day Meta figure is never compared against a mismatched Shopify period.
+async function computeRevenueVsMeta(
+  snapshot: MetaSpendSnapshot | undefined,
+): Promise<JobsStatusPayload["revenueVsMeta"]> {
+  if (!snapshot) return null;
+  const salesRows = await prisma.dailySales.findMany({
+    where: { date: { gte: snapshot.dateRangeStart, lte: snapshot.dateRangeEnd } },
+    select: { revenue: true, currency: true },
+  });
+  const [firstRow] = salesRows;
+  if (!firstRow) return null;
+  const shopifyRevenue = salesRows.reduce((sum, row) => sum + row.revenue, 0);
+  return {
+    shopifyRevenue,
+    metaConversionValue: sumConversionValueFromSnapshot(snapshot),
+    periodStart: snapshot.dateRangeStart.toISOString(),
+    periodEnd: snapshot.dateRangeEnd.toISOString(),
+    daysCovered: salesRows.length,
+    currency: firstRow.currency,
+  };
 }
 
 export function buildAdSpendSummary(metaSnapshots: MetaSpendSnapshot[]): JobsStatusPayload["adSpendSummary"] {
@@ -529,6 +584,7 @@ export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
   };
 
   const adSpendSummary = buildAdSpendSummary(metaSnapshots);
+  const revenueVsMeta = await computeRevenueVsMeta(metaSnapshots[0]);
 
   const recsByActionType = recActionTypeGroups.map((row) => ({
     actionType: row.actionType,
@@ -620,6 +676,7 @@ export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
     outcomeWinRate: outcomeRows.length > 0
       ? { improved: outcomesImproved, worsened: outcomesWorsened, total: outcomeRows.length }
       : null,
+    revenueVsMeta,
   };
 }
 

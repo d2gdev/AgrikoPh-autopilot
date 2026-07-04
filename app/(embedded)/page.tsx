@@ -57,6 +57,14 @@ interface GscMover {
 interface DashboardData {
   pendingCount: number;
   outcomeWinRate: { improved: number; worsened: number; total: number } | null;
+  revenueVsMeta: {
+    shopifyRevenue: number;
+    metaConversionValue: number | null;
+    periodStart: string;
+    periodEnd: string;
+    daysCovered: number;
+    currency: string;
+  } | null;
   hardBlockedCount: number;
   executedThisMonth: number;
   failedCount: number;
@@ -1098,7 +1106,7 @@ export default function DashboardPage() {
               <Text variant="headingMd" as="h2">Performance</Text>
               <StatGrid>
                 {loading ? (
-                  <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
+                  <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
                 ) : (
                   <>
                     <Card>
@@ -1120,6 +1128,22 @@ export default function DashboardPage() {
                           <Text as="p" tone="subdued">
                             {`${totalActionsThisMonth} action${totalActionsThisMonth !== 1 ? "s" : ""} taken this month`}
                           </Text>
+                        )}
+                      </BlockStack>
+                    </Card>
+
+                    <Card>
+                      <BlockStack gap="200">
+                        <Text variant="headingMd" as="h2">Revenue vs Meta (period)</Text>
+                        {data?.revenueVsMeta ? (
+                          <BlockStack gap="100">
+                            <Text variant="heading2xl" as="p">{formatPhp(data.revenueVsMeta.shopifyRevenue, 0)}</Text>
+                            <Text as="p" tone="subdued">
+                              Shopify ({data.revenueVsMeta.daysCovered}d) vs {data.revenueVsMeta.metaConversionValue != null ? formatPhp(data.revenueVsMeta.metaConversionValue, 0) : "—"} Meta-reported
+                            </Text>
+                          </BlockStack>
+                        ) : (
+                          <Text as="p" tone="subdued">No sales data yet — runs after the first fetch-orders cycle</Text>
                         )}
                       </BlockStack>
                     </Card>
