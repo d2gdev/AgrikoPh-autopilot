@@ -357,7 +357,8 @@ export type OperatorAlertKind =
   | "execution_failed"
   | "hard_block"
   | "sla_escalation"
-  | "daily_digest";
+  | "daily_digest"
+  | "competitor_zero_capture";
 
 // Typed operator-alert wrapper over the ops webhook. Never throws; no-ops
 // when ALERT_WEBHOOK_URL is unset (both guaranteed by postWebhook).

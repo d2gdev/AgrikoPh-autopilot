@@ -13,6 +13,7 @@ import { recordCompetitorAdCapture } from "@/lib/market-intel/ad-captures";
 import { isSpamStoryAd } from "@/lib/market-intel/spam-filter";
 import { resolveRunLimits, type MarketIntelRunOptions, type ResolvedLimits, type RunProfile } from "@/lib/market-intel/profiles";
 import { gapIsStable } from "@/lib/market-intel/price-signal";
+import { sendOperatorAlert } from "@/lib/alerts";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -49,6 +50,7 @@ type MarketIntelSummary = {
   rankedKeywordsFetched: number;
   keywordGapCandidates: number;
   keywordGapInsights: number;
+  zeroCaptureCompetitors: number;
 };
 
 function bareDomain(input: string | null | undefined): string | null {
@@ -347,6 +349,7 @@ export async function fetchMarketIntelHandler(
     rankedKeywordsFetched: 0,
     keywordGapCandidates: 0,
     keywordGapInsights: 0,
+    zeroCaptureCompetitors: 0,
   };
 
   if (process.env.MARKET_INTEL_ENABLED === "false") {
@@ -1137,6 +1140,100 @@ export async function fetchMarketIntelHandler(
     } catch (err) {
       errors.push(`meta_ad_library:${page.pageName}: ${String(err)}`);
     }
+  }
+
+  // Zero-capture watchdog ("the Falo problem"): a competitor's ad-capture
+  // scraper can silently return zero ads for a week straight, usually because
+  // its Facebook page was configured by name/URL instead of the required
+  // numeric page ID. Nothing errors, nothing looks wrong in the job summary —
+  // the row just never lands. Flag competitors with 7 straight historical
+  // runs + this run producing zero captures, and either a history of
+  // captures existing at all (something broke) or a missing pageId (never
+  // configured correctly to begin with).
+  try {
+    const historicalRuns = await prisma.jobRun.findMany({
+      where: { jobName: "fetch-market-intel", status: { in: ["success", "partial"] }, id: { not: runId } },
+      orderBy: { completedAt: "desc" },
+      take: 7,
+      select: { id: true },
+    });
+
+    if (historicalRuns.length === 7) {
+      const historicalRunIds = historicalRuns.map((run) => run.id);
+      const activeCompetitors = await prisma.competitor.findMany({
+        where: { active: true, socialPages: { some: { active: true } } },
+        include: { socialPages: { where: { active: true } } },
+      });
+
+      for (const competitor of activeCompetitors) {
+        const [historicalCount, thisRunCount, allTimeCount] = await Promise.all([
+          prisma.competitorAdCapture.count({
+            where: { competitorId: competitor.id, jobRunId: { in: historicalRunIds } },
+          }),
+          prisma.competitorAdCapture.count({
+            where: { competitorId: competitor.id, jobRunId: runId },
+          }),
+          prisma.competitorAdCapture.count({ where: { competitorId: competitor.id } }),
+        ]);
+
+        if (historicalCount !== 0 || thisRunCount !== 0) continue;
+
+        const hasMissingPageId = competitor.socialPages.some((page) => !page.pageId);
+        if (allTimeCount === 0 && !hasMissingPageId) continue;
+
+        summary.zeroCaptureCompetitors++;
+
+        const dedupeKey = `store-task:zero-capture:${competitor.id}`;
+        const existingTask = await prisma.storeTask.findUnique({ where: { dedupeKey } });
+
+        await prisma.storeTask.upsert({
+          where: { dedupeKey },
+          create: {
+            taskType: "fix_competitor_page",
+            targetType: "competitor",
+            targetId: competitor.id,
+            title: `Ad capture broken for ${competitor.name} — verify the Facebook numeric page ID`,
+            description: `No Meta ads have been captured for ${competitor.name} in at least the last 8 fetch-market-intel runs. This usually means the competitor's Facebook page was configured by name or URL instead of the required numeric page ID. Open Facebook's Ad Library / Page Transparency panel for ${competitor.name}, copy the numeric page ID, and set it on the competitor's social page record.`,
+            proposedState: json({ competitorId: competitor.id, action: "set_page_id" }),
+            sourceData: json({
+              historicalRunIds,
+              historicalCount,
+              thisRunCount,
+              allTimeCount,
+              missingPageIdSocialPageIds: competitor.socialPages.filter((page) => !page.pageId).map((page) => page.id),
+            }),
+            priority: "high",
+            dedupeKey,
+          },
+          update: {
+            taskType: "fix_competitor_page",
+            targetType: "competitor",
+            targetId: competitor.id,
+            title: `Ad capture broken for ${competitor.name} — verify the Facebook numeric page ID`,
+            description: `No Meta ads have been captured for ${competitor.name} in at least the last 8 fetch-market-intel runs. This usually means the competitor's Facebook page was configured by name or URL instead of the required numeric page ID. Open Facebook's Ad Library / Page Transparency panel for ${competitor.name}, copy the numeric page ID, and set it on the competitor's social page record.`,
+            proposedState: json({ competitorId: competitor.id, action: "set_page_id" }),
+            sourceData: json({
+              historicalRunIds,
+              historicalCount,
+              thisRunCount,
+              allTimeCount,
+              missingPageIdSocialPageIds: competitor.socialPages.filter((page) => !page.pageId).map((page) => page.id),
+            }),
+            priority: "high",
+          },
+        });
+
+        if (!existingTask) {
+          await sendOperatorAlert("competitor_zero_capture", {
+            competitorId: competitor.id,
+            competitorName: competitor.name,
+            consecutiveRuns: 8,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    errors.push(`zero_capture_watchdog: ${String(err)}`);
   }
 
   // Fill English translations for newly captured ad/shopping text (best-effort;
