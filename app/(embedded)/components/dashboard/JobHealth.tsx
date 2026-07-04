@@ -136,7 +136,7 @@ export function JobRow({
                     fontSize: 12,
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-all",
-                    background: "#fff4f4",
+                    background: "var(--p-color-bg-surface-critical)",
                     padding: "8px 12px",
                     borderRadius: 4,
                     margin: 0,
@@ -175,7 +175,7 @@ export function JobHealthSkeleton() {
   return (
     <BlockStack gap="200">
       {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} style={{ padding: "12px 16px", backgroundColor: "#f6f6f7", borderRadius: 8 }}>
+        <div key={i} style={{ padding: "12px 16px", backgroundColor: "var(--p-color-bg-surface-secondary)", borderRadius: 8 }}>
           <SkeletonBodyText lines={1} />
         </div>
       ))}

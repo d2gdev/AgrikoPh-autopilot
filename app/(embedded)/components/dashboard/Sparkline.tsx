@@ -14,7 +14,7 @@ export function Sparkline({ data, color = "var(--p-color-bg-fill-info)", label }
           style={{
             flex: 1,
             height: `${Math.round((v / max) * 40)}px`,
-            backgroundColor: v === 0 ? "#e4e5e7" : color,
+            backgroundColor: v === 0 ? "var(--p-color-bg-fill-tertiary)" : color,
             borderRadius: 2,
             minHeight: v > 0 ? 2 : 1,
           }}
