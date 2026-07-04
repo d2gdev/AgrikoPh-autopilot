@@ -1,6 +1,17 @@
-import { Banner, BlockStack, Button, InlineStack, Text } from "@shopify/polaris";
+import { Banner, BlockStack, Button, Card, InlineStack, SkeletonDisplayText, Text } from "@shopify/polaris";
 import type { PanelState } from "@/lib/dashboard/client-state";
 import type { GscMoversPayload, ActivityPayload, AdTrendPayload, PanelKey } from "./types";
+
+export function StatCardSkeleton() {
+  return (
+    <Card>
+      <BlockStack gap="300">
+        <SkeletonDisplayText size="small" />
+        <SkeletonDisplayText size="large" />
+      </BlockStack>
+    </Card>
+  );
+}
 
 export const JOB_STATUS_CACHE_KEY = "/api/jobs/status";
 export const AUDIT_LOG_CACHE_KEY = "/api/audit-log?limit=10";

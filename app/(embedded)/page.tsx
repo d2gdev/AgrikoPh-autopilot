@@ -12,12 +12,10 @@ import {
   BlockStack,
   Divider,
   Toast,
-  SkeletonDisplayText,
   SkeletonBodyText,
   Collapsible,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { getStaleCache, setCache } from "@/lib/client-cache";
 import {
@@ -28,7 +26,7 @@ import {
   type PanelState,
 } from "@/lib/dashboard/client-state";
 import { StatGrid } from "@/components/ui/stat-grid";
-import { timeAgo, actionLabel, formatPhp } from "@/lib/format";
+import { timeAgo, actionLabel } from "@/lib/format";
 import type {
   GscMover,
   DashboardData,
@@ -66,23 +64,16 @@ import {
   hasActivityData,
   hasAdTrendData,
   PanelNotice,
+  StatCardSkeleton,
 } from "./components/dashboard/helpers";
 import { Sparkline } from "./components/dashboard/Sparkline";
 import { TrendDots, JobRow, JobHealthSkeleton } from "./components/dashboard/JobHealth";
 import { FatigueCard, SearchTermCard, CompetitorCard } from "./components/dashboard/InsightCards";
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function StatCardSkeleton() {
-  return (
-    <Card>
-      <BlockStack gap="300">
-        <SkeletonDisplayText size="small" />
-        <SkeletonDisplayText size="large" />
-      </BlockStack>
-    </Card>
-  );
-}
+import { StaleAlertBanner } from "./components/dashboard/sections/StaleAlertBanner";
+import { PendingRecInbox } from "./components/dashboard/sections/PendingRecInbox";
+import { OperationsRow } from "./components/dashboard/sections/OperationsRow";
+import { PerformanceRow } from "./components/dashboard/sections/PerformanceRow";
+import { IntelRow } from "./components/dashboard/sections/IntelRow";
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -422,364 +413,41 @@ export default function DashboardPage() {
 
           {/* ── Stale job alert banner ── */}
           {data && criticalJobs.length > 0 && (
-            <Layout.Section>
-              <Banner tone="critical">
-                <Text as="p" fontWeight="semibold">
-                  {`${criticalJobs.length} job${criticalJobs.length !== 1 ? "s" : ""} missed 2+ cycles: ${criticalJobs.map((j) => j.label ?? j.jobName).join(", ")}`}
-                </Text>
-              </Banner>
-            </Layout.Section>
+            <StaleAlertBanner criticalJobs={criticalJobs} />
           )}
 
           {/* ── Pending rec inbox ── */}
           {(data?.topPendingRecs?.length ?? 0) > 0 && (
-            <>
-              <Layout.Section>
-                <Card>
-                  <BlockStack gap="300">
-                    <Text variant="headingMd" as="h2">
-                      Pending Review ({data!.pendingCount})
-                    </Text>
-                    <BlockStack gap="300">
-                      {data!.topPendingRecs!.map((rec) => {
-                        const state = recAction[rec.id];
-                        const busy = state === "approving" || state === "rejecting";
-                        if (state === "done") return null;
-                        return (
-                          <BlockStack key={rec.id} gap="150">
-                            <InlineStack align="space-between" blockAlign="start">
-                              <BlockStack gap="100">
-                                <InlineStack gap="200">
-                                  <Text as="p" fontWeight="semibold">{actionLabel(rec.actionType)}</Text>
-                                  <Text as="p" tone="subdued">—</Text>
-                                  <Text as="p">{rec.targetEntityName}</Text>
-                                  {rec.guardStatus !== "clear" && (
-                                    <Badge tone={rec.guardStatus === "hard_block" ? "critical" : "warning"}>
-                                      {rec.guardStatus.replace(/_/g, " ")}
-                                    </Badge>
-                                  )}
-                                </InlineStack>
-                                <Text as="p" tone="subdued">{rec.rationale}</Text>
-                                {rec.estimatedImpact && (
-                                  <Text as="p" tone="subdued">{rec.estimatedImpact}</Text>
-                                )}
-                              </BlockStack>
-                              <InlineStack gap="200">
-                                <Button
-                                  size="slim"
-                                  variant="primary"
-                                  loading={state === "approving"}
-                                  disabled={busy || rec.guardStatus === "hard_block"}
-                                  onClick={() => approveRec(rec.id)}
-                                >
-                                  Approve
-                                </Button>
-                                <Button
-                                  size="slim"
-                                  loading={state === "rejecting"}
-                                  disabled={busy}
-                                  onClick={() => rejectRec(rec.id)}
-                                >
-                                  Reject
-                                </Button>
-                              </InlineStack>
-                            </InlineStack>
-                            <Divider />
-                          </BlockStack>
-                        );
-                      })}
-                    </BlockStack>
-                  </BlockStack>
-                </Card>
-              </Layout.Section>
-              <Layout.Section><Divider /></Layout.Section>
-            </>
+            <PendingRecInbox
+              pendingCount={data!.pendingCount}
+              topPendingRecs={data!.topPendingRecs!}
+              recAction={recAction}
+              onApprove={approveRec}
+              onReject={rejectRec}
+            />
           )}
 
           {/* ── Operations row ── */}
-          <Layout.Section>
-            <BlockStack gap="300">
-              <Text variant="headingMd" as="h2">Operations</Text>
-              <StatGrid>
-                {loading ? (
-                  <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
-                ) : (
-                  <>
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Pending</Text>
-                        <Link href="/recommendations" style={{ textDecoration: "none", color: "inherit" }}>
-                          <Text variant="heading2xl" as="p">{data?.pendingCount ?? "—"}</Text>
-                        </Link>
-                        {(data?.hardBlockedCount ?? 0) > 0 && (
-                          <Badge tone="critical">{`${data!.hardBlockedCount} hard blocked`}</Badge>
-                        )}
-                        {(data?.recsPendingOver7Days ?? 0) > 0 && (
-                          <Badge tone="warning">{`${data!.recsPendingOver7Days} stale >7d`}</Badge>
-                        )}
-                      </BlockStack>
-                    </Card>
-
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Executed This Month</Text>
-                        <Link href="/ad-pilot" style={{ textDecoration: "none", color: "inherit" }}>
-                          <Text variant="heading2xl" as="p">{data?.executedThisMonth ?? "—"}</Text>
-                        </Link>
-                        {data?.estimatedValueExecuted != null && (
-                          <Text as="p" tone="subdued">
-                            est. {formatPhp(data.estimatedValueExecuted, 0)} impact
-                          </Text>
-                        )}
-                      </BlockStack>
-                    </Card>
-
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Failed / Override</Text>
-                        <Link href="/recommendations" style={{ textDecoration: "none", color: "inherit" }}>
-                          <InlineStack gap="200" blockAlign="end">
-                            <Text variant="heading2xl" as="p">{data?.failedCount ?? "—"}</Text>
-                            <Text as="p" tone="subdued">/ {data?.overrideCount ?? "—"}</Text>
-                          </InlineStack>
-                        </Link>
-                      </BlockStack>
-                    </Card>
-
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Last Job Run</Text>
-                        {data?.lastJobRun ? (
-                          <BlockStack gap="100">
-                            <Text as="p">{data.lastJobRun.jobName.replace(/-/g, " ")}</Text>
-                            <Badge tone={["success", "partial"].includes(data.lastJobRun.status) ? "success" : "critical"}>
-                              {data.lastJobRun.status}
-                            </Badge>
-                            <Text as="p" tone="subdued">{timeAgo(data.lastJobRun.startedAt)}</Text>
-                          </BlockStack>
-                        ) : (
-                          <Text as="p" tone="subdued">Never run</Text>
-                        )}
-                      </BlockStack>
-                    </Card>
-
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Outcome Win Rate (90d)</Text>
-                        {data?.outcomeWinRate ? (
-                          <BlockStack gap="100">
-                            <Text variant="heading2xl" as="p">
-                              {Math.round((data.outcomeWinRate.improved / data.outcomeWinRate.total) * 100)}%
-                            </Text>
-                            <Text as="p" tone="subdued">
-                              {data.outcomeWinRate.improved} improved · {data.outcomeWinRate.worsened} worsened · {Math.max(0, data.outcomeWinRate.total - data.outcomeWinRate.improved - data.outcomeWinRate.worsened)} neutral/insufficient · {data.outcomeWinRate.total} checked
-                            </Text>
-                          </BlockStack>
-                        ) : (
-                          <Text as="p" tone="subdued">No outcomes checked yet</Text>
-                        )}
-                      </BlockStack>
-                    </Card>
-                  </>
-                )}
-              </StatGrid>
-            </BlockStack>
-          </Layout.Section>
+          <OperationsRow loading={loading} data={data} />
 
           <Layout.Section><Divider /></Layout.Section>
 
           {/* ── Performance row ── */}
-          <Layout.Section>
-            <BlockStack gap="300">
-              <Text variant="headingMd" as="h2">Performance</Text>
-              <StatGrid>
-                {loading ? (
-                  <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
-                ) : (
-                  <>
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Ad Spend (Latest)</Text>
-                        <Link href="/ad-pilot" style={{ textDecoration: "none", color: "inherit" }}>
-                          <Text variant="heading2xl" as="p">
-                            {spend && spend.current > 0 ? formatPhp(spend.current, 0) : "—"}
-                          </Text>
-                        </Link>
-                        {spend && spend.previous > 0 && (
-                          <Text as="p" tone={spend.delta <= 0 ? "success" : "critical"}>
-                            {spendSign}{formatPhp(spend.delta, 0)}
-                            {spend.deltaPct != null && ` (${spendSign}${spend.deltaPct.toFixed(1)}%)`}
-                            {" vs prior"}
-                          </Text>
-                        )}
-                        {totalActionsThisMonth > 0 && (spend?.delta ?? 0) !== 0 && (
-                          <Text as="p" tone="subdued">
-                            {`${totalActionsThisMonth} action${totalActionsThisMonth !== 1 ? "s" : ""} taken this month`}
-                          </Text>
-                        )}
-                      </BlockStack>
-                    </Card>
-
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Revenue vs Meta (period)</Text>
-                        {data?.revenueVsMeta ? (
-                          <BlockStack gap="100">
-                            <Text variant="heading2xl" as="p">{formatPhp(data.revenueVsMeta.shopifyRevenue, 0)}</Text>
-                            <Text as="p" tone="subdued">
-                              Shopify ({data.revenueVsMeta.daysCovered}d) vs {data.revenueVsMeta.metaConversionValue != null ? formatPhp(data.revenueVsMeta.metaConversionValue, 0) : "—"} Meta-reported
-                            </Text>
-                          </BlockStack>
-                        ) : (
-                          <Text as="p" tone="subdued">No sales data yet — runs after the first fetch-orders cycle</Text>
-                        )}
-                      </BlockStack>
-                    </Card>
-
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Content Pilot</Text>
-                        <Link href="/content-pilot" style={{ textDecoration: "none", color: "inherit" }}>
-                          <InlineStack gap="500">
-                            <BlockStack gap="100">
-                              <Text variant="headingLg" as="p">{data?.contentPilotStats.pending ?? "—"}</Text>
-                              <Text as="p" tone="subdued">pending</Text>
-                            </BlockStack>
-                            <BlockStack gap="100">
-                              <Text variant="headingLg" as="p">{data?.contentPilotStats.drafting ?? "—"}</Text>
-                              <Text as="p" tone="subdued">drafting</Text>
-                            </BlockStack>
-                            <BlockStack gap="100">
-                              <Text variant="headingLg" as="p">{data?.contentPilotStats.publishedThisMonth ?? "—"}</Text>
-                              <Text as="p" tone="subdued">published</Text>
-                            </BlockStack>
-                          </InlineStack>
-                        </Link>
-                      </BlockStack>
-                    </Card>
-
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Actions This Month</Text>
-                        {!data?.recsByActionType?.length ? (
-                          <Text as="p" tone="subdued">None yet</Text>
-                        ) : (
-                          <BlockStack gap="100">
-                            {data.recsByActionType.map((r) => (
-                              <InlineStack key={r.actionType} align="space-between">
-                                <Text as="p">{actionLabel(r.actionType)}</Text>
-                                <Badge>{String(r.count)}</Badge>
-                              </InlineStack>
-                            ))}
-                          </BlockStack>
-                        )}
-                      </BlockStack>
-                    </Card>
-
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">GSC Movers</Text>
-                        <PanelNotice
-                          panel={gscMoversPanel}
-                          label="GSC movers"
-                          staleLabel="GSC mover data"
-                          onRetry={() => retryPanel("gscMovers")}
-                        />
-                        {gscMoversPanel.status === "loading" && !gscMovers ? (
-                          <SkeletonBodyText lines={3} />
-                        ) : !gscMovers || (gscMovers.risers.length === 0 && gscMovers.fallers.length === 0) ? (
-                          <Text as="p" tone="subdued">No GSC snapshots with movement yet.</Text>
-                        ) : (
-                          <BlockStack gap="150">
-                            {gscMovers.risers.map((m) => (
-                              <InlineStack key={`r-${m.query}`} align="space-between">
-                                <Text as="p">{m.query}</Text>
-                                <Badge tone="success">{`+${m.clicksDelta} clicks`}</Badge>
-                              </InlineStack>
-                            ))}
-                            {gscMovers.fallers.map((m) => (
-                              <InlineStack key={`f-${m.query}`} align="space-between">
-                                <Text as="p">{m.query}</Text>
-                                <Badge tone="critical">{`${m.clicksDelta} clicks`}</Badge>
-                              </InlineStack>
-                            ))}
-                          </BlockStack>
-                        )}
-                      </BlockStack>
-                    </Card>
-                  </>
-                )}
-              </StatGrid>
-            </BlockStack>
-          </Layout.Section>
+          <PerformanceRow
+            loading={loading}
+            data={data}
+            spend={spend}
+            spendSign={spendSign}
+            totalActionsThisMonth={totalActionsThisMonth}
+            gscMoversPanel={gscMoversPanel}
+            gscMovers={gscMovers}
+            onRetryGscMovers={() => retryPanel("gscMovers")}
+          />
 
           <Layout.Section><Divider /></Layout.Section>
 
           {/* ── Intel row ── */}
-          <Layout.Section>
-            <BlockStack gap="300">
-              <Text variant="headingMd" as="h2">Intel</Text>
-              <StatGrid>
-                {loading ? (
-                  <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
-                ) : (
-                  <>
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Opportunities</Text>
-                        {(() => {
-                          const o = data?.openOpportunities ?? { high: 0, medium: 0, low: 0 };
-                          const total = o.high + o.medium + o.low;
-                          if (total === 0) return <Text as="p" tone="subdued">None open</Text>;
-                          return (
-                            <InlineStack gap="300">
-                              {o.high > 0 && <Badge tone="critical">{`${o.high} high`}</Badge>}
-                              {o.medium > 0 && <Badge tone="warning">{`${o.medium} medium`}</Badge>}
-                              {o.low > 0 && <Badge>{`${o.low} low`}</Badge>}
-                            </InlineStack>
-                          );
-                        })()}
-                      </BlockStack>
-                    </Card>
-
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Market Insights</Text>
-                        {(() => {
-                          const mi = data?.openMarketInsights ?? { critical: 0, warning: 0, info: 0 };
-                          const total = mi.critical + mi.warning + mi.info;
-                          if (total === 0) return <Text as="p" tone="subdued">No open insights</Text>;
-                          return (
-                            <InlineStack gap="300">
-                              {mi.critical > 0 && <Badge tone="critical">{`${mi.critical} critical`}</Badge>}
-                              {mi.warning > 0 && <Badge tone="warning">{`${mi.warning} warning`}</Badge>}
-                              {mi.info > 0 && <Badge>{`${mi.info} info`}</Badge>}
-                            </InlineStack>
-                          );
-                        })()}
-                      </BlockStack>
-                    </Card>
-
-                    <Card>
-                      <BlockStack gap="200">
-                        <Text variant="headingMd" as="h2">Store Tasks</Text>
-                        <Text variant="heading2xl" as="p">{data?.pendingStoreTasks ?? "—"}</Text>
-                        <Text as="p" tone="subdued">pending</Text>
-                        {data?.dbLatencyMs != null && (
-                          <Text
-                            as="p"
-                            tone={data.dbLatencyMs < 100 ? "success" : data.dbLatencyMs < 500 ? undefined : "critical"}
-                          >
-                            DB {data.dbLatencyMs}ms
-                          </Text>
-                        )}
-                      </BlockStack>
-                    </Card>
-                  </>
-                )}
-              </StatGrid>
-            </BlockStack>
-          </Layout.Section>
+          <IntelRow loading={loading} data={data} />
 
           <Layout.Section><Divider /></Layout.Section>
 
