@@ -29,248 +29,49 @@ import {
 } from "@/lib/dashboard/client-state";
 import { StatGrid } from "@/components/ui/stat-grid";
 import { timeAgo, actionLabel, formatPhp } from "@/lib/format";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface PerJobHealth {
-  jobName: string;
-  label?: string;
-  manualTriggerEnabled?: boolean;
-  manualTriggerDisabledReason?: string | null;
-  lastStatus: string | null;
-  lastStartedAt: string | null;
-  lastSuccessAt: string | null;
-  queuedCount?: number;
-  oldestQueuedAt?: string | null;
-  errorExcerpt: string | null;
-}
-
-interface GscMover {
-  query: string;
-  clicks: number;
-  clicksDelta: number;
-  impressionsDelta: number;
-  positionDelta: number;
-  direction: "up" | "down";
-}
-
-interface DashboardData {
-  pendingCount: number;
-  outcomeWinRate: { improved: number; worsened: number; total: number } | null;
-  revenueVsMeta: {
-    shopifyRevenue: number;
-    metaConversionValue: number | null;
-    periodStart: string;
-    periodEnd: string;
-    daysCovered: number;
-    currency: string;
-  } | null;
-  hardBlockedCount: number;
-  executedThisMonth: number;
-  failedCount: number;
-  overrideCount: number;
-  lastJobRun: { jobName: string; status: string; startedAt: string; summary: Record<string, unknown> | null } | null;
-  perJobHealth: PerJobHealth[];
-  contentPilotStats: { pending: number; drafting: number; publishedThisMonth: number };
-  adSpendSummary: { current: number; previous: number; delta: number; deltaPct: number | null };
-  recsByActionType: Array<{ actionType: string; count: number }>;
-  estimatedValueExecuted: number | null;
-  latestInsights?: Array<{ insightType: string; skillId: string; createdAt: string; items: unknown[] }>;
-  openOpportunities?: { high: number; medium: number; low: number };
-  openMarketInsights?: { critical: number; warning: number; info: number };
-  pendingStoreTasks?: number;
-  topPendingRecs?: Array<{
-    id: string;
-    actionType: string;
-    targetEntityName: string;
-    rationale: string;
-    estimatedImpact: string | null;
-    guardStatus: string;
-  }>;
-  recsPendingOver7Days?: number;
-  contentLift?: { count: number; avgLiftPts: number } | null;
-  dbLatencyMs?: number;
-}
-
-interface FatigueItem {
-  adId: string;
-  adName: string;
-  adSetName: string;
-  status: "urgent" | "warning" | "healthy" | "dead";
-  frequency: number;
-  ctrChange7d: number;
-  daysRunning: number;
-  estimatedDaysLeft: number | null;
-  rationale: string;
-}
-
-interface SearchTermItem {
-  searchTerm: string;
-  theme: string;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  currentCpaPHP: number | null;
-  recommendedMatchType: string;
-  recommendedBidPHP: number | null;
-  suggestedAdGroup: string | null;
-  isNegativeKeyword: boolean;
-}
-
-interface CompetitorItem {
-  competitor: string;
-  activeAdCount: number;
-  dominantFormat: string;
-  messagingThemes: string[];
-  primaryCta: string;
-  recentLaunches7d: number;
-  gaps: string[];
-  recommendedTests: string[];
-}
-
-interface AuditEntry {
-  id: string;
-  actor: string;
-  action: string;
-  entityType: string;
-  entityId: string;
-  createdAt: string;
-  after: Record<string, unknown> | null;
-}
-
-interface AuditLogResponse {
-  items?: AuditEntry[];
-  logs?: AuditEntry[];
-}
-
-type JobRunEntry = { status: string; startedAt: string };
-type JobHistoryMap = Record<string, JobRunEntry[]>;
-type SparklineDay = { date: string; count: number };
-type GscMoversPayload = { risers: GscMover[]; fallers: GscMover[]; fetchedAt: string | null };
-type ActivityPayload = { days: SparklineDay[]; timezone?: string; generatedAt?: string };
-type AdTrendPoint = { date: string; spend: number; roas: number };
-type AdTrendPayload = { trend: AdTrendPoint[] };
-type PanelKey = "status" | "audit" | "jobHistory" | "gscMovers" | "activity" | "adTrend";
-
-interface JobRunStatus {
-  id: string;
-  jobName: string;
-  status: string;
-  completedAt: string | null;
-  errorLog: string | null;
-  label?: string;
-}
-
-interface ActiveRunState {
-  runId: string;
-  label: string;
-  status: string;
-  error: string | null;
-}
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const JOB_STATUS_CACHE_KEY = "/api/jobs/status";
-const AUDIT_LOG_CACHE_KEY = "/api/audit-log?limit=10";
-const JOB_HISTORY_CACHE_KEY = "/api/dashboard/job-history";
-const GSC_MOVERS_CACHE_KEY = "/api/dashboard/gsc-movers";
-const ACTIVITY_SPARKLINE_CACHE_KEY = "/api/dashboard/activity-sparkline";
-const AD_REPORT_CACHE_KEY = "/api/ad-pilot/report";
-const ALL_PANEL_KEYS: PanelKey[] = ["status", "audit", "jobHistory", "gscMovers", "activity", "adTrend"];
-const TERMINAL_RUN_STATUSES = new Set(["success", "partial", "failed", "cancelled", "canceled"]);
-
-const STATUS_DOT_COLOR: Record<string, string> = {
-  success: "#008060",
-  partial: "#ffc453",
-  failed: "#d72c0d",
-  queued: "#2c6ecb",
-  running: "#2c6ecb",
-};
-
-const STALENESS_ORDER: Record<"critical" | "warning" | "success", number> = {
-  critical: 0,
-  warning: 1,
-  success: 2,
-};
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function stalenessTone(lastSuccessAt: string | null): "success" | "warning" | "critical" {
-  if (!lastSuccessAt) return "critical";
-  const hrs = (Date.now() - new Date(lastSuccessAt).getTime()) / 3600000;
-  if (hrs < 26) return "success";
-  if (hrs < 50) return "warning";
-  return "critical";
-}
-
-function stalenessStyle(tone: "success" | "warning" | "critical"): React.CSSProperties {
-  if (tone === "success") return { backgroundColor: "#f1f8f5", borderRadius: 8 };
-  if (tone === "warning") return { backgroundColor: "#fff5ea", borderRadius: 8 };
-  return { backgroundColor: "#fff4f4", borderRadius: 8 };
-}
-
-function errorMessage(err: unknown) {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function isAbortError(err: unknown) {
-  return err instanceof Error && err.name === "AbortError";
-}
-
-async function responseError(res: Response, fallback: string) {
-  const data = await res.json().catch(() => ({})) as { error?: unknown };
-  return typeof data.error === "string" ? data.error : `${fallback} (${res.status})`;
-}
-
-function formatLoadedAt(iso: string | null) {
-  if (!iso) return "not loaded";
-  return new Date(iso).toLocaleString();
-}
-
-function domId(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
-}
-
-function hasGscMoverData(data: GscMoversPayload) {
-  return data.risers.length > 0 || data.fallers.length > 0;
-}
-
-function hasActivityData(data: ActivityPayload) {
-  return data.days.some((day) => day.count > 0);
-}
-
-function hasAdTrendData(data: AdTrendPayload) {
-  return data.trend.length > 0;
-}
-
-function PanelNotice<T>({
-  panel,
-  label,
-  staleLabel,
-  onRetry,
-}: {
-  panel: PanelState<T>;
-  label: string;
-  staleLabel?: string;
-  onRetry: () => void;
-}) {
-  if (panel.status !== "error" && !(panel.status === "stale" && panel.error)) return null;
-
-  return (
-    <Banner tone={panel.status === "error" ? "critical" : "warning"}>
-      <BlockStack gap="200">
-        <Text as="p">
-          {panel.status === "error"
-            ? `${label} could not load: ${panel.error ?? "Unknown error"}`
-            : `${staleLabel ?? label} is stale. Refresh failed: ${panel.error ?? "Unknown error"}`}
-        </Text>
-        <InlineStack>
-          <Button size="slim" onClick={onRetry}>Retry</Button>
-        </InlineStack>
-      </BlockStack>
-    </Banner>
-  );
-}
+import type {
+  PerJobHealth,
+  GscMover,
+  DashboardData,
+  FatigueItem,
+  SearchTermItem,
+  CompetitorItem,
+  AuditEntry,
+  AuditLogResponse,
+  JobRunEntry,
+  JobHistoryMap,
+  SparklineDay,
+  GscMoversPayload,
+  ActivityPayload,
+  AdTrendPoint,
+  AdTrendPayload,
+  PanelKey,
+  JobRunStatus,
+  ActiveRunState,
+} from "./components/dashboard/types";
+import {
+  JOB_STATUS_CACHE_KEY,
+  AUDIT_LOG_CACHE_KEY,
+  JOB_HISTORY_CACHE_KEY,
+  GSC_MOVERS_CACHE_KEY,
+  ACTIVITY_SPARKLINE_CACHE_KEY,
+  AD_REPORT_CACHE_KEY,
+  ALL_PANEL_KEYS,
+  TERMINAL_RUN_STATUSES,
+  STATUS_DOT_COLOR,
+  STALENESS_ORDER,
+  stalenessTone,
+  stalenessStyle,
+  errorMessage,
+  isAbortError,
+  responseError,
+  formatLoadedAt,
+  domId,
+  hasGscMoverData,
+  hasActivityData,
+  hasAdTrendData,
+  PanelNotice,
+} from "./components/dashboard/helpers";
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
