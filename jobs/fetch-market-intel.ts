@@ -12,7 +12,16 @@ import { fillCreativeAngles } from "@/lib/market-intel/classify-angles";
 import { recordCompetitorAdCapture } from "@/lib/market-intel/ad-captures";
 import { isSpamStoryAd } from "@/lib/market-intel/spam-filter";
 import { resolveRunLimits, type MarketIntelRunOptions, type ResolvedLimits, type RunProfile } from "@/lib/market-intel/profiles";
+import { gapIsStable } from "@/lib/market-intel/price-signal";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+// Trailing lookback window used to de-noise a single day's competitor price
+// into a "smoothed" price for gap comparisons. Not operator-configurable —
+// the config surface (PRICE_GAP_TASK_PCT / MIN_DAYS / OUTLIER_PCT) covers the
+// thresholds; this window size is the fixed basis the "7d median" title text
+// refers to.
+const PRICE_GAP_WINDOW_DAYS = 7;
 
 type MarketIntelSummary = {
   profile: RunProfile;
@@ -652,12 +661,22 @@ export async function fetchMarketIntelHandler(
   // rows (both market-search and competitor-search) are persisted above, so it
   // sees the full picture for the capture day. For each active keyword, match
   // own products whose title contains the keyword (case-insensitive substring —
-  // deliberately conservative, no fuzzy scoring) and compare the cheapest
-  // variant price against every competitor ShoppingResult row for that keyword.
+  // deliberately conservative, no fuzzy scoring), then check each competing
+  // store's TRAILING price history (not just today's single scrape) for a
+  // gap that has been stably present for `minDays` days — a single noisy
+  // scrape must never trigger an insight on its own.
   // A catalog-fetch failure above leaves ownProducts empty, which naturally
   // yields zero matches here (no separate guard needed).
   if (sources.includes("shopping") && ownProducts.length > 0) {
     const { start: gapDayStart } = captureDayRange(capturedAt);
+
+    const cfg = Object.fromEntries((await prisma.guardrailConfig.findMany({
+      where: { key: { in: ["PRICE_GAP_TASK_PCT", "PRICE_GAP_MIN_DAYS", "PRICE_OUTLIER_PCT"] } },
+    })).map((c) => [c.key, Number(c.value)]));
+    const gapPct = cfg.PRICE_GAP_TASK_PCT ?? 10;
+    const minDays = cfg.PRICE_GAP_MIN_DAYS ?? 14;
+    const outlierPct = cfg.PRICE_OUTLIER_PCT ?? 40;
+
     for (const keyword of keywords) {
       try {
         const matchedProducts = ownProducts.filter((p) =>
@@ -670,6 +689,19 @@ export async function fetchMarketIntelHandler(
         });
         if (latestResults.length === 0) continue;
 
+        // One representative row per competing store for today's capture day
+        // (the store's price-history series, keyed by that row's productKey,
+        // is what actually drives the gap decision — not this raw price).
+        const byStore = new Map<string, (typeof latestResults)[number]>();
+        for (const result of latestResults) {
+          if (result.price == null || !Number.isFinite(result.price) || result.price <= 0) continue;
+          const store = result.store?.trim();
+          if (!store) continue;
+          if (isOwnListing(store, result.productUrl)) continue;
+          if (!byStore.has(store)) byStore.set(store, result);
+        }
+        if (byStore.size === 0) continue;
+
         for (const ownProduct of matchedProducts) {
           // Cheapest variant price stands in for "the product's price" when a
           // product has multiple variants — noted explicitly in evidence below.
@@ -679,14 +711,25 @@ export async function fetchMarketIntelHandler(
           if (variantPrices.length === 0) continue;
           const ownPrice = Math.min(...variantPrices);
 
-          for (const result of latestResults) {
-            if (result.price == null || !Number.isFinite(result.price) || result.price <= 0) continue;
-            const store = result.store?.trim();
-            if (!store) continue;
-            if (isOwnListing(store, result.productUrl)) continue;
+          for (const [store, result] of byStore) {
+            const series = await prisma.shoppingPriceHistory.findMany({
+              where: {
+                productKey: result.productKey,
+                capturedAt: { gte: new Date(capturedAt.getTime() - (PRICE_GAP_WINDOW_DAYS + minDays) * MS_PER_DAY) },
+              },
+              select: { price: true, capturedAt: true },
+            });
 
-            const gapPct = ((ownPrice - result.price) / ownPrice) * 100;
-            if (gapPct <= 10) continue;
+            const stability = gapIsStable({
+              ownPrice,
+              series,
+              gapPct,
+              minDays,
+              windowDays: PRICE_GAP_WINDOW_DAYS,
+              outlierPct,
+              asOf: capturedAt,
+            });
+            if (!stability.stable || stability.smoothed == null) continue;
 
             const existingOpen = await prisma.marketInsight.findFirst({
               where: {
@@ -699,14 +742,15 @@ export async function fetchMarketIntelHandler(
             });
             if (existingOpen) continue;
 
-            const roundedGap = Math.round(gapPct);
-            const severity = gapPct > 25 ? "critical" : "warning";
+            const smoothedPrice = stability.smoothed;
+            const roundedGap = Math.round(stability.gapPctNow ?? 0);
+            const severity = roundedGap > 25 ? "critical" : "warning";
             await prisma.marketInsight.create({
               data: {
                 type: "price_gap",
                 severity,
-                title: `${store} undercuts ${ownProduct.title} by ${roundedGap}%`,
-                summary: `${store} lists ${result.title} at ${result.price}${result.currency ? ` ${result.currency}` : ""}, ${roundedGap}% below Agriko's ${ownProduct.title} at ${ownPrice}.`,
+                title: `Review pricing for ${ownProduct.title}: ${store} at ₱${smoothedPrice} (7d median) vs ours ₱${ownPrice} for ${stability.daysStable}+ days`,
+                summary: `${store} lists ${result.title} at a smoothed 7d-median price of ${smoothedPrice}${result.currency ? ` ${result.currency}` : ""}, ${roundedGap}% below Agriko's ${ownProduct.title} at ${ownPrice}, stable for ${stability.daysStable}+ day(s).`,
                 evidence: json({
                   keyword: keyword.keyword,
                   store,
@@ -721,6 +765,9 @@ export async function fetchMarketIntelHandler(
                   competitorProductUrl: result.productUrl,
                   competitorShoppingResultId: result.id,
                   gapPct: roundedGap,
+                  smoothedPrice,
+                  daysStable: stability.daysStable,
+                  thresholds: { gapPct, minDays, outlierPct },
                 }),
                 keywordId: keyword.id,
                 dedupeKey: `price_gap|${keyword.id}|${slugPart(store)}|${capturedAt.toISOString()}`,
