@@ -9,6 +9,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { adApprovalStatusTone } from "@/lib/ui/tones";
+import { stageProgress } from "@/lib/ad-approval/stage-progress";
+import { timeAgo } from "@/lib/format";
 
 type Json = Record<string, unknown>;
 
@@ -21,6 +23,8 @@ interface Approval {
   flags: { requires_manual_intervention?: boolean; reason?: string } | null;
   draftCopy: Json | null; draftCreative: Json | null;
   revisions: Revision[]; reviews: Review[]; aiReports: AIReport[];
+  names?: Record<string, string>;
+  timeline?: Array<{ at: string; actor: string; kind: string; summary: string }>;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -111,6 +115,8 @@ export default function AdApprovalDetailPage() {
   if (err || !approval) return <Page title="Ad Approval"><Banner tone="critical">{err ?? "Not found"}</Banner></Page>;
 
   const a = approval;
+  const names = a.names ?? {};
+  const timeline = a.timeline ?? [];
   const isDraft = a.status === "draft";
   const isSubmitter = a.submitterId === actor;
   const isConvReviewer = a.status === "in_conversion_review" && a.assignedConversionReviewerId === actor;
@@ -125,10 +131,23 @@ export default function AdApprovalDetailPage() {
       title={a.campaignId}
       backAction={{ content: "Ad Approvals", onAction: () => router.push("/ad-approvals") }}
       titleMetadata={<Badge tone={adApprovalStatusTone(a.status)}>{STATUS_LABELS[a.status] ?? a.status}</Badge>}
-      subtitle={`Revision ${a.currentRevision} · stage ${a.stage}`}
+      subtitle={`Submitted by ${names[a.submitterId] ?? a.submitterId} · Revision ${a.currentRevision} · stage ${a.stage}`}
     >
       <Layout>
         <Layout.Section>
+          <Card>
+            <InlineStack gap="200" wrap>
+              {stageProgress(a.status, a.stage).steps.map((s, i, arr) => (
+                <InlineStack key={s.key} gap="100" blockAlign="center">
+                  <Badge tone={s.state === "done" ? "success" : s.state === "current" ? "info" : s.state === "blocked" ? "critical" : undefined}>
+                    {s.label}
+                  </Badge>
+                  {i !== arr.length - 1 && <Text as="span" tone="subdued">›</Text>}
+                </InlineStack>
+              ))}
+            </InlineStack>
+          </Card>
+
           {actionErr && <Banner tone="critical" onDismiss={() => setActionErr(null)}>{actionErr}</Banner>}
           {a.flags?.requires_manual_intervention && (
             <Banner tone="critical" title="Requires manual intervention">{a.flags.reason}</Banner>
@@ -223,6 +242,23 @@ export default function AdApprovalDetailPage() {
 
         {/* Right column: history */}
         <Layout.Section variant="oneThird">
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">Timeline</Text>
+              {timeline.length === 0 && <Text as="p" tone="subdued">No activity yet.</Text>}
+              {timeline.map((t, i) => (
+                <BlockStack key={i} gap="100">
+                  <InlineStack gap="200" blockAlign="center">
+                    <Badge>{t.kind}</Badge>
+                    <Text as="span" variant="bodySm" tone="subdued">{timeAgo(t.at)}</Text>
+                  </InlineStack>
+                  <Text as="span" variant="bodySm">{names[t.actor] ?? t.actor} — {t.summary}</Text>
+                  <Divider />
+                </BlockStack>
+              ))}
+            </BlockStack>
+          </Card>
+          <div style={{ height: 16 }} />
           <Card>
             <BlockStack gap="300">
               <Text as="h2" variant="headingMd">Reviews</Text>
