@@ -33,11 +33,11 @@
 | 4 | Shopify orders ingestion + real-revenue ROAS | M | — |
 | 5 | Ad-approvals stepper, timeline, human names (item 13) | M | — |
 | 6 | Market Intelligence → advisory recommendations | M | 4 (margin-aware pricing) |
-| 7 | Ad launch: approved ads → Meta (paused) | L | 5 |
+| 7 | ~~Ad launch: approved ads → Meta (paused)~~ **REMOVED by user decision (2026-07-04)** | — | — |
 | 8 | Monolith splits (item 16) | M×3 | best after 3,5,6 land their UI |
 | 9 | A11y/theming pass (item 17) | M | folded into 8 per page + final sweep |
 
-🚀 Deploy checkpoints: after Phase 1, after Phase 4, after Phase 7, after Phase 9.
+🚀 Deploy checkpoints: after Phase 1, after Phase 4, after Phase 6, after Phase 9. (Phase 7's checkpoint moved to Phase 6 when Phase 7 was removed — see below.)
 
 > **Removed by user decision (2026-07-03):** Social Pilot MVP (blog → Facebook page posts) is explicitly out of scope for this roadmap — do not build it or propose it as part of these phases. Gap #5 (Social Pilot is a shell) stays open and unaddressed by choice; the social-pilot page remains as-is apart from the Phase 8/9 refactor-and-theming treatment every page gets.
 
@@ -160,17 +160,7 @@
 
 ## Phase 7 — Ad launch: approved ads → Meta, paused (gap #1)
 
-**Rationale:** The largest gap: `approved_to_make_kwarta` has no consumer. Close it conservatively — the system creates the ad **in PAUSED state**; a human presses go in Ads Manager (or via a follow-up `enable_campaign`-style action later).
-
-**Design locked:**
-- New `lib/connectors/meta-ad-launch.ts`: create creative + ad via Marketing API (`/act_{account}/adcreatives`, `/act_{account}/ads` with `status: "PAUSED"`), from the approved `AdRevision`'s copy/creative JSON. Image/video upload only if the revision carries an asset URL; text-only creative otherwise (v1: link ad with copy; the ROUTER notes creative upload flow was always the incomplete part — this phase completes text+link ads first, asset upload second).
-- New job `jobs/launch-approved-ads.ts` + cron route: picks `AdApproval` rows in `approved_to_make_kwarta` without a `launchedAdId`, launches paused, writes `launchedAdId`/`launchedAt` (schema addition), audit-logs `ad_launched_paused`, notifies via `sendOperatorAlert`. Gated by `AD_LAUNCH_ENABLED=true` (defaults off) — separate from `EXECUTE_APPROVED_LIVE_ENABLED`.
-- Failure path: `launchError` recorded on the row + surfaced on the detail page with retry.
-- Also unblocks: the ad-approval detail page shows launch state as the final stepper step (extends Phase 5's `stageProgress` with a `launched` step).
-
-**Files:** Migration (AdApproval.launchedAdId/launchedAt/launchError), `lib/connectors/meta-ad-launch.ts`, `jobs/launch-approved-ads.ts`, cron route, tests (mock Meta client; assert paused status, idempotency via launchedAdId, flag-off = no-op), detail-page state.
-
-**Acceptance:** With the flag on and a test approval, a PAUSED ad appears in the Meta account tied to the approval record; re-runs don't duplicate; flag off = zero Meta calls. 🚀 Deploy.
+> **REMOVED by user decision (2026-07-04):** the operator is not interested in automated ad launch. Gap #1 (`approved_to_make_kwarta` has no consumer) stays open **by choice** — approved ads are launched manually in Meta Ads Manager. Do not build this phase or propose it as part of this roadmap; do not create `lib/connectors/meta-ad-launch.ts`, `jobs/launch-approved-ads.ts`, the `AD_LAUNCH_ENABLED` flag, or the `launchedAdId`/`launchedAt` schema additions. Phase numbering is retained so existing cross-references stay valid. Consequences absorbed elsewhere: the deploy checkpoint that followed this phase moved to after Phase 6; Phase 5's `stageProgress` forward-compat design (stable keys, generic rendering, appendable steps) becomes unused headroom — harmless, already shipped.
 
 ---
 
@@ -204,10 +194,11 @@ Order: `content-pilot/page.tsx` (1,820 lines) → dashboard `page.tsx` (~1,430) 
 - **Search-term insights:** skill 46 (keyword-gap-analysis) is KEPT — it runs on kept Keyword Planner + GSC data, not on a Google Ads account. Phase 3 re-targets/dispatches it; nothing is ever rebuilt for Google Ads *ad execution*.
 - **Notifications transport:** webhook (`ALERT_WEBHOOK_URL`) — no email infra will be added in this roadmap.
 - **Repricing:** advisory tasks only; automatic price changes are out of scope until the operator asks.
+- **Ad launch (gap #1):** removed by user decision (2026-07-04) — approved ads are launched manually in Meta Ads Manager; no automated launch path will be built.
 
 ## Self-review notes
 
-- Coverage: gaps #1→Phase 7, #2→3, #3→2, #4→4, #5→deferred by user decision (2026-07-03), #6→6, #7→1A, #8→1B, #9→resolved scope note; item 13→Phase 5, 16→8, 17→9; Google Ads removal→Phase 0. ✔
+- Coverage: gaps #1→removed by user decision (2026-07-04), #2→3, #3→2, #4→4, #5→deferred by user decision (2026-07-03), #6→6, #7→1A, #8→1B, #9→resolved scope note; item 13→Phase 5, 16→8, 17→9; Google Ads removal→Phase 0. ✔
 - Every phase names exact files, models, env flags, and acceptance criteria; code-complete steps are deliberately deferred to per-phase plans per the scope-check decomposition declared in the header.
 - Interface names introduced here and reused later: `sendOperatorAlert` (1A, used by 6 and 7), `outcomeTone` (1B), `stageProgress` (5, extended by 7), `DailySales` (4). Consistent throughout.
 - External-scope risks called out where a phase can dead-end (Shopify `read_orders` scope in 4, Marketing API ad-create permissions in 7): each phase's first task is the permission check, stop-and-surface if blocked.
