@@ -7,7 +7,6 @@ Cron scheduling is handled outside the app. The app exposes cron routes that can
 | Time (UTC) | Route | What It Does |
 |---|---|---|
 | 01:00 | `/api/cron/daily` | Daily health pipeline for ads, SEO, blog content, skills, proposals, cleanup, and alerts |
-| 02:00 | `/api/cron/run-skills` | Loads all enabled skills, fetches latest snapshots, sends to Claude, writes recommendations |
 | 03:00 | `/api/cron/fetch-blog-content` | Fetches all Shopify blog articles, runs analyzers, updates `ArticleRecord` rows |
 | 04:00 | `/api/cron/fetch-seo-data` | Pulls GSC search queries and GA4 sessions into a `RawSnapshot` |
 | 04:15 | `/api/cron/fetch-orders` | Ingests yesterday's Shopify orders into DailySales (+28-day backfill on first run) |
@@ -17,11 +16,16 @@ Cron scheduling is handled outside the app. The app exposes cron routes that can
 | 05:45 | `/api/cron/fetch-keyword-research` | Captures Google Ads keyword planning metrics for tracked market keywords |
 | Mon 05:50 | `/api/cron/fetch-gsc-data` | Captures query+page GSC rows into `GscQuery` for historical search analytics |
 | 06:00 | `/api/cron/execute-approved` | Dry-runs approved execution queue unless live execution is explicitly enabled |
+| 06:30 | `/api/cron/index-knowledge` | Indexes newly available content into the knowledge base for skill grounding |
+| 06:45 | `/api/cron/reindex-published` | Scores follow-up SEO performance for content published 14-60 days ago that hasn't been scored yet |
 | 07:00 | `/api/cron/check-outcomes` | Measures whether executed recommendations helped by comparing before/after platform metrics |
 | 08:00 | `/api/cron/daily-digest` | Posts a one-message operator digest (pending recs, yesterday's executions + outcomes, failed jobs, content published, approvals awaiting review) to ALERT_WEBHOOK_URL |
 | Every minute | `/api/cron/drain-jobs?limit=1` | Drains one queued job run and recovers stale claims. This includes `dashboard-refresh`, `fetch-market-intel`, and `fetch-keyword-research` queue entries. |
 | Every 5 min | `/api/cron/process-ad-reviews` | Runs queued/retry AI ad-approval review jobs (Pre/Brand/Technical) and advances the approval workflow. |
 | Every 5 min | `/api/cron/ad-approval-sla` | Escalates ad approvals that breach reviewer SLAs (Conversion 4h, Penultimate 8h, Final 24h). |
+| Every 15 min | `/api/cron/publish-scheduled` | Publishes any `ContentProposal` whose `scheduledPublishAt` has passed |
+
+> **`/api/cron/run-skills` is not scheduled standalone.** It runs inside the 01:00 `/api/cron/daily` pipeline (`daily`'s handler calls `runSkillsHandler()` directly — see its Job Description below). The route still exists for manual/on-demand triggers; do not add a separate cron entry for it, or skills will run twice and double-write recommendations.
 
 ## Job Descriptions
 
