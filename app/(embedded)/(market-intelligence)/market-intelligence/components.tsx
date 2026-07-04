@@ -256,6 +256,7 @@ interface CompetitorResult {
   price?: number | null;
   currency?: string | null;
   store?: string | null;
+  smoothed7d?: number | null;
 }
 
 const STOP_WORDS = new Set([
@@ -334,7 +335,14 @@ export function PriceComparisonCard({
             {matches.map(m => (
               <InlineStack key={m.id} align="space-between" blockAlign="center">
                 <Text as="span" variant="bodySm">{m.store ?? "Unknown store"} — {m.titleEn ?? m.title}</Text>
-                <Text as="span" variant="bodySm">{fmt(m.price, m.currency)}</Text>
+                <BlockStack gap="050" inlineAlign="end">
+                  <Text as="span" variant="bodySm">{fmt(m.price, m.currency)}</Text>
+                  {m.smoothed7d != null && (
+                    <Text as="span" variant="bodySm" tone="subdued">
+                      7d median {formatMoney(m.smoothed7d, m.currency)}
+                    </Text>
+                  )}
+                </BlockStack>
               </InlineStack>
             ))}
             <Text as="p" tone="subdued" variant="bodySm">Matched by title similarity</Text>

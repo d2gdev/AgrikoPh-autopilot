@@ -5,6 +5,7 @@ import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isSpamStoryAd } from "@/lib/market-intel/spam-filter";
 import { computeAdLongevity } from "@/lib/market-intel/ad-longevity";
+import { smoothedMedian } from "@/lib/market-intel/price-signal";
 
 type MarketIntelligencePayload = Record<string, unknown>;
 
@@ -42,6 +43,14 @@ async function loadMarketIntelligencePayload(forceRefresh: boolean): Promise<Mar
 }
 
 const ADS_PER_COMPETITOR = 15;
+
+// Same de-noising window/tolerance the price-gap producer (jobs/fetch-market-intel.ts)
+// uses for its "7d median" title text — this is a read-only display of that same
+// signal, not a second source of truth, so it intentionally does not re-read the
+// operator-configurable GuardrailConfig thresholds (PRICE_GAP_TASK_PCT etc.); those
+// only matter for the decision to open an insight, not for showing the smoothed number.
+const SMOOTHED_WINDOW_DAYS = 7;
+const SMOOTHED_OUTLIER_PCT = 40;
 
 const competitorAdSelect = {
   id: true, capturedAt: true, competitorId: true, pageName: true,
@@ -114,6 +123,7 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
         price: true,
         currency: true,
         searchPosition: true,
+        productKey: true,
       },
     }),
     fetchRecentAdsPerCompetitor(),
@@ -168,9 +178,41 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
     .slice(0, 25)
     .map(({ ad: _ad, ...insight }) => insight);
 
+  // De-noised 7d-median price per shopping result, so the Price Comparison card
+  // can show operators WHY a price-gap task did (or didn't) fire — the same
+  // ShoppingPriceHistory series and smoothedMedian() math the price-gap
+  // producer (jobs/fetch-market-intel.ts) uses, reused read-only here rather
+  // than duplicated. Batched into a single query keyed by productKey instead
+  // of one query per shoppingResult row.
+  const now = new Date();
+  const productKeys = [...new Set(shoppingResults.map((r) => r.productKey))];
+  const priceHistory = productKeys.length
+    ? await prisma.shoppingPriceHistory.findMany({
+        where: {
+          productKey: { in: productKeys },
+          capturedAt: { gte: new Date(now.getTime() - SMOOTHED_WINDOW_DAYS * 24 * 60 * 60 * 1000) },
+        },
+        select: { productKey: true, price: true, capturedAt: true },
+      })
+    : [];
+  const seriesByProductKey = new Map<string, { price: number; capturedAt: Date }[]>();
+  for (const point of priceHistory) {
+    const series = seriesByProductKey.get(point.productKey);
+    if (series) series.push(point);
+    else seriesByProductKey.set(point.productKey, [point]);
+  }
+  const shoppingResultsWithSmoothed = shoppingResults.map(({ productKey, ...result }) => ({
+    ...result,
+    smoothed7d: smoothedMedian(seriesByProductKey.get(productKey) ?? [], {
+      windowDays: SMOOTHED_WINDOW_DAYS,
+      outlierPct: SMOOTHED_OUTLIER_PCT,
+      asOf: now,
+    }),
+  }));
+
   return {
     insights: cleanInsights,
-    shoppingResults,
+    shoppingResults: shoppingResultsWithSmoothed,
     competitorAds: cleanCompetitorAds,
     // BigInt columns (bid micros) cannot be serialized by JSON.stringify — cast to string.
     // The client already parses these via Number(...).

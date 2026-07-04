@@ -51,6 +51,7 @@ interface ShoppingResult {
   price?: number | null;
   currency?: string | null;
   searchPosition?: number | null;
+  smoothed7d?: number | null;
 }
 
 interface KeywordResearchResult {
