@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { STATUS } from "@/lib/ad-approval/constants";
+import { buildApprovalTimeline } from "@/lib/ad-approval/timeline";
 import {
   resolveActor,
   isAdmin,
@@ -45,7 +46,42 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     await auditDenied(ctx.actor, "view", id, "not_owner_or_assigned");
     return forbidden();
   }
-  return NextResponse.json({ approval, actor: ctx.actor, isAdmin: admin });
+
+  const auditRows = await prisma.auditLog.findMany({
+    where: { entityType: "ad_approval", entityId: id },
+    orderBy: { createdAt: "asc" },
+    take: 200,
+  });
+
+  const userIds = [
+    approval.submitterId,
+    approval.assignedConversionReviewerId,
+    approval.assignedPenultimateApproverId,
+    approval.assignedFinalApproverId,
+    ...auditRows.map((r) => r.actor),
+  ].filter((v): v is string => !!v && v !== "system");
+  const uniqueUserIds = [...new Set(userIds)];
+
+  const users = uniqueUserIds.length
+    ? await prisma.appUser.findMany({
+        where: { shopifyUserId: { in: uniqueUserIds } },
+        select: { shopifyUserId: true, displayName: true, email: true },
+      })
+    : [];
+  const names: Record<string, string> = {};
+  for (const u of users) {
+    names[u.shopifyUserId] = u.displayName ?? u.email ?? u.shopifyUserId;
+  }
+
+  const submitterLabel = names[approval.submitterId] ?? approval.submitterId;
+  const timeline = buildApprovalTimeline({
+    revisions: approval.revisions.map((r) => ({ ...r, submitterLabel })),
+    reviews: approval.reviews,
+    auditRows,
+    names,
+  });
+
+  return NextResponse.json({ approval, actor: ctx.actor, isAdmin: admin, names, timeline });
 }
 
 const patchSchema = z.object({
