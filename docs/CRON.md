@@ -15,6 +15,7 @@ Cron scheduling is handled outside the app. The app exposes cron routes that can
 | 05:30 | `/api/cron/fetch-market-intel` | Captures Google Shopping competitor products/prices and Meta Ad Library creative intel |
 | 05:45 | `/api/cron/fetch-keyword-research` | Captures Google Ads keyword planning metrics for tracked market keywords |
 | Mon 05:50 | `/api/cron/fetch-gsc-data` | Captures query+page GSC rows into `GscQuery` for historical search analytics |
+| 04:15 | `/api/cron/fetch-orders` | Ingests yesterday's Shopify orders into DailySales (+28-day backfill on first run) |
 | 06:00 | `/api/cron/execute-approved` | Dry-runs approved execution queue unless live execution is explicitly enabled |
 | 07:00 | `/api/cron/check-outcomes` | Measures whether executed recommendations helped by comparing before/after platform metrics |
 | 08:00 | `/api/cron/daily-digest` | Posts a one-message operator digest (pending recs, yesterday's executions + outcomes, failed jobs, content published, approvals awaiting review) to ALERT_WEBHOOK_URL |
@@ -71,6 +72,9 @@ Default geo/language values are Philippines (`GOOGLE_ADS_KEYWORD_GEO_TARGET_ID=2
 
 ### `/api/cron/fetch-gsc-data`
 Stores first-party GSC query+page rows in `GscQuery`. This stream is separate from raw SEO snapshots so the dashboard has durable row-level history for Agriko's own ranking data.
+
+### `/api/cron/fetch-orders`
+Calls `lib/connectors/shopify-orders.ts` (paginated Admin API) to pull yesterday's Shopify orders, excluding cancelled orders from revenue. Requires the `read_orders` scope on the client-credentials token — verified once via `scripts/check-order-scopes.ts` before this job was enabled, not re-checked per run. Writes a `shopify_orders` `RawSnapshot` per run and upserts one `DailySales` row per calendar day (compound-unique on date, so re-running the same day is idempotent — no duplicate rows). On the very first run (no existing `DailySales` rows), it backfills the trailing 28 days instead of just yesterday.
 
 ### `/api/cron/execute-approved`
 1. **Stuck-lock recovery** — resets any rec stuck in `"executing"` for >10 minutes to `"failed"` with audit entry
