@@ -114,6 +114,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 0 1 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/daily -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
 0 3 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/fetch-blog-content -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
 0 4 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/fetch-seo-data -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
+15 4 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/fetch-orders -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
 30 4 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/snapshot-seo-history -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
 0 5 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/fetch-ads-data -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
 30 5 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/fetch-market-intel -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
@@ -121,7 +122,11 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 50 5 * * 1 root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/fetch-gsc-data -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
 0 6 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf "https://${DOMAIN}/api/cron/execute-approved?dryRun=true" -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
 30 6 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/index-knowledge -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
+0 7 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/check-outcomes -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
+0 8 * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/daily-digest -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
 * * * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf "https://${DOMAIN}/api/cron/drain-jobs?limit=1" -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
+*/5 * * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/process-ad-reviews -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
+*/5 * * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/ad-approval-sla -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
 */15 * * * * root SECRET=$(grep '^CRON_SECRET=' /opt/autopilot/.env | cut -d= -f2 | tr -d '"'); curl -sf https://${DOMAIN}/api/cron/publish-scheduled -H "Authorization: Bearer $SECRET" >> /var/log/autopilot-cron.log 2>&1
 `;
 ssh(`cat > /etc/cron.d/autopilot <<'EOF'
