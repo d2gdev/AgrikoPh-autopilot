@@ -84,7 +84,7 @@ export default function AdApprovalDetailPage() {
     authFetch(`/api/ad-approvals/${id}`)
       .then(async (r) => { if (!r.ok) throw new Error(await responseError(r, "Failed to load")); return r.json(); })
       .then((d) => {
-        setApproval(d.approval);
+        setApproval({ ...d.approval, names: d.names, timeline: d.timeline });
         setActor(d.actor ?? "");
         setCopy(Object.fromEntries(Object.entries(d.approval.draftCopy ?? {}).map(([k, v]) => [k, String(v ?? "")])));
         setCreative(Object.fromEntries(Object.entries(d.approval.draftCreative ?? {}).map(([k, v]) => [k, String(v ?? "")])));
