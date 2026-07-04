@@ -14,6 +14,7 @@ import { ListSkeleton } from "@/components/ui/states";
 interface Approval {
   id: string;
   campaignId: string;
+  campaignLabel?: string;
   submitterId: string;
   currentRevision: number;
   status: string;
@@ -63,6 +64,7 @@ export default function AdApprovalsPage() {
   const router = useRouter();
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [actor, setActor] = useState<string>("");
+  const [names, setNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
@@ -82,6 +84,7 @@ export default function AdApprovalsPage() {
     setTruncatedTotal(null);
     try {
       const all: Approval[] = [];
+      const namesAcc: Record<string, string> = {};
       let total = 0;
       let actorId = "";
       let offset = 0;
@@ -90,12 +93,14 @@ export default function AdApprovalsPage() {
         if (!r.ok) throw new Error(await responseError(r, "Failed to load approvals"));
         const d = await r.json();
         all.push(...(d.approvals ?? []));
+        Object.assign(namesAcc, d.names ?? {});
         total = d.total ?? all.length;
         actorId = d.actor ?? "";
         offset += PAGE_LIMIT;
       } while (all.length < total && offset < MAX_RECORDS);
       setApprovals(all);
       setActor(actorId);
+      setNames(namesAcc);
       if (all.length < total) setTruncatedTotal(total);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : String(err));
@@ -222,7 +227,7 @@ export default function AdApprovalsPage() {
                       <BlockStack gap="200">
                         <InlineStack align="space-between" blockAlign="center">
                           <InlineStack gap="200" blockAlign="center">
-                            <Text as="span" variant="headingMd">{a.campaignId}</Text>
+                            <Text as="span" variant="headingMd">{a.campaignLabel ?? a.campaignId}</Text>
                             <Badge tone={adApprovalStatusTone(a.status)}>{STATUS_LABELS[a.status] ?? a.status}</Badge>
                             <Badge>{`Rev ${a.currentRevision}`}</Badge>
                             {a.flags?.requires_manual_intervention && <Badge tone="critical">Needs intervention</Badge>}
@@ -230,7 +235,7 @@ export default function AdApprovalsPage() {
                           <Button onClick={() => router.push(`/ad-approvals/${a.id}`)}>Open</Button>
                         </InlineStack>
                         <Text as="span" tone="subdued" variant="bodySm">
-                          Submitter {a.submitterId} · updated {timeAgo(a.updatedAt)}
+                          Submitter {names[a.submitterId] ?? a.submitterId} · updated {timeAgo(a.updatedAt)}
                         </Text>
                       </BlockStack>
                     </Card>
