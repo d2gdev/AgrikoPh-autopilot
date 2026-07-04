@@ -46,7 +46,49 @@ export async function GET(req: Request) {
     prisma.adApproval.count({ where: scope }),
   ]);
 
-  return NextResponse.json({ approvals, total, offset, limit, isAdmin: admin, actor });
+  const userIds = approvals
+    .flatMap((a) => [
+      a.submitterId,
+      a.assignedConversionReviewerId,
+      a.assignedPenultimateApproverId,
+      a.assignedFinalApproverId,
+    ])
+    .filter((v): v is string => !!v && v !== "system");
+  const uniqueUserIds = [...new Set(userIds)];
+
+  const users = uniqueUserIds.length
+    ? await prisma.appUser.findMany({
+        where: { shopifyUserId: { in: uniqueUserIds } },
+        select: { shopifyUserId: true, displayName: true, email: true },
+      })
+    : [];
+  const names: Record<string, string> = {};
+  for (const u of users) {
+    names[u.shopifyUserId] = u.displayName ?? u.email ?? u.shopifyUserId;
+  }
+
+  const metaSnapshot = await prisma.rawSnapshot.findFirst({
+    where: { source: "meta" },
+    orderBy: { fetchedAt: "desc" },
+    select: { payload: true },
+  });
+  const campaignNames: Record<string, string> = {};
+  if (metaSnapshot?.payload && typeof metaSnapshot.payload === "object") {
+    const payload = metaSnapshot.payload as Record<string, unknown>;
+    const campaigns = (payload.campaigns as Array<Record<string, unknown>>) ?? [];
+    for (const c of campaigns) {
+      if (typeof c.id === "string" && typeof c.name === "string") {
+        campaignNames[c.id] = c.name;
+      }
+    }
+  }
+
+  const approvalsWithLabel = approvals.map((a) => ({
+    ...a,
+    campaignLabel: campaignNames[a.campaignId] ?? a.campaignId,
+  }));
+
+  return NextResponse.json({ approvals: approvalsWithLabel, names, total, offset, limit, isAdmin: admin, actor });
 }
 
 const createSchema = z.object({
