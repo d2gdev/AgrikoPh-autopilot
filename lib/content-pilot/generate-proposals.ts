@@ -294,6 +294,78 @@ function competitorFindings(insight: { id: string; items: unknown } | null): Pro
   return proposals;
 }
 
+const MAX_KEYWORD_GAP_SEEDS = 6;
+
+type MarketInsightRow = {
+  id: string;
+  competitorId: string | null;
+  evidence: unknown;
+};
+
+// Builds new-content ContentProposal seeds from open keyword_gap MarketInsights
+// (produced by jobs/fetch-market-intel.ts from DataForSEO Labs domain-intersection
+// data — competitor organic rankings, unrelated to Google Ads Keyword Planner).
+// Runs inside generateProposals for the same reason as competitorFindings: the
+// nightly cron wipes and regenerates all pending proposals from this function.
+function keywordGapFindings(insights: MarketInsightRow[]): ProposalInput[] {
+  const proposals: ProposalInput[] = [];
+
+  for (const insight of insights) {
+    if (proposals.length >= MAX_KEYWORD_GAP_SEEDS) break;
+    if (insight === null || typeof insight !== "object") continue;
+    const evidence = insight.evidence;
+    if (evidence === null || typeof evidence !== "object") continue;
+    const ev = evidence as Record<string, unknown>;
+
+    const keyword = typeof ev.keyword === "string" && ev.keyword ? ev.keyword : null;
+    const competitorDomain =
+      typeof ev.competitorDomain === "string" && ev.competitorDomain ? ev.competitorDomain : null;
+    const competitorPosition = typeof ev.competitorPosition === "number" ? ev.competitorPosition : null;
+    const searchVolume = typeof ev.searchVolume === "number" ? ev.searchVolume : null;
+
+    if (!keyword || !competitorDomain || competitorPosition == null || searchVolume == null) continue;
+
+    const priority = searchVolume >= 1000 ? "high" : "medium";
+    const title = `Keyword gap: "${keyword}" (${competitorDomain} ranks #${competitorPosition})`.slice(0, 240);
+    const angle = `${competitorDomain} ranks #${competitorPosition} for "${keyword}" (~${searchVolume}/mo searches) and we don't appear at all — a dedicated article targeting this keyword can capture the gap.`;
+
+    const finding: ContentFinding = {
+      type: "new-content-gap",
+      trafficScore: trafficBucket(searchVolume),
+      businessValue: 18,
+      severity: "medium",
+      confidence: 0.75,
+      risk: "low",
+      changeType: "new_article",
+      title,
+      description: angle,
+      evidence: { marketInsightId: insight.id, keyword, competitorDomain, competitorPosition, searchVolume },
+      proposedState: { targetKeyword: keyword, angle, competitorDomain, searchVolume },
+    };
+
+    const score = scoreFinding(finding);
+    proposals.push({
+      articleHandle: null,
+      proposalType: "new-content",
+      changeType: "new_article",
+      priority,
+      impact: findingToImpact(score),
+      effort: changeTypeToEffort(finding.changeType),
+      title: finding.title,
+      description: finding.description,
+      proposedState: finding.proposedState,
+      sourceData: {
+        marketInsightId: insight.id,
+        competitorId: insight.competitorId ?? null,
+        evidence: { keyword, competitorDomain, competitorPosition, searchVolume },
+      },
+      priorityScore: score,
+    });
+  }
+
+  return proposals;
+}
+
 function articleHandleFromPage(page: string): string {
   return page.split(/[?#]/)[0]?.split("/").filter(Boolean).pop() ?? "";
 }
@@ -332,7 +404,7 @@ function buildQueryLandingMap(
 }
 
 export async function generateProposals(prismaClient: PrismaClient): Promise<ProposalInput[]> {
-  const [articles, latestGscWindow, gscSnap, gscQueryPageSnap, competitorInsight] = await Promise.all([
+  const [articles, latestGscWindow, gscSnap, gscQueryPageSnap, competitorInsight, keywordGapInsights] = await Promise.all([
     prismaClient.articleRecord.findMany({
       select: {
         handle: true,
@@ -353,6 +425,11 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
     prismaClient.skillInsight.findFirst({
       where: { insightType: "competitor-analysis" },
       orderBy: { createdAt: "desc" },
+    }),
+    prismaClient.marketInsight.findMany({
+      where: { type: "keyword_gap", status: "open" },
+      orderBy: { createdAt: "desc" },
+      take: 12,
     }),
   ]);
 
@@ -390,8 +467,16 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
   const queryLandingMap = buildQueryLandingMap(queryPagePairs, new Set(articlesByHandle.keys()));
 
   const competitorProposals = competitorFindings(competitorInsight);
+  const keywordGapProposals = keywordGapFindings(keywordGapInsights);
 
-  if (articles.length === 0 && gscQueries.length === 0 && competitorProposals.length === 0) return [];
+  if (
+    articles.length === 0 &&
+    gscQueries.length === 0 &&
+    competitorProposals.length === 0 &&
+    keywordGapProposals.length === 0
+  ) {
+    return [];
+  }
 
   const findings: ContentFinding[] = [];
   const now = Date.now();
@@ -567,6 +652,7 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
   const scored = [
     ...findings.map((f) => toProposal(f)),
     ...competitorProposals,
+    ...keywordGapProposals,
   ].sort((a, b) => b.priorityScore - a.priorityScore);
 
   const seen = new Set<string>();

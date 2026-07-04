@@ -6,6 +6,7 @@ const mockPrisma = {
   rawSnapshot: { findFirst: vi.fn() },
   gscQuery: { findFirst: vi.fn(), findMany: vi.fn() },
   skillInsight: { findFirst: vi.fn() },
+  marketInsight: { findMany: vi.fn() },
 };
 
 beforeEach(() => {
@@ -16,6 +17,7 @@ beforeEach(() => {
   mockPrisma.gscQuery.findFirst.mockResolvedValue(null);
   mockPrisma.gscQuery.findMany.mockResolvedValue([]);
   mockPrisma.skillInsight.findFirst.mockResolvedValue(null);
+  mockPrisma.marketInsight.findMany.mockResolvedValue([]);
 });
 
 describe("generateProposals", () => {
@@ -276,5 +278,94 @@ describe("generateProposals", () => {
     const result = await generateProposals(mockPrisma as any);
     expect(result.some((p) => p.title.startsWith("Counter-angle:"))).toBe(false);
     expect(result.some((p) => p.proposalType === "seo-fix")).toBe(true);
+  });
+
+  it("seeds new-content proposals from open keyword_gap MarketInsights", async () => {
+    mockPrisma.marketInsight.findMany.mockResolvedValue([
+      {
+        id: "mi-1",
+        competitorId: "comp-1",
+        evidence: {
+          keyword: "organic black rice benefits",
+          competitorDomain: "riceco.com",
+          competitorPosition: 3,
+          searchVolume: 1500,
+        },
+      },
+      {
+        id: "mi-2",
+        competitorId: "comp-2",
+        evidence: {
+          keyword: "turmeric tea for inflammation",
+          competitorDomain: "spicehub.com",
+          competitorPosition: 7,
+          searchVolume: 400,
+        },
+      },
+    ]);
+
+    const result = await generateProposals(mockPrisma as any);
+    const gapProposals = result.filter((p) => p.title.startsWith("Keyword gap:"));
+
+    expect(gapProposals).toHaveLength(2);
+    for (const p of gapProposals) {
+      expect(p.proposalType).toBe("new-content");
+      expect(p.changeType).toBe("new_article");
+      expect(p.articleHandle).toBeNull();
+      expect(typeof p.proposedState.targetKeyword).toBe("string");
+      expect(p.proposedState.targetKeyword).toBeTruthy();
+    }
+
+    const targetKeywords = gapProposals.map((p) => p.proposedState.targetKeyword);
+    expect(new Set(targetKeywords).size).toBe(2);
+
+    const highVolume = gapProposals.find((p) => p.proposedState.targetKeyword === "organic black rice benefits");
+    expect(highVolume?.priority).toBe("high");
+    const lowVolume = gapProposals.find((p) => p.proposedState.targetKeyword === "turmeric tea for inflammation");
+    expect(lowVolume?.priority).toBe("medium");
+
+    const sourceData = highVolume?.sourceData as Record<string, unknown>;
+    expect(sourceData.marketInsightId).toBe("mi-1");
+    expect(sourceData.competitorId).toBe("comp-1");
+  });
+
+  it("produces zero keyword-gap proposals when no open insights exist, without affecting other findings", async () => {
+    mockPrisma.marketInsight.findMany.mockResolvedValue([]);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      {
+        handle: "no-meta-2",
+        title: "No Meta Article Two",
+        publishedAt: new Date("2025-03-01"),
+        wordCount: 1000,
+        inboundCount: 2,
+        internalLinkCount: 3,
+        seoData: { score: 65, issues: ["missing-meta-description"] },
+        topicsData: [],
+      },
+    ]);
+
+    const result = await generateProposals(mockPrisma as any);
+    expect(result.some((p) => p.title.startsWith("Keyword gap:"))).toBe(false);
+    expect(result.some((p) => p.proposalType === "seo-fix")).toBe(true);
+  });
+
+  it("skips malformed keyword_gap evidence without throwing", async () => {
+    mockPrisma.marketInsight.findMany.mockResolvedValue([
+      { id: "mi-bad-1", competitorId: "comp-1", evidence: { competitorDomain: "riceco.com", competitorPosition: 3, searchVolume: 1500 } }, // missing keyword
+      { id: "mi-bad-2", competitorId: "comp-1", evidence: { keyword: 42, competitorDomain: "riceco.com", competitorPosition: 3, searchVolume: 1500 } }, // wrong type keyword
+      { id: "mi-bad-3", competitorId: "comp-1", evidence: { keyword: "valid keyword", competitorDomain: "riceco.com", competitorPosition: "3", searchVolume: 1500 } }, // wrong type position
+      { id: "mi-bad-4", competitorId: "comp-1", evidence: null }, // null evidence
+      { id: "mi-bad-5", competitorId: "comp-1", evidence: "not-an-object" }, // wrong evidence type
+      {
+        id: "mi-good",
+        competitorId: "comp-1",
+        evidence: { keyword: "good keyword", competitorDomain: "riceco.com", competitorPosition: 5, searchVolume: 300 },
+      },
+    ]);
+
+    const result = await generateProposals(mockPrisma as any);
+    const gapProposals = result.filter((p) => p.title.startsWith("Keyword gap:"));
+    expect(gapProposals).toHaveLength(1);
+    expect(gapProposals[0]?.proposedState.targetKeyword).toBe("good keyword");
   });
 });
