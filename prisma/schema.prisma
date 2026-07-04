@@ -882,3 +882,16 @@ model Notification {
 
   @@index([recipientId, readAt, createdAt])
 }
+
+// Daily revenue rollups from Shopify orders (Phase 4 orders ingestion).
+model DailySales {
+  id        String   @id @default(cuid())
+  date      DateTime @unique // UTC midnight of the day the sales occurred
+  orders    Int
+  revenue   Float    // house precedent: PHP amounts are Float (see estimatedValuePhp)
+  aov       Float
+  currency  String
+  fetchedAt DateTime @updatedAt
+
+  @@index([date])
+}
