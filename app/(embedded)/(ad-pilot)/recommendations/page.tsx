@@ -2,8 +2,9 @@
 
 import {
   Page, Layout, Card, Text, Button, Badge, BlockStack, InlineStack,
-  Tabs, EmptyState, Collapsible, Modal, TextField, Select, Banner, Toast,
+  Tabs, EmptyState, Collapsible, Modal, TextField, Select, Banner, Toast, Icon,
 } from "@shopify/polaris";
+import { AlertTriangleIcon } from "@shopify/polaris-icons";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { ApproveConfirmationModal } from "@/components/ui/approve-confirmation-modal";
@@ -335,7 +336,10 @@ export default function RecommendationsPage() {
                     )}
 
                     {rec.guardReason && (
-                      <Text as="p" tone="critical">⚠ {rec.guardReason}</Text>
+                      <InlineStack gap="100" blockAlign="start" wrap={false}>
+                        <Icon source={AlertTriangleIcon} tone="critical" />
+                        <Text as="p" tone="critical">{rec.guardReason}</Text>
+                      </InlineStack>
                     )}
 
                     {rec.executionResult && (
@@ -348,7 +352,12 @@ export default function RecommendationsPage() {
                           {expanded.has(rec.id) ? "Hide" : "Show"} execution detail
                         </Button>
                         <Collapsible open={expanded.has(rec.id)} id={`exec-${rec.id}`}>
-                          <div style={{ fontFamily: "monospace", fontSize: 12, background: "#f6f6f6", padding: 10, borderRadius: 6, overflowX: "auto" }}>
+                          <div
+                            tabIndex={0}
+                            role="region"
+                            aria-label="Execution detail"
+                            style={{ fontFamily: "monospace", fontSize: 12, background: "var(--p-color-bg-surface-secondary)", padding: 10, borderRadius: 6, overflowX: "auto" }}
+                          >
                             {JSON.stringify(rec.executionResult, null, 2)}
                           </div>
                         </Collapsible>
