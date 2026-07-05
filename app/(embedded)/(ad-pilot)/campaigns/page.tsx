@@ -2,8 +2,9 @@
 
 import {
   Page, Layout, Card, Text, Badge, Tabs, EmptyState, Button, Banner,
-  BlockStack, InlineStack, Spinner, Collapsible, Box, Divider, Toast,
+  BlockStack, InlineStack, Spinner, Collapsible, Box, Divider, Toast, Icon,
 } from "@shopify/polaris";
+import { AlertTriangleIcon, CashDollarIcon, CheckIcon, XIcon } from "@shopify/polaris-icons";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
@@ -61,10 +62,10 @@ function roasTone(v: number | null): "success" | "warning" | "critical" | "info"
 }
 
 function roasBarColor(v: number | null): string {
-  if (v === null) return "#8c9196";
-  if (v >= 1.0)  return "#007f5f";
-  if (v >= ROAS_THRESHOLD) return "#b98900";
-  return "#d72c0d";
+  if (v === null) return "var(--p-color-icon-secondary)";
+  if (v >= 1.0)  return "var(--p-color-bg-fill-success)";
+  if (v >= ROAS_THRESHOLD) return "var(--p-color-bg-fill-warning)";
+  return "var(--p-color-bg-fill-critical)";
 }
 
 function actionTone(t: string): "critical" | "warning" | "attention" | "info" {
@@ -105,10 +106,13 @@ function MetricTile({ label, value, sub }: { label: string; value: string; sub?:
 function ConfBar({ score }: { score: number | null }) {
   if (score === null) return null;
   const pct = Math.round(score * 100);
-  const color = pct >= 85 ? "#007f5f" : pct >= 65 ? "#b98900" : "#6d7175";
+  const color =
+    pct >= 85 ? "var(--p-color-bg-fill-success)"
+    : pct >= 65 ? "var(--p-color-bg-fill-warning)"
+    : "var(--p-color-icon-secondary)";
   return (
     <InlineStack gap="150" blockAlign="center">
-      <div style={{ width: 48, height: 4, borderRadius: 2, background: "#e4e5e7", overflow: "hidden" }}>
+      <div style={{ width: 48, height: 4, borderRadius: 2, background: "var(--p-color-bg-fill-tertiary)", overflow: "hidden" }}>
         <div style={{ width: `${pct}%`, height: "100%", background: color }} />
       </div>
       <Text as="span" variant="bodySm" tone="subdued">{pct}% conf</Text>
@@ -377,9 +381,10 @@ export default function CampaignsPage() {
                               <Button
                                 size="slim"
                                 tone="critical"
+                                disclosure={isOpen ? "up" : "down"}
                                 onClick={() => toggleRecs(c.id)}
                               >
-                                {`${isOpen ? "▲" : "▼"} ${c.pendingRecs} pending action${c.pendingRecs !== 1 ? "s" : ""}`}
+                                {`${c.pendingRecs} pending action${c.pendingRecs !== 1 ? "s" : ""}`}
                               </Button>
                             )}
                           </BlockStack>
@@ -475,7 +480,7 @@ export default function CampaignsPage() {
                                         {/* Impact */}
                                         {rec.estimatedImpact && (
                                           <InlineStack gap="150" blockAlign="center">
-                                            <Text as="span" variant="bodySm">💰</Text>
+                                            <Icon source={CashDollarIcon} tone="subdued" />
                                             <Text as="span" variant="bodySm" fontWeight="semibold">
                                               {rec.estimatedImpact}
                                             </Text>
@@ -489,7 +494,10 @@ export default function CampaignsPage() {
                                             borderRadius="100"
                                             padding="200"
                                           >
-                                            <Text as="p" variant="bodySm">⚠ {rec.guardReason}</Text>
+                                            <InlineStack gap="100" blockAlign="start" wrap={false}>
+                                              <Icon source={AlertTriangleIcon} tone="caution" />
+                                              <Text as="p" variant="bodySm">{rec.guardReason}</Text>
+                                            </InlineStack>
                                           </Box>
                                         )}
 
@@ -507,19 +515,21 @@ export default function CampaignsPage() {
                                               <Button
                                                 size="slim"
                                                 variant="primary"
+                                                icon={CheckIcon}
                                                 loading={approvingId === rec.id}
                                                 disabled={rejectingId !== null}
                                                 onClick={() => setConfirmTarget({ rec, campaignId: c.id })}
                                               >
-                                                ✓ Approve
+                                                Approve
                                               </Button>
                                               <Button
                                                 size="slim"
+                                                icon={XIcon}
                                                 loading={rejectingId === rec.id}
                                                 disabled={approvingId !== null}
                                                 onClick={() => reject(rec, c.id)}
                                               >
-                                                ✗ Reject
+                                                Reject
                                               </Button>
                                             </>
                                           )}
