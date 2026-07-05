@@ -16,8 +16,10 @@ import type {
   ContentGap, Analysis, HealthTotals, HealthOffender, Health, KeywordRow, Cluster,
 } from "./components/types";
 import { gapKey, opportunityKey, fmtPct } from "./components/types";
-import { InlineBold, BriefRenderer } from "./components/brief";
-import { Delta, Sparkline } from "./components/widgets";
+import { OverviewPanel } from "./components/panels/OverviewPanel";
+import { OpportunitiesPanel } from "./components/panels/OpportunitiesPanel";
+import { ContentGapsPanel } from "./components/panels/ContentGapsPanel";
+import { OnPageHealthPanel } from "./components/panels/OnPageHealthPanel";
 
 // render a page path/url as a subdued span (or link when it looks like a path/url)
 const pagePath = (p: string | null | undefined) => {
@@ -398,6 +400,29 @@ export default function SeoPillarReportPage() {
   const gaps = analysis?.contentGaps ?? [];
   const unpromotedGaps = gaps.filter((g) => !promoted.has(gapKey(g)));
 
+  // ── panel props derived from the promoted*/promoting* Sets ──
+  // Booleans (not raw Sets) are threaded down so a single item's membership
+  // change doesn't force every row in a panel to re-render.
+  const anyPromoting = promoting.size > 0;
+  const gapFlags = gaps.map((g) => ({ isPromoted: promoted.has(gapKey(g)), isPromoting: promoting.has(gapKey(g)) }));
+  const quickWinFlags = (analysis?.quickWins ?? []).map((_, i) => ({ isPlanned: promotedQw.has(i), isPlanning: promotingQw.has(i) }));
+  const recFlags = (analysis?.recommendations ?? []).map((_, i) => ({ isPlanned: promotedRec.has(i), isPlanning: promotingRec.has(i) }));
+  const offenderFlags: Record<string, {
+    isPromotedMeta: boolean; isPromotingMeta: boolean;
+    isPromotedH1: boolean; isPromotingH1: boolean;
+    isPromotedThin: boolean; isPromotingThin: boolean;
+  }> = {};
+  (health?.worstOffenders ?? []).forEach((a) => {
+    offenderFlags[a.handle] = {
+      isPromotedMeta: promotedOnPage.has(`${a.handle}:missing-meta`),
+      isPromotingMeta: promotingOnPage.has(`${a.handle}:missing-meta`),
+      isPromotedH1: promotedOnPage.has(`${a.handle}:missing-h1`),
+      isPromotingH1: promotingOnPage.has(`${a.handle}:missing-h1`),
+      isPromotedThin: promotedOnPage.has(`${a.handle}:thin-content`),
+      isPromotingThin: promotingOnPage.has(`${a.handle}:thin-content`),
+    };
+  });
+
   async function generateBrief() {
     setBriefLoading(true);
     setBrief(null);
@@ -473,320 +498,64 @@ export default function SeoPillarReportPage() {
                 <>
                   {/* ── OVERVIEW ── */}
                   {tab === 0 && (
-                    <BlockStack gap="400">
-                      {brief && (
-                        <Card>
-                          <BlockStack gap="300">
-                            <Text variant="headingMd" as="h2">AI SEO Brief</Text>
-                            <BriefRenderer text={brief} />
-                          </BlockStack>
-                        </Card>
-                      )}
-                      <InlineStack gap="400" wrap>
-                        {[
-                          { label: "Total Clicks", val: cur?.clicks?.toLocaleString() ?? "—", node: cur && <Delta curr={cur.clicks} prev={prev?.clicks} /> },
-                          { label: "Impressions", val: cur?.impressions?.toLocaleString() ?? "—", node: cur && <Delta curr={cur.impressions} prev={prev?.impressions} /> },
-                          { label: "Avg CTR", val: cur ? `${(cur.avgCtr * 100).toFixed(1)}%` : "—", node: cur && <Delta curr={cur.avgCtr} prev={prev?.avgCtr} suffix="%" /> },
-                          { label: "Avg Position", val: cur ? cur.avgPosition.toFixed(1) : "—", node: cur && <Delta curr={cur.avgPosition} prev={prev?.avgPosition} lowerIsBetter /> },
-                        ].map((m) => (
-                          <Card key={m.label}>
-                            <BlockStack gap="100">
-                              <Text variant="headingSm" as="h3" tone="subdued">{m.label}</Text>
-                              <Text variant="heading2xl" as="p">{m.val}</Text>
-                              {m.node}
-                            </BlockStack>
-                          </Card>
-                        ))}
-                      </InlineStack>
-                      {data?.gscFetchedAt && (
-                        <Text as="p" tone="subdued" variant="bodySm">
-                          GSC updated {timeAgo(data.gscFetchedAt)}{t?.previousFetchedAt ? ` · compared to ${timeAgo(t.previousFetchedAt)}` : " · no prior period to compare yet"}
-                        </Text>
-                      )}
-
-                      <Card>
-                        <BlockStack gap="300">
-                          <Text variant="headingMd" as="h2">Trend over time</Text>
-                          {trend.length === 0 || !trendFirst || !trendLast ? (
-                            <Text as="p" tone="subdued">No trend yet — appears once at least one GSC snapshot exists.</Text>
-                          ) : (
-                            <InlineStack gap="600" wrap blockAlign="start">
-                              <BlockStack gap="100">
-                                <Text variant="headingSm" as="h3" tone="subdued">Clicks</Text>
-                                <Sparkline points={trend.map((p) => p.clicks)} color="#2c6ecb" />
-                                <Text as="span" variant="bodySm" tone="subdued">{trendFirst.clicks.toLocaleString()} → {trendLast.clicks.toLocaleString()}</Text>
-                              </BlockStack>
-                              <BlockStack gap="100">
-                                <Text variant="headingSm" as="h3" tone="subdued">Impressions</Text>
-                                <Sparkline points={trend.map((p) => p.impressions)} color="#9c6ade" />
-                                <Text as="span" variant="bodySm" tone="subdued">{trendFirst.impressions.toLocaleString()} → {trendLast.impressions.toLocaleString()}</Text>
-                              </BlockStack>
-                              <BlockStack gap="100">
-                                <Text variant="headingSm" as="h3" tone="subdued">Avg position</Text>
-                                <Sparkline points={trend.map((p) => -p.avgPosition)} color="#47c1bf" />
-                                <Text as="span" variant="bodySm" tone="subdued">{trendFirst.avgPosition.toFixed(1)} → {trendLast.avgPosition.toFixed(1)}</Text>
-                              </BlockStack>
-                            </InlineStack>
-                          )}
-                        </BlockStack>
-                      </Card>
-
-                      <Layout>
-                        <Layout.Section variant="oneHalf">
-                          <Card>
-                            <BlockStack gap="300">
-                              <Text variant="headingMd" as="h2">Movers</Text>
-                              {moverRows.length === 0 ? (
-                                <Text as="p" tone="subdued">No prior period to compare yet. Movers appear once two snapshots exist.</Text>
-                              ) : (
-                                <DataTable columnContentTypes={["text", "text", "text", "numeric"]} headings={["Query", "Δ Clicks", "Δ Pos", "Clicks"]} rows={moverRows} />
-                              )}
-                            </BlockStack>
-                          </Card>
-                        </Layout.Section>
-                        <Layout.Section variant="oneHalf">
-                          <Card>
-                            <BlockStack gap="300">
-                              <Text variant="headingMd" as="h2">Top Pages (GA4)</Text>
-                              {pageRows.length === 0 ? <Text as="p" tone="subdued">No GA4 data yet.</Text> : (
-                                <DataTable columnContentTypes={["text", "numeric"]} headings={["Page", "Sessions"]} rows={pageRows} />
-                              )}
-                            </BlockStack>
-                          </Card>
-                        </Layout.Section>
-                      </Layout>
-
-                      <Card>
-                        <BlockStack gap="300">
-                          <Text variant="headingMd" as="h2">Top Search Queries</Text>
-                          {queryRows.length === 0 ? <Text as="p" tone="subdued">No GSC data yet.</Text> : (
-                            <DataTable columnContentTypes={["text", "numeric", "numeric", "numeric", "numeric"]} headings={["Query", "Clicks", "Impr.", "CTR", "Position"]} rows={queryRows} />
-                          )}
-                        </BlockStack>
-                      </Card>
-
-                      <Layout>
-                        <Layout.Section variant="oneHalf">
-                          <Card>
-                            <BlockStack gap="300">
-                              <Text variant="headingMd" as="h2">Landing Pages (GSC)</Text>
-                              {(data?.gscPages ?? []).length === 0 ? (
-                                <Text as="p" tone="subdued">No GSC page data yet — appears after the next data fetch.</Text>
-                              ) : (
-                                <DataTable
-                                  columnContentTypes={["text", "numeric", "numeric", "numeric"]}
-                                  headings={["Page", "Clicks", "Impr.", "Position"]}
-                                  rows={(data?.gscPages ?? []).slice(0, 15).map((p) => [p.page, String(p.clicks), String(p.impressions), p.position])}
-                                />
-                              )}
-                            </BlockStack>
-                          </Card>
-                        </Layout.Section>
-                        <Layout.Section variant="oneHalf">
-                          <Card>
-                            <BlockStack gap="300">
-                              <Text variant="headingMd" as="h2">Which Query → Which Page</Text>
-                              {(data?.queryPagePairs ?? []).length === 0 ? (
-                                <Text as="p" tone="subdued">No query×page data yet — appears after the next data fetch.</Text>
-                              ) : (
-                                <DataTable
-                                  columnContentTypes={["text", "text", "numeric"]}
-                                  headings={["Query", "Page", "Clicks"]}
-                                  rows={(data?.queryPagePairs ?? []).slice(0, 15).map((qp) => [qp.query, qp.page, String(qp.clicks)])}
-                                />
-                              )}
-                            </BlockStack>
-                          </Card>
-                        </Layout.Section>
-                      </Layout>
-                    </BlockStack>
+                    <OverviewPanel
+                      brief={brief}
+                      cur={cur}
+                      prev={prev}
+                      gscFetchedAt={data?.gscFetchedAt}
+                      previousFetchedAt={t?.previousFetchedAt}
+                      trend={trend}
+                      trendFirst={trendFirst}
+                      trendLast={trendLast}
+                      moverRows={moverRows}
+                      pageRows={pageRows}
+                      queryRows={queryRows}
+                      gscPages={data?.gscPages ?? []}
+                      queryPagePairs={data?.queryPagePairs ?? []}
+                    />
                   )}
 
                   {/* ── OPPORTUNITIES ── */}
                   {tab === 1 && (
-                    <BlockStack gap="300">
-                      <Text variant="headingMd" as="h2">CTR & ranking opportunities</Text>
-                      <Text as="p" tone="subdued">Queries where a title/meta rewrite or a small ranking push could win clicks you&apos;re already close to. &ldquo;Potential&rdquo; estimates extra monthly clicks at benchmark CTR.</Text>
-                      {(data?.opportunities?.length ?? 0) > 0 && (
-                        <InlineStack gap="200" blockAlign="end" wrap>
-                          <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-                            <TextField label="Search opportunities" labelHidden placeholder="Search query or page…" value={oppSearch} onChange={setOppSearch}
-                              autoComplete="off" clearButton onClearButtonClick={() => setOppSearch("")} />
-                          </div>
-                          <div style={{ minWidth: 170 }}>
-                            <Select label="Filter by type" labelHidden options={oppTypeOptions} value={oppType} onChange={setOppType} />
-                          </div>
-                        </InlineStack>
-                      )}
-                      {oppRows.length === 0 ? (
-                        <Text as="p" tone="subdued">
-                          {(data?.opportunities?.length ?? 0) > 0 ? "No opportunities match the current search/filter." : "No opportunities surfaced. Fetch fresh GSC data first."}
-                        </Text>
-                      ) : (
-                        <DataTable
-                          columnContentTypes={["text", "text", "text", "numeric", "numeric", "numeric", "numeric", "text", "numeric", "text"]}
-                          headings={["Query", "Type", "Landing page", "Impr.", "CTR", "Position", "Volume", "Difficulty", "Potential", "Action"]}
-                          rows={oppRows}
-                          sortable={[false, false, false, true, false, false, true, false, true, false]}
-                          onSort={(index, direction) => {
-                            if (direction === "none") setOppSort(null);
-                            else setOppSort({ index, dir: direction });
-                          }}
-                        />
-                      )}
-                    </BlockStack>
+                    <OpportunitiesPanel
+                      oppCount={data?.opportunities?.length ?? 0}
+                      oppSearch={oppSearch}
+                      setOppSearch={setOppSearch}
+                      oppType={oppType}
+                      setOppType={setOppType}
+                      oppTypeOptions={oppTypeOptions}
+                      oppRows={oppRows}
+                      setOppSort={setOppSort}
+                    />
                   )}
 
                   {/* ── CONTENT GAPS ── */}
                   {tab === 2 && (
-                    <BlockStack gap="400">
-                      <InlineStack align="space-between" blockAlign="center">
-                        <Text variant="headingMd" as="h2">AI content-gap analysis</Text>
-                        {gaps.length > 0 && (
-                          <Button variant="primary" loading={[...promoting].length > 0} disabled={unpromotedGaps.length === 0}
-                            onClick={() => promoteGaps(unpromotedGaps)}>
-                            {`Create ${unpromotedGaps.length} draft${unpromotedGaps.length === 1 ? "" : "s"}`}
-                          </Button>
-                        )}
-                      </InlineStack>
-                      {!analysis ? (
-                        <Text as="p" tone="subdued">No analysis yet. Click <b>AI Analysis</b> (top-right) to generate one from your latest GSC data.</Text>
-                      ) : (
-                        <>
-                          {analysisAt && <Text as="p" tone="subdued" variant="bodySm">Generated {timeAgo(analysisAt)}</Text>}
-                          {analysis.summary && <Text as="p">{analysis.summary}</Text>}
-                          {(analysis.quickWins ?? []).length > 0 && (
-                            <BlockStack gap="100">
-                              <Text variant="headingSm" as="h3">Quick wins</Text>
-                              {analysis.quickWins!.map((w, i) => (
-                                <InlineStack key={i} gap="200" align="space-between" blockAlign="start" wrap={false}>
-                                  <Text as="p">• {w}</Text>
-                                  {promotedQw.has(i)
-                                    ? <Badge tone="success">Planned</Badge>
-                                    : <Button size="slim" loading={promotingQw.has(i)} onClick={() => planStrategy(i, w, setPromotingQw, setPromotedQw)}>Plan it</Button>}
-                                </InlineStack>
-                              ))}
-                            </BlockStack>
-                          )}
-                          {gaps.length > 0 && (
-                            <BlockStack gap="200">
-                              <Text variant="headingSm" as="h3">Content gaps → draft proposals</Text>
-                              <DataTable
-                                columnContentTypes={["text", "numeric", "numeric", "text", "text"]}
-                                headings={["Query", "Impr.", "Position", "Suggested title", "Action"]}
-                                rows={gaps.map((g, i) => [
-                                  g.query,
-                                  Number(g.impressions ?? 0).toLocaleString(),
-                                  Number(g.position ?? 0).toFixed(1),
-                                  g.suggestedTitle,
-                                  promoted.has(gapKey(g))
-                                    ? <Badge key={`${gapKey(g)}-${i}`} tone="success">Created</Badge>
-                                    : <Button key={`${gapKey(g)}-${i}`} size="slim" loading={promoting.has(gapKey(g))} onClick={() => promoteGaps([g])}>Create draft</Button>,
-                                ])}
-                              />
-                              <InlineStack>
-                                <Button variant="plain" onClick={() => router.push(withShopifyContextUrl("/content-pilot"))}>Open Content Pilot to review &amp; publish drafts →</Button>
-                              </InlineStack>
-                            </BlockStack>
-                          )}
-                          {(analysis.recommendations ?? []).length > 0 && (
-                            <BlockStack gap="100">
-                              <Text variant="headingSm" as="h3">Recommendations</Text>
-                              {analysis.recommendations!.map((r, i) => (
-                                <InlineStack key={i} gap="200" align="space-between" blockAlign="start" wrap={false}>
-                                  <Text as="p">• {r}</Text>
-                                  {promotedRec.has(i)
-                                    ? <Badge tone="success">Planned</Badge>
-                                    : <Button size="slim" loading={promotingRec.has(i)} onClick={() => planStrategy(i, r, setPromotingRec, setPromotedRec)}>Plan it</Button>}
-                                </InlineStack>
-                              ))}
-                            </BlockStack>
-                          )}
-                        </>
-                      )}
-                    </BlockStack>
+                    <ContentGapsPanel
+                      gaps={gaps}
+                      gapFlags={gapFlags}
+                      unpromotedCount={unpromotedGaps.length}
+                      anyPromoting={anyPromoting}
+                      onPromoteAll={() => promoteGaps(unpromotedGaps)}
+                      onPromoteGap={(g) => promoteGaps([g])}
+                      analysis={analysis}
+                      analysisAt={analysisAt}
+                      quickWinFlags={quickWinFlags}
+                      onPlanQuickWin={(i, w) => planStrategy(i, w, setPromotingQw, setPromotedQw)}
+                      recFlags={recFlags}
+                      onPlanRecommendation={(i, r) => planStrategy(i, r, setPromotingRec, setPromotedRec)}
+                      onOpenContentPilot={() => router.push(withShopifyContextUrl("/content-pilot"))}
+                    />
                   )}
 
                   {/* ── ON-PAGE HEALTH ── */}
                   {tab === 3 && (
-                    <BlockStack gap="400">
-                      <Text variant="headingMd" as="h2">On-page SEO health (blog articles)</Text>
-                      {!health ? <Text as="p" tone="subdued">No indexed articles yet. Run blog indexing in Content Pilot.</Text> : (
-                        <>
-                          <InlineStack gap="300" wrap>
-                            {[
-                              { label: "Articles", val: health.totals.total, tone: undefined as "critical" | "caution" | undefined },
-                              { label: "Missing meta", val: health.totals.missingMeta, tone: "critical" as const },
-                              { label: "Thin (<300w)", val: health.totals.thinContent, tone: "caution" as const },
-                              { label: "No internal links", val: health.totals.noInternalLinks, tone: "caution" as const },
-                              { label: "Orphans", val: health.totals.orphan, tone: "caution" as const },
-                              { label: "Missing desc", val: health.totals.missingDesc ?? 0, tone: "critical" as const },
-                              { label: "Missing H1", val: health.totals.missingH1 ?? 0, tone: "critical" as const },
-                              { label: "Title length off", val: health.totals.titleLengthOff ?? 0, tone: "caution" as const },
-                              { label: "Desc length off", val: health.totals.descLengthOff ?? 0, tone: "caution" as const },
-                              { label: "Duplicate title", val: health.totals.duplicateTitle ?? 0, tone: "caution" as const },
-                            ].map((c) => (
-                              <Card key={c.label}>
-                                <BlockStack gap="100">
-                                  <Text variant="headingSm" as="h3" tone="subdued">{c.label}</Text>
-                                  <Text variant="headingXl" as="p" tone={c.tone}>{String(c.val)}</Text>
-                                </BlockStack>
-                              </Card>
-                            ))}
-                          </InlineStack>
-                          {health.worstOffenders.length > 0 && (
-                            <Card>
-                              <BlockStack gap="300">
-                                <Text variant="headingSm" as="h3">Needs attention</Text>
-                                <DataTable
-                                  columnContentTypes={["text", "numeric", "text", "text"]}
-                                  headings={["Article", "Words", "Issues", "Actions"]}
-                                  rows={health.worstOffenders.map((a) => {
-                                    const issueTone = (iss: string): "critical" | "warning" | "info" => {
-                                      if (["Missing meta title", "Missing meta description", "Missing H1"].includes(iss)) return "critical";
-                                      if (["Thin content", "Title length off", "Description length off", "Duplicate title"].includes(iss)) return "warning";
-                                      return "info";
-                                    };
-                                    const hasMeta = a.issues.some((i) => i === "Missing meta title" || i === "Missing meta description");
-                                    const hasH1 = a.issues.includes("Missing H1");
-                                    const hasThin = a.issues.includes("Thin content");
-                                    const metaKey = `${a.handle}:missing-meta`;
-                                    const h1Key = `${a.handle}:missing-h1`;
-                                    const thinKey = `${a.handle}:thin-content`;
-                                    return [
-                                      <Button key={a.handle} variant="plain" onClick={() => router.push(withShopifyContextUrl("/content-pilot"))}>{a.title}</Button>,
-                                      String(a.wordCount),
-                                      <InlineStack key={`issues-${a.handle}`} gap="100" wrap>
-                                        {a.issues.map((iss) => (
-                                          <Badge key={iss} tone={issueTone(iss)}>{iss}</Badge>
-                                        ))}
-                                      </InlineStack>,
-                                      <InlineStack key={`actions-${a.handle}`} gap="100" wrap>
-                                        {hasMeta && (
-                                          promotedOnPage.has(metaKey)
-                                            ? <Badge key={metaKey} tone="success">Meta queued</Badge>
-                                            : <Button key={`fix-meta-${a.handle}`} size="slim" loading={promotingOnPage.has(metaKey)} onClick={() => promoteOnPage(a.handle, a.title, "missing-meta", a.wordCount)}>Fix Meta</Button>
-                                        )}
-                                        {hasH1 && (
-                                          promotedOnPage.has(h1Key)
-                                            ? <Badge key={h1Key} tone="success">H1 queued</Badge>
-                                            : <Button key={`fix-h1-${a.handle}`} size="slim" loading={promotingOnPage.has(h1Key)} onClick={() => promoteOnPage(a.handle, a.title, "missing-h1", a.wordCount)}>Fix H1</Button>
-                                        )}
-                                        {hasThin && (
-                                          promotedOnPage.has(thinKey)
-                                            ? <Badge key={thinKey} tone="success">Expand queued</Badge>
-                                            : <Button key={`expand-${a.handle}`} size="slim" loading={promotingOnPage.has(thinKey)} onClick={() => promoteOnPage(a.handle, a.title, "thin-content", a.wordCount)}>Expand</Button>
-                                        )}
-                                      </InlineStack>,
-                                    ];
-                                  })}
-                                />
-                              </BlockStack>
-                            </Card>
-                          )}
-                        </>
-                      )}
-                    </BlockStack>
+                    <OnPageHealthPanel
+                      health={health}
+                      offenderFlags={offenderFlags}
+                      onPromote={promoteOnPage}
+                      onOpenContentPilot={() => router.push(withShopifyContextUrl("/content-pilot"))}
+                    />
                   )}
 
                   {/* ── KEYWORDS ── */}
