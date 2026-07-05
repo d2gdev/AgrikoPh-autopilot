@@ -20,6 +20,11 @@ import { OverviewPanel } from "./components/panels/OverviewPanel";
 import { OpportunitiesPanel } from "./components/panels/OpportunitiesPanel";
 import { ContentGapsPanel } from "./components/panels/ContentGapsPanel";
 import { OnPageHealthPanel } from "./components/panels/OnPageHealthPanel";
+import { KeywordsPanel } from "./components/panels/KeywordsPanel";
+import { PillarClustersPanel } from "./components/panels/PillarClustersPanel";
+import { PageHealthPanel } from "./components/panels/PageHealthPanel";
+import { OpportunityClustersPanel } from "./components/panels/OpportunityClustersPanel";
+import { StrategyPanel } from "./components/panels/StrategyPanel";
 
 // render a page path/url as a subdued span (or link when it looks like a path/url)
 const pagePath = (p: string | null | undefined) => {
@@ -560,256 +565,51 @@ export default function SeoPillarReportPage() {
 
                   {/* ── KEYWORDS ── */}
                   {tab === 4 && (
-                    <BlockStack gap="400">
-                      <Text variant="headingMd" as="h2">Tracked keyword positions</Text>
-                      <Text as="p" tone="subdued">Positions are derived from your GSC snapshots. Add target keywords to monitor rank movement and get drop alerts.</Text>
-                      <InlineStack gap="200" blockAlign="end" wrap>
-                        <div style={{ minWidth: 280 }}>
-                          <TextField label="Add keyword" labelHidden autoComplete="off" value={newKeyword} onChange={setNewKeyword} placeholder="e.g. organic black rice philippines" />
-                        </div>
-                        <Button onClick={addKeyword}>Track</Button>
-                        <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-                          <TextField label="Search keywords" labelHidden placeholder="Search…" value={kwSearch} onChange={setKwSearch}
-                            autoComplete="off" clearButton onClearButtonClick={() => setKwSearch("")} />
-                        </div>
-                      </InlineStack>
-                      {keywords.length === 0 ? <Text as="p" tone="subdued">No keywords tracked yet.</Text> : (
-                        <DataTable
-                          columnContentTypes={["text", "numeric", "text", "numeric", "numeric", "text"]}
-                          headings={["Keyword", "Position", "Δ Pos", "Clicks", "Impr.", "Status"]}
-                          sortable={[true, true, true, true, true, false]}
-                          onSort={(index, direction) => {
-                            if (direction === "none") setKwSort(null);
-                            else setKwSort({ index, dir: direction });
-                          }}
-                          rows={keywords
-                            .filter((k) => !kwSearch || k.keyword.toLowerCase().includes(kwSearch.toLowerCase()))
-                            .sort((a, b) => {
-                              if (!kwSort) return 0;
-                              const dir = kwSort.dir === "ascending" ? 1 : -1;
-                              switch (kwSort.index) {
-                                case 0: return dir * a.keyword.localeCompare(b.keyword);
-                                case 1: return dir * ((a.position ?? Number.MAX_VALUE) - (b.position ?? Number.MAX_VALUE));
-                                case 2: return dir * ((a.positionDelta ?? 0) - (b.positionDelta ?? 0));
-                                case 3: return dir * (a.clicks - b.clicks);
-                                case 4: return dir * (a.impressions - b.impressions);
-                                default: return 0;
-                              }
-                            })
-                            .map((k) => [
-                            k.keyword,
-                            k.position === null ? "—" : k.position.toFixed(1),
-                            k.positionDelta === null ? "—" : `${k.positionDelta < 0 ? "▲" : "▼"} ${Math.abs(k.positionDelta).toFixed(1)}`,
-                            String(k.clicks),
-                            String(k.impressions),
-                            <Badge key={k.keyword} tone={k.alert ? "critical" : k.status === "improved" ? "success" : k.status === "declined" ? "warning" : undefined}>
-                              {k.alert ? "Drop alert" : k.status}
-                            </Badge>,
-                          ])}
-                        />
-                      )}
-                    </BlockStack>
+                    <KeywordsPanel
+                      keywords={keywords}
+                      newKeyword={newKeyword}
+                      setNewKeyword={setNewKeyword}
+                      addKeyword={addKeyword}
+                      kwSearch={kwSearch}
+                      setKwSearch={setKwSearch}
+                      kwSort={kwSort}
+                      setKwSort={setKwSort}
+                    />
                   )}
 
                   {/* ── PILLAR CLUSTERS ── */}
                   {tab === 5 && (
-                    <BlockStack gap="400">
-                      <Text variant="headingMd" as="h2">Pillar / topic-cluster gaps</Text>
-                      <Text as="p" tone="subdued">Clusters with high gap scores have the least supporting content — strong candidates for new articles and pillar pages.</Text>
-                      {clusters.length === 0 ? <Text as="p" tone="subdued">No cluster data. Index blog content in Content Pilot.</Text> : (
-                        <DataTable
-                          columnContentTypes={["text", "numeric", "numeric", "text"]}
-                          headings={["Topic", "Articles", "Keywords", "Gap score"]}
-                          rows={clusters.map((c, i) => [
-                            c.topic,
-                            String(c.articleCount ?? 0),
-                            String(c.keywordCount ?? 0),
-                            <Badge key={`${c.topic}-${i}`} tone={c.gapScore >= 80 ? "critical" : c.gapScore >= 40 ? "warning" : "success"}>{String(c.gapScore)}</Badge>,
-                          ])}
-                        />
-                      )}
-                    </BlockStack>
+                    <PillarClustersPanel clusters={clusters} />
                   )}
 
                   {/* ── PAGE HEALTH ── */}
                   {tab === 6 && (
-                    <BlockStack gap="400">
-                      <Text variant="headingMd" as="h2">Page health (GSC × GA4)</Text>
-                      <Text as="p" tone="subdued">High-impression landing pages whose engagement signals (bounce, conversion) suggest the page is underperforming its search demand. Flagged pages lead.</Text>
-                      {flaggedPageHealth.length === 0 ? (
-                        <Text as="p" tone="subdued">
-                          {pageHealth.length === 0
-                            ? "No page health data yet — appears after the next GSC + GA4 data fetch."
-                            : "No flagged pages. All high-impression pages are engaging well."}
-                        </Text>
-                      ) : (
-                        <DataTable
-                          columnContentTypes={["text", "numeric", "numeric", "numeric", "text"]}
-                          headings={["URL", "Impr.", "Bounce", "Conversion", "Flag"]}
-                          rows={flaggedPageHealth.map((p, i) => [
-                            <Button key={`ph-${p.rawUrl}-${i}`} variant="plain" url={p.rawUrl} external>{p.url}</Button>,
-                            p.impressions.toLocaleString(),
-                            fmtPct(p.bounceRate),
-                            fmtPct(p.conversionRate),
-                            p.flag
-                              ? <Badge key={`phf-${p.rawUrl}-${i}`} tone={PAGE_HEALTH_FLAG[p.flag]?.tone}>{PAGE_HEALTH_FLAG[p.flag]?.label ?? p.flag}</Badge>
-                              : <Text key={`phf-${p.rawUrl}-${i}`} as="span" tone="subdued">—</Text>,
-                          ])}
-                        />
-                      )}
-                    </BlockStack>
+                    <PageHealthPanel
+                      pageHealth={pageHealth}
+                      flaggedPageHealth={flaggedPageHealth}
+                      pageHealthFlag={PAGE_HEALTH_FLAG}
+                    />
                   )}
 
                   {/* ── OPPORTUNITY CLUSTERS ── */}
                   {tab === 7 && (
-                    <BlockStack gap="400">
-                      <Text variant="headingMd" as="h2">Opportunity clusters</Text>
-                      <Text as="p" tone="subdued">Near-duplicate queries grouped into a single action. Tackle the highest-scoring cluster first — one title/meta rewrite can lift the whole group.</Text>
-                      {(data?.clusters ?? []).length === 0 ? (
-                        <Text as="p" tone="subdued">No opportunity clusters yet. Fetch fresh GSC data first.</Text>
-                      ) : (
-                        (data?.clusters ?? []).map((c) => (
-                          <Card key={c.id}>
-                            <BlockStack gap="200">
-                              <InlineStack align="space-between" blockAlign="center" wrap>
-                                <Text variant="headingSm" as="h3">{c.label}</Text>
-                                <InlineStack gap="200" blockAlign="center">
-                                  <Badge tone="info">{`${c.opportunities.length} quer${c.opportunities.length === 1 ? "y" : "ies"}`}</Badge>
-                                  <Badge tone="success">{`+${c.totalPotentialClicks} potential`}</Badge>
-                                </InlineStack>
-                              </InlineStack>
-                              {c.page
-                                ? <Button variant="plain" url={c.page} external>{pagePath(c.page)}</Button>
-                                : <Text as="span" tone="subdued" variant="bodySm">No mapped landing page</Text>}
-                              <details>
-                                <summary style={{ cursor: "pointer" }}>
-                                  <Text as="span" tone="subdued" variant="bodySm">Show member queries</Text>
-                                </summary>
-                                <div style={{ marginTop: "var(--p-space-200)" }}>
-                                  <DataTable
-                                    columnContentTypes={["text", "numeric", "numeric", "numeric"]}
-                                    headings={["Query", "Impr.", "Position", "Potential"]}
-                                    rows={c.opportunities.map((o, i) => [
-                                      o.query,
-                                      o.impressions.toLocaleString(),
-                                      o.position.toFixed(1),
-                                      <Text key={`oc-${c.id}-${o.query}-${i}`} as="span" fontWeight="semibold">+{o.potentialClicks}</Text>,
-                                    ])}
-                                  />
-                                </div>
-                              </details>
-                            </BlockStack>
-                          </Card>
-                        ))
-                      )}
-                    </BlockStack>
+                    <OpportunityClustersPanel
+                      clusters={data?.clusters ?? []}
+                      pagePath={pagePath}
+                    />
                   )}
 
                   {tab === 8 && (
-                    <BlockStack gap="500">
-                      <BlockStack gap="200">
-                        <InlineStack align="space-between" blockAlign="center" wrap>
-                          <Text variant="headingMd" as="h2">Keyword strategy</Text>
-                          <Button
-                            variant="primary"
-                            size="slim"
-                            loading={trackingAll}
-                            onClick={trackAllPrimary}
-                          >
-                            {`Track all ${ALL_PRIMARY_KEYWORDS.length} primary`}
-                          </Button>
-                        </InlineStack>
-                        <Text as="p" tone="subdued">
-                          From the June 2026 keyword research report. Volume/difficulty are analyst proxy bands — Track a keyword to replace them with real GSC data, or Plan it to create the right Content Pilot proposal.
-                        </Text>
-                      </BlockStack>
-
-                      {/* Clusters */}
-                      <BlockStack gap="300">
-                        <Text variant="headingSm" as="h3">Clusters</Text>
-                        {KEYWORD_CLUSTERS.map((c) => (
-                          <Card key={c.id}>
-                            <BlockStack gap="150">
-                              <InlineStack align="space-between" blockAlign="center" wrap>
-                                <Text variant="headingSm" as="h4">{c.name}</Text>
-                                <Text as="span" tone="subdued" variant="bodySm">{c.intent}</Text>
-                              </InlineStack>
-                              <Text as="p" tone="subdued" variant="bodySm">{c.why}</Text>
-                              <InlineStack gap="150" wrap>
-                                {c.coreKeywords.map((k) => <Badge key={k}>{k}</Badge>)}
-                              </InlineStack>
-                            </BlockStack>
-                          </Card>
-                        ))}
-                      </BlockStack>
-
-                      {/* Primary targets */}
-                      <BlockStack gap="200">
-                        <Text variant="headingSm" as="h3">Primary targets</Text>
-                        <DataTable
-                          columnContentTypes={["text", "text", "text", "text", "text", "text"]}
-                          headings={["Keyword", "Volume", "Difficulty", "Recommended page", "Priority", "Actions"]}
-                          rows={PRIMARY_TARGETS.map((t: PrimaryTarget) => {
-                            const rec = `Build a ${t.pageType} targeting the keyword "${t.keyword}" (${t.intent.toLowerCase()} intent, ${KEYWORD_CLUSTERS.find((c) => c.id === t.cluster)?.name ?? t.cluster} cluster).`;
-                            return [
-                              <Text key={`k-${t.keyword}`} as="span" fontWeight="semibold">{t.keyword}</Text>,
-                              t.volumeBand,
-                              t.difficulty,
-                              t.pageType,
-                              <Badge key={`p-${t.keyword}`} tone={t.priority === "Very high" ? "success" : t.priority === "High" ? "info" : undefined}>{t.priority}</Badge>,
-                              <InlineStack key={`a-${t.keyword}`} gap="200" wrap={false}>
-                                {trackedKw.has(t.keyword)
-                                  ? <Badge tone="success">Tracking</Badge>
-                                  : <Button size="slim" loading={trackingKw.has(t.keyword)} onClick={() => trackKeyword(t.keyword)}>Track</Button>}
-                                {plannedKw.has(t.keyword)
-                                  ? <Badge tone="success">Planned</Badge>
-                                  : <Button size="slim" loading={planningKw.has(t.keyword)} onClick={() => planTarget(t.keyword, t.keyword, rec)}>Plan it</Button>}
-                              </InlineStack>,
-                            ];
-                          })}
-                        />
-                      </BlockStack>
-
-                      {/* Six-month roadmap */}
-                      <BlockStack gap="200">
-                        <Text variant="headingSm" as="h3">Six-month roadmap</Text>
-                        <DataTable
-                          columnContentTypes={["text", "text", "text", "text", "text"]}
-                          headings={["Month", "Title", "Target keyword", "Format", "Action"]}
-                          rows={ROADMAP.map((r) => {
-                            const key = `rm:${r.title}`;
-                            const rec = `${r.format}: "${r.title}" targeting "${r.targetKeyword}" (${r.intent.toLowerCase()} intent). Internally link to ${r.primaryLinkTarget}.`;
-                            return [
-                              r.month,
-                              r.title,
-                              r.targetKeyword,
-                              r.format,
-                              plannedKw.has(key)
-                                ? <Badge key={`rb-${key}`} tone="success">Planned</Badge>
-                                : <Button key={`ra-${key}`} size="slim" loading={planningKw.has(key)} onClick={() => planTarget(key, r.targetKeyword, rec)}>Plan it</Button>,
-                            ];
-                          })}
-                        />
-                      </BlockStack>
-
-                      {/* Secondary bank */}
-                      <BlockStack gap="200">
-                        <Text variant="headingSm" as="h3">{`Secondary bank (${SECONDARY_BANK.length})`}</Text>
-                        <DataTable
-                          columnContentTypes={["text", "text", "text", "text", "text"]}
-                          headings={["Keyword", "Intent", "Volume", "Suggested page", "Action"]}
-                          rows={SECONDARY_BANK.map((s) => [
-                            s.keyword,
-                            s.intent,
-                            s.volumeBand,
-                            s.targetPage,
-                            trackedKw.has(s.keyword)
-                              ? <Badge key={`sb-${s.keyword}`} tone="success">Tracking</Badge>
-                              : <Button key={`sa-${s.keyword}`} size="slim" loading={trackingKw.has(s.keyword)} onClick={() => trackKeyword(s.keyword)}>Track</Button>,
-                          ])}
-                        />
-                      </BlockStack>
-                    </BlockStack>
+                    <StrategyPanel
+                      trackingAll={trackingAll}
+                      trackAllPrimary={trackAllPrimary}
+                      trackedKw={trackedKw}
+                      trackingKw={trackingKw}
+                      trackKeyword={trackKeyword}
+                      plannedKw={plannedKw}
+                      planningKw={planningKw}
+                      planTarget={planTarget}
+                    />
                   )}
                 </>
               )}
