@@ -10,101 +10,14 @@ import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import { KEYWORD_CLUSTERS, PRIMARY_TARGETS, SECONDARY_BANK, ROADMAP, ALL_PRIMARY_KEYWORDS, type PrimaryTarget } from "@/lib/seo/keyword-strategy";
 import { timeAgo } from "@/lib/format";
-
-// ── response types ──
-interface Query { query: string; clicks: number; impressions: number; ctr: string; position: string }
-interface PageRow { page: string; sessions: number; [key: string]: unknown }
-interface Totals { clicks: number; impressions: number; avgCtr: number; avgPosition: number }
-interface Mover { query: string; clicks: number; clicksDelta: number; impressionsDelta: number; positionDelta: number; direction: "up" | "down" }
-interface Trends { current: Totals; previous: Totals | null; currentFetchedAt: string | null; previousFetchedAt: string | null; movers: Mover[] }
-interface Opportunity { query: string; impressions: number; clicks: number; ctr: number; position: number; type: string; potentialClicks: number; reason: string; page?: string | null; pageClicks?: number | null; pageImpressions?: number | null; score?: number; volume?: number | null; difficulty?: number | null }
-interface OpportunityCluster { id: string; label: string; page: string | null; opportunities: Opportunity[]; totalPotentialClicks: number; topScore: number }
-interface SnapshotTrendPoint { date: string; clicks: number; impressions: number; avgPosition: number; ctr: number }
-interface PageHealthRow { url: string; rawUrl: string; impressions: number; clicks: number; position: number; sessions: number | null; bounceRate: number | null; conversionRate: number | null; flag: "high-impressions-high-bounce" | "high-impressions-low-conversion" | null; severity: number }
-interface GscPage { page: string; clicks: number; impressions: number; ctr: string; position: string }
-interface QueryPagePair { query: string; page: string; clicks: number; impressions: number; position: string }
-interface SeoData {
-  topQueries: Query[]; topPages: PageRow[]; gscFetchedAt: string | null; ga4FetchedAt: string | null;
-  trends: Trends | null; opportunities: Opportunity[];
-  gscPages: GscPage[]; queryPagePairs: QueryPagePair[];
-  pageHealth?: PageHealthRow[];
-  clusters?: OpportunityCluster[];
-}
-interface ContentGap {
-  query: string;
-  impressions: number;
-  position: number;
-  suggestedTitle: string;
-  issue?: "missing-meta" | "thin-content";
-  articleHandle?: string;
-  wordCount?: number | null;
-}
-interface Analysis { summary?: string; quickWins?: string[]; contentGaps?: ContentGap[]; recommendations?: string[] }
-interface HealthTotals { total: number; missingMeta: number; thinContent: number; noInternalLinks: number; lowHeadings: number; orphan: number; titleLengthOff?: number; descLengthOff?: number; missingDesc?: number; missingH1?: number; duplicateTitle?: number }
-interface HealthOffender { handle: string; title: string; wordCount: number; issues: string[] }
-interface Health { totals: HealthTotals; worstOffenders: HealthOffender[] }
-interface KeywordRow { keyword: string; position: number | null; clicks: number; impressions: number; positionDelta: number | null; status: string; alert: boolean }
-interface Cluster { topic: string; articleCount: number; keywordCount: number; gapScore: number }
-
-const gapKey = (g: { query: string; suggestedTitle: string }) => `${g.query}::${g.suggestedTitle}`;
-const opportunityKey = (o: Pick<Opportunity, "query" | "page" | "type">) => JSON.stringify([o.query, o.page ?? "", o.type]);
-
-// fractions 0–1 → "x.x%", null → "—"
-const fmtPct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(1)}%`);
-
-// ── AI brief renderer (ported from the retired /seo page) ──
-
-function InlineBold({ text }: { text: string }) {
-  const parts = text.split(/\*\*(.+?)\*\*/g);
-  return (
-    <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? <strong key={i}>{part}</strong> : <span key={i}>{part}</span>
-      )}
-    </>
-  );
-}
-
-function BriefRenderer({ text }: { text: string }) {
-  const lines = text.split("\n");
-  const elements: React.ReactNode[] = [];
-  const pendingBullets: string[] = [];
-
-  function flushBullets() {
-    if (pendingBullets.length === 0) return;
-    elements.push(
-      <List key={`b-${elements.length}`} type="bullet">
-        {pendingBullets.map((b, i) => (
-          <List.Item key={i}><InlineBold text={b} /></List.Item>
-        ))}
-      </List>,
-    );
-    pendingBullets.length = 0;
-  }
-
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) { flushBullets(); continue; }
-
-    const bullet = line.match(/^[-•*]\s+(.+)/) ?? line.match(/^\d+\.\s+(.+)/);
-    if (bullet) { pendingBullets.push(bullet[1]!); continue; }
-
-    flushBullets();
-    const heading = line.match(/^#{1,3}\s+(.+)/);
-    if (heading) {
-      elements.push(
-        <Text key={elements.length} variant="headingSm" as="h3">{heading[1]}</Text>,
-      );
-    } else {
-      elements.push(
-        <Text key={elements.length} as="p"><InlineBold text={line} /></Text>,
-      );
-    }
-  }
-  flushBullets();
-
-  return <BlockStack gap="200">{elements}</BlockStack>;
-}
+import type {
+  Query, PageRow, Totals, Mover, Trends, Opportunity, OpportunityCluster,
+  SnapshotTrendPoint, PageHealthRow, GscPage, QueryPagePair, SeoData,
+  ContentGap, Analysis, HealthTotals, HealthOffender, Health, KeywordRow, Cluster,
+} from "./components/types";
+import { gapKey, opportunityKey, fmtPct } from "./components/types";
+import { InlineBold, BriefRenderer } from "./components/brief";
+import { Delta, Sparkline } from "./components/widgets";
 
 // render a page path/url as a subdued span (or link when it looks like a path/url)
 const pagePath = (p: string | null | undefined) => {
@@ -128,45 +41,9 @@ const OPP_LABEL: Record<string, string> = {
   high_impression_no_click: "No clicks",
 };
 
-// delta chip: shows change vs previous period. lowerIsBetter for position.
-function Delta({ curr, prev, lowerIsBetter = false, suffix = "" }: { curr: number; prev: number | null | undefined; lowerIsBetter?: boolean; suffix?: string }) {
-  if (prev === null || prev === undefined) return null;
-  const diff = curr - prev;
-  if (Math.abs(diff) < 0.0001) return <Text as="span" tone="subdued" variant="bodySm">no change</Text>;
-  const better = lowerIsBetter ? diff < 0 : diff > 0;
-  const arrow = diff > 0 ? "▲" : "▼";
-  const val = Math.abs(diff);
-  const shown = suffix === "%" ? `${(val * 100).toFixed(1)}%` : Number.isInteger(val) ? val.toLocaleString() : val.toFixed(1);
-  return <Text as="span" tone={better ? "success" : "critical"} variant="bodySm">{arrow} {shown}{suffix && suffix !== "%" ? suffix : ""}</Text>;
-}
-
 // difficulty 0–100 → band + Badge tone
 const diffBand = (d: number): { tone: "success" | "warning" | "critical"; label: string } =>
   d < 34 ? { tone: "success", label: "Low" } : d < 67 ? { tone: "warning", label: "Med" } : { tone: "critical", label: "High" };
-
-// lightweight inline SVG line chart — no dependency
-function Sparkline({ points, color = "#2c6ecb", height = 40, width = 220 }: { points: number[]; color?: string; height?: number; width?: number }) {
-  if (points.length === 0) return null;
-  // Scale to the actual data range, not a hardcoded 0..1 baseline — that
-  // baseline only makes sense for non-negative series (clicks, impressions).
-  // The avg-position series is plotted negated so "up" reads as improvement,
-  // so all its points are ≤0; forcing max to 1 stretched the range far past
-  // the real data and made genuine position movement render as a flat line.
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const range = max - min || 1;
-  const stepX = points.length > 1 ? width / (points.length - 1) : 0;
-  const coords = points.map((p, i) => {
-    const x = i * stepX;
-    const y = height - ((p - min) / range) * height;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-hidden>
-      <polyline fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" points={coords.join(" ")} />
-    </svg>
-  );
-}
 
 export default function SeoPillarReportPage() {
   const router = useRouter();
