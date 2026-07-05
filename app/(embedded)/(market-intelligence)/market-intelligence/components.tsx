@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Badge, Banner, BlockStack, Box, Button, Card, Divider, InlineStack, Link, SkeletonBodyText, Text } from "@shopify/polaris";
-import { RefreshIcon } from "@shopify/polaris-icons";
+import { Badge, Banner, BlockStack, Box, Button, Card, Divider, Icon, InlineStack, Link, SkeletonBodyText, Text } from "@shopify/polaris";
+import { CheckIcon, RefreshIcon } from "@shopify/polaris-icons";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { timeAgo, formatMoney } from "@/lib/format";
 import { severityTone } from "@/lib/ui/tones";
@@ -66,6 +66,21 @@ export function relativeTime(value?: string | null): string {
   return timeAgo(value);
 }
 
+// Agriko brand surface — deliberate, documented exception to the no-raw-hex rule
+// (allowlisted in __tests__/a11y/no-raw-hex.test.ts): this hero is a self-contained
+// dark branded panel, legible in both Polaris light and dark themes, and its
+// agricultural palette has no Polaris token equivalent. Do not "fix" these hexes.
+const BRAND_HERO = {
+  gradient: "linear-gradient(135deg, #0A2417 0%, #124A2C 60%, #0C3320 100%)",
+  glow: "radial-gradient(circle, rgba(61,187,107,0.20) 0%, rgba(61,187,107,0) 70%)",
+  gold: "#E8A33D",
+  goldRing: "rgba(232,163,61,0.22)",
+  accentGreen: "#69E29A",
+  textPrimary: "#FFFFFF",
+  textMuted: "rgba(233,238,231,0.75)",
+  shadow: "0 14px 34px -16px rgba(6,26,16,0.65)",
+} as const;
+
 /**
  * The page's signature: a deep-forest-green "intelligence band" that reframes
  * Market Intelligence as a competitive war-room instead of generic Polaris stat
@@ -100,8 +115,8 @@ export function IntelHero({
         position: "relative",
         overflow: "hidden",
         borderRadius: 16,
-        background: "linear-gradient(135deg, #0A2417 0%, #124A2C 60%, #0C3320 100%)",
-        boxShadow: "0 14px 34px -16px rgba(6,26,16,0.65)",
+        background: BRAND_HERO.gradient,
+        boxShadow: BRAND_HERO.shadow,
         padding: "26px 30px",
       }}
     >
@@ -115,7 +130,7 @@ export function IntelHero({
           width: 280,
           height: 280,
           borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(61,187,107,0.20) 0%, rgba(61,187,107,0) 70%)",
+          background: BRAND_HERO.glow,
           pointerEvents: "none",
         }}
       />
@@ -127,14 +142,14 @@ export function IntelHero({
               width: 8,
               height: 8,
               borderRadius: "50%",
-              background: "#E8A33D",
-              boxShadow: "0 0 0 4px rgba(232,163,61,0.22)",
+              background: BRAND_HERO.gold,
+              boxShadow: `0 0 0 4px ${BRAND_HERO.goldRing}`,
             }}
           />
-          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: "#E8A33D" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", color: BRAND_HERO.gold }}>
             Competitive Intelligence
           </span>
-          <span style={{ marginLeft: "auto", fontSize: 12.5, fontWeight: 500, color: "rgba(233,238,231,0.68)" }}>
+          <span style={{ marginLeft: "auto", fontSize: 12.5, fontWeight: 500, color: BRAND_HERO.textMuted }}>
             {loading
               ? "Syncing…"
               : `Last sweep ${relativeTime(lastRunAt)}${lastStatus ? ` · ${lastStatus}` : ""}`}
@@ -150,12 +165,12 @@ export function IntelHero({
                   lineHeight: 1,
                   letterSpacing: "-0.03em",
                   fontVariantNumeric: "tabular-nums",
-                  color: m.accent ? "#69E29A" : "#FFFFFF",
+                  color: m.accent ? BRAND_HERO.accentGreen : BRAND_HERO.textPrimary,
                 }}
               >
                 {m.value}
               </div>
-              <div style={{ marginTop: 9, fontSize: 12.5, fontWeight: 500, letterSpacing: "0.02em", color: "rgba(233,238,231,0.62)" }}>
+              <div style={{ marginTop: 9, fontSize: 12.5, fontWeight: 500, letterSpacing: "0.02em", color: BRAND_HERO.textMuted }}>
                 {m.label}
               </div>
             </div>
@@ -545,7 +560,10 @@ export function AdCreativeCard({ ad, count = 1 }: { ad: CompetitorAd; count?: nu
                   <Text variant="headingSm" as="p">{stolen.headline}</Text>
                   <Text as="p" tone="subdued">{stolen.adCopy}</Text>
                   {sentToCP ? (
-                    <Text as="p" tone="success" variant="bodySm">Sent to Content Pilot ✓</Text>
+                    <InlineStack gap="100" blockAlign="center">
+                      <Icon source={CheckIcon} tone="success" />
+                      <Text as="p" tone="success" variant="bodySm">Sent to Content Pilot</Text>
+                    </InlineStack>
                   ) : (
                     <InlineStack gap="200">
                       <Button size="slim" onClick={handleCopy}>Copy to clipboard</Button>
