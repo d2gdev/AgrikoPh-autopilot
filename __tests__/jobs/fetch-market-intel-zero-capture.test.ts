@@ -45,6 +45,11 @@ vi.mock("@/lib/db", () => ({
     competitorAdCapture: {
       count: vi.fn(),
     },
+    competitorAd: {
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+    },
     storeTask: {
       findUnique: vi.fn(),
       upsert: vi.fn(),
@@ -89,6 +94,7 @@ vi.mock("@/lib/alerts", () => ({
 }));
 
 import { prisma } from "@/lib/db";
+import { isApifyMetaEnabled, fetchApifyMetaAdsByPages } from "@/lib/connectors/apify-meta-ads";
 import { resolveRunLimits } from "@/lib/market-intel/profiles";
 import { fetchSerperShoppingProducts } from "@/lib/connectors/serper-shopping";
 import { fetchCatalogProducts } from "@/lib/shopify-admin";
@@ -141,12 +147,24 @@ const mockRawSnapshot = prisma.rawSnapshot as unknown as {
 const mockGuardrailConfig = prisma.guardrailConfig as unknown as {
   findMany: ReturnType<typeof vi.fn>;
 };
+const mockCompetitorAd = prisma.competitorAd as unknown as {
+  findFirst: ReturnType<typeof vi.fn>;
+  findUnique: ReturnType<typeof vi.fn>;
+  upsert: ReturnType<typeof vi.fn>;
+};
 const mockResolveRunLimits = resolveRunLimits as unknown as ReturnType<typeof vi.fn>;
 const mockFetchSerper = fetchSerperShoppingProducts as unknown as ReturnType<typeof vi.fn>;
 const mockFetchCatalog = fetchCatalogProducts as unknown as ReturnType<typeof vi.fn>;
 const mockSendOperatorAlert = sendOperatorAlert as unknown as ReturnType<typeof vi.fn>;
+const mockIsApifyEnabled = isApifyMetaEnabled as unknown as ReturnType<typeof vi.fn>;
+const mockFetchApify = fetchApifyMetaAdsByPages as unknown as ReturnType<typeof vi.fn>;
 
-const SEVEN_HISTORICAL_RUNS = Array.from({ length: 7 }, (_, i) => ({ id: `hist-run-${i}` }));
+// The watchdog windows over runs that actually executed an Apify pull
+// (summary.apifyRan), not every daily run — see fetch-market-intel.ts.
+const SEVEN_HISTORICAL_PULLS = Array.from({ length: 7 }, (_, i) => ({
+  id: `hist-run-${i}`,
+  summary: { apifyRan: true },
+}));
 
 function competitorRow(overrides: Partial<{ id: string; name: string; socialPages: Array<{ id: string; pageId: string | null }> }> = {}) {
   return {
@@ -160,19 +178,27 @@ function competitorRow(overrides: Partial<{ id: string; name: string; socialPage
 beforeEach(() => {
   vi.clearAllMocks();
 
+  // "meta" source + one numeric-pageId page + Apify enabled: this run
+  // executes a (zero-result) Apify pull, so the watchdog evaluates.
   mockResolveRunLimits.mockReturnValue({
     keywordLimit: 5,
     shoppingResultLimit: 5,
-    competitorPageLimit: 0,
-    adLimitPerPage: 0,
+    competitorPageLimit: 5,
+    adLimitPerPage: 10,
     longRunningAdDays: 30,
-    sources: ["shopping"],
+    sources: ["shopping", "meta"],
   });
+
+  mockIsApifyEnabled.mockResolvedValue(true);
+  mockFetchApify.mockResolvedValue({ adsByPageId: new Map(), total: 0 });
+  mockCompetitorAd.findFirst.mockResolvedValue(null); // no fresh capture → Apify not skipped
+  mockCompetitorAd.findUnique.mockResolvedValue(null);
+  mockCompetitorAd.upsert.mockResolvedValue({});
 
   mockJobRun.create.mockResolvedValue({ id: "run-1" });
   mockJobRun.update.mockResolvedValue({});
   mockJobRun.findUnique.mockResolvedValue({ id: "run-1", jobName: "fetch-market-intel" });
-  mockJobRun.findMany.mockResolvedValue(SEVEN_HISTORICAL_RUNS);
+  mockJobRun.findMany.mockResolvedValue(SEVEN_HISTORICAL_PULLS);
 
   mockMarketKeyword.findMany.mockResolvedValue([]);
 
@@ -195,7 +221,9 @@ beforeEach(() => {
   mockMarketInsight.findFirst.mockResolvedValue(null);
   mockMarketInsight.create.mockResolvedValue({});
 
-  mockSocialPage.findMany.mockResolvedValue([]);
+  mockSocialPage.findMany.mockResolvedValue([
+    { id: "page-1", pageId: "123456", pageName: "Falo", platform: "facebook", competitor: { id: "competitor-1", name: "Falo" } },
+  ]);
   mockRawSnapshot.upsert.mockResolvedValue({});
 
   mockFetchCatalog.mockResolvedValue([]);
@@ -258,8 +286,8 @@ describe("zero-capture watchdog", () => {
     expect(mockSendOperatorAlert).not.toHaveBeenCalled();
   });
 
-  it("skips the entire detection step when fewer than 7 historical completed runs exist", async () => {
-    mockJobRun.findMany.mockResolvedValue(SEVEN_HISTORICAL_RUNS.slice(0, 6));
+  it("skips the entire detection step when fewer than 7 historical Apify pulls exist", async () => {
+    mockJobRun.findMany.mockResolvedValue(SEVEN_HISTORICAL_PULLS.slice(0, 6));
     mockCompetitor.findMany.mockResolvedValue([competitorRow()]);
 
     await fetchMarketIntelHandler({ profile: "shopping" });
@@ -267,5 +295,45 @@ describe("zero-capture watchdog", () => {
     expect(mockCompetitor.findMany).not.toHaveBeenCalled();
     expect(mockStoreTask.upsert).not.toHaveBeenCalled();
     expect(mockSendOperatorAlert).not.toHaveBeenCalled();
+  });
+
+  it("skips the watchdog entirely on runs that did not execute an Apify pull (the daily-run false-positive fix)", async () => {
+    // Apify disabled → this run pulls nothing → no zero-capture evidence.
+    mockIsApifyEnabled.mockResolvedValue(false);
+    mockCompetitor.findMany.mockResolvedValue([competitorRow()]);
+
+    await fetchMarketIntelHandler({ profile: "shopping" });
+
+    expect(mockJobRun.findMany).not.toHaveBeenCalled();
+    expect(mockCompetitor.findMany).not.toHaveBeenCalled();
+    expect(mockStoreTask.upsert).not.toHaveBeenCalled();
+    expect(mockSendOperatorAlert).not.toHaveBeenCalled();
+  });
+
+  it("counts only Apify-executed runs toward the 7-pull window, ignoring interleaved daily runs", async () => {
+    // 6 pulls + 10 daily no-pull runs interleaved: window has only 6 pulls → no-op.
+    const dailyRuns = Array.from({ length: 10 }, (_, i) => ({
+      id: `daily-run-${i}`,
+      summary: { apifyRan: false, apifyAdsFetched: 0 },
+    }));
+    mockJobRun.findMany.mockResolvedValue([...dailyRuns, ...SEVEN_HISTORICAL_PULLS.slice(0, 6)]);
+    mockCompetitor.findMany.mockResolvedValue([competitorRow()]);
+
+    await fetchMarketIntelHandler({ profile: "shopping" });
+
+    expect(mockCompetitor.findMany).not.toHaveBeenCalled();
+    expect(mockStoreTask.upsert).not.toHaveBeenCalled();
+  });
+
+  it("treats pre-fix runs with apifyAdsFetched > 0 as pulls (backward compat with runs lacking apifyRan)", async () => {
+    const legacyPull = { id: "legacy-run", summary: { apifyAdsFetched: 451 } };
+    mockJobRun.findMany.mockResolvedValue([...SEVEN_HISTORICAL_PULLS.slice(0, 6), legacyPull]);
+    mockCompetitor.findMany.mockResolvedValue([competitorRow()]);
+    mockAdCapture.count.mockResolvedValue(0);
+
+    await fetchMarketIntelHandler({ profile: "shopping" });
+
+    // 6 apifyRan pulls + 1 legacy pull = 7 → watchdog evaluates and flags.
+    expect(mockStoreTask.upsert).toHaveBeenCalledOnce();
   });
 });

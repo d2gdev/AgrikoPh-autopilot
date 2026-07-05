@@ -37,6 +37,7 @@ type MarketIntelSummary = {
   competitorPagesChecked: number;
   adsCaptured: number;
   apifyAdsFetched: number;
+  apifyRan: boolean;
   spamAdsFiltered: number;
   adCaptures: number;
   adChangeInsights: number;
@@ -336,6 +337,7 @@ export async function fetchMarketIntelHandler(
     competitorPagesChecked: 0,
     adsCaptured: 0,
     apifyAdsFetched: 0,
+    apifyRan: false,
     spamAdsFiltered: 0,
     adCaptures: 0,
     adChangeInsights: 0,
@@ -971,6 +973,7 @@ export async function fetchMarketIntelHandler(
         const apify = await fetchApifyMetaAdsByPages(numericPageIds, { perPage: adLimitPerPage });
         apifyAdsByPage = apify.adsByPageId;
         summary.apifyAdsFetched = apify.total;
+        summary.apifyRan = !apify.disabled;
       } catch (err) {
         errors.push(`apify_meta: ${String(err)}`);
       }
@@ -1143,20 +1146,37 @@ export async function fetchMarketIntelHandler(
   }
 
   // Zero-capture watchdog ("the Falo problem"): a competitor's ad-capture
-  // scraper can silently return zero ads for a week straight, usually because
-  // its Facebook page was configured by name/URL instead of the required
-  // numeric page ID. Nothing errors, nothing looks wrong in the job summary —
-  // the row just never lands. Flag competitors with 7 straight historical
-  // runs + this run producing zero captures, and either a history of
-  // captures existing at all (something broke) or a missing pageId (never
-  // configured correctly to begin with).
+  // pipeline can silently return zero ads indefinitely — a misconfigured
+  // page (name/URL instead of the required numeric page ID) looks exactly
+  // like a brand that runs no ads. Nothing errors, the row just never lands.
+  // Flag competitors with 7 straight historical Apify pulls + this pull
+  // producing zero captures, and either a history of captures existing at
+  // all (something broke) or a missing pageId (never configured correctly).
+  //
+  // Windowed over Apify PULLS, not job runs: Apify executes ~weekly (skipped
+  // when a fresh capture exists), so daily runs in between carry no signal
+  // about whether a competitor's ads are capturable. Counting them made any
+  // competitor absent from a single weekly pull trip the watchdog within 8
+  // days (2026-07-05: fired 17 false positives, every one with a valid
+  // numeric pageId). Only runs that actually pulled count as evidence, and
+  // the watchdog only evaluates immediately after a pull.
   try {
-    const historicalRuns = await prisma.jobRun.findMany({
-      where: { jobName: "fetch-market-intel", status: { in: ["success", "partial"] }, id: { not: runId } },
-      orderBy: { completedAt: "desc" },
-      take: 7,
-      select: { id: true },
-    });
+    const recentRuns = summary.apifyRan
+      ? await prisma.jobRun.findMany({
+          where: { jobName: "fetch-market-intel", status: { in: ["success", "partial"] }, id: { not: runId } },
+          orderBy: { completedAt: "desc" },
+          take: 40,
+          select: { id: true, summary: true },
+        })
+      : [];
+    // Older runs predate the apifyRan summary field — an apifyAdsFetched > 0
+    // count is equally conclusive evidence that a pull happened.
+    const historicalRuns = recentRuns
+      .filter((run) => {
+        const s = run.summary as { apifyRan?: unknown; apifyAdsFetched?: unknown } | null;
+        return s?.apifyRan === true || (typeof s?.apifyAdsFetched === "number" && s.apifyAdsFetched > 0);
+      })
+      .slice(0, 7);
 
     if (historicalRuns.length === 7) {
       const historicalRunIds = historicalRuns.map((run) => run.id);
@@ -1192,8 +1212,8 @@ export async function fetchMarketIntelHandler(
             taskType: "fix_competitor_page",
             targetType: "competitor",
             targetId: competitor.id,
-            title: `Ad capture broken for ${competitor.name} — verify the Facebook numeric page ID`,
-            description: `No Meta ads have been captured for ${competitor.name} in at least the last 8 fetch-market-intel runs. This usually means the competitor's Facebook page was configured by name or URL instead of the required numeric page ID. Open Facebook's Ad Library / Page Transparency panel for ${competitor.name}, copy the numeric page ID, and set it on the competitor's social page record.`,
+            title: `No ads captured for ${competitor.name} in 8 consecutive ad-library pulls`,
+            description: `No Meta ads have been captured for ${competitor.name} across the last 8 Apify ad-library pulls (~8 weeks). Two possible causes: (1) the Facebook page is configured by name or URL instead of the required numeric page ID — open the page's Messenger link (facebook.com/messages/t/<id>) or Facebook's Page Transparency panel, copy the numeric ID, and set it on the competitor's social page record; or (2) the page ID is correct and the brand genuinely runs no Meta ads — verify by searching the Ad Library for the page, then dismiss this task.`,
             proposedState: json({ competitorId: competitor.id, action: "set_page_id" }),
             sourceData: json({
               historicalRunIds,
@@ -1209,8 +1229,8 @@ export async function fetchMarketIntelHandler(
             taskType: "fix_competitor_page",
             targetType: "competitor",
             targetId: competitor.id,
-            title: `Ad capture broken for ${competitor.name} — verify the Facebook numeric page ID`,
-            description: `No Meta ads have been captured for ${competitor.name} in at least the last 8 fetch-market-intel runs. This usually means the competitor's Facebook page was configured by name or URL instead of the required numeric page ID. Open Facebook's Ad Library / Page Transparency panel for ${competitor.name}, copy the numeric page ID, and set it on the competitor's social page record.`,
+            title: `No ads captured for ${competitor.name} in 8 consecutive ad-library pulls`,
+            description: `No Meta ads have been captured for ${competitor.name} across the last 8 Apify ad-library pulls (~8 weeks). Two possible causes: (1) the Facebook page is configured by name or URL instead of the required numeric page ID — open the page's Messenger link (facebook.com/messages/t/<id>) or Facebook's Page Transparency panel, copy the numeric ID, and set it on the competitor's social page record; or (2) the page ID is correct and the brand genuinely runs no Meta ads — verify by searching the Ad Library for the page, then dismiss this task.`,
             proposedState: json({ competitorId: competitor.id, action: "set_page_id" }),
             sourceData: json({
               historicalRunIds,
