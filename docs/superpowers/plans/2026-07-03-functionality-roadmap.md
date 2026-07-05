@@ -177,6 +177,8 @@ Order: `content-pilot/page.tsx` (1,820 lines) → dashboard `page.tsx` (~1,430) 
 
 ## Phase 9 — A11y & theming pass (item 17)
 
+> ✅ **COMPLETE 2026-07-05** (plan: `2026-07-05-phase9-a11y-theming-sweep.md`). One disclosed deviation from the acceptance wording below: the market-intelligence brand hero is a **first-party** hex exemption (hoisted into a documented `BRAND_HERO` constant, allowlisted in the new `__tests__/a11y/no-raw-hex.test.ts` policy test) rather than a "third-party requirement"; its muted text got a WCAG AA contrast bump (alpha → 0.75). The keyboard walk on the four core pages was blocked by embedded Shopify auth outside the admin iframe — static sweeps (hex, emoji, clickable-non-button) all pass, and the policy test enforces the hex rule permanently. The 🚀 final deploy is **withheld pending operator go-ahead** because the deploy script auto-applies the deferred `DailySales` migration.
+
 **Rule going forward + retrofit:**
 - Replace hardcoded hexes with Polaris tokens (`var(--p-color-...)`): known offenders `roasBarColor`/`ConfBar` (campaigns), `stalenessStyle`/`STATUS_DOT_COLOR` (dashboard), sparkline colors, market-intelligence bars.
 - Replace emoji-as-icons (▲▼ ✓ ✗ 💰 ⚠) with Polaris icons (`@shopify/polaris-icons`) + text labels; keep emoji only in human-facing copy where decorative.
