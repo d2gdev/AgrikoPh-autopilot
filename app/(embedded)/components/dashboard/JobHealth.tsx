@@ -131,6 +131,9 @@ export function JobRow({
             {job.errorExcerpt && (
               <BlockStack gap="100">
                 <pre
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Job error detail"
                   style={{
                     fontFamily: "monospace",
                     fontSize: 12,

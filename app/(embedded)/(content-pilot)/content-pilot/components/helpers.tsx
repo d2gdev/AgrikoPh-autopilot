@@ -77,7 +77,7 @@ export function ProposedChangeSummary({
   } else {
     // Unknown type — show raw JSON so nothing is silently hidden
     return (
-      <pre style={{ fontSize: "12px", overflowX: "auto", background: "var(--p-color-bg-surface-secondary)", padding: "8px", borderRadius: "4px" }}>
+      <pre tabIndex={0} role="region" aria-label="Proposal details" style={{ fontSize: "12px", overflowX: "auto", background: "var(--p-color-bg-surface-secondary)", padding: "8px", borderRadius: "4px" }}>
         {JSON.stringify(proposedState, null, 2)}
       </pre>
     );
