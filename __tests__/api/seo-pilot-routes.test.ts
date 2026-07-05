@@ -331,12 +331,16 @@ describe("SEO Pilot route regressions", () => {
 
 
   it("keys opportunity promotion state by query, page, and type", () => {
-    const source = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/page.tsx", "utf8");
+    // opportunityKey's definition moved to components/types.ts during the
+    // Phase 8c page split; page.tsx now imports and calls it.
+    const typesSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/components/types.ts", "utf8");
+    const pageSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/page.tsx", "utf8");
 
-    expect(source).toContain("const opportunityKey =");
-    expect(source).toContain(`o.query, o.page ?? "", o.type`);
-    expect(source).not.toContain("promotedOpp.has(o.query)");
-    expect(source).not.toContain("promotingOpp.has(o.query)");
+    expect(typesSource).toContain("export const opportunityKey =");
+    expect(typesSource).toContain(`o.query, o.page ?? "", o.type`);
+    expect(pageSource).toContain("opportunityKey(o)");
+    expect(pageSource).not.toContain("promotedOpp.has(o.query)");
+    expect(pageSource).not.toContain("promotingOpp.has(o.query)");
   });
 
   it("returns retryable error when SEO brief output is blank", async () => {
