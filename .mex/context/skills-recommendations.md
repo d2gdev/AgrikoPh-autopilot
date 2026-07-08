@@ -24,7 +24,7 @@ edges:
     condition: when understanding why guardrails, execution gate, or AI provider choices were made
   - target: patterns/debug-pipeline.md
     condition: when skills are not generating recommendations or execute-approved is blocked
-last_updated: 2026-07-09T04:30:53Z
+last_updated: 2026-07-08T21:17:28Z
 ---
 
 # Skills & Recommendations
@@ -34,6 +34,8 @@ last_updated: 2026-07-09T04:30:53Z
 Skills are markdown files in `skills-source/` with frontmatter metadata + a freeform prompt body. They are loaded at runtime by `lib/skills/loader.ts` (uses `gray-matter`). Never hard-code skill prompts in TypeScript.
 
 Organic skills that depend on persisted SEO or market-intelligence connector data should declare source contracts in frontmatter with `requiredSources`, `optionalSources`, `primarySource`, and `freshnessHours`, while keeping legacy `extraSources` during migration. Do not add these contracts to paid-account skills unless the prompt is genuinely organic-source dependent and intended to dispatch as `platform: seo`.
+
+SEO skills are source-gated, not Meta-gated. A skill can declare `requiredSources`, `optionalSources`, `primarySource`, and `freshnessHours` in frontmatter. Missing/stale required sources trigger one bounded refresh attempt per `run-skills` execution; if still unavailable, the skip reason is recorded in `JobRun.summary.skillsUnavailable`.
 
 **Skill execution flow:**
 ```

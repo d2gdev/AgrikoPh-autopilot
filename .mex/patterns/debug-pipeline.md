@@ -20,7 +20,7 @@ edges:
     condition: for skill runner and guardrail debug paths
   - target: patterns/add-cron-job.md
     condition: if the fix involves changing a job handler
-last_updated: 2026-07-01
+last_updated: 2026-07-09
 ---
 
 # Debug Pipeline
@@ -81,11 +81,13 @@ Check `JobRun` rows first — they are the authoritative record of what ran and 
 4. Check whether the LLM returned an empty recommendations block (`[]`) — this is valid and not a bug if the data genuinely has no actionable changes
 5. Look for Zod validation failures in the PM2 logs: `[runner] skill response failed validation`
 6. Check `Recommendation` rows with `guardStatus = "hard_block"` — they exist but are blocked from execution; they are not missing
+7. When SEO/content skills do not run, inspect the latest `run-skills` `JobRun.summary.sourceStatus`, `sourceRefreshes`, and `skillsUnavailable` before checking model output. A missing required source is a data availability problem, not an LLM problem.
 
 ### Gotchas
 
 - The daily cron skips skills entirely if **all three** data fetches (ads, seo, blog) fail. If one succeeds, skills run.
 - Skills are deduped by hash in `lib/skills/orchestrator.ts` — identical recommendations from consecutive runs are not re-inserted. If you expect new recs but none appear, the same recs may already exist in `pending` status.
+- `run-skills` skip hashes are per-skill deterministic pre-AI input fingerprints, not just the Meta snapshot. They include the assembled data payload and skill prompt identity, but intentionally exclude dynamic KB grounding/provider output. Deferred skills preserve their prior hashes across the 30-skill round-robin cap; failed/truncated dispatched skills lose stale hashes so they retry. If a skill with `extraSources` seems stale, compare the latest `JobRun.summary.skillHashes[skillId]` before and after the relevant GSC/GA4/Market Intelligence/keyword-research data changes; if the hash changes but no recs appear, debug LLM output/parsing next.
 - `confidenceScore` must be 0.0–1.0; the Zod schema rejects values outside this range silently.
 - **Empty-content AI model (recurring landmine):** an invalid/deprecated DeepSeek model name returns **HTTP 200 with empty `content`** (no error) — every JSON-parsing feature then silently produces nothing (`parseJsonArray`→`[]`, `parseStolenAd`→"malformed response", zero recommendations). The known-bad string is `deepseek-v4-flash`; `deepseek-chat` returns real content. Resolution order in `getAiClient()` is `DEEPSEEK_MODEL` env/DB → caller `options.deepseekModel` → `DEFAULT_DEEPSEEK_MODEL`. If AI features go quiet, verify the resolved model actually returns content: `curl -s -H "Authorization: Bearer $KEY" -X POST https://api.deepseek.com/chat/completions -d '{"model":"<model>","messages":[{"role":"user","content":"hi"}],"max_tokens":5}'` and check `choices[0].message.content` is non-empty. Keep `DEEPSEEK_MODEL=deepseek-chat` set in `.env` (local + prod).
 - **DeepSeek ECONNRESET on long responses (recurring):** DeepSeek intermittently resets the socket mid-response-body from the prod host — surfaces as `Invalid response body while trying to fetch https://api.deepseek.com/... read ECONNRESET` and breaks briefs / run-skills / content-pilot drafts. The OpenAI SDK's `maxRetries` does NOT recover it (the reset happens after headers, during body read). Use `chatCompletionWithFailover()` from `lib/ai/client.ts` instead of `ai.client.chat.completions.create()` — it falls over to OpenRouter (same models, different network path) on connection-level errors only (via `isConnectionError()`; 4xx/auth are not failed over). Forward any `AbortSignal` through `{ requestOptions: { signal } }`.

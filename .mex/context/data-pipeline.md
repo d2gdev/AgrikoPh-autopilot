@@ -29,7 +29,7 @@ edges:
     condition: when diagnosing a pipeline failure
   - target: patterns/deploy.md
     condition: when deploying pipeline changes or running migrations in production
-last_updated: 2026-06-25
+last_updated: 2026-07-08T21:17:28Z
 ---
 
 # Data Pipeline
@@ -49,7 +49,7 @@ External cron → /api/cron/[job] (Bearer CRON_SECRET)
   → return JobResult<TSummary>
 ```
 
-After snapshots are upserted, `run-skills` reads them and feeds them to the AI skill runner.
+After snapshots are upserted, `run-skills` reads them and feeds them to the AI skill runner. For organic-source-backed skills, `run-skills` may also invoke one bounded refresh attempt for any missing or stale required source before deciding whether the skill is eligible to run; the refresh results and any remaining gaps are recorded in `JobRun.summary.sourceRefreshes`, `sourceStatus`, and `skillsUnavailable`.
 
 ## Job Handlers (`jobs/`)
 
@@ -68,16 +68,18 @@ After snapshots are upserted, `run-skills` reads them and feeds them to the AI s
 ## RawSnapshot Model
 
 - **Unique key:** `(source, dateRangeStart, dateRangeEnd)` — always upsert, never insert blindly
-- **`source` values:** `"google_ads"` | `"meta"` | `"ga4"` | `"gsc"` | `"blog"`
+- **`source` values:** `"google_ads"` | `"meta"` | `"ga4"` | `"gsc"` | `"blog"` | `"keyword_research"` | `"dataforseo_ranked"` | `"dataforseo_keyword_gap"` | `"shopify_orders"` | `"shopify_catalog"`
 - **`payload`:** JSON blob — shape is connector-specific; skills and analyzers must handle missing keys gracefully
 - Snapshots linked to `Recommendation` rows are retained even after `RAW_SNAPSHOT_RETENTION_DAYS` TTL — the cascade-delete would destroy recommendation history
+
+Google Ads Keyword Planner keyword research is persisted as `RawSnapshot("keyword_research")` evidence in addition to its market-intelligence tables; organic keyword skills and proposal generation should treat that snapshot as the durable source-of-truth input, not as a hidden schema dependency on downstream derived rows.
 
 ## JobRun Model
 
 - Written by every job handler before work starts (status: `running`) and updated on completion
 - **Status values:** `queued` | `running` | `success` | `partial` | `failed`
 - `partial` is a valid success variant — `isJobSuccessful()` returns true for both `success` and `partial`
-- `summary` JSON field shape: `{ recommendationsGenerated, skillsRun, skillsSkipped, skillsTotal, skillHashes, snapshotsFetched }`
+- `summary` JSON field shape: `{ recommendationsGenerated, skillsRun, skillsSkipped, skillsTotal, skillHashes, snapshotsFetched, sourceStatus, sourceRefreshes, skillsUnavailable }`
 - `errorLog` string: concatenated error messages for debugging
 
 ## Job Locking (`lib/job-lock.ts`)
