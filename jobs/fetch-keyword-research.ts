@@ -267,11 +267,17 @@ export async function fetchKeywordResearchHandler(
       }
     }
 
+    const { start, end } = captureDayRange(capturedAt);
     const snapshotRows = await prisma.keywordResearchResult.findMany({
+      where: {
+        capturedAt: {
+          gte: start,
+          lt: end,
+        },
+      },
       orderBy: [{ capturedAt: "desc" }, { keyword: "asc" }],
       take: 100,
     });
-    const { start, end } = captureDayRange(capturedAt);
     const snapshotPayload = {
       capturedAt: capturedAt.toISOString(),
       keywords: snapshotRows.map((row) => ({

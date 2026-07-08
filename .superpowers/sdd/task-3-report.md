@@ -68,3 +68,13 @@
 ## Concerns
 
 - None.
+
+## Review remediation (2026-07-09)
+
+- Fixed the critical day-scoping bug in `jobs/fetch-keyword-research.ts`: the snapshot payload query now reads `keywordResearchResult` rows only from the same UTC capture window used by `RawSnapshot("keyword_research")`, via `where: { capturedAt: { gte: start, lt: end } }`.
+- Strengthened the regression test in `__tests__/jobs/fetch-keyword-research.test.ts` by freezing time and asserting the `findMany` call includes the exact current-day `capturedAt` bounds, plus the matching snapshot date-range key.
+
+## Review remediation verification
+
+- `npm test -- fetch-keyword-research`: pass (`Test Files 1 passed (1)`, `Tests 3 passed (3)`)
+- `npx tsc --noEmit`: pass

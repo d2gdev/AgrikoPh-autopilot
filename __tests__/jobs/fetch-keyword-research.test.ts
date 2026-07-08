@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   prisma: {
@@ -64,6 +64,8 @@ const mockFetchIdeas = fetchGoogleAdsKeywordIdeas as ReturnType<typeof vi.fn>;
 
 describe("fetchKeywordResearchHandler", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T12:34:56.000Z"));
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.stubEnv("MARKET_INTEL_KEYWORD_IDEAS_LIMIT", "0");
@@ -84,6 +86,10 @@ describe("fetchKeywordResearchHandler", () => {
     mockPrisma.keywordResearchResult.findMany.mockResolvedValue([]);
     mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
     mockFetchIdeas.mockResolvedValue({ disabled: false, results: [] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("creates a new row when no duplicate exists", async () => {
@@ -174,6 +180,7 @@ describe("fetchKeywordResearchHandler", () => {
     mockPrisma.keywordResearchResult.findUnique.mockResolvedValue(null);
     mockPrisma.keywordResearchResult.findMany.mockResolvedValue([
       {
+        capturedAt: new Date("2026-07-09T09:00:00.000Z"),
         keyword: "organic rice",
         avgMonthlySearches: 900,
         competition: "MEDIUM",
@@ -197,9 +204,23 @@ describe("fetchKeywordResearchHandler", () => {
 
     await fetchKeywordResearchHandler({ runId: "run-1" });
 
+    expect(mockPrisma.keywordResearchResult.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        capturedAt: {
+          gte: new Date("2026-07-09T00:00:00.000Z"),
+          lt: new Date("2026-07-10T00:00:00.000Z"),
+        },
+      },
+      orderBy: [{ capturedAt: "desc" }, { keyword: "asc" }],
+      take: 100,
+    }));
     expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        source_dateRangeStart_dateRangeEnd: expect.objectContaining({ source: "keyword_research" }),
+        source_dateRangeStart_dateRangeEnd: expect.objectContaining({
+          source: "keyword_research",
+          dateRangeStart: new Date("2026-07-09T00:00:00.000Z"),
+          dateRangeEnd: new Date("2026-07-10T00:00:00.000Z"),
+        }),
       }),
       create: expect.objectContaining({
         source: "keyword_research",
