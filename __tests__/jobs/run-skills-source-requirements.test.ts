@@ -88,6 +88,69 @@ beforeEach(() => {
 });
 
 describe("runSkillsHandler source-aware eligibility", () => {
+  it("records meta-backed skills as unavailable even when another source diagnostic already exists", async () => {
+    mockRawSnapshotFindFirst.mockImplementation(async (args) => {
+      if (args.where?.source === "meta") return null;
+      return null;
+    });
+    mockLoadAllSkillsSync.mockReturnValue([
+      {
+        id: "organic-gap",
+        name: "Organic Gap",
+        description: "",
+        platform: "seo",
+        pilotGroup: "seo",
+        enabled: true,
+        fullPrompt: "Find organic gaps",
+        extraSources: ["gsc"],
+        requiredSources: ["gsc"],
+        primarySource: "gsc",
+      },
+      {
+        id: "meta-fatigue",
+        name: "Meta Fatigue",
+        description: "",
+        platform: "meta",
+        pilotGroup: "ad-pilot",
+        enabled: true,
+        fullPrompt: "Find fatigue issues",
+      },
+    ]);
+    mockCheckSourceStatus.mockResolvedValue({
+      source: "gsc",
+      state: "missing",
+      latestAt: null,
+      evidenceId: null,
+    });
+    mockRefreshSourcesOnce.mockResolvedValue({
+      gsc: {
+        source: "gsc",
+        attempted: true,
+        status: "failed",
+        detail: "connector unavailable",
+      },
+    });
+
+    const result = await runSkillsHandler();
+
+    expect(result.status).toBe("success");
+    expect(mockRunSkill).not.toHaveBeenCalled();
+    expect(result.summary.skillsUnavailable).toEqual([
+      {
+        skillId: "organic-gap",
+        missingRequiredSources: ["gsc"],
+        staleRequiredSources: [],
+        reason: "required data unavailable after refresh attempt",
+      },
+      {
+        skillId: "meta-fatigue",
+        missingRequiredSources: ["meta"],
+        staleRequiredSources: [],
+        reason: "meta snapshot unavailable",
+      },
+    ]);
+  });
+
   it("does not run a seo skill without an organic source contract", async () => {
     const metaSnapshot = {
       id: "meta-snap",

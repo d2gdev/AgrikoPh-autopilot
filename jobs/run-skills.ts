@@ -166,7 +166,15 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
 
   const skillsUnavailable: RunSkillsSummary["skillsUnavailable"] = [];
   const eligibleSkills = dispatchableSkills.filter((skill) => {
-    if ((skill.platform === "meta" || skill.platform === "both") && !metaSnap) return false;
+    if ((skill.platform === "meta" || skill.platform === "both") && !metaSnap) {
+      skillsUnavailable.push({
+        skillId: skill.id,
+        missingRequiredSources: ["meta"],
+        staleRequiredSources: [],
+        reason: "meta snapshot unavailable",
+      });
+      return false;
+    }
     if (skill.platform === "seo" && !hasOrganicSourceContract(skill)) {
       skillsUnavailable.push({
         skillId: skill.id,

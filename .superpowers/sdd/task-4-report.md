@@ -172,3 +172,99 @@ Results:
 - PASS: `npm test -- run-skills-source-requirements` → 1 file passed, 2 tests passed.
 - PASS: `npm test -- run-skills` → 5 files passed, 31 tests passed.
 - PASS: `npx tsc --noEmit` → exit code 0.
+
+## Task 4 reviewer-finding fix (2026-07-09)
+
+Changed files:
+
+- `jobs/run-skills.ts`
+- `__tests__/jobs/run-skills-source-requirements.test.ts`
+
+What changed:
+
+- Meta-linked skills that are ineligible because the latest Meta snapshot is absent are now appended to `summary.skillsUnavailable` during the eligibility filter, with `missingRequiredSources: ["meta"]` and reason `meta snapshot unavailable`.
+- Added a regression covering the mixed-source case where an organic skill already contributes a source-registry diagnostic; the summary now includes both the organic and Meta-backed skill entries instead of silently dropping the Meta one.
+- Organic-source behavior is unchanged: source-less SEO skills still do not run, and missing/stale organic required sources remain visible in `skillsUnavailable`.
+
+Exact command outputs:
+
+```text
+$ npm test -- run-skills-source-requirements
+
+> agriko-autopilot@0.1.0 test
+> vitest run run-skills-source-requirements
+
+
+ RUN  v4.1.8 /home/sean/Agriko/auto-pilot
+
+ ❯ __tests__/jobs/run-skills-source-requirements.test.ts (3 tests | 1 failed) 28ms
+     × records meta-backed skills as unavailable even when another source diagnostic already exists 18ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/jobs/run-skills-source-requirements.test.ts > runSkillsHandler source-aware eligibility > records meta-backed skills as unavailable even when another source diagnostic already exists
+AssertionError: expected [ { skillId: 'organic-gap', …(3) } ] to deeply equal [ …(2) ]
+
+- Expected
++ Received
+
+@@ -5,14 +5,6 @@
+      ],
+      "reason": "required data unavailable after refresh attempt",
+      "skillId": "organic-gap",
+      "staleRequiredSources": [],
+    },
+-   {
+-     "missingRequiredSources": [
+-       "meta",
+-     ],
+-     "reason": "meta snapshot unavailable",
+-     "skillId": "meta-fatigue",
+-     "staleRequiredSources": [],
+-   },
+  ]
+
+ ❯ __tests__/jobs/run-skills-source-requirements.test.ts:138:46
+    136|     expect(result.status).toBe("success");
+    137|     expect(mockRunSkill).not.toHaveBeenCalled();
+    138|     expect(result.summary.skillsUnavailable).toEqual([
+       |                                              ^
+    139|       {
+    140|         skillId: "organic-gap",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  04:25:27
+   Duration  453ms (transform 180ms, setup 0ms, import 226ms, tests 28ms, environment 0ms)
+
+$ npm test -- run-skills-source-requirements
+
+> agriko-autopilot@0.1.0 test
+> vitest run run-skills-source-requirements
+
+
+ RUN  v4.1.8 /home/sean/Agriko/auto-pilot
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  04:25:49
+   Duration  513ms (transform 220ms, setup 0ms, import 275ms, tests 20ms, environment 0ms)
+
+$ npm test -- run-skills
+
+> agriko-autopilot@0.1.0 test
+> vitest run run-skills
+
+
+ RUN  v4.1.8 /home/sean/Agriko/auto-pilot
+
+ Test Files  5 passed (5)
+      Tests  32 passed (32)
+   Start at  04:25:57
+   Duration  2.70s (transform 1.78s, setup 0ms, import 2.80s, tests 393ms, environment 1ms)
+
+$ npx tsc --noEmit
+```
