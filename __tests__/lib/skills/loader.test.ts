@@ -177,6 +177,68 @@ describe("skills loader", () => {
     );
   });
 
+  it("pins the real-file source contract for e2e seo assistant (35)", async () => {
+    process.chdir(originalCwd);
+    vi.resetModules();
+
+    const { loadAllSkillsSync } = await import("@/lib/skills/loader");
+    const skills = loadAllSkillsSync();
+    const skill = skills.find((s) => s.id === "35-google-e2e-seo-assistant");
+
+    expect(skill).toEqual(
+      expect.objectContaining({
+        platform: "seo",
+        requiredSources: ["gsc"],
+        optionalSources: ["ga4", "keyword_research"],
+        primarySource: "gsc",
+        freshnessHours: 96,
+        extraSources: ["gsc", "ga4", "keyword_research"],
+      }),
+    );
+    expect(skill?.fullPrompt).not.toContain("platform=seo is non-dispatchable");
+  });
+
+  it("pins the real-file source contract for programmatic seo builder (42)", async () => {
+    process.chdir(originalCwd);
+    vi.resetModules();
+
+    const { loadAllSkillsSync } = await import("@/lib/skills/loader");
+    const skills = loadAllSkillsSync();
+    const skill = skills.find((s) => s.id === "42-google-programmatic-seo-builder");
+
+    expect(skill).toEqual(
+      expect.objectContaining({
+        platform: "seo",
+        requiredSources: ["gsc"],
+        optionalSources: ["ga4", "keyword_research"],
+        primarySource: "gsc",
+        freshnessHours: 96,
+        extraSources: ["gsc", "ga4", "keyword_research"],
+      }),
+    );
+  });
+
+  it("pins the real-file source contract for keyword gap analysis (46)", async () => {
+    process.chdir(originalCwd);
+    vi.resetModules();
+
+    const { loadAllSkillsSync } = await import("@/lib/skills/loader");
+    const skills = loadAllSkillsSync();
+    const skill = skills.find((s) => s.id === "46-google-keyword-gap-analysis");
+
+    expect(skill).toEqual(
+      expect.objectContaining({
+        platform: "seo",
+        requiredSources: ["keyword_research"],
+        optionalSources: ["gsc", "dataforseo_ranked"],
+        primarySource: "keyword_research",
+        freshnessHours: 168,
+        extraSources: ["keyword_research", "gsc"],
+        insightBlock: "search-term-opportunities",
+      }),
+    );
+  });
+
   it("does not warn when mapping seo platform values", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "autopilot-skills-"));
     fs.mkdirSync(path.join(dir, "skills-source"), { recursive: true });

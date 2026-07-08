@@ -16,8 +16,6 @@ metadata:
     - keyword_research
 ---
 
-<!-- TODO: This skill requires a GSC/GA4 data dispatch path. Currently platform=seo is non-dispatchable. -->
-
 # E2E SEO Assistant
 
 Complete SEO workflow from audit to content brief in one pass.

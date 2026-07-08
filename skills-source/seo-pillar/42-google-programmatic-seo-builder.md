@@ -2,7 +2,18 @@
 name: programmatic-seo-builder
 description: Create scalable programmatic SEO page templates with title patterns, internal linking logic, schema markup, and thin content avoidance strategies. Use when given a niche and data source to build page templates, establishing programmatic SEO structure, or scaling content production with templates.
 metadata:
-  platform: SEO
+  platform: seo
+  requiredSources:
+    - gsc
+  optionalSources:
+    - ga4
+    - keyword_research
+  primarySource: gsc
+  freshnessHours: 96
+  extraSources:
+    - gsc
+    - ga4
+    - keyword_research
 ---
 
 # Programmatic SEO Builder

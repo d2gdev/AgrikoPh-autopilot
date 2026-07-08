@@ -172,3 +172,49 @@ $ npm test -- run-skills
    Start at  04:30:41
    Duration  1.43s (transform 1.15s, setup 0ms, import 1.64s, tests 249ms, environment 1ms)
 ```
+
+## 2026-07-09 Task 5 review-finding fixes
+
+### What I fixed
+
+- Added the missing GSC-first organic source contract to `skills-source/42-google-programmatic-seo-builder.md`.
+- Mirrored the same contract to `skills-source/seo-pillar/42-google-programmatic-seo-builder.md`.
+- Removed the stale root-file TODO in `skills-source/35-google-e2e-seo-assistant.md`; the duplicate under `seo-pillar/` already did not contain it.
+- Added loader assertions against the real repo files for skills `35`, `42`, and `46`, pinning `requiredSources`, `optionalSources`, `primarySource`, and `freshnessHours`, plus a check that skill `35` no longer carries the stale non-dispatchable text.
+- Updated `.mex/ROUTER.md` to record the completed migration scope and the new loader coverage.
+
+### Command output: loader verification (review-fix pass)
+
+```text
+$ npm test -- loader
+
+> agriko-autopilot@0.1.0 test
+> vitest run loader
+
+
+ RUN  v4.1.8 /home/sean/Agriko/auto-pilot
+
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  04:36:07
+   Duration  936ms (transform 214ms, setup 0ms, import 175ms, tests 269ms, environment 1ms)
+```
+
+### Command output: run-skills verification (review-fix pass)
+
+```text
+$ npm test -- run-skills
+
+> agriko-autopilot@0.1.0 test
+> vitest run run-skills
+
+
+ RUN  v4.1.8 /home/sean/Agriko/auto-pilot
+
+
+ Test Files  5 passed (5)
+      Tests  32 passed (32)
+   Start at  04:36:07
+   Duration  1.93s (transform 1.45s, setup 0ms, import 2.36s, tests 339ms, environment 2ms)
+```
