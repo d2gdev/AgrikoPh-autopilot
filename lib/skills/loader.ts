@@ -3,8 +3,29 @@ import path from "path";
 import * as yaml from "js-yaml";
 
 export type ExtraSource = "gsc" | "ga4" | "market_intel" | "keyword_research";
+export type SkillDataSource =
+  | "gsc"
+  | "gsc_query_page"
+  | "ga4"
+  | "blog"
+  | "market_intel"
+  | "keyword_research"
+  | "dataforseo_ranked"
+  | "shopify_catalog"
+  | "shopify_orders";
 
 const VALID_EXTRA_SOURCES: ExtraSource[] = ["gsc", "ga4", "market_intel", "keyword_research"];
+const VALID_SKILL_DATA_SOURCES: SkillDataSource[] = [
+  "gsc",
+  "gsc_query_page",
+  "ga4",
+  "blog",
+  "market_intel",
+  "keyword_research",
+  "dataforseo_ranked",
+  "shopify_catalog",
+  "shopify_orders",
+];
 
 export interface SkillDefinition {
   id: string;
@@ -16,6 +37,10 @@ export interface SkillDefinition {
   fullPrompt: string;
   insightBlock?: string; // e.g. "fatigue-report" | "search-term-opportunities" | "competitor-analysis"
   extraSources?: ExtraSource[]; // additional data sources to inject into the skill's payload
+  requiredSources?: SkillDataSource[];
+  optionalSources?: SkillDataSource[];
+  primarySource?: SkillDataSource;
+  freshnessHours?: number;
 }
 
 const SKILLS_DIR = path.join(process.cwd(), "skills-source");
@@ -30,6 +55,10 @@ type SkillFrontmatter = {
     platform?: string;
     insightBlock?: string;
     extraSources?: string[];
+    requiredSources?: string[];
+    optionalSources?: string[];
+    primarySource?: string;
+    freshnessHours?: number;
   };
 };
 
@@ -44,6 +73,31 @@ function parseExtraSources(raw: unknown): ExtraSource[] | undefined {
     }
   }
   return result.length > 0 ? result : undefined;
+}
+
+function parseSkillDataSources(raw: unknown, fieldName: string): SkillDataSource[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const result: SkillDataSource[] = [];
+  for (const value of raw) {
+    if (typeof value === "string" && (VALID_SKILL_DATA_SOURCES as string[]).includes(value)) {
+      result.push(value as SkillDataSource);
+    } else {
+      console.warn(`[skills/loader] Unknown ${fieldName} value ignored: ${String(value)}`);
+    }
+  }
+  return result.length > 0 ? Array.from(new Set(result)) : undefined;
+}
+
+function parsePrimarySource(raw: unknown): SkillDataSource | undefined {
+  if (typeof raw !== "string") return undefined;
+  if ((VALID_SKILL_DATA_SOURCES as string[]).includes(raw)) return raw as SkillDataSource;
+  console.warn(`[skills/loader] Unknown primarySource value ignored: ${raw}`);
+  return undefined;
+}
+
+function parseFreshnessHours(raw: unknown): number | undefined {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : undefined;
 }
 
 function parseFrontmatter(raw: string): { data: SkillFrontmatter; content: string } {
@@ -94,6 +148,10 @@ function parseSkillFile(filePath: string, pilotGroup: string): SkillDefinition |
       fullPrompt: content.trim(),
       insightBlock: (data.metadata?.insightBlock as string | undefined) ?? undefined,
       extraSources: parseExtraSources(data.metadata?.extraSources),
+      requiredSources: parseSkillDataSources(data.metadata?.requiredSources, "requiredSources"),
+      optionalSources: parseSkillDataSources(data.metadata?.optionalSources, "optionalSources"),
+      primarySource: parsePrimarySource(data.metadata?.primarySource),
+      freshnessHours: parseFreshnessHours(data.metadata?.freshnessHours),
     };
   } catch (err) {
     console.warn(`[skills/loader] Failed to parse ${filePath}:`, err);

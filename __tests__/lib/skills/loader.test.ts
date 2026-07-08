@@ -74,6 +74,43 @@ describe("skills loader", () => {
     expect(skills[0]!.extraSources).toEqual(["gsc", "market_intel"]);
   });
 
+  it("parses source contract metadata from skill frontmatter", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "autopilot-skills-"));
+    fs.mkdirSync(path.join(dir, "skills-source"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "skills-source", "organic-gap.md"),
+      [
+        "---",
+        "name: organic-gap",
+        "metadata:",
+        "  platform: seo",
+        "  extraSources:",
+        "    - gsc",
+        "  requiredSources:",
+        "    - gsc",
+        "  optionalSources:",
+        "    - ga4",
+        "    - keyword_research",
+        "  primarySource: gsc",
+        "  freshnessHours: 72",
+        "---",
+        "Prompt body",
+      ].join("\n"),
+    );
+    process.chdir(dir);
+    vi.resetModules();
+
+    const { loadAllSkillsSync } = await import("@/lib/skills/loader");
+    const skills = loadAllSkillsSync();
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0]!.requiredSources).toEqual(["gsc"]);
+    expect(skills[0]!.optionalSources).toEqual(["ga4", "keyword_research"]);
+    expect(skills[0]!.primarySource).toBe("gsc");
+    expect(skills[0]!.freshnessHours).toBe(72);
+    expect(skills[0]!.extraSources).toEqual(["gsc"]);
+  });
+
   it("leaves extraSources undefined when frontmatter omits it", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "autopilot-skills-"));
     fs.mkdirSync(path.join(dir, "skills-source"), { recursive: true });
