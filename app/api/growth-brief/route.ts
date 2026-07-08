@@ -16,6 +16,7 @@ type BriefItem = {
   description: string;
   source: string;
   priority: string;
+  sortPriority?: string;
   tone: BriefTone;
   href: string;
   meta: string[];
@@ -29,6 +30,9 @@ type RunSkillsDiagnostics = {
   unavailableSkillCount: number;
   unavailableSkillDetails: string[];
 };
+
+const SECTION_LIMIT = 10;
+const QUEUE_OVERFETCH = 32;
 
 function priorityTone(priority: string | null | undefined): BriefTone {
   const rank = priorityRank(priority);
@@ -72,6 +76,7 @@ function asItem(input: {
   description: string;
   source: string;
   priority?: string | null;
+  sortPriority?: string | null;
   tone?: BriefTone;
   href: string;
   meta?: string[];
@@ -83,6 +88,7 @@ function asItem(input: {
     description: input.description,
     source: input.source,
     priority: input.priority ?? "P3",
+    sortPriority: input.sortPriority ?? input.priority ?? "P3",
     tone: input.tone ?? priorityTone(input.priority),
     href: input.href,
     meta: input.meta ?? [],
@@ -105,7 +111,7 @@ function evidenceMeta(input: {
 }
 
 function compareBriefItems(a: BriefItem, b: BriefItem): number {
-  return priorityRank(a.priority) - priorityRank(b.priority)
+  return priorityRank(a.sortPriority ?? a.priority) - priorityRank(b.sortPriority ?? b.priority)
     || (b.sortScore ?? 0) - (a.sortScore ?? 0);
 }
 
@@ -195,7 +201,7 @@ export async function GET(req: Request) {
       prisma.contentProposal.findMany({
         where: { status: "pending" },
         orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
-        take: 8,
+        take: QUEUE_OVERFETCH,
       }),
       prisma.recommendation.findMany({
         where: { status: "pending", guardStatus: { not: "hard_block" } },
@@ -234,7 +240,7 @@ export async function GET(req: Request) {
       prisma.opportunity.findMany({
         where: { status: "open" },
         orderBy: [{ score: "desc" }, { updatedAt: "desc" }],
-        take: 8,
+        take: QUEUE_OVERFETCH,
       }),
       prisma.marketInsight.findMany({
         where: { status: "open" },
@@ -338,6 +344,10 @@ export async function GET(req: Request) {
     for (const proposal of contentProposals) {
       const proposalSourceData = asRecord(proposal.sourceData);
       const organicPriority = asRecord(proposalSourceData.organicPriority);
+      const organicPriorityValue =
+        typeof organicPriority.priority === "string" && organicPriority.priority.trim()
+          ? organicPriority.priority
+          : null;
       const proposalScore = numberValue(organicPriority.score);
       readyToApprove.push(asItem({
         id: `content:${proposal.id}`,
@@ -345,6 +355,7 @@ export async function GET(req: Request) {
         description: proposal.description,
         source: "Content Pilot",
         priority: proposal.priority,
+        sortPriority: organicPriorityValue ?? proposal.priority,
         href: "/content-pilot",
         meta: evidenceMeta({
           score: proposalScore,
@@ -415,13 +426,13 @@ export async function GET(req: Request) {
 
     const sortedNeedsAttention = needsAttention
       .sort(compareBriefItems)
-      .slice(0, 10);
+      .slice(0, SECTION_LIMIT);
     const sortedReady = readyToApprove
       .sort(compareBriefItems)
-      .slice(0, 10);
+      .slice(0, SECTION_LIMIT);
     const sortedQuickWins = quickWins
       .sort(compareBriefItems)
-      .slice(0, 10);
+      .slice(0, SECTION_LIMIT);
     const runSkills = summarizeRunSkills(latestRunSkills);
 
     const nextAction = sortedNeedsAttention[0]

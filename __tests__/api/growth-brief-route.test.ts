@@ -60,6 +60,290 @@ describe("growth-brief route", () => {
     mockShopifyAdmin.fetchProductImages.mockResolvedValue([]);
   });
 
+  it("overfetches proposal and opportunity queues before trimming to the top operator-facing items", async () => {
+    const proposalPool = [
+      {
+        id: "proposal-1",
+        title: "Proposal 1",
+        description: "First proposal",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { organicPriority: { priority: "P2", score: 10, impact: "Low", effort: "Low" } },
+      },
+      {
+        id: "proposal-2",
+        title: "Proposal 2",
+        description: "Second proposal",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { organicPriority: { priority: "P2", score: 20, impact: "Low", effort: "Low" } },
+      },
+      {
+        id: "proposal-3",
+        title: "Proposal 3",
+        description: "Third proposal",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { organicPriority: { priority: "P2", score: 30, impact: "Low", effort: "Low" } },
+      },
+      {
+        id: "proposal-4",
+        title: "Proposal 4",
+        description: "Fourth proposal",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { organicPriority: { priority: "P2", score: 40, impact: "Low", effort: "Low" } },
+      },
+      {
+        id: "proposal-5",
+        title: "Proposal 5",
+        description: "Fifth proposal",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { organicPriority: { priority: "P2", score: 50, impact: "Low", effort: "Low" } },
+      },
+      {
+        id: "proposal-6",
+        title: "Proposal 6",
+        description: "Sixth proposal",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { organicPriority: { priority: "P2", score: 60, impact: "Low", effort: "Low" } },
+      },
+      {
+        id: "proposal-7",
+        title: "Proposal 7",
+        description: "Seventh proposal",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { organicPriority: { priority: "P2", score: 70, impact: "Low", effort: "Low" } },
+      },
+      {
+        id: "proposal-8",
+        title: "Proposal 8",
+        description: "Eighth proposal",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { organicPriority: { priority: "P2", score: 80, impact: "Low", effort: "Low" } },
+      },
+      {
+        id: "proposal-top",
+        title: "Proposal top",
+        description: "Should be pulled into the queue after overfetch",
+        priority: "P1",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { organicPriority: { priority: "P1", score: 65, impact: "High", effort: "Low" } },
+      },
+    ];
+    const opportunityPool = [
+      {
+        id: "opp-1",
+        status: "open",
+        type: "content_gap",
+        targetType: "keyword",
+        targetName: "Opportunity 1",
+        source: "content-pilot",
+        score: 10,
+        priority: "P2",
+        impact: "Low",
+        effort: "Low",
+        proposedAction: { title: "Opportunity 1", description: "First opportunity" },
+      },
+      {
+        id: "opp-2",
+        status: "open",
+        type: "content_gap",
+        targetType: "keyword",
+        targetName: "Opportunity 2",
+        source: "content-pilot",
+        score: 20,
+        priority: "P2",
+        impact: "Low",
+        effort: "Low",
+        proposedAction: { title: "Opportunity 2", description: "Second opportunity" },
+      },
+      {
+        id: "opp-3",
+        status: "open",
+        type: "content_gap",
+        targetType: "keyword",
+        targetName: "Opportunity 3",
+        source: "content-pilot",
+        score: 30,
+        priority: "P2",
+        impact: "Low",
+        effort: "Low",
+        proposedAction: { title: "Opportunity 3", description: "Third opportunity" },
+      },
+      {
+        id: "opp-4",
+        status: "open",
+        type: "content_gap",
+        targetType: "keyword",
+        targetName: "Opportunity 4",
+        source: "content-pilot",
+        score: 40,
+        priority: "P2",
+        impact: "Low",
+        effort: "Low",
+        proposedAction: { title: "Opportunity 4", description: "Fourth opportunity" },
+      },
+      {
+        id: "opp-5",
+        status: "open",
+        type: "content_gap",
+        targetType: "keyword",
+        targetName: "Opportunity 5",
+        source: "content-pilot",
+        score: 50,
+        priority: "P2",
+        impact: "Low",
+        effort: "Low",
+        proposedAction: { title: "Opportunity 5", description: "Fifth opportunity" },
+      },
+      {
+        id: "opp-6",
+        status: "open",
+        type: "content_gap",
+        targetType: "keyword",
+        targetName: "Opportunity 6",
+        source: "content-pilot",
+        score: 60,
+        priority: "P2",
+        impact: "Low",
+        effort: "Low",
+        proposedAction: { title: "Opportunity 6", description: "Sixth opportunity" },
+      },
+      {
+        id: "opp-7",
+        status: "open",
+        type: "content_gap",
+        targetType: "keyword",
+        targetName: "Opportunity 7",
+        source: "content-pilot",
+        score: 70,
+        priority: "P2",
+        impact: "Low",
+        effort: "Low",
+        proposedAction: { title: "Opportunity 7", description: "Seventh opportunity" },
+      },
+      {
+        id: "opp-8",
+        status: "open",
+        type: "content_gap",
+        targetType: "keyword",
+        targetName: "Opportunity 8",
+        source: "content-pilot",
+        score: 80,
+        priority: "P2",
+        impact: "Low",
+        effort: "Low",
+        proposedAction: { title: "Opportunity 8", description: "Eighth opportunity" },
+      },
+      {
+        id: "opp-top",
+        status: "open",
+        type: "content_gap",
+        targetType: "keyword",
+        targetName: "Opportunity top",
+        source: "content-pilot",
+        score: 35,
+        priority: "P1",
+        impact: "High",
+        effort: "Low",
+        proposedAction: { title: "Opportunity top", description: "Should be pulled into the queue after overfetch" },
+      },
+    ];
+
+    mockPrisma.contentProposal.findMany.mockImplementation(async ({ take }: { take: number }) => proposalPool.slice(0, take));
+    mockPrisma.opportunity.findMany.mockImplementation(async ({ take }: { take: number }) => opportunityPool.slice(0, take));
+
+    const { GET } = await import("@/app/api/growth-brief/route");
+
+    const res = await GET(request());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.sections.readyToApprove[0].id).toBe("content:proposal-top");
+    expect(body.sections.quickWins[0].id).toBe("opportunity:opp-top");
+    expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: expect.any(Number) }),
+    );
+    expect(mockPrisma.opportunity.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: expect.any(Number) }),
+    );
+    expect(mockPrisma.contentProposal.findMany.mock.calls[0]?.[0]?.take).toBeGreaterThan(8);
+    expect(mockPrisma.opportunity.findMany.mock.calls[0]?.[0]?.take).toBeGreaterThan(8);
+  });
+
+  it("orders organic proposals by preserved scorer priority before score within the queue", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValue([
+      {
+        id: "proposal-clamped-p1",
+        title: "Clamped P1 proposal",
+        description: "Higher score but lower preserved band",
+        priority: "P1",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: {
+          organicPriority: {
+            priority: "P1",
+            score: 99,
+            impact: "High",
+            effort: "Low",
+          },
+        },
+      },
+      {
+        id: "proposal-preserved-p0",
+        title: "Preserved P0 proposal",
+        description: "Should outrank the clamped P1 item",
+        priority: "P1",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: {
+          organicPriority: {
+            priority: "P0",
+            score: 81,
+            impact: "High",
+            effort: "Low",
+          },
+        },
+      },
+    ]);
+
+    const { GET } = await import("@/app/api/growth-brief/route");
+
+    const res = await GET(request());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.sections.readyToApprove.map((item: { id: string }) => item.id)).toEqual([
+      "content:proposal-preserved-p0",
+      "content:proposal-clamped-p1",
+    ]);
+  });
+
   it("sorts operator queues by priority rank then score evidence and surfaces source diagnostics", async () => {
     mockPrisma.contentProposal.findMany.mockResolvedValue([
       {

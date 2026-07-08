@@ -227,3 +227,30 @@ Output:
 ```text
 (no output; exited 0)
 ```
+
+---
+
+# Task 8 Review Fix Addendum: queue overfetch + preserved scorer priority
+
+## Status: DONE
+
+## What changed
+
+1. **`app/api/growth-brief/route.ts`**
+   - Added bounded queue overfetch constants and changed the `contentProposal.findMany()` / `opportunity.findMany()` reads to fetch more than the operator-visible limit before the final in-memory ranking trim.
+   - Kept the final operator-facing queue limit unchanged; only the selection pool widened so top items are chosen by Growth Brief rank rather than by the database pre-slice.
+   - Added `sortPriority` to `BriefItem` and changed queue comparison to rank on `sortPriority` first, then score.
+   - For organic content proposals, `sortPriority` now prefers `sourceData.organicPriority.priority` when present, while the existing `priority` field remains unchanged for UI compatibility.
+   - No generation logic, live execution behavior, Google Ads writes, or run-skills/source diagnostics were changed.
+
+2. **`__tests__/api/growth-brief-route.test.ts`**
+   - Added a regression that simulates a DB honoring `take` before route sorting and proves the route must overfetch proposals/opportunities to select the correct top queue items.
+   - Added a regression that proves a preserved scorer `P0` in `sourceData.organicPriority.priority` outranks a clamped `P1` proposal even when the clamped item has the higher score.
+   - Kept the existing same-band score/detail diagnostic coverage.
+
+## Exact verification
+
+- `npm test -- growth-brief` — passed
+- `npm test -- seo` — passed
+- `npm test -- content-pilot` — passed
+- `npx tsc --noEmit` — passed
