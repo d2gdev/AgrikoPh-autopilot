@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createHash } from "crypto";
 
 vi.mock("@/lib/db", () => ({
   prisma: {
@@ -23,6 +24,25 @@ vi.mock("@/lib/skills/loader", () => ({
 
 vi.mock("@/lib/skills/runner", () => ({
   runSkill: vi.fn().mockResolvedValue({ recs: [], truncated: false }),
+  assembleDataPayload: vi.fn((skill, payload, extraContext) =>
+    JSON.stringify({
+      skillId: skill.id,
+      platform: skill.platform,
+      extraSources: skill.extraSources ?? [],
+      payload,
+      extraContext: extraContext ?? null,
+    })
+  ),
+}));
+
+vi.mock("@/lib/skills/extra-context", () => ({
+  buildExtraContext: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock("@/lib/skills/source-registry", () => ({
+  checkSourceStatus: vi.fn(),
+  refreshSourcesOnce: vi.fn(),
+  selectBaseSnapshotForSource: vi.fn(),
 }));
 
 vi.mock("@/lib/guardrails", () => ({
@@ -32,6 +52,11 @@ vi.mock("@/lib/guardrails", () => ({
 import { prisma } from "@/lib/db";
 import { loadAllSkillsSync } from "@/lib/skills/loader";
 import { runSkill } from "@/lib/skills/runner";
+import {
+  checkSourceStatus,
+  refreshSourcesOnce,
+  selectBaseSnapshotForSource,
+} from "@/lib/skills/source-registry";
 import { runSkillsHandler } from "@/jobs/run-skills";
 
 const mockPrisma = prisma as unknown as {
@@ -49,11 +74,46 @@ const mockPrisma = prisma as unknown as {
 
 const mockLoadAllSkillsSync = loadAllSkillsSync as ReturnType<typeof vi.fn>;
 const mockRunSkill = runSkill as ReturnType<typeof vi.fn>;
+const mockCheckSourceStatus = checkSourceStatus as ReturnType<typeof vi.fn>;
+const mockRefreshSourcesOnce = refreshSourcesOnce as ReturnType<typeof vi.fn>;
+const mockSelectBaseSnapshotForSource = selectBaseSnapshotForSource as ReturnType<typeof vi.fn>;
 
 const metaSnapshot = { id: "snap-meta", source: "meta", payload: { campaigns: [] }, fetchedAt: new Date() };
 
 function makeSkill(id: string, platform: "meta" | "both" | "linkedin" | "reddit" = "meta") {
-  return { id, name: `Skill ${id}`, platform, enabled: true };
+  return {
+    id,
+    name: `Skill ${id}`,
+    description: "",
+    platform,
+    pilotGroup: "root",
+    enabled: true,
+    fullPrompt: `Prompt for ${id}`,
+  };
+}
+
+function hashPayload(payload: unknown): string {
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+function expectedSkillHash(skill: ReturnType<typeof makeSkill>, payload: Record<string, unknown>) {
+  const assembledDataPayload = JSON.stringify({
+    skillId: skill.id,
+    platform: skill.platform,
+    extraSources: [],
+    payload,
+    extraContext: null,
+  });
+  return hashPayload({
+    version: 2,
+    skillId: skill.id,
+    skillName: skill.name,
+    skillPromptHash: hashPayload(skill.fullPrompt),
+    platform: skill.platform,
+    insightBlock: null,
+    extraSources: [],
+    assembledDataPayload,
+  });
 }
 
 beforeEach(() => {
@@ -66,6 +126,14 @@ beforeEach(() => {
   mockPrisma.recommendation.create.mockResolvedValue({});
   mockPrisma.recommendation.findFirst.mockResolvedValue(null); // no existing pending rec
   mockRunSkill.mockResolvedValue({ recs: [], truncated: false });
+  mockCheckSourceStatus.mockImplementation(async (source) => ({
+    source,
+    state: "fresh",
+    latestAt: new Date(),
+    evidenceId: `${source}-evidence`,
+  }));
+  mockRefreshSourcesOnce.mockResolvedValue({});
+  mockSelectBaseSnapshotForSource.mockResolvedValue(metaSnapshot);
   mockLoadAllSkillsSync.mockReturnValue([]);
 });
 
@@ -118,8 +186,7 @@ describe("runSkillsHandler rotation (Fix A)", () => {
     mockPrisma.rawSnapshot.findFirst.mockReset();
     mockPrisma.rawSnapshot.findFirst.mockResolvedValue(staticSnap);
 
-    const crypto = await import("crypto");
-    const computedHash = crypto.createHash("sha256").update(JSON.stringify(staticPayload)).digest("hex");
+    const computedHash = expectedSkillHash(skippedSkill, staticPayload);
 
     const untouchedOldTimestamp = "2020-01-01T00:00:00.000Z";
     mockPrisma.jobRun.findFirst.mockResolvedValue({
@@ -145,5 +212,54 @@ describe("runSkillsHandler rotation (Fix A)", () => {
 
     // Skills not dispatched this run keep their previous timestamp (merge semantics)
     expect(persistedSkillLastRun["unrelated-skill"]).toBe(untouchedOldTimestamp);
+  });
+
+  it("preserves hashes for skills deferred by the round-robin cap", async () => {
+    const skills = Array.from({ length: 32 }, (_, i) => makeSkill(`skill-${i}`, "meta"));
+    mockLoadAllSkillsSync.mockReturnValue(skills);
+
+    const skillLastRun: Record<string, string> = {};
+    const skillHashes: Record<string, string> = {};
+    skills.forEach((skill, i) => {
+      skillLastRun[skill.id] = new Date(1000 * (i + 1)).toISOString();
+      skillHashes[skill.id] = `previous-hash-${i}`;
+    });
+
+    mockPrisma.jobRun.findFirst.mockResolvedValue({
+      id: "run-0",
+      summary: { skillHashes, skillLastRun },
+    });
+
+    await runSkillsHandler();
+
+    const updateCall = mockPrisma.jobRun.update.mock.calls[0]?.[0];
+    const persistedSkillHashes = updateCall.data.summary.skillHashes as Record<string, string>;
+
+    expect(mockRunSkill).toHaveBeenCalledTimes(30);
+    expect(persistedSkillHashes["skill-30"]).toBe("previous-hash-30");
+    expect(persistedSkillHashes["skill-31"]).toBe("previous-hash-31");
+  });
+
+  it("removes the stale hash for a dispatched skill that fails", async () => {
+    const failedSkill = makeSkill("failed-1", "meta");
+    mockLoadAllSkillsSync.mockReturnValue([failedSkill]);
+    mockRunSkill.mockRejectedValueOnce(new Error("model failed"));
+    mockPrisma.jobRun.findFirst.mockResolvedValue({
+      id: "run-0",
+      summary: {
+        skillHashes: {
+          "failed-1": "stale-failed-hash",
+          "unrelated-1": "stale-unrelated-hash",
+        },
+      },
+    });
+
+    await runSkillsHandler();
+
+    const updateCall = mockPrisma.jobRun.update.mock.calls[0]?.[0];
+    const persistedSkillHashes = updateCall.data.summary.skillHashes as Record<string, string>;
+
+    expect(persistedSkillHashes).not.toHaveProperty("failed-1");
+    expect(persistedSkillHashes["unrelated-1"]).toBe("stale-unrelated-hash");
   });
 });

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
-import type { ExtraSource } from "@/lib/skills/loader";
+import type { SkillDataSource } from "@/lib/skills/loader";
+import { selectBaseSnapshotForSource } from "@/lib/skills/source-registry";
 import type { GscQueryRow, Ga4PageRow } from "@/lib/seo/types";
 import { computeAdLongevity } from "@/lib/market-intel/ad-longevity";
 
@@ -40,7 +41,7 @@ async function buildGscContext(): Promise<unknown> {
     const payload = snap.payload as Record<string, unknown> | null;
     const queries = Array.isArray(payload?.topQueries) ? (payload!.topQueries as Array<Partial<GscQueryRow>>) : [];
     const topQueries = [...queries]
-      .sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0))
+      .sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0) || String(a.query ?? "").localeCompare(String(b.query ?? "")))
       .slice(0, 100);
     return { dateRangeStart: snap.dateRangeStart, dateRangeEnd: snap.dateRangeEnd, topQueries };
   }
@@ -61,7 +62,7 @@ async function buildGscContext(): Promise<unknown> {
       position: p.position ?? "",
     }));
     const topQueries = [...queries]
-      .sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0))
+      .sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0) || String(a.query ?? "").localeCompare(String(b.query ?? "")))
       .slice(0, 100);
     return { dateRangeStart: snap.dateRangeStart, dateRangeEnd: snap.dateRangeEnd, topQueries };
   }
@@ -86,7 +87,7 @@ async function buildGscContext(): Promise<unknown> {
       position: r.position ?? null,
       searchVolume: r.searchVolume ?? null,
     }))
-    .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0))
+    .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0) || a.query.localeCompare(b.query))
     .slice(0, 100);
 
   return {
@@ -107,7 +108,7 @@ async function buildGa4Context(): Promise<unknown> {
   const payload = snap.payload as Record<string, unknown> | null;
   const pages = Array.isArray(payload?.topPages) ? (payload!.topPages as Ga4PageRow[]) : [];
   const topLandingPages = [...pages]
-    .sort((a, b) => (b.sessions ?? 0) - (a.sessions ?? 0))
+    .sort((a, b) => (b.sessions ?? 0) - (a.sessions ?? 0) || String(a.page ?? "").localeCompare(String(b.page ?? "")))
     .slice(0, 50);
 
   return {
@@ -124,7 +125,7 @@ async function buildMarketIntelContext(): Promise<unknown> {
         activeStatus: "ACTIVE",
         createdAt: { gte: daysAgo(MARKET_INTEL_WINDOW_DAYS) },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { headline: "asc" }],
       take: 30,
       include: { competitor: true },
     }),
@@ -133,12 +134,12 @@ async function buildMarketIntelContext(): Promise<unknown> {
         capturedAt: { gte: daysAgo(PRICE_HISTORY_WINDOW_DAYS) },
         priceDelta: { not: null },
       },
-      orderBy: { capturedAt: "desc" },
+      orderBy: [{ capturedAt: "desc" }, { productKey: "asc" }],
       take: 20,
     }),
     prisma.marketInsight.findMany({
       where: { status: "open" },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { title: "asc" }],
       take: 10,
     }),
     computeAdLongevity(),
@@ -176,13 +177,17 @@ async function buildMarketIntelContext(): Promise<unknown> {
       headline: a.headline,
       daysActive: a.daysActive,
       stillActive: a.stillActive,
-    })),
+    })).sort((a, b) =>
+      b.daysActive - a.daysActive
+      || String(a.competitor ?? "").localeCompare(String(b.competitor ?? ""))
+      || String(a.headline ?? "").localeCompare(String(b.headline ?? ""))
+    ),
   };
 }
 
 async function buildKeywordResearchContext(): Promise<unknown> {
   const rows = await prisma.keywordResearchResult.findMany({
-    orderBy: { capturedAt: "desc" },
+    orderBy: [{ capturedAt: "desc" }, { keyword: "asc" }],
     take: 50,
   });
 
@@ -199,11 +204,21 @@ async function buildKeywordResearchContext(): Promise<unknown> {
   }));
 }
 
-const BUILDERS: Record<ExtraSource, () => Promise<unknown>> = {
+async function buildBaseSnapshotPayloadContext(source: SkillDataSource): Promise<unknown> {
+  const snapshot = await selectBaseSnapshotForSource(source);
+  return snapshot?.payload ?? null;
+}
+
+const BUILDERS: Partial<Record<SkillDataSource, () => Promise<unknown>>> = {
   gsc: buildGscContext,
+  gsc_query_page: buildGscContext,
   ga4: buildGa4Context,
+  blog: () => buildBaseSnapshotPayloadContext("blog"),
   market_intel: buildMarketIntelContext,
   keyword_research: buildKeywordResearchContext,
+  dataforseo_ranked: () => buildBaseSnapshotPayloadContext("dataforseo_ranked"),
+  shopify_catalog: () => buildBaseSnapshotPayloadContext("shopify_catalog"),
+  shopify_orders: () => buildBaseSnapshotPayloadContext("shopify_orders"),
 };
 
 /**
@@ -213,14 +228,14 @@ const BUILDERS: Record<ExtraSource, () => Promise<unknown>> = {
  */
 export async function buildExtraContext(sources: string[]): Promise<Record<string, unknown>> {
   const unique = Array.from(new Set(sources)).filter(
-    (s): s is ExtraSource => Object.prototype.hasOwnProperty.call(BUILDERS, s)
+    (source): source is SkillDataSource => Object.prototype.hasOwnProperty.call(BUILDERS, source)
   );
 
   const context: Record<string, unknown> = {};
   await Promise.all(
     unique.map(async (source) => {
       try {
-        context[source] = await BUILDERS[source]();
+        context[source] = await BUILDERS[source]!();
       } catch (err) {
         console.warn(`[skills/extra-context] Failed to build context for source "${source}":`, err);
         context[source] = null;

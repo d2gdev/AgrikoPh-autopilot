@@ -23,6 +23,25 @@ vi.mock("@/lib/skills/loader", () => ({
 
 vi.mock("@/lib/skills/runner", () => ({
   runSkill: vi.fn().mockResolvedValue({ recs: [], truncated: false }),
+  assembleDataPayload: vi.fn((skill, payload, extraContext) =>
+    JSON.stringify({
+      skillId: skill.id,
+      platform: skill.platform,
+      extraSources: skill.extraSources ?? [],
+      payload,
+      extraContext: extraContext ?? null,
+    })
+  ),
+}));
+
+vi.mock("@/lib/skills/extra-context", () => ({
+  buildExtraContext: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock("@/lib/skills/source-registry", () => ({
+  checkSourceStatus: vi.fn(),
+  refreshSourcesOnce: vi.fn(),
+  selectBaseSnapshotForSource: vi.fn(),
 }));
 
 vi.mock("@/lib/guardrails", () => ({
@@ -32,6 +51,11 @@ vi.mock("@/lib/guardrails", () => ({
 import { prisma } from "@/lib/db";
 import { loadAllSkillsSync } from "@/lib/skills/loader";
 import { runSkill } from "@/lib/skills/runner";
+import {
+  checkSourceStatus,
+  refreshSourcesOnce,
+  selectBaseSnapshotForSource,
+} from "@/lib/skills/source-registry";
 import { runSkillsHandler } from "@/jobs/run-skills";
 import { isSupportedAction } from "@/lib/executor";
 
@@ -50,11 +74,24 @@ const mockPrisma = prisma as unknown as {
 
 const mockLoadAllSkillsSync = loadAllSkillsSync as ReturnType<typeof vi.fn>;
 const mockRunSkill = runSkill as ReturnType<typeof vi.fn>;
+const mockCheckSourceStatus = checkSourceStatus as ReturnType<typeof vi.fn>;
+const mockRefreshSourcesOnce = refreshSourcesOnce as ReturnType<typeof vi.fn>;
+const mockSelectBaseSnapshotForSource = selectBaseSnapshotForSource as ReturnType<typeof vi.fn>;
 
 const metaSnapshot = { id: "snap-meta", source: "meta", payload: { campaigns: [] }, fetchedAt: new Date() };
+const gscSnapshot = { id: "snap-gsc", source: "gsc", payload: { topQueries: [] }, fetchedAt: new Date() };
+const keywordResearchSnapshot = { id: "snap-keyword", source: "keyword_research", payload: { keywords: [] }, fetchedAt: new Date() };
 
 function makeSkill(id: string, platform: "meta" | "both" | "linkedin" | "reddit" | "seo" = "meta") {
-  return { id, name: `Skill ${id}`, platform, enabled: true };
+  return {
+    id,
+    name: `Skill ${id}`,
+    description: "",
+    platform,
+    pilotGroup: "root",
+    enabled: true,
+    fullPrompt: `Prompt for ${id}`,
+  };
 }
 
 function makeRec(overrides: Partial<Record<string, unknown>> = {}) {
@@ -83,6 +120,18 @@ beforeEach(() => {
   mockPrisma.recommendation.create.mockResolvedValue({});
   mockPrisma.recommendation.findFirst.mockResolvedValue(null);
   mockRunSkill.mockResolvedValue({ recs: [], truncated: false });
+  mockCheckSourceStatus.mockImplementation(async (source) => ({
+    source,
+    state: "fresh",
+    latestAt: new Date(),
+    evidenceId: `${source}-evidence`,
+  }));
+  mockRefreshSourcesOnce.mockResolvedValue({});
+  mockSelectBaseSnapshotForSource.mockImplementation(async (source) => {
+    if (source === "gsc") return gscSnapshot;
+    if (source === "keyword_research") return keywordResearchSnapshot;
+    return metaSnapshot;
+  });
   mockLoadAllSkillsSync.mockReturnValue([]);
 });
 

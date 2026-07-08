@@ -1,12 +1,26 @@
 import { createHash } from "crypto";
 import pLimit from "p-limit";
+import type { RawSnapshot } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { sendOperatorAlert } from "@/lib/alerts";
 import { checkGuardrails } from "@/lib/guardrails";
 import { isSupportedAction } from "@/lib/executor";
 import { loadAllSkillsSync } from "@/lib/skills/loader";
-import type { SkillDefinition } from "@/lib/skills/loader";
+import { assembleDataPayload } from "@/lib/skills/runner";
+import {
+  checkSourceStatus,
+  refreshSourcesOnce,
+  selectBaseSnapshotForSource,
+} from "@/lib/skills/source-registry";
+import type {
+  SkillDataSource,
+  SkillDefinition,
+} from "@/lib/skills/loader";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
+import type {
+  SourceRefreshResult,
+  SourceStatus,
+} from "@/lib/skills/source-registry";
 
 const MAX_SKILLS_PER_RUN = 30;
 
@@ -19,6 +33,14 @@ type RunSkillsSummary = {
   skillLastRun: Record<string, string>;
   unsupportedSkipped: number;
   fatigueActions: { pauseRecs: number; refreshTasks: number };
+  sourceStatus: Record<string, SourceStatus>;
+  sourceRefreshes: Record<string, SourceRefreshResult>;
+  skillsUnavailable: Array<{
+    skillId: string;
+    missingRequiredSources: string[];
+    staleRequiredSources: string[];
+    reason: string;
+  }>;
 };
 
 type RunSkillsResult = JobResult<RunSkillsSummary> & { newRecs: number };
@@ -27,40 +49,68 @@ function hashPayload(payload: unknown): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
+function requiredSourcesForSkill(skill: SkillDefinition): SkillDataSource[] {
+  if (skill.requiredSources?.length) return skill.requiredSources;
+  if (skill.platform === "seo") return Array.from(new Set(skill.extraSources ?? []));
+  return [];
+}
+
+function optionalSourcesForSkill(skill: SkillDefinition): SkillDataSource[] {
+  const required = new Set(requiredSourcesForSkill(skill));
+  const optional = [...(skill.optionalSources ?? []), ...(skill.extraSources ?? [])];
+  return Array.from(new Set(optional.filter((source) => !required.has(source))));
+}
+
+function allContextSourcesForSkill(skill: SkillDefinition): SkillDataSource[] {
+  return Array.from(new Set([
+    ...requiredSourcesForSkill(skill),
+    ...optionalSourcesForSkill(skill),
+  ]));
+}
+
+function emptySummary(overrides: Partial<RunSkillsSummary> = {}): RunSkillsSummary {
+  return {
+    recommendationsGenerated: 0,
+    skillsRun: 0,
+    skillsSkipped: 0,
+    skillsTotal: 0,
+    skillHashes: {},
+    skillLastRun: {},
+    unsupportedSkipped: 0,
+    fatigueActions: { pauseRecs: 0, refreshTasks: 0 },
+    sourceStatus: {},
+    sourceRefreshes: {},
+    skillsUnavailable: [],
+    ...overrides,
+  };
+}
+
+// Deterministic pre-AI cache key for skip decisions. This intentionally hashes
+// the assembled data/prompt inputs available before the model call, not dynamic
+// KB grounding retrieval, provider behavior, or model output.
+function hashSkillInputFingerprint(
+  skill: SkillDefinition,
+  snapshotPayload: Record<string, unknown>,
+  extraContext?: Record<string, unknown>
+): string {
+  return hashPayload({
+    version: 2,
+    skillId: skill.id,
+    skillName: skill.name,
+    skillPromptHash: hashPayload(skill.fullPrompt),
+    platform: skill.platform,
+    insightBlock: skill.insightBlock ?? null,
+    extraSources: skill.extraSources ?? [],
+    assembledDataPayload: assembleDataPayload(skill, snapshotPayload, extraContext),
+  });
+}
+
 export async function runSkillsHandler(): Promise<RunSkillsResult> {
   const runId = (
     await prisma.jobRun.create({ data: { jobName: "run-skills" } })
   ).id;
 
   const metaSnap = await prisma.rawSnapshot.findFirst({ where: { source: "meta" }, orderBy: { fetchedAt: "desc" } });
-
-  if (!metaSnap) {
-    const summary: RunSkillsSummary = {
-      recommendationsGenerated: 0,
-      skillsRun: 0,
-      skillsSkipped: 0,
-      skillsTotal: 0,
-      skillHashes: {},
-      skillLastRun: {},
-      unsupportedSkipped: 0,
-      fatigueActions: { pauseRecs: 0, refreshTasks: 0 },
-    };
-    const errors = ["No snapshots available — run data fetch first"];
-    await prisma.jobRun.update({
-      where: { id: runId },
-      data: {
-        completedAt: new Date(),
-        status: "failed",
-        summary,
-        errorLog: errors[0],
-      },
-    });
-    return { newRecs: 0, jobName: "run-skills", runId, status: "failed", summary, errors };
-  }
-
-  // Hash each platform's current payload
-  const currentHashes: Record<string, string> = {};
-  if (metaSnap) currentHashes.meta = hashPayload(metaSnap.payload);
 
   // Load per-skill hashes stored from the last successful run
   const lastRun = await prisma.jobRun.findFirst({
@@ -78,13 +128,85 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
 
   // H-9: filter to dispatchable platforms BEFORE cap so linkedin/reddit don't starve real skills
   const DISPATCHABLE_PLATFORMS: SkillDefinition["platform"][] = ["meta", "both", "seo"];
-  const eligibleSkills = allSkills.filter((s) => {
-    if (!DISPATCHABLE_PLATFORMS.includes(s.platform)) return false;
-    if (s.platform === "meta") return !!metaSnap;
-    if (s.platform === "both") return !!metaSnap;
-    if (s.platform === "seo") return !!metaSnap && (s.extraSources?.length ?? 0) > 0;
-    return false;
+  const dispatchableSkills = allSkills.filter((skill) => DISPATCHABLE_PLATFORMS.includes(skill.platform));
+  const requiredSourceFreshness: Partial<Record<SkillDataSource, number>> = {};
+  for (const skill of dispatchableSkills) {
+    const freshnessHours = skill.freshnessHours ?? 72;
+    for (const source of requiredSourcesForSkill(skill)) {
+      const current = requiredSourceFreshness[source];
+      requiredSourceFreshness[source] = current === undefined
+        ? freshnessHours
+        : Math.min(current, freshnessHours);
+    }
+  }
+
+  const allRequiredSources = Array.from(new Set(
+    dispatchableSkills.flatMap((skill) => requiredSourcesForSkill(skill))
+  ));
+  const sourceStatus: Record<string, SourceStatus> = {};
+  for (const source of allRequiredSources) {
+    sourceStatus[source] = await checkSourceStatus(source, requiredSourceFreshness[source]);
+  }
+
+  const sourcesToRefresh = allRequiredSources.filter((source) => {
+    const state = sourceStatus[source]?.state;
+    return state === "missing" || state === "stale";
   });
+  const sourceRefreshes = sourcesToRefresh.length > 0
+    ? await refreshSourcesOnce(sourcesToRefresh)
+    : {};
+
+  for (const source of sourcesToRefresh) {
+    sourceStatus[source] = await checkSourceStatus(source, requiredSourceFreshness[source]);
+  }
+
+  const skillsUnavailable: RunSkillsSummary["skillsUnavailable"] = [];
+  const eligibleSkills = dispatchableSkills.filter((skill) => {
+    if ((skill.platform === "meta" || skill.platform === "both") && !metaSnap) return false;
+
+    const required = requiredSourcesForSkill(skill);
+    const missing = required.filter((source) => {
+      const state = sourceStatus[source]?.state;
+      return state === "missing" || state === "error" || state === "disabled";
+    });
+    const stale = required.filter((source) => sourceStatus[source]?.state === "stale");
+    if (missing.length > 0 || stale.length > 0) {
+      skillsUnavailable.push({
+        skillId: skill.id,
+        missingRequiredSources: missing,
+        staleRequiredSources: stale,
+        reason: "required data unavailable after refresh attempt",
+      });
+      return false;
+    }
+    return true;
+  });
+
+  if (
+    eligibleSkills.length === 0
+    && skillsUnavailable.length === 0
+    && (!metaSnap || dispatchableSkills.length > 0)
+  ) {
+    const summary = emptySummary({
+      skillsTotal: allSkills.length,
+      sourceStatus,
+      sourceRefreshes,
+      skillsUnavailable,
+      skillHashes: { ...lastSkillHashes },
+      skillLastRun: { ...lastSkillLastRun },
+    });
+    const errors = [metaSnap ? "No eligible skills available for current snapshots" : "No meta snapshot available for meta-linked skills"];
+    await prisma.jobRun.update({
+      where: { id: runId },
+      data: {
+        completedAt: new Date(),
+        status: "failed",
+        summary,
+        errorLog: errors[0],
+      },
+    });
+    return { newRecs: 0, jobName: "run-skills", runId, status: "failed", summary, errors };
+  }
 
   if (eligibleSkills.length > MAX_SKILLS_PER_RUN) {
     console.warn(`[run-skills] ${eligibleSkills.length - MAX_SKILLS_PER_RUN} skills deferred to next run (round-robin)`);
@@ -106,28 +228,24 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
   // Fix A: a single shared timestamp for every skill dispatched this run (executed or hash-skipped)
   const dispatchTimestamp = new Date().toISOString();
 
-  function hashForSkill(): string {
-    if (!metaSnap) return "";
-    return currentHashes[metaSnap.source] ?? currentHashes.meta ?? "";
-  }
-
   const { runSkill } = await import("@/lib/skills/runner");
   const { buildExtraContext } = await import("@/lib/skills/extra-context");
 
   // Build the union of extraSources needed by any applicable skill once per run,
   // then hand each skill only the subset it declared.
   const extraSourcesUnion = Array.from(
-    new Set(applicableSkills.flatMap((s) => s.extraSources ?? []))
+    new Set(applicableSkills.flatMap((skill) => allContextSourcesForSkill(skill)))
   );
   const extraContext = extraSourcesUnion.length > 0 ? await buildExtraContext(extraSourcesUnion) : {};
 
   function extraContextForSkill(skill: SkillDefinition): Record<string, unknown> | undefined {
-    if (!skill.extraSources || skill.extraSources.length === 0) return undefined;
+    const sources = allContextSourcesForSkill(skill);
+    if (sources.length === 0) return undefined;
     const subset: Record<string, unknown> = {};
-    for (const source of skill.extraSources) {
+    for (const source of sources) {
       if (source in extraContext) subset[source] = extraContext[source];
     }
-    return subset;
+    return Object.keys(subset).length > 0 ? subset : undefined;
   }
 
   let totalRecs = 0;
@@ -135,23 +253,54 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
   let unsupportedSkipped = 0;
   const errors: string[] = [];
 
-  type SkillResult = { count: number; skillId: string; skillName: string; snapshotId: string; hash: string; insights: unknown[]; wasSkipped?: boolean; unsupportedCount: number };
+  type SkillResult = {
+    count: number;
+    skillId: string;
+    skillName: string;
+    snapshotId: string;
+    hash: string;
+    insights: unknown[];
+    wasSkipped?: boolean;
+    unsupportedCount: number;
+    unavailableReason?: string;
+    primarySource?: SkillDataSource;
+  };
 
   const limit = pLimit(4); // max 4 concurrent skill executions
 
   const results = await Promise.allSettled(
     applicableSkills.map((skill): Promise<SkillResult> => limit(async () => {
-      const snapshot = metaSnap;
-      if (!snapshot) return { count: 0, skillId: skill.id, skillName: skill.name, snapshotId: "", hash: "", insights: [], unsupportedCount: 0 };
+      const requiredSources = requiredSourcesForSkill(skill);
+      const optionalSources = optionalSourcesForSkill(skill);
+      const primarySource = skill.primarySource
+        ?? (skill.platform === "seo" ? (requiredSources[0] ?? optionalSources[0]) : undefined);
+      const snapshot = primarySource
+        ? await selectBaseSnapshotForSource(primarySource)
+        : metaSnap;
+      if (!snapshot) {
+        return {
+          count: 0,
+          skillId: skill.id,
+          skillName: skill.name,
+          snapshotId: "",
+          hash: "",
+          insights: [],
+          wasSkipped: true,
+          unsupportedCount: 0,
+          unavailableReason: "missing_base_snapshot",
+          primarySource,
+        };
+      }
 
-      const currentHash = hashForSkill();
+      const skillExtraContext = extraContextForSkill(skill);
+      const currentHash = hashSkillInputFingerprint(skill, snapshot.payload as Record<string, unknown>, skillExtraContext);
       if (currentHash && lastSkillHashes[skill.id] === currentHash) {
         // H-8: return currentHash (not "") so the stored hash stays valid across skipped runs
         return { count: 0, skillId: skill.id, skillName: skill.name, snapshotId: snapshot.id, hash: currentHash, insights: [], wasSkipped: true, unsupportedCount: 0 };
       }
 
       const { recs: recommendations, insights, truncated } = await Promise.race([
-        runSkill(skill, snapshot, extraContextForSkill(skill)),
+        runSkill(skill, snapshot as RawSnapshot, skillExtraContext),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('runSkill timeout after 120s')), 120_000))
       ]);
       if (truncated) {
@@ -229,27 +378,41 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
 
   // Collect hash/lastRun updates and insights after all concurrent work completes — avoids mid-flight mutation
   const hashUpdates: Array<{ skillId: string; hash: string }> = [];
+  const hashRemovals = new Set<string>();
   const lastRunUpdates: string[] = [];
   const insightRows: Array<{ skillId: string; skillName: string; insightType: string; items: unknown[]; snapshotId: string }> = [];
   for (const [i, r] of results.entries()) {
     if (r.status === "fulfilled") {
-      const { count, skillId, skillName, snapshotId, hash, insights, wasSkipped, unsupportedCount } = r.value;
+      const { count, skillId, skillName, snapshotId, hash, insights, wasSkipped, unsupportedCount, unavailableReason, primarySource } = r.value;
       unsupportedSkipped += unsupportedCount;
-      // Fix A: any dispatched skill that completed (executed or hash-skipped) counts as "ran"
-      lastRunUpdates.push(skillId);
+      // Only successful executions or hash-skips with a current fingerprint count
+      // as "ran" for rotation. Truncated/no-hash attempts should retry sooner.
+      if (hash) lastRunUpdates.push(skillId);
       if (wasSkipped) {
         skipped++;
+        if (unavailableReason) {
+          skillsUnavailable.push({
+            skillId,
+            missingRequiredSources: primarySource ? [primarySource] : [],
+            staleRequiredSources: [],
+            reason: unavailableReason,
+          });
+        }
         // H-8: preserve the current hash for skipped skills so next run still sees it
         if (hash) hashUpdates.push({ skillId, hash });
+        else hashRemovals.add(skillId);
       } else {
         totalRecs += count;
         if (hash) hashUpdates.push({ skillId, hash });
+        else hashRemovals.add(skillId);
         const insightType = applicableSkills[i]?.insightBlock;
         if (insightType && insights.length > 0) {
           insightRows.push({ skillId, skillName, insightType, items: insights, snapshotId });
         }
       }
     } else {
+      const failedSkillId = applicableSkills[i]?.id;
+      if (failedSkillId) hashRemovals.add(failedSkillId);
       errors.push(`${applicableSkills[i]?.id ?? `skill-${i}`}: ${String(r.reason)}`);
     }
   }
@@ -278,9 +441,12 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
     }
   }
 
-  // Only preserve hashes for skills that completed (fulfilled). Failed skills get no hash
-  // entry, so they re-run next cycle instead of being permanently frozen by a stale hash.
-  const updatedSkillHashes: Record<string, string> = {};
+  // Preserve hashes for deferred skills, but remove stale hashes for dispatched
+  // skills that failed or were skipped without a current hash (e.g. truncation).
+  const updatedSkillHashes: Record<string, string> = { ...lastSkillHashes };
+  for (const skillId of hashRemovals) {
+    delete updatedSkillHashes[skillId];
+  }
   for (const { skillId, hash } of hashUpdates) {
     updatedSkillHashes[skillId] = hash;
   }
@@ -302,6 +468,9 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
     skillLastRun: updatedSkillLastRun,
     unsupportedSkipped,
     fatigueActions,
+    sourceStatus,
+    sourceRefreshes,
+    skillsUnavailable,
   };
 
   await prisma.jobRun.update({
