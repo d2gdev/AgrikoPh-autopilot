@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import type { JobResult } from "@/lib/jobs/types";
 import type { SkillDataSource } from "@/lib/skills/loader";
 
 export type SourceState = "fresh" | "stale" | "missing" | "disabled" | "error";
@@ -52,8 +53,8 @@ function snapshotOrderBy() {
   return [{ dateRangeEnd: "desc" as const }, { fetchedAt: "desc" as const }];
 }
 
-function latestSnapshotMoment(snapshot: { fetchedAt?: Date | null; dateRangeEnd?: Date | null }) {
-  return snapshot.dateRangeEnd ?? snapshot.fetchedAt ?? null;
+function latestSnapshotMoment(snapshot?: { fetchedAt?: Date | null; dateRangeEnd?: Date | null } | null) {
+  return snapshot?.dateRangeEnd ?? snapshot?.fetchedAt ?? null;
 }
 
 function countRows(source: SkillDataSource, payload: unknown): number | undefined {
@@ -107,10 +108,14 @@ function countRowsForSnapshotSource(snapshotSource: string, payload: unknown): n
   return undefined;
 }
 
-function refreshResultFromJobResult(result: { status: SourceRefreshResult["status"]; errors: string[] }): SourceRefreshResult {
+function refreshResultFromJobResult(result: Pick<JobResult, "errors"> & { status: string }): SourceRefreshResult {
+  const status = result.status === "success" || result.status === "partial" || result.status === "failed" || result.status === "skipped"
+    ? result.status
+    : "failed";
+
   return {
     attempted: true,
-    status: result.status,
+    status,
     errors: result.errors,
   };
 }
@@ -285,6 +290,15 @@ async function checkMarketIntelStatus(freshnessHours: number): Promise<SourceSta
   });
 
   const latestSnapshot = marketSnapshots[0];
+  if (!latestSnapshot) {
+    return {
+      source: "market_intel",
+      state: "missing",
+      latestAt: null,
+      rowCount,
+      reason: "no open market insights or market evidence snapshots found",
+    };
+  }
   const latestAt = latestSnapshotMoment(latestSnapshot);
 
   return {
@@ -367,10 +381,13 @@ export async function selectBaseSnapshotForSource(source: SkillDataSource): Prom
       return bTime - aTime;
     });
 
+    const latestSnapshot = candidates[0];
+    if (!latestSnapshot) return null;
+
     return {
-      id: candidates[0].id,
-      source: candidates[0].source,
-      payload: candidates[0].payload,
+      id: latestSnapshot.id,
+      source: latestSnapshot.source,
+      payload: latestSnapshot.payload,
     };
   }
 
@@ -424,6 +441,8 @@ export async function selectBaseSnapshotForSource(source: SkillDataSource): Prom
         source: true,
         avgMonthlySearches: true,
         competition: true,
+        lowTopOfPageBidMicros: true,
+        highTopOfPageBidMicros: true,
         capturedAt: true,
         rawPayload: true,
       },

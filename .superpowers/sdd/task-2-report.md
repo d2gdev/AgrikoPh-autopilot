@@ -58,3 +58,15 @@
 - `npm test -- source-registry`
   - PASS: `Test Files  1 passed (1)`
   - PASS: `Tests  9 passed (9)`
+
+## Review findings follow-up (2026-07-09, remaining source-registry issue)
+- Fixed `selectBaseSnapshotForSource("keyword_research")` so the synthetic fallback query now selects `lowTopOfPageBidMicros` and `highTopOfPageBidMicros`, matching the mapper that stringifies those fields.
+- Tightened the source-registry test to model the real fallback row shape with a local typed fixture and added a preferred-path case proving a real `RawSnapshot("keyword_research")` wins before the synthetic fallback.
+- Cleaned up strict typecheck issues in `lib/skills/source-registry.ts` while touching the file so the module passes `tsc --noEmit` without changing runtime behavior.
+
+### Verification
+- `npm test -- source-registry`
+  - PASS: `Test Files  1 passed (1)`
+  - PASS: `Tests  10 passed (10)`
+- `npx tsc --noEmit`
+  - PASS

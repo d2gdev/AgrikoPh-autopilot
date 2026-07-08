@@ -186,8 +186,45 @@ describe("selectBaseSnapshotForSource", () => {
     });
   });
 
+  it("prefers a real keyword_research raw snapshot over the synthetic fallback", async () => {
+    mockPrisma.rawSnapshot.findFirst.mockImplementation(async (args: { where?: { source?: string } }) => {
+      if (args.where?.source === "keyword_research") {
+        return {
+          id: "keyword-snap-1",
+          source: "keyword_research",
+          payload: {
+            keywords: [{ id: "kw-raw-1", keyword: "raw moringa tea" }],
+          },
+        };
+      }
+      return null;
+    });
+
+    await expect(selectBaseSnapshotForSource("keyword_research")).resolves.toMatchObject({
+      id: "keyword-snap-1",
+      source: "keyword_research",
+      payload: {
+        keywords: [{ id: "kw-raw-1", keyword: "raw moringa tea" }],
+      },
+    });
+    expect(mockPrisma.keywordResearchResult.findMany).not.toHaveBeenCalled();
+  });
+
   it("builds a bounded keyword set fallback from latest keyword research rows", async () => {
-    mockPrisma.keywordResearchResult.findMany.mockResolvedValue([
+    type KeywordResearchFallbackRow = {
+      id: string;
+      keyword: string;
+      seedKeyword: string;
+      source: string;
+      avgMonthlySearches: number | null;
+      competition: string | null;
+      lowTopOfPageBidMicros: bigint | null;
+      highTopOfPageBidMicros: bigint | null;
+      capturedAt: Date;
+      rawPayload: unknown;
+    };
+
+    const rows = [
       {
         id: "kw-1",
         keyword: "moringa tea",
@@ -212,7 +249,9 @@ describe("selectBaseSnapshotForSource", () => {
         capturedAt: new Date("2026-07-09T01:00:00Z"),
         rawPayload: { score: 2 },
       },
-    ]);
+    ] satisfies KeywordResearchFallbackRow[];
+
+    mockPrisma.keywordResearchResult.findMany.mockResolvedValue(rows);
 
     const snapshot = await selectBaseSnapshotForSource("keyword_research");
 
@@ -229,12 +268,16 @@ describe("selectBaseSnapshotForSource", () => {
             keyword: "moringa tea",
             seedKeyword: "moringa",
             rawPayload: { score: 1 },
+            lowTopOfPageBidMicros: "500000",
+            highTopOfPageBidMicros: "1500000",
           }),
           expect.objectContaining({
             id: "kw-2",
             keyword: "organic rice",
             seedKeyword: "rice",
             rawPayload: { score: 2 },
+            lowTopOfPageBidMicros: null,
+            highTopOfPageBidMicros: null,
           }),
         ],
       },
