@@ -4,6 +4,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     jobRun: {
       create: vi.fn(),
+      findUnique: vi.fn(),
       update: vi.fn(),
     },
     marketKeyword: {
@@ -15,8 +16,12 @@ vi.mock("@/lib/db", () => ({
     keywordResearchResult: {
       findFirst: vi.fn(),
       findUnique: vi.fn(),
+      findMany: vi.fn(),
       upsert: vi.fn(),
       update: vi.fn(),
+    },
+    rawSnapshot: {
+      upsert: vi.fn(),
     },
   },
 }));
@@ -33,6 +38,7 @@ import { fetchKeywordResearchHandler } from "@/jobs/fetch-keyword-research";
 const mockPrisma = prisma as unknown as {
   jobRun: {
     create: ReturnType<typeof vi.fn>;
+    findUnique: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
   marketKeyword: {
@@ -44,8 +50,12 @@ const mockPrisma = prisma as unknown as {
   keywordResearchResult: {
     findFirst: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
+    findMany: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
+  };
+  rawSnapshot: {
+    upsert: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -59,6 +69,7 @@ describe("fetchKeywordResearchHandler", () => {
     vi.stubEnv("MARKET_INTEL_KEYWORD_IDEAS_LIMIT", "0");
 
     mockPrisma.jobRun.create.mockResolvedValue({ id: "run-1" });
+    mockPrisma.jobRun.findUnique.mockResolvedValue({ id: "run-1", jobName: "fetch-keyword-research" });
     mockPrisma.jobRun.update.mockResolvedValue({});
     mockPrisma.marketKeyword.findMany.mockResolvedValue([
       {
@@ -70,6 +81,8 @@ describe("fetchKeywordResearchHandler", () => {
         active: true,
       },
     ]);
+    mockPrisma.keywordResearchResult.findMany.mockResolvedValue([]);
+    mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
     mockFetchIdeas.mockResolvedValue({ disabled: false, results: [] });
   });
 
@@ -154,5 +167,47 @@ describe("fetchKeywordResearchHandler", () => {
     expect(result.summary.researchRowsStored).toBe(1);
     expect(result.summary.researchRowsCreated).toBe(0);
     expect(result.summary.researchRowsUpdated).toBe(1);
+  });
+
+  it("upserts a keyword_research RawSnapshot for skill evidence", async () => {
+    mockPrisma.marketKeyword.findMany.mockResolvedValue([{ id: "seed-1", keyword: "organic rice", active: true }]);
+    mockPrisma.keywordResearchResult.findUnique.mockResolvedValue(null);
+    mockPrisma.keywordResearchResult.findMany.mockResolvedValue([
+      {
+        keyword: "organic rice",
+        avgMonthlySearches: 900,
+        competition: "MEDIUM",
+        competitionIndex: 55,
+      },
+    ]);
+    mockFetchResearch.mockResolvedValue({
+      disabled: false,
+      results: [{
+        keyword: "organic rice",
+        closeVariants: [],
+        avgMonthlySearches: 900,
+        competition: "MEDIUM",
+        competitionIndex: 55,
+        lowTopOfPageBidMicros: null,
+        highTopOfPageBidMicros: null,
+        monthlySearchVolumes: [],
+        rawPayload: {},
+      }],
+    });
+
+    await fetchKeywordResearchHandler({ runId: "run-1" });
+
+    expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        source_dateRangeStart_dateRangeEnd: expect.objectContaining({ source: "keyword_research" }),
+      }),
+      create: expect.objectContaining({
+        source: "keyword_research",
+        jobRunId: "run-1",
+        payload: expect.objectContaining({
+          keywords: [expect.objectContaining({ keyword: "organic rice", avgMonthlySearches: 900 })],
+        }),
+      }),
+    }));
   });
 });

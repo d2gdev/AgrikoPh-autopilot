@@ -267,6 +267,42 @@ export async function fetchKeywordResearchHandler(
       }
     }
 
+    const snapshotRows = await prisma.keywordResearchResult.findMany({
+      orderBy: [{ capturedAt: "desc" }, { keyword: "asc" }],
+      take: 100,
+    });
+    const { start, end } = captureDayRange(capturedAt);
+    const snapshotPayload = {
+      capturedAt: capturedAt.toISOString(),
+      keywords: snapshotRows.map((row) => ({
+        keyword: row.keyword,
+        avgMonthlySearches: row.avgMonthlySearches,
+        competition: row.competition,
+        competitionIndex: row.competitionIndex,
+      })),
+    };
+    await prisma.rawSnapshot.upsert({
+      where: {
+        source_dateRangeStart_dateRangeEnd: {
+          source: "keyword_research",
+          dateRangeStart: start,
+          dateRangeEnd: end,
+        },
+      },
+      create: {
+        source: "keyword_research",
+        dateRangeStart: start,
+        dateRangeEnd: end,
+        jobRunId: runId,
+        payload: json(snapshotPayload),
+      },
+      update: {
+        jobRunId: runId,
+        fetchedAt: new Date(),
+        payload: json(snapshotPayload),
+      },
+    });
+
     const rowsStored = summary.researchRowsStored + summary.ideaRowsStored;
     if (rowsStored === 0 && summary.disabledSources.length === 0) {
       errors.push("No keyword research rows were stored.");
