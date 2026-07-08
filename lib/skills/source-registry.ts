@@ -108,6 +108,21 @@ function countRowsForSnapshotSource(snapshotSource: string, payload: unknown): n
   return undefined;
 }
 
+async function getLatestMarketEvidenceSnapshot(): Promise<MarketEvidenceSnapshot | null> {
+  const marketSnapshots = (await Promise.all(MARKET_INTEL_BASE_SOURCES.map((source) => getRawSnapshot(source))))
+    .filter((snapshot): snapshot is MarketEvidenceSnapshot => snapshot !== null);
+
+  if (marketSnapshots.length === 0) return null;
+
+  marketSnapshots.sort((a, b) => {
+    const aTime = latestSnapshotMoment(a)?.getTime() ?? 0;
+    const bTime = latestSnapshotMoment(b)?.getTime() ?? 0;
+    return bTime - aTime;
+  });
+
+  return marketSnapshots[0] ?? null;
+}
+
 function refreshResultFromJobResult(result: Pick<JobResult, "errors"> & { status: string }): SourceRefreshResult {
   const status = result.status === "success" || result.status === "partial" || result.status === "failed" || result.status === "skipped"
     ? result.status
@@ -247,58 +262,16 @@ async function checkBlogStatus(freshnessHours: number): Promise<SourceStatus> {
 }
 
 async function checkMarketIntelStatus(freshnessHours: number): Promise<SourceStatus> {
-  const latestInsight = await prisma.marketInsight.findFirst({
-    where: { status: "open" },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      createdAt: true,
-    },
-  });
-  const rowCount = await prisma.marketInsight.count({
-    where: { status: "open" },
-  });
-
-  if (latestInsight) {
-    return {
-      source: "market_intel",
-      state: isFresh(latestInsight.createdAt, freshnessHours) ? "fresh" : "stale",
-      latestAt: latestInsight.createdAt,
-      evidenceId: latestInsight.id,
-      rowCount,
-      reason: "market intelligence uses open MarketInsight rows as evidence",
-    };
-  }
-
-  const marketSnapshots = (await Promise.all(MARKET_INTEL_BASE_SOURCES.map((source) => getRawSnapshot(source))))
-    .filter((snapshot): snapshot is MarketEvidenceSnapshot => snapshot !== null);
-
-  if (marketSnapshots.length === 0) {
-    return {
-      source: "market_intel",
-      state: "missing",
-      latestAt: null,
-      rowCount,
-      reason: "no open market insights or market evidence snapshots found",
-    };
-  }
-
-  marketSnapshots.sort((a, b) => {
-    const aTime = latestSnapshotMoment(a)?.getTime() ?? 0;
-    const bTime = latestSnapshotMoment(b)?.getTime() ?? 0;
-    return bTime - aTime;
-  });
-
-  const latestSnapshot = marketSnapshots[0];
+  const latestSnapshot = await getLatestMarketEvidenceSnapshot();
   if (!latestSnapshot) {
     return {
       source: "market_intel",
       state: "missing",
       latestAt: null,
-      rowCount,
-      reason: "no open market insights or market evidence snapshots found",
+      reason: "no persisted market evidence snapshots found",
     };
   }
+
   const latestAt = latestSnapshotMoment(latestSnapshot);
 
   return {
@@ -370,18 +343,7 @@ export async function refreshSourcesOnce(sources: SkillDataSource[]): Promise<Re
 
 export async function selectBaseSnapshotForSource(source: SkillDataSource): Promise<BaseSnapshot | null> {
   if (source === "market_intel") {
-    const candidates = (await Promise.all(MARKET_INTEL_BASE_SOURCES.map((candidate) => getRawSnapshot(candidate))))
-      .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
-
-    if (candidates.length === 0) return null;
-
-    candidates.sort((a, b) => {
-      const aTime = latestSnapshotMoment(a)?.getTime() ?? 0;
-      const bTime = latestSnapshotMoment(b)?.getTime() ?? 0;
-      return bTime - aTime;
-    });
-
-    const latestSnapshot = candidates[0];
+    const latestSnapshot = await getLatestMarketEvidenceSnapshot();
     if (!latestSnapshot) return null;
 
     return {

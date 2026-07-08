@@ -90,20 +90,53 @@ describe("checkSourceStatus", () => {
     });
   });
 
-  it("uses open market insights as evidence for market_intel", async () => {
+  it("prefers persisted market snapshots over open MarketInsight rows for market_intel", async () => {
     mockPrisma.marketInsight.findFirst.mockResolvedValue({
-      id: "insight-1",
-      createdAt: new Date("2026-07-09T01:00:00Z"),
+      id: "insight-stale",
+      createdAt: new Date("2026-07-01T01:00:00Z"),
     });
     mockPrisma.marketInsight.count.mockResolvedValue(4);
+    mockPrisma.rawSnapshot.findFirst.mockImplementation(async (args: { where?: { source?: string } }) => {
+      switch (args.where?.source) {
+        case "dataforseo_ranked":
+          return {
+            id: "ranked-older",
+            source: "dataforseo_ranked",
+            fetchedAt: new Date("2026-07-09T00:30:00Z"),
+            dateRangeEnd: new Date("2026-07-09T00:30:00Z"),
+            payload: { topQueries: [{ keyword: "organic rice" }] },
+          };
+        case "dataforseo_keyword_gap":
+          return {
+            id: "gap-freshest",
+            source: "dataforseo_keyword_gap",
+            fetchedAt: new Date("2026-07-09T01:00:00Z"),
+            dateRangeEnd: new Date("2026-07-09T01:45:00Z"),
+            payload: {
+              intersections: [{ keyword: "black rice benefits" }, { keyword: "heirloom rice" }],
+            },
+          };
+        case "shopify_catalog":
+          return {
+            id: "catalog-mid",
+            source: "shopify_catalog",
+            fetchedAt: new Date("2026-07-09T01:15:00Z"),
+            dateRangeEnd: new Date("2026-07-09T01:15:00Z"),
+            payload: { products: [{ handle: "organic-rice" }] },
+          };
+        default:
+          return null;
+      }
+    });
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-09T02:00:00Z"));
 
     await expect(checkSourceStatus("market_intel", 72)).resolves.toMatchObject({
       source: "market_intel",
       state: "fresh",
-      evidenceId: "insight-1",
-      rowCount: 4,
+      latestAt: new Date("2026-07-09T01:45:00Z"),
+      evidenceId: "gap-freshest",
+      rowCount: 2,
     });
   });
 

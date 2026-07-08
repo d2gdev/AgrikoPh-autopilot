@@ -70,3 +70,16 @@
   - PASS: `Tests  10 passed (10)`
 - `npx tsc --noEmit`
   - PASS
+
+## Review findings follow-up (2026-07-09, market_intel connector evidence priority)
+- Fixed `checkMarketIntelStatus()` so `market_intel` availability is now driven only by persisted connector snapshots from `dataforseo_ranked`, `dataforseo_keyword_gap`, and `shopify_catalog`.
+- Removed open `MarketInsight` rows as an availability fallback for `market_intel`; if no persisted connector snapshot exists, the source now reports `missing`.
+- Added a shared freshest-snapshot selector so `checkSourceStatus("market_intel")` and `selectBaseSnapshotForSource("market_intel")` both choose the same newest persisted evidence snapshot, with `latestAt`, `evidenceId`, and payload-derived `rowCount` coming from that snapshot.
+- Replaced the old test that treated open `MarketInsight` rows as evidence with a regression test proving fresher persisted market snapshots win even when older open insights exist, while preserving the no-false-missing coverage when fresh market snapshots exist without open insights.
+
+### Verification
+- `npm test -- source-registry`
+  - PASS: `Test Files  1 passed (1)`
+  - PASS: `Tests  10 passed (10)`
+- `npx tsc --noEmit`
+  - PASS
