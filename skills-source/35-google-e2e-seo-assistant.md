@@ -3,6 +3,17 @@ name: e2e-seo-assistant
 description: Full SEO workflow covering technical audits, content gaps, backlink opportunities, on-page fixes, and content briefs. Use when given a site and target keywords to get complete SEO analysis and actionable content plans. End-to-end SEO in one skill.
 metadata:
   platform: seo
+  requiredSources:
+    - gsc
+  optionalSources:
+    - ga4
+    - keyword_research
+  primarySource: gsc
+  freshnessHours: 96
+  extraSources:
+    - gsc
+    - ga4
+    - keyword_research
 ---
 
 <!-- TODO: This skill requires a GSC/GA4 data dispatch path. Currently platform=seo is non-dispatchable. -->

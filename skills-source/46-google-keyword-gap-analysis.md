@@ -3,8 +3,17 @@ name: keyword-gap-analysis
 description: Compares keyword-research volume and bid-range data against current Google Ads keywords and GSC organic queries to surface high-volume keywords with no presence at all, and low-volume keywords quietly eating budget.
 enabled: true
 metadata:
-  platform: Google
-  extraSources: [keyword_research, gsc]
+  platform: seo
+  requiredSources:
+    - keyword_research
+  optionalSources:
+    - gsc
+    - dataforseo_ranked
+  primarySource: keyword_research
+  freshnessHours: 168
+  extraSources:
+    - keyword_research
+    - gsc
   insightBlock: search-term-opportunities
 ---
 
