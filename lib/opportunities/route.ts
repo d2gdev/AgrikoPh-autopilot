@@ -112,6 +112,7 @@ export function contentProposalFromOpportunity(
     (opportunity.targetType === "article" ? opportunity.targetId : null);
   const proposedState = asRecord(action.proposedState);
   const targetKeyword = text(proposedState.targetKeyword) ?? text(proposedState.targetQuery) ?? opportunity.targetName ?? opportunity.targetId;
+  const organicPriority = asRecord(evidence).organicPriority;
 
   return {
     articleHandle,
@@ -133,6 +134,9 @@ export function contentProposalFromOpportunity(
       opportunityType: opportunity.type,
       opportunitySource: opportunity.source,
       score: opportunity.score,
+      ...(organicPriority && typeof organicPriority === "object" && !Array.isArray(organicPriority)
+        ? { organicPriority }
+        : {}),
       evidence,
     }),
   };

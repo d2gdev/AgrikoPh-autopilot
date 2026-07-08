@@ -24,7 +24,7 @@ edges:
     condition: when understanding why guardrails, execution gate, or AI provider choices were made
   - target: patterns/debug-pipeline.md
     condition: when skills are not generating recommendations or execute-approved is blocked
-last_updated: 2026-07-09T04:31:00Z
+last_updated: 2026-07-09T05:36:00Z
 ---
 
 # Skills & Recommendations
@@ -36,6 +36,8 @@ Skills are markdown files in `skills-source/` with frontmatter metadata + a free
 Organic skills that depend on persisted SEO or market-intelligence connector data should declare source contracts in frontmatter with `requiredSources`, `optionalSources`, `primarySource`, and `freshnessHours`, while keeping legacy `extraSources` during migration. Do not add these contracts to paid-account skills unless the prompt is genuinely organic-source dependent and intended to dispatch as `platform: seo`.
 
 Organic SEO/keyword/content skills are source-gated, not Meta-gated. A skill can declare `requiredSources`, `optionalSources`, `primarySource`, and `freshnessHours` in frontmatter. Missing/stale required sources trigger one bounded refresh attempt per `run-skills` execution; if still unavailable, the skip reason is recorded in `JobRun.summary.skillsUnavailable`.
+
+When serializing source-backed context for the LLM or the run-skills skip hash, use the effective stable union of `requiredSources`, `optionalSources`, and legacy `extraSources` in first-seen order with deduping. Do not rely on `extraSources` alone, because required/optional-only context must affect both the prompt payload and the input fingerprint.
 
 **Skill execution flow:**
 ```

@@ -83,6 +83,23 @@ describe("contentProposalFromOpportunity", () => {
     expect(proposal?.priority).toBe("P1");
   });
 
+  it("lifts organicPriority to top-level sourceData while preserving evidence", () => {
+    const proposal = contentProposalFromOpportunity(opportunity({
+      evidence: {
+        query: "organic rice",
+        organicPriority: { priority: "P0", score: 96, impact: "High", effort: "Low" },
+      },
+    }));
+
+    expect(proposal?.sourceData).toMatchObject({
+      organicPriority: { priority: "P0", score: 96, impact: "High", effort: "Low" },
+      evidence: {
+        query: "organic rice",
+        organicPriority: { priority: "P0", score: 96, impact: "High", effort: "Low" },
+      },
+    });
+  });
+
   it("returns null for store opportunities", () => {
     expect(contentProposalFromOpportunity(opportunity({ type: "competitor_price_change", targetType: "competitor_product" }))).toBeNull();
   });

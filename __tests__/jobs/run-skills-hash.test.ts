@@ -112,6 +112,11 @@ function expectedSkillHash(
   payload: Record<string, unknown>,
   extraContext?: Record<string, unknown>
 ): string {
+  const effectiveSources = Array.from(new Set([
+    ...(skill.requiredSources ?? []),
+    ...(skill.optionalSources ?? []),
+    ...(skill.extraSources ?? []),
+  ]));
   return hashPayload({
     version: 2,
     skillId: skill.id,
@@ -119,7 +124,7 @@ function expectedSkillHash(
     skillPromptHash: hashPayload(skill.fullPrompt),
     platform: skill.platform,
     insightBlock: skill.insightBlock ?? null,
-    extraSources: skill.extraSources ?? [],
+    extraSources: effectiveSources,
     assembledDataPayload: assembleDataPayload(skill, payload, extraContext),
   });
 }
@@ -247,5 +252,45 @@ describe("runSkillsHandler skill input fingerprint with real payload assembly", 
     await runSkillsHandler();
 
     expect(mockRunSkill).not.toHaveBeenCalled();
+  });
+
+  it("reruns when a required-only source changes because it contributes to the assembled payload fingerprint", async () => {
+    const skill = makeSkill({
+      extraSources: [],
+      requiredSources: ["gsc"],
+      optionalSources: ["ga4"],
+      primarySource: "gsc",
+      platform: "seo",
+    });
+    const oldContext = {
+      gsc: { topQueries: [{ query: "old query", clicks: 2 }] },
+      ga4: { topPages: [{ path: "/blogs/news/old", sessions: 5 }] },
+    };
+    const newContext = {
+      gsc: { topQueries: [{ query: "new query", clicks: 9 }] },
+      ga4: { topPages: [{ path: "/blogs/news/old", sessions: 5 }] },
+    };
+
+    mockLoadAllSkillsSync.mockReturnValue([skill]);
+    mockBuildExtraContext.mockResolvedValue(newContext);
+    mockSelectBaseSnapshotForSource.mockResolvedValue(gscSnapshot);
+    mockPrisma.jobRun.findFirst.mockResolvedValue({
+      id: "run-0",
+      summary: {
+        skillHashes: {
+          [skill.id]: expectedSkillHash(skill, gscSnapshot.payload, oldContext),
+        },
+      },
+    });
+
+    await runSkillsHandler();
+
+    expect(mockRunSkill).toHaveBeenCalledTimes(1);
+    expect(mockRunSkill).toHaveBeenCalledWith(skill, gscSnapshot, newContext);
+
+    const updateCall = mockPrisma.jobRun.update.mock.calls[0]?.[0];
+    expect(updateCall.data.summary.skillHashes[skill.id]).toBe(
+      expectedSkillHash(skill, gscSnapshot.payload, newContext)
+    );
   });
 });

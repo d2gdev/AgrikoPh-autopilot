@@ -208,6 +208,14 @@ const EXTRA_SECTION_TITLES: Record<string, string> = {
   keyword_research: "Keyword Research",
 };
 
+function effectiveContextSources(skill: SkillDefinition): string[] {
+  return Array.from(new Set([
+    ...(skill.requiredSources ?? []),
+    ...(skill.optionalSources ?? []),
+    ...(skill.extraSources ?? []),
+  ]));
+}
+
 // Serializes `data` to a JSON block capped at ~maxChars. If `data` (or a top-level
 // array field within it) is too large, arrays are trimmed and a truncation note is
 // appended — the caller never sees a payload silently blown past the cap.
@@ -280,8 +288,8 @@ export function assembleDataPayload(
     sections.push(`## Performance Insights (ROAS / CTR / Spend / Frequency)\n\`\`\`json\n${JSON.stringify(payload.insights, null, 2)}\n\`\`\``);
   }
 
-  if (extraContext && skill.extraSources) {
-    for (const source of skill.extraSources) {
+  if (extraContext) {
+    for (const source of effectiveContextSources(skill)) {
       if (!(source in extraContext)) continue;
       const data = extraContext[source];
       if (data === null || data === undefined) continue;

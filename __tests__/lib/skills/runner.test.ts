@@ -158,4 +158,26 @@ describe("assembleDataPayload", () => {
     expect(result).toContain("## Keyword Research");
     expect(result).not.toContain("## Campaigns");
   });
+
+  it("includes required and optional source sections even when extraSources is omitted, with stable deduped order", () => {
+    const skill = makeSkill({
+      requiredSources: ["gsc", "ga4"],
+      optionalSources: ["keyword_research", "gsc", "market_intel"],
+    });
+    const result = assembleDataPayload(skill, {}, {
+      gsc: { topQueries: [{ query: "moringa powder", clicks: 7 }] },
+      ga4: { topPages: [{ path: "/blogs/news/moringa", sessions: 15 }] },
+      keyword_research: [{ keyword: "moringa powder benefits" }],
+      market_intel: { competitorAds: [{ competitor: "X" }] },
+    });
+
+    expect(result).toContain("## Organic Search (GSC)");
+    expect(result).toContain("## Site Analytics (GA4)");
+    expect(result).toContain("## Keyword Research");
+    expect(result).toContain("## Market Intelligence");
+    expect(result.indexOf("## Organic Search (GSC)")).toBeLessThan(result.indexOf("## Site Analytics (GA4)"));
+    expect(result.indexOf("## Site Analytics (GA4)")).toBeLessThan(result.indexOf("## Keyword Research"));
+    expect(result.indexOf("## Keyword Research")).toBeLessThan(result.indexOf("## Market Intelligence"));
+    expect(result.match(/## Organic Search \(GSC\)/g)).toHaveLength(1);
+  });
 });

@@ -104,7 +104,7 @@ function hashSkillInputFingerprint(
     skillPromptHash: hashPayload(skill.fullPrompt),
     platform: skill.platform,
     insightBlock: skill.insightBlock ?? null,
-    extraSources: skill.extraSources ?? [],
+    extraSources: allContextSourcesForSkill(skill),
     assembledDataPayload: assembleDataPayload(skill, snapshotPayload, extraContext),
   });
 }
