@@ -6,6 +6,7 @@ const mockPrisma = vi.hoisted(() => ({
   },
   keywordResearchResult: {
     findFirst: vi.fn(),
+    findMany: vi.fn(),
     count: vi.fn(),
   },
   marketInsight: {
@@ -44,6 +45,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.rawSnapshot.findFirst.mockResolvedValue(null);
   mockPrisma.keywordResearchResult.findFirst.mockResolvedValue(null);
+  mockPrisma.keywordResearchResult.findMany.mockResolvedValue([]);
   mockPrisma.keywordResearchResult.count.mockResolvedValue(0);
   mockPrisma.marketInsight.findFirst.mockResolvedValue(null);
   mockPrisma.marketInsight.count.mockResolvedValue(0);
@@ -105,6 +107,31 @@ describe("checkSourceStatus", () => {
     });
   });
 
+  it("does not mark market_intel missing when fresh base market snapshots exist", async () => {
+    mockPrisma.rawSnapshot.findFirst.mockImplementation(async (args: { where?: { source?: string } }) => {
+      if (args.where?.source === "dataforseo_ranked") {
+        return {
+          id: "ranked-fresh",
+          source: "dataforseo_ranked",
+          fetchedAt: new Date("2026-07-09T01:00:00Z"),
+          dateRangeEnd: new Date("2026-07-09T01:00:00Z"),
+          payload: { topQueries: [{ keyword: "organic rice" }] },
+        };
+      }
+      return null;
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T02:00:00Z"));
+
+    await expect(checkSourceStatus("market_intel", 72)).resolves.toMatchObject({
+      source: "market_intel",
+      state: "fresh",
+      latestAt: new Date("2026-07-09T01:00:00Z"),
+      evidenceId: "ranked-fresh",
+      rowCount: 1,
+    });
+  });
+
   it("uses article snapshots as evidence for blog", async () => {
     mockPrisma.articleSnapshot.findFirst.mockResolvedValue({
       id: "article-snap-1",
@@ -157,6 +184,62 @@ describe("selectBaseSnapshotForSource", () => {
       id: "gap-1",
       source: "dataforseo_keyword_gap",
     });
+  });
+
+  it("builds a bounded keyword set fallback from latest keyword research rows", async () => {
+    mockPrisma.keywordResearchResult.findMany.mockResolvedValue([
+      {
+        id: "kw-1",
+        keyword: "moringa tea",
+        seedKeyword: "moringa",
+        source: "google_ads",
+        avgMonthlySearches: 1000,
+        competition: "MEDIUM",
+        lowTopOfPageBidMicros: BigInt(500000),
+        highTopOfPageBidMicros: BigInt(1500000),
+        capturedAt: new Date("2026-07-09T01:00:00Z"),
+        rawPayload: { score: 1 },
+      },
+      {
+        id: "kw-2",
+        keyword: "organic rice",
+        seedKeyword: "rice",
+        source: "google_ads",
+        avgMonthlySearches: 600,
+        competition: "LOW",
+        lowTopOfPageBidMicros: null,
+        highTopOfPageBidMicros: null,
+        capturedAt: new Date("2026-07-09T01:00:00Z"),
+        rawPayload: { score: 2 },
+      },
+    ]);
+
+    const snapshot = await selectBaseSnapshotForSource("keyword_research");
+
+    expect(mockPrisma.keywordResearchResult.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: [{ capturedAt: "desc" }, { keyword: "asc" }], take: 100 })
+    );
+    expect(snapshot).toMatchObject({
+      id: "keyword-research-fallback",
+      source: "keyword_research",
+      payload: {
+        keywords: [
+          expect.objectContaining({
+            id: "kw-1",
+            keyword: "moringa tea",
+            seedKeyword: "moringa",
+            rawPayload: { score: 1 },
+          }),
+          expect.objectContaining({
+            id: "kw-2",
+            keyword: "organic rice",
+            seedKeyword: "rice",
+            rawPayload: { score: 2 },
+          }),
+        ],
+      },
+    });
+    expect((snapshot?.payload as { keywords: unknown[] }).keywords).toHaveLength(2);
   });
 });
 

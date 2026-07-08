@@ -20,6 +20,14 @@ export type SourceRefreshResult = {
 
 type BaseSnapshot = { id: string; source: string; payload: unknown };
 
+type MarketEvidenceSnapshot = {
+  id: string;
+  source: string;
+  payload: unknown;
+  fetchedAt: Date;
+  dateRangeEnd?: Date | null;
+};
+
 const RAW_SNAPSHOT_SOURCE: Partial<Record<SkillDataSource, string>> = {
   gsc: "gsc",
   gsc_query_page: "gsc_query_page",
@@ -83,6 +91,20 @@ async function getRawSnapshot(source: string): Promise<{
       dateRangeEnd: true,
     },
   });
+}
+
+function countRowsForSnapshotSource(snapshotSource: string, payload: unknown): number | undefined {
+  if (snapshotSource === "dataforseo_ranked") return countRows("dataforseo_ranked", payload);
+  if (snapshotSource === "shopify_catalog") return countRows("shopify_catalog", payload);
+  if (Array.isArray(payload)) return payload.length;
+  if (!payload || typeof payload !== "object") return undefined;
+
+  const record = payload as Record<string, unknown>;
+  if (snapshotSource === "dataforseo_keyword_gap" && Array.isArray(record.intersections)) {
+    return record.intersections.length;
+  }
+
+  return undefined;
 }
 
 function refreshResultFromJobResult(result: { status: SourceRefreshResult["status"]; errors: string[] }): SourceRefreshResult {
@@ -220,7 +242,7 @@ async function checkBlogStatus(freshnessHours: number): Promise<SourceStatus> {
 }
 
 async function checkMarketIntelStatus(freshnessHours: number): Promise<SourceStatus> {
-  const latest = await prisma.marketInsight.findFirst({
+  const latestInsight = await prisma.marketInsight.findFirst({
     where: { status: "open" },
     orderBy: { createdAt: "desc" },
     select: {
@@ -232,23 +254,46 @@ async function checkMarketIntelStatus(freshnessHours: number): Promise<SourceSta
     where: { status: "open" },
   });
 
-  if (!latest) {
+  if (latestInsight) {
+    return {
+      source: "market_intel",
+      state: isFresh(latestInsight.createdAt, freshnessHours) ? "fresh" : "stale",
+      latestAt: latestInsight.createdAt,
+      evidenceId: latestInsight.id,
+      rowCount,
+      reason: "market intelligence uses open MarketInsight rows as evidence",
+    };
+  }
+
+  const marketSnapshots = (await Promise.all(MARKET_INTEL_BASE_SOURCES.map((source) => getRawSnapshot(source))))
+    .filter((snapshot): snapshot is MarketEvidenceSnapshot => snapshot !== null);
+
+  if (marketSnapshots.length === 0) {
     return {
       source: "market_intel",
       state: "missing",
       latestAt: null,
       rowCount,
-      reason: "no open market insights found",
+      reason: "no open market insights or market evidence snapshots found",
     };
   }
 
+  marketSnapshots.sort((a, b) => {
+    const aTime = latestSnapshotMoment(a)?.getTime() ?? 0;
+    const bTime = latestSnapshotMoment(b)?.getTime() ?? 0;
+    return bTime - aTime;
+  });
+
+  const latestSnapshot = marketSnapshots[0];
+  const latestAt = latestSnapshotMoment(latestSnapshot);
+
   return {
     source: "market_intel",
-    state: isFresh(latest.createdAt, freshnessHours) ? "fresh" : "stale",
-    latestAt: latest.createdAt,
-    evidenceId: latest.id,
-    rowCount,
-    reason: "market intelligence uses open MarketInsight rows as evidence",
+    state: isFresh(latestAt, freshnessHours) ? "fresh" : "stale",
+    latestAt,
+    evidenceId: latestSnapshot.id,
+    rowCount: countRowsForSnapshotSource(latestSnapshot.source, latestSnapshot.payload),
+    reason: `market intelligence is using ${latestSnapshot.source} snapshot evidence`,
   };
 }
 
@@ -360,8 +405,18 @@ export async function selectBaseSnapshotForSource(source: SkillDataSource): Prom
   }
 
   if (source === "keyword_research") {
-    const latest = await prisma.keywordResearchResult.findFirst({
-      orderBy: { capturedAt: "desc" },
+    const snapshot = await getRawSnapshot("keyword_research");
+    if (snapshot) {
+      return {
+        id: snapshot.id,
+        source: snapshot.source,
+        payload: snapshot.payload,
+      };
+    }
+
+    const rows = await prisma.keywordResearchResult.findMany({
+      orderBy: [{ capturedAt: "desc" }, { keyword: "asc" }],
+      take: 100,
       select: {
         id: true,
         keyword: true,
@@ -374,13 +429,30 @@ export async function selectBaseSnapshotForSource(source: SkillDataSource): Prom
       },
     });
 
-    if (!latest) return null;
+    if (rows.length === 0) return null;
 
     return {
-      id: latest.id,
+      id: "keyword-research-fallback",
       source: "keyword_research",
       payload: {
-        keywords: [latest],
+        keywords: rows.map((row) => ({
+          id: row.id,
+          keyword: row.keyword,
+          seedKeyword: row.seedKeyword,
+          source: row.source,
+          avgMonthlySearches: row.avgMonthlySearches,
+          competition: row.competition,
+          capturedAt: row.capturedAt,
+          lowTopOfPageBidMicros:
+            row.lowTopOfPageBidMicros !== null && row.lowTopOfPageBidMicros !== undefined
+              ? row.lowTopOfPageBidMicros.toString()
+              : null,
+          highTopOfPageBidMicros:
+            row.highTopOfPageBidMicros !== null && row.highTopOfPageBidMicros !== undefined
+              ? row.highTopOfPageBidMicros.toString()
+              : null,
+          rawPayload: row.rawPayload,
+        })),
       },
     };
   }
