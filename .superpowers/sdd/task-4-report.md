@@ -109,6 +109,66 @@ Result:
 - The verification script is committed and uses the real app Prisma singleton plus the configured environment, as required.
 - Runtime verification against persisted PostgreSQL data could not complete locally because Prisma could not connect to the configured host.
 
+Follow-up command via SSH tunnel to production Postgres:
+
+- Opened tunnel: `ssh -N -L 15432:localhost:5432 autopilot-prod`
+- Ran: `DATABASE_URL=<production-url-rewritten-to-127.0.0.1:15432> npx tsx scripts/verify-skill-source-registry.ts`
+
+Observed output:
+
+```text
+Database URL source: DATABASE_URL
+Verifying source registry against persisted PostgreSQL data
+source=gsc | status=stale | latestAt=2026-07-05T16:12:01.472Z | evidenceId=cmrc9zz1x0ahvs68i47lpq9dr | rowCount=1145 | baseSource=gsc | baseId=cmrc9zz1x0ahvs68i47lpq9dr
+source=gsc_query_page | status=stale | latestAt=2026-07-05T16:12:01.472Z | evidenceId=cmrc9zzbd0bk4s68ivtzbkqoc | rowCount=1375 | baseSource=gsc_query_page | baseId=cmrc9zzbd0bk4s68ivtzbkqoc
+source=ga4 | status=stale | latestAt=2026-07-05T16:12:01.472Z | evidenceId=cmrc9zzia0bk6s68i7sicu86t | rowCount=247 | baseSource=ga4 | baseId=cmrc9zzia0bk6s68i7sicu86t
+source=blog | status=fresh | latestAt=2026-07-08T01:00:04.163Z | evidenceId=cmrbdf6bp0947s68ixou6c0pc | rowCount=648 | baseSource=blog | baseId=cmrbdf6bp0947s68ixou6c0pc
+source=market_intel | status=fresh | latestAt=2026-07-08T00:00:00.000Z | evidenceId=cmrbn3nlr09uys68i19wvbj0b | rowCount=14 | baseSource=shopify_catalog | baseId=cmrbn3nlr09uys68i19wvbj0b
+source=keyword_research | status=fresh | latestAt=2026-07-08T16:12:04.237Z | evidenceId=cmrbnmycz0a6ms68ik4fm6liy | rowCount=487 | baseSource=keyword_research | baseId=keyword-research-fallback
+source=dataforseo_ranked | status=stale | latestAt=2026-07-05T00:00:00.000Z | evidenceId=cmr7cr2t201x7s6rlrr0k30bh | rowCount=0 | baseSource=dataforseo_ranked | baseId=cmr7cr2t201x7s6rlrr0k30bh
+source=shopify_catalog | status=fresh | latestAt=2026-07-08T00:00:00.000Z | evidenceId=cmrbn3nlr09uys68i19wvbj0b | rowCount=14 | baseSource=shopify_catalog | baseId=cmrbn3nlr09uys68i19wvbj0b
+source=shopify_orders | status=fresh | latestAt=2026-07-08T00:00:00.000Z | evidenceId=cmrbkdwh309tys68iij9y7ua6 | rowCount=0 | baseSource=shopify_orders | baseId=cmrbkdwh309tys68iij9y7ua6
+```
+
+Follow-up result:
+
+- PASS: the committed verification script successfully read real persisted production PostgreSQL rows through the app Prisma singleton.
+- PASS: organic source statuses and base snapshots came from real rows/snapshots, not mocked fixtures.
+- Note: `keyword_research` used the source-registry's persisted-row fallback because production has not yet run the new Task 3 `RawSnapshot("keyword_research")` writer.
+
 ## Concerns
 
 - `skillsUnavailable` currently records source-registry problems and missing base snapshots, but Meta-only ineligibility is still represented by the job-level failure path rather than a synthetic `meta` source entry. That matches the current type surface because `meta` is not a `SkillDataSource`.
+
+## Task 4 fix verification (2026-07-09)
+
+Changed files:
+
+- `jobs/run-skills.ts`
+- `__tests__/jobs/run-skills-source-requirements.test.ts`
+
+Behavior change:
+
+- `platform: "seo"` skills now require at least one organic source in their required/optional/extra contract before they are eligible to run.
+- Source-less SEO skills are skipped before dispatch, never receive the Meta snapshot as a fallback, and are reported in `summary.skillsUnavailable` with reason `seo skill has no organic source contract`.
+- Meta and both-platform skill behavior is unchanged.
+
+Red-green verification:
+
+- Added failing regression test for a source-less SEO skill.
+- Observed failure before the fix: `runSkill` was called with the `meta` snapshot for `seo-without-contract`.
+- Re-ran after the fix and confirmed the regression test passes.
+
+Commands run:
+
+```text
+npm test -- run-skills-source-requirements
+npm test -- run-skills
+npx tsc --noEmit
+```
+
+Results:
+
+- PASS: `npm test -- run-skills-source-requirements` → 1 file passed, 2 tests passed.
+- PASS: `npm test -- run-skills` → 5 files passed, 31 tests passed.
+- PASS: `npx tsc --noEmit` → exit code 0.

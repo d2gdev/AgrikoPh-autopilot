@@ -68,6 +68,10 @@ function allContextSourcesForSkill(skill: SkillDefinition): SkillDataSource[] {
   ]));
 }
 
+function hasOrganicSourceContract(skill: SkillDefinition): boolean {
+  return allContextSourcesForSkill(skill).length > 0;
+}
+
 function emptySummary(overrides: Partial<RunSkillsSummary> = {}): RunSkillsSummary {
   return {
     recommendationsGenerated: 0,
@@ -163,6 +167,15 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
   const skillsUnavailable: RunSkillsSummary["skillsUnavailable"] = [];
   const eligibleSkills = dispatchableSkills.filter((skill) => {
     if ((skill.platform === "meta" || skill.platform === "both") && !metaSnap) return false;
+    if (skill.platform === "seo" && !hasOrganicSourceContract(skill)) {
+      skillsUnavailable.push({
+        skillId: skill.id,
+        missingRequiredSources: [],
+        staleRequiredSources: [],
+        reason: "seo skill has no organic source contract",
+      });
+      return false;
+    }
 
     const required = requiredSourcesForSkill(skill);
     const missing = required.filter((source) => {

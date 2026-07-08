@@ -88,6 +88,49 @@ beforeEach(() => {
 });
 
 describe("runSkillsHandler source-aware eligibility", () => {
+  it("does not run a seo skill without an organic source contract", async () => {
+    const metaSnapshot = {
+      id: "meta-snap",
+      source: "meta",
+      payload: { campaigns: [{ id: "cmp-1" }] },
+      fetchedAt: new Date(),
+      dateRangeStart: new Date(),
+      dateRangeEnd: new Date(),
+    };
+    mockRawSnapshotFindFirst.mockImplementation(async (args) => {
+      if (args.where?.source === "meta") return metaSnapshot;
+      return null;
+    });
+    mockLoadAllSkillsSync.mockReturnValue([
+      {
+        id: "seo-without-contract",
+        name: "SEO Without Contract",
+        description: "",
+        platform: "seo",
+        pilotGroup: "seo",
+        enabled: true,
+        fullPrompt: "Find SEO gaps",
+        extraSources: [],
+      },
+    ]);
+
+    const result = await runSkillsHandler();
+
+    expect(result.status).toBe("success");
+    expect(mockCheckSourceStatus).not.toHaveBeenCalled();
+    expect(mockSelectBaseSnapshotForSource).not.toHaveBeenCalled();
+    expect(mockBuildExtraContext).not.toHaveBeenCalled();
+    expect(mockRunSkill).not.toHaveBeenCalled();
+    expect(result.summary.skillsUnavailable).toEqual([
+      {
+        skillId: "seo-without-contract",
+        missingRequiredSources: [],
+        staleRequiredSources: [],
+        reason: "seo skill has no organic source contract",
+      },
+    ]);
+  });
+
   it("runs a seo skill from gsc without requiring a meta snapshot", async () => {
     mockRawSnapshotFindFirst.mockImplementation(async (args) => {
       if (args.where?.source === "meta") return null;
