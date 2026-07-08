@@ -136,3 +136,71 @@ Status: DONE
 ```text
 (no output; exit code 0)
 ```
+
+## Follow-up fix: clamp direct ContentProposal priority to UI contract (2026-07-09)
+
+Status: DONE
+
+### Fix notes
+
+- `lib/content-pilot/generate-proposals.ts`
+  - Added a proposal-facing priority clamp for organic-scored proposals so generated `ContentProposal.priority` never exceeds the existing UI contract.
+  - `organicProposalFields()` now maps scorer `P0 -> P1` while leaving `priorityScore`, `impact`, `effort`, and the preserved `sourceData.organicPriority` payload unchanged.
+- `__tests__/lib/content-pilot/generate-proposals.test.ts`
+  - Added a regression covering the direct generation path: a high-scoring GSC CTR-gap proposal now asserts returned `priority: "P1"` while `sourceData.organicPriority.priority` remains `"P0"`.
+
+### Exact command outputs
+
+#### `npm test -- generate-proposals`
+
+```text
+> agriko-autopilot@0.1.0 test
+> vitest run generate-proposals
+
+
+ RUN  v4.1.8 /home/sean/Agriko/auto-pilot
+
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  04:53:45
+   Duration  971ms (transform 333ms, setup 0ms, import 541ms, tests 48ms, environment 0ms)
+```
+
+#### `npm test -- content-pilot`
+
+```text
+> agriko-autopilot@0.1.0 test
+> vitest run content-pilot
+
+
+ RUN  v4.1.8 /home/sean/Agriko/auto-pilot
+
+
+ Test Files  9 passed (9)
+      Tests  58 passed (58)
+   Start at  04:53:55
+   Duration  4.01s (transform 1.98s, setup 0ms, import 4.34s, tests 1.01s, environment 3ms)
+```
+
+#### `npm test -- opportunities`
+
+```text
+> agriko-autopilot@0.1.0 test
+> vitest run opportunities
+
+
+ RUN  v4.1.8 /home/sean/Agriko/auto-pilot
+
+
+ Test Files  4 passed (4)
+      Tests  34 passed (34)
+   Start at  04:53:55
+   Duration  2.42s (transform 1.86s, setup 0ms, import 2.74s, tests 228ms, environment 1ms)
+```
+
+#### `npx tsc --noEmit`
+
+```text
+(no output; exit code 0)
+```

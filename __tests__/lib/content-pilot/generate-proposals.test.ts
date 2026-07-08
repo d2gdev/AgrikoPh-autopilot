@@ -283,6 +283,52 @@ describe("generateProposals", () => {
     expect(proposals[0]?.priorityScore).toBeGreaterThan(proposals[1]?.priorityScore ?? 0);
   });
 
+  it("clamps direct organic proposal priority to P1 while preserving sourceData organicPriority P0", async () => {
+    const window = {
+      dateRangeStart: new Date("2026-05-27T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-24T00:00:00.000Z"),
+      capturedAt: new Date("2026-06-24T12:00:00.000Z"),
+    };
+
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      {
+        handle: "rice",
+        title: "Rice",
+        publishedAt: new Date("2026-01-01"),
+        wordCount: 1200,
+        inboundCount: 2,
+        internalLinkCount: 2,
+        seoData: { score: 88, issues: [] },
+        topicsData: [{ topic: "rice", confidence: 0.9 }],
+      },
+    ]);
+    mockPrisma.gscQuery.findFirst.mockResolvedValue(window);
+    mockPrisma.gscQuery.findMany.mockResolvedValue([
+      {
+        query: "organic rice philippines",
+        page: "https://agrikoph.com/blogs/news/rice",
+        clicks: 20,
+        impressions: 2000,
+        position: 8,
+        ctr: 0.01,
+      },
+    ]);
+
+    const proposals = await generateProposals(mockPrisma as any);
+    const quickWin = proposals.find((proposal) => proposal.title.includes("organic rice philippines"));
+    const sourceData = quickWin?.sourceData as Record<string, unknown> | undefined;
+    const organicPriority = sourceData?.organicPriority as Record<string, unknown> | undefined;
+
+    expect(quickWin).toMatchObject({
+      priority: "P1",
+      priorityScore: expect.any(Number),
+    });
+    expect(organicPriority).toMatchObject({
+      priority: "P0",
+      score: quickWin?.priorityScore,
+    });
+  });
+
   it("seeds counter-angle new-content proposals from the latest competitor-analysis insight", async () => {
     mockPrisma.skillInsight.findFirst.mockResolvedValue({
       id: "insight-1",

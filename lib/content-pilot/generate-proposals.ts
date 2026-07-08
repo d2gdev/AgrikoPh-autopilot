@@ -94,9 +94,15 @@ function proposalEffort(changeType: string): "low" | "medium" | "high" {
   return "medium";
 }
 
+function contentProposalPriority(priority: OrganicPriority["priority"]): "P1" | "P2" | "P3" {
+  if (priority === "P0" || priority === "P1") return "P1";
+  if (priority === "P2") return "P2";
+  return "P3";
+}
+
 function organicProposalFields(priority: OrganicPriority) {
   return {
-    priority: priority.priority,
+    priority: contentProposalPriority(priority.priority),
     impact: priority.impact,
     effort: priority.effort,
     priorityScore: priority.score,
