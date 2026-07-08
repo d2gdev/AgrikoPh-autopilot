@@ -7,6 +7,7 @@ import {
   classifyOpportunityPriority,
   normalizeOpportunityScore,
 } from "@/lib/opportunities/scoring";
+import type { OrganicPriority } from "@/lib/organic/prioritization";
 
 type OpportunityClient = Pick<
   PrismaClient,
@@ -36,6 +37,34 @@ export interface OpportunityInput {
   effort?: string | null;
   evidence: Record<string, unknown>;
   proposedAction: Record<string, unknown>;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function organicPriorityFromEvidence(evidence: unknown): OrganicPriority | null {
+  const organicPriority = asRecord(evidence).organicPriority;
+  if (!organicPriority || typeof organicPriority !== "object" || Array.isArray(organicPriority)) return null;
+
+  const record = organicPriority as Record<string, unknown>;
+  const priority = record.priority;
+  const impact = record.impact;
+  const effort = record.effort;
+  const score = Number(record.score);
+
+  if (
+    !Number.isFinite(score) ||
+    (priority !== "P0" && priority !== "P1" && priority !== "P2" && priority !== "P3") ||
+    (impact !== "High" && impact !== "Medium" && impact !== "Low") ||
+    (effort !== "High" && effort !== "Medium" && effort !== "Low")
+  ) {
+    return null;
+  }
+
+  return record as unknown as OrganicPriority;
 }
 
 type MarketInsightRow = {
@@ -92,7 +121,8 @@ export function opportunityTypeFromProposal(proposal: ProposalInput): string {
 }
 
 export function opportunityFromProposal(proposal: ProposalInput): OpportunityInput {
-  const score = normalizeOpportunityScore(proposal.priorityScore);
+  const organicPriority = organicPriorityFromEvidence(proposal.sourceData);
+  const score = normalizeOpportunityScore(organicPriority?.score ?? proposal.priorityScore);
   const type = opportunityTypeFromProposal(proposal);
   const targetId = proposal.articleHandle ?? String(proposal.proposedState.targetKeyword ?? proposal.title);
   const targetType = proposal.articleHandle ? "article" : "keyword";
@@ -106,15 +136,16 @@ export function opportunityFromProposal(proposal: ProposalInput): OpportunityInp
     source: "content-pilot",
     dedupeKey: `${type}:${targetType}:${targetId}:${proposal.changeType}`,
     score,
-    priority: classifyOpportunityPriority(score),
+    priority: organicPriority?.priority ?? classifyOpportunityPriority(score),
     confidence: null,
-    impact: proposal.impact,
-    effort: proposal.effort,
+    impact: organicPriority?.impact ?? proposal.impact,
+    effort: organicPriority?.effort ?? proposal.effort,
     evidence: {
       ...proposal.sourceData,
       proposalType: proposal.proposalType,
       changeType: proposal.changeType,
       originalPriority: proposal.priority,
+      score: proposal.priorityScore,
     },
     proposedAction: {
       title: proposal.title,

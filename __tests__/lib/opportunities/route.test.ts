@@ -73,7 +73,14 @@ describe("contentProposalFromOpportunity", () => {
     expect(proposal?.sourceData).toMatchObject({
       opportunityId: "opp-1",
       opportunityType: "ctr_gap",
+      score: 84,
     });
+  });
+
+  it("maps P0 opportunities down to P1 proposals for existing UI behavior", () => {
+    const proposal = contentProposalFromOpportunity(opportunity({ priority: "P0" }));
+
+    expect(proposal?.priority).toBe("P1");
   });
 
   it("returns null for store opportunities", () => {

@@ -6,6 +6,7 @@ import {
   changeTypeToEffort,
   type ContentFinding,
 } from "./priority-score";
+import { scoreOrganicOpportunity, type OrganicPriority } from "@/lib/organic/prioritization";
 import {
   getGscQueriesForWindow,
   getGscQueryPagePairsForWindow,
@@ -71,6 +72,35 @@ const CTR_BY_POSITION: Record<number, number> = {
 function expectedCtr(pos: number): number {
   const bracket = [1, 2, 3, 5, 10, 20].find((b) => pos <= b) ?? 20;
   return CTR_BY_POSITION[bracket] ?? 0.008;
+}
+
+function hoursAgo(from: Date | string | null | undefined, nowMs: number): number | null {
+  if (!from) return null;
+  const ts = new Date(from).getTime();
+  if (!Number.isFinite(ts)) return null;
+  return Math.max(0, (nowMs - ts) / (60 * 60 * 1000));
+}
+
+function businessRelevanceForQuery(query: string): "high" | "medium" {
+  const normalized = query.toLowerCase();
+  return /\b(buy|price|prices|shop|best|organic|philippines|benefits|vs|review|guide)\b/.test(normalized)
+    ? "high"
+    : "medium";
+}
+
+function proposalEffort(changeType: string): "low" | "medium" | "high" {
+  if (changeType === "metadata" || changeType === "internal_link") return "low";
+  if (changeType === "new_article") return "medium";
+  return "medium";
+}
+
+function organicProposalFields(priority: OrganicPriority) {
+  return {
+    priority: priority.priority,
+    impact: priority.impact,
+    effort: priority.effort,
+    priorityScore: priority.score,
+  };
 }
 
 // Stop-words to exclude when matching query terms against a target keyword.
@@ -300,6 +330,7 @@ type MarketInsightRow = {
   id: string;
   competitorId: string | null;
   evidence: unknown;
+  createdAt: Date;
 };
 
 // Builds new-content ContentProposal seeds from open keyword_gap MarketInsights
@@ -309,6 +340,7 @@ type MarketInsightRow = {
 // nightly cron wipes and regenerates all pending proposals from this function.
 function keywordGapFindings(insights: MarketInsightRow[]): ProposalInput[] {
   const proposals: ProposalInput[] = [];
+  const nowMs = Date.now();
 
   for (const insight of insights) {
     if (proposals.length >= MAX_KEYWORD_GAP_SEEDS) break;
@@ -325,7 +357,6 @@ function keywordGapFindings(insights: MarketInsightRow[]): ProposalInput[] {
 
     if (!keyword || !competitorDomain || competitorPosition == null || searchVolume == null) continue;
 
-    const priority = searchVolume >= 1000 ? "high" : "medium";
     const title = `Keyword gap: "${keyword}" (${competitorDomain} ranks #${competitorPosition})`.slice(0, 240);
     const angle = `${competitorDomain} ranks #${competitorPosition} for "${keyword}" (~${searchVolume}/mo searches) and we don't appear at all — a dedicated article targeting this keyword can capture the gap.`;
 
@@ -343,14 +374,19 @@ function keywordGapFindings(insights: MarketInsightRow[]): ProposalInput[] {
       proposedState: { targetKeyword: keyword, angle, competitorDomain, searchVolume },
     };
 
-    const score = scoreFinding(finding);
+    const organicPriority = scoreOrganicOpportunity({
+      type: "keyword_gap",
+      searchVolume,
+      confidence: 0.75,
+      effort: "medium",
+      businessRelevance: businessRelevanceForQuery(keyword),
+      sourceFreshnessHours: hoursAgo(insight.createdAt, nowMs),
+    });
     proposals.push({
       articleHandle: null,
       proposalType: "new-content",
       changeType: "new_article",
-      priority,
-      impact: findingToImpact(score),
-      effort: changeTypeToEffort(finding.changeType),
+      ...organicProposalFields(organicPriority),
       title: finding.title,
       description: finding.description,
       proposedState: finding.proposedState,
@@ -358,8 +394,8 @@ function keywordGapFindings(insights: MarketInsightRow[]): ProposalInput[] {
         marketInsightId: insight.id,
         competitorId: insight.competitorId ?? null,
         evidence: { keyword, competitorDomain, competitorPosition, searchVolume },
+        organicPriority,
       },
-      priorityScore: score,
     });
   }
 
@@ -481,6 +517,10 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
   const findings: ContentFinding[] = [];
   const now = Date.now();
   const ONE_YEAR = 365 * 24 * 60 * 60 * 1000;
+  const latestGscAgeHours =
+    hoursAgo(latestGscWindow?.capturedAt ?? null, now) ??
+    hoursAgo((gscQueryPageSnap as { fetchedAt?: Date | string } | null)?.fetchedAt ?? null, now) ??
+    hoursAgo((gscSnap as { fetchedAt?: Date | string } | null)?.fetchedAt ?? null, now);
 
   for (const article of articles) {
     const seo = article.seoData as { score?: number; issues?: string[] } | null;
@@ -587,6 +627,18 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
     if (!landing) continue;
     const article = articlesByHandle.get(landing.handle);
 
+    const organicPriority = scoreOrganicOpportunity({
+      type: "ctr_gap",
+      impressions: q.impressions,
+      clicks: q.clicks,
+      position: q.position,
+      expectedCtr: expected,
+      confidence: 0.85,
+      effort: "low",
+      businessRelevance: businessRelevanceForQuery(q.query),
+      sourceFreshnessHours: latestGscAgeHours,
+    });
+
     findings.push({
       type: "gsc-quick-win",
       articleHandle: landing.handle,
@@ -607,6 +659,7 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
         impressions: q.impressions,
         clicks: q.clicks,
         ctrGap: expected - actualCtr,
+        organicPriority,
       },
       proposedState: {
         targetQuery: q.query,
@@ -629,6 +682,17 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
     });
     if (covered) continue;
 
+    const organicPriority = scoreOrganicOpportunity({
+      type: "content_gap",
+      impressions: q.impressions,
+      clicks: q.clicks,
+      position: q.position,
+      confidence: 0.75,
+      effort: "medium",
+      businessRelevance: businessRelevanceForQuery(q.query),
+      sourceFreshnessHours: latestGscAgeHours,
+    });
+
     findings.push({
       type: "new-content-gap",
       trafficScore: trafficBucket(q.impressions),
@@ -639,7 +703,13 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
       changeType: "new_article",
       title: `New article opportunity — "${q.query}"`,
       description: `${q.impressions} impressions with no matching article. Creating a dedicated 1,200-word guide targeting this keyword could capture traffic currently going elsewhere.`,
-      evidence: { query: q.query, impressions: q.impressions, clicks: q.clicks, position: q.position },
+      evidence: {
+        query: q.query,
+        impressions: q.impressions,
+        clicks: q.clicks,
+        position: q.position,
+        organicPriority,
+      },
       proposedState: {
         suggestedTitle: `${q.query.charAt(0).toUpperCase() + q.query.slice(1)}: Complete Guide`,
         targetKeyword: q.query,
@@ -650,7 +720,31 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
   }
 
   const scored = [
-    ...findings.map((f) => toProposal(f)),
+    ...findings.map((f) => {
+      const organicPriority =
+        f.evidence && typeof f.evidence === "object" && "organicPriority" in f.evidence
+          ? (f.evidence.organicPriority as OrganicPriority)
+          : null;
+      if (!organicPriority) return toProposal(f);
+
+      return {
+        articleHandle: f.articleHandle ?? null,
+        proposalType:
+          f.type === "orphan-link"
+            ? "internal-link"
+            : f.type === "new-content-gap"
+              ? "new-content"
+              : f.type === "thin-content" || f.type === "stale-content"
+                ? "content-refresh"
+                : "seo-fix",
+        changeType: f.changeType,
+        ...organicProposalFields(organicPriority),
+        title: f.title,
+        description: f.description,
+        proposedState: f.proposedState,
+        sourceData: f.evidence,
+      };
+    }),
     ...competitorProposals,
     ...keywordGapProposals,
   ].sort((a, b) => b.priorityScore - a.priorityScore);

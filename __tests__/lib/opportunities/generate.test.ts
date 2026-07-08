@@ -13,6 +13,7 @@ import {
   classifyOpportunityPriority,
   normalizeOpportunityScore,
 } from "@/lib/opportunities/scoring";
+import { scoreOrganicOpportunity } from "@/lib/organic/prioritization";
 import type { ProposalInput } from "@/lib/content-pilot/generate-proposals";
 
 function proposal(overrides: Partial<ProposalInput> = {}): ProposalInput {
@@ -89,7 +90,17 @@ describe("opportunityFromProposal", () => {
         proposalType: "new-content",
         changeType: "new_article",
         proposedState: { targetKeyword: "low gi rice philippines" },
-        sourceData: { query: "low gi rice philippines" },
+        sourceData: {
+          query: "low gi rice philippines",
+          organicPriority: scoreOrganicOpportunity({
+            type: "content_gap",
+            searchVolume: 1800,
+            confidence: 0.75,
+            effort: "medium",
+            businessRelevance: "high",
+            sourceFreshnessHours: 24,
+          }),
+        },
         priorityScore: 55,
       }),
     );
@@ -99,6 +110,47 @@ describe("opportunityFromProposal", () => {
       targetType: "keyword",
       targetId: "low gi rice philippines",
       priority: "P2",
+    });
+  });
+
+  it("uses shared organic scoring from proposal evidence and preserves the original proposal score", () => {
+    const organicPriority = scoreOrganicOpportunity({
+      type: "ctr_gap",
+      impressions: 2000,
+      clicks: 20,
+      position: 8,
+      expectedCtr: 0.035,
+      confidence: 0.85,
+      effort: "low",
+      businessRelevance: "high",
+      sourceFreshnessHours: 24,
+    });
+
+    const result = opportunityFromProposal(
+      proposal({
+        priority: "P1",
+        impact: "Medium",
+        effort: "Low",
+        priorityScore: 42,
+        sourceData: {
+          query: "organic rice philippines",
+          impressions: 2000,
+          clicks: 20,
+          position: 8,
+          expectedCtr: 0.035,
+          organicPriority,
+        },
+      }),
+    );
+
+    expect(result.score).toBe(organicPriority.score);
+    expect(result.priority).toBe(organicPriority.priority);
+    expect(result.impact).toBe(organicPriority.impact);
+    expect(result.effort).toBe(organicPriority.effort);
+    expect(result.evidence).toMatchObject({
+      organicPriority,
+      originalPriority: "P1",
+      score: 42,
     });
   });
 

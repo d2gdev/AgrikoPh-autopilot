@@ -228,6 +228,61 @@ describe("generateProposals", () => {
     expect(result.some((p) => p.articleHandle == null && p.proposalType === "content-refresh")).toBe(false);
   });
 
+  it("prioritizes high-impression CTR gaps over low-volume generic content gaps", async () => {
+    const window = {
+      dateRangeStart: new Date("2026-05-27T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-24T00:00:00.000Z"),
+      capturedAt: new Date("2026-06-24T12:00:00.000Z"),
+    };
+
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      {
+        handle: "rice",
+        title: "Rice",
+        publishedAt: new Date("2026-01-01"),
+        wordCount: 1200,
+        inboundCount: 2,
+        internalLinkCount: 2,
+        seoData: { score: 88, issues: [] },
+        topicsData: [{ topic: "rice", confidence: 0.9 }],
+      },
+      {
+        handle: "trivia",
+        title: "Trivia",
+        publishedAt: new Date("2026-01-01"),
+        wordCount: 1200,
+        inboundCount: 2,
+        internalLinkCount: 2,
+        seoData: { score: 88, issues: [] },
+        topicsData: [{ topic: "trivia", confidence: 0.9 }],
+      },
+    ]);
+    mockPrisma.gscQuery.findFirst.mockResolvedValue(window);
+    mockPrisma.gscQuery.findMany.mockResolvedValue([
+      {
+        query: "organic rice philippines",
+        page: "https://agrikoph.com/blogs/news/rice",
+        clicks: 20,
+        impressions: 2000,
+        position: 8,
+        ctr: 0.01,
+      },
+      {
+        query: "rice trivia",
+        page: "https://agrikoph.com/blogs/news/trivia",
+        clicks: 0,
+        impressions: 20,
+        position: 30,
+        ctr: 0,
+      },
+    ]);
+
+    const proposals = await generateProposals(mockPrisma as any);
+
+    expect(proposals[0]?.sourceData).toMatchObject({ query: "organic rice philippines" });
+    expect(proposals[0]?.priorityScore).toBeGreaterThan(proposals[1]?.priorityScore ?? 0);
+  });
+
   it("seeds counter-angle new-content proposals from the latest competitor-analysis insight", async () => {
     mockPrisma.skillInsight.findFirst.mockResolvedValue({
       id: "insight-1",
@@ -285,6 +340,7 @@ describe("generateProposals", () => {
       {
         id: "mi-1",
         competitorId: "comp-1",
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
         evidence: {
           keyword: "organic black rice benefits",
           competitorDomain: "riceco.com",
@@ -295,6 +351,7 @@ describe("generateProposals", () => {
       {
         id: "mi-2",
         competitorId: "comp-2",
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
         evidence: {
           keyword: "turmeric tea for inflammation",
           competitorDomain: "spicehub.com",
@@ -320,13 +377,18 @@ describe("generateProposals", () => {
     expect(new Set(targetKeywords).size).toBe(2);
 
     const highVolume = gapProposals.find((p) => p.proposedState.targetKeyword === "organic black rice benefits");
-    expect(highVolume?.priority).toBe("high");
     const lowVolume = gapProposals.find((p) => p.proposedState.targetKeyword === "turmeric tea for inflammation");
-    expect(lowVolume?.priority).toBe("medium");
+    expect(highVolume?.priorityScore).toBeGreaterThan(lowVolume?.priorityScore ?? 0);
+    expect(highVolume?.priority).toMatch(/^P[0-3]$/);
+    expect(lowVolume?.priority).toMatch(/^P[0-3]$/);
 
     const sourceData = highVolume?.sourceData as Record<string, unknown>;
     expect(sourceData.marketInsightId).toBe("mi-1");
     expect(sourceData.competitorId).toBe("comp-1");
+    expect(sourceData.organicPriority).toMatchObject({
+      score: highVolume?.priorityScore,
+      priority: highVolume?.priority,
+    });
   });
 
   it("produces zero keyword-gap proposals when no open insights exist, without affecting other findings", async () => {
