@@ -176,4 +176,23 @@ describe("skills loader", () => {
       }),
     );
   });
+
+  it("does not warn when mapping seo platform values", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "autopilot-skills-"));
+    fs.mkdirSync(path.join(dir, "skills-source"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "skills-source", "seo-skill.md"),
+      ["---", "metadata:", "  platform: seo", "---", "", "Body"].join("\n"),
+    );
+    process.chdir(dir);
+    vi.resetModules();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { loadAllSkillsSync } = await import("@/lib/skills/loader");
+    const skills = loadAllSkillsSync();
+
+    expect(skills[0]!.platform).toBe("seo");
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Platform "seo" is not dispatched by run-skills'));
+    warnSpy.mockRestore();
+  });
 });

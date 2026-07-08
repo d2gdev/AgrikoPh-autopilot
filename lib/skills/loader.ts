@@ -163,8 +163,8 @@ function mapPlatform(raw: string): SkillDefinition["platform"] {
   const lower = raw.toLowerCase();
   if (lower.includes("google") && lower.includes("meta")) return "both";
   if (lower.includes("meta")) return "meta";
-  // seo/linkedin/reddit skills are parsed but not dispatched by run-skills — log at load time
-  if (lower.includes("seo")) { console.warn(`[skills] Platform "seo" is not dispatched by run-skills`); return "seo"; }
+  // LinkedIn and Reddit skills are still parsed for forward compatibility, but run-skills does not dispatch them yet.
+  if (lower.includes("seo")) return "seo";
   if (lower.includes("linkedin")) { console.warn(`[skills] Platform "linkedin" is not dispatched by run-skills`); return "linkedin"; }
   if (lower.includes("reddit")) { console.warn(`[skills] Platform "reddit" is not dispatched by run-skills`); return "reddit"; }
   if (lower.includes("google")) { console.warn(`[skills] Platform "Google" (Ads) is no longer supported — treating "${raw}" as "seo"; relabel this skill's frontmatter`); return "seo"; }

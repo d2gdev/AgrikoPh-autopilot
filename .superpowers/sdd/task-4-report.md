@@ -14,15 +14,20 @@
 - Updated [`lib/skills/extra-context.ts`](/home/sean/Agriko/auto-pilot/lib/skills/extra-context.ts) so the source-contract union can hydrate side context for snapshot-backed sources (`blog`, `dataforseo_ranked`, `shopify_catalog`, `shopify_orders`) in addition to the existing normalized builders.
 - Added [`__tests__/jobs/run-skills-source-requirements.test.ts`](/home/sean/Agriko/auto-pilot/__tests__/jobs/run-skills-source-requirements.test.ts) for the SEO-without-Meta regression.
 - Updated the existing run-skills suites to mock `source-registry` explicitly and to keep the hash/rotation assertions aligned with the new source-aware dispatch path.
-- Updated [.mex/ROUTER.md](/home/sean/Agriko/auto-pilot/.mex/ROUTER.md) project state with the Task 4 behavior.
+- Added [`scripts/verify-skill-source-registry.ts`](/home/sean/Agriko/auto-pilot/scripts/verify-skill-source-registry.ts), a read-only real-data verification script that loads `.env`, reuses the app's `@/lib/db` Prisma singleton, checks `checkSourceStatus()` and `selectBaseSnapshotForSource()` against the configured PostgreSQL database, prints source/base-snapshot diagnostics for the nine organic sources, exits nonzero when no DB URL is configured or every source is `missing`/`error`, and always calls `prisma.$disconnect()` in `finally`.
+- Updated [`lib/skills/loader.ts`](/home/sean/Agriko/auto-pilot/lib/skills/loader.ts) so SEO is no longer described as undispatched; LinkedIn and Reddit warnings remain intact.
 
 ## Test commands and results
 
 - `npm test -- run-skills-source-requirements`
   - RED: 1 failed, expected `success`, received `failed`
   - GREEN: 1 passed
+- `npm test -- loader`
+  - PASS: loader suite passed, including the focused SEO-warning assertion
 - `npm test -- run-skills`
   - PASS: 5 files, 30 tests passed
+- `npx tsx scripts/verify-skill-source-registry.ts`
+  - FAIL: Prisma could not reach the configured PostgreSQL host `172.105.161.83:5432`
 - `npx tsc --noEmit`
   - PASS: exit code 0
 
@@ -39,6 +44,7 @@
 - Implemented source-aware eligibility, refresh diagnostics, and per-skill base snapshot selection.
 - Re-ran `npm test -- run-skills-source-requirements` and got a pass.
 - Re-ran `npm test -- run-skills` and `npx tsc --noEmit`; both passed after one follow-up fix to keep meta/both skills Meta-backed by default.
+- Added and ran a read-only verification script against the configured PostgreSQL database to confirm `checkSourceStatus()` and `selectBaseSnapshotForSource()` behavior on persisted organic-source data; the local run failed on live DB connectivity before any source rows could be read.
 
 ## Files changed
 
@@ -49,7 +55,8 @@
 - [`__tests__/jobs/run-skills.filtering.test.ts`](/home/sean/Agriko/auto-pilot/__tests__/jobs/run-skills.filtering.test.ts)
 - [`__tests__/jobs/run-skills.rotation.test.ts`](/home/sean/Agriko/auto-pilot/__tests__/jobs/run-skills.rotation.test.ts)
 - [`__tests__/jobs/run-skills-hash.test.ts`](/home/sean/Agriko/auto-pilot/__tests__/jobs/run-skills-hash.test.ts)
-- [.mex/ROUTER.md](/home/sean/Agriko/auto-pilot/.mex/ROUTER.md)
+- [`__tests__/lib/skills/loader.test.ts`](/home/sean/Agriko/auto-pilot/__tests__/lib/skills/loader.test.ts)
+- [`scripts/verify-skill-source-registry.ts`](/home/sean/Agriko/auto-pilot/scripts/verify-skill-source-registry.ts)
 
 ## Self-review findings
 
@@ -69,6 +76,38 @@
 - No `NEXT_PUBLIC_*` env var wraps a secret credential: PASS, no env var changes
 - New job handlers write a `JobRun` row and return a `JobResult<T>` shape: N/A, existing handler updated in place
 - Skills-source prompts are markdown files in `skills-source/` — not strings in TypeScript: PASS, no prompt changes
+
+## Real-data verification
+
+Command:
+
+- `npx tsx scripts/verify-skill-source-registry.ts`
+
+Observed output:
+
+```text
+Database URL source: DATABASE_URL
+Verifying source registry against persisted PostgreSQL data
+prisma:error
+Invalid `prisma.rawSnapshot.findFirst()` invocation in
+/home/sean/Agriko/auto-pilot/lib/skills/source-registry.ts:84:29
+
+Can't reach database server at `172.105.161.83:5432`
+
+Please make sure your database server is running at `172.105.161.83:5432`.
+PrismaClientInitializationError:
+Invalid `prisma.rawSnapshot.findFirst()` invocation in
+/home/sean/Agriko/auto-pilot/lib/skills/source-registry.ts:84:29
+
+Can't reach database server at `172.105.161.83:5432`
+
+Please make sure your database server is running at `172.105.161.83:5432`.
+```
+
+Result:
+
+- The verification script is committed and uses the real app Prisma singleton plus the configured environment, as required.
+- Runtime verification against persisted PostgreSQL data could not complete locally because Prisma could not connect to the configured host.
 
 ## Concerns
 
