@@ -55,6 +55,13 @@ interface GrowthBriefPayload {
       missingAltText: number;
       note: string;
     };
+    runSkills: {
+      status: string | null;
+      completedAt: string | null;
+      unavailableSources: string[];
+      unavailableSkillCount: number;
+      unavailableSkillDetails: string[];
+    };
     caveats: string[];
   };
   sections: {
@@ -271,7 +278,27 @@ export default function GrowthBriefPage() {
                     <Badge tone={data.dataQuality.imageSummary.available ? "success" : "warning"}>
                       {`Images: ${data.dataQuality.imageSummary.available ? "available" : "unavailable"}`}
                     </Badge>
+                    <Badge tone={data.dataQuality.runSkills.unavailableSources.length > 0 ? "warning" : "success"}>
+                      {`Run skills: ${data.dataQuality.runSkills.status ?? "unknown"}`}
+                    </Badge>
+                    {data.dataQuality.runSkills.unavailableSources.map((source) => (
+                      <Badge key={source} tone="warning">
+                        {`Missing ${source}`}
+                      </Badge>
+                    ))}
                   </InlineStack>
+                  {data.dataQuality.runSkills.unavailableSkillCount > 0 ? (
+                    <BlockStack gap="050">
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        {`${data.dataQuality.runSkills.unavailableSkillCount} skills were unavailable in the latest run.`}
+                      </Text>
+                      {data.dataQuality.runSkills.unavailableSkillDetails.map((detail) => (
+                        <Text key={detail} as="p" variant="bodySm" tone="subdued">
+                          {detail}
+                        </Text>
+                      ))}
+                    </BlockStack>
+                  ) : null}
                   <BlockStack gap="050">
                     {data.dataQuality.caveats.map((caveat) => (
                       <Text key={caveat} as="p" tone="subdued" variant="bodySm">

@@ -19,6 +19,15 @@ type BriefItem = {
   tone: BriefTone;
   href: string;
   meta: string[];
+  sortScore?: number;
+};
+
+type RunSkillsDiagnostics = {
+  status: string | null;
+  completedAt: string | null;
+  unavailableSources: string[];
+  unavailableSkillCount: number;
+  unavailableSkillDetails: string[];
 };
 
 function priorityTone(priority: string | null | undefined): BriefTone {
@@ -39,6 +48,17 @@ function text(value: unknown, fallback = "Review item"): string {
   return typeof value === "string" && value.trim() ? value : fallback;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function numberValue(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function dateLabel(value: Date | string | null | undefined): string {
   if (!value) return "unknown";
   const d = typeof value === "string" ? new Date(value) : value;
@@ -55,6 +75,7 @@ function asItem(input: {
   tone?: BriefTone;
   href: string;
   meta?: string[];
+  sortScore?: number | null;
 }): BriefItem {
   return {
     id: input.id,
@@ -65,6 +86,64 @@ function asItem(input: {
     tone: input.tone ?? priorityTone(input.priority),
     href: input.href,
     meta: input.meta ?? [],
+    sortScore: input.sortScore ?? undefined,
+  };
+}
+
+function evidenceMeta(input: {
+  score?: unknown;
+  impact?: unknown;
+  effort?: unknown;
+  extra?: Array<string | null | undefined>;
+}): string[] {
+  return [
+    numberValue(input.score) == null ? "" : `Score ${Math.round(numberValue(input.score) ?? 0)}`,
+    typeof input.impact === "string" && input.impact.trim() ? `Impact ${input.impact}` : "",
+    typeof input.effort === "string" && input.effort.trim() ? `Effort ${input.effort}` : "",
+    ...(input.extra ?? []),
+  ].filter(Boolean) as string[];
+}
+
+function compareBriefItems(a: BriefItem, b: BriefItem): number {
+  return priorityRank(a.priority) - priorityRank(b.priority)
+    || (b.sortScore ?? 0) - (a.sortScore ?? 0);
+}
+
+function summarizeRunSkills(
+  job: { status: string; completedAt: Date | null; summary: unknown } | null,
+): RunSkillsDiagnostics {
+  const summary = asRecord(job?.summary);
+  const sourceStatus = asRecord(summary.sourceStatus);
+  const unavailableSources = Object.entries(sourceStatus)
+    .flatMap(([source, value]) => {
+      const state = asRecord(value).state;
+      return state === "missing" || state === "stale" || state === "error" || state === "disabled"
+        ? [source]
+        : [];
+    });
+  const skillsUnavailable = Array.isArray(summary.skillsUnavailable)
+    ? summary.skillsUnavailable.map((entry) => asRecord(entry))
+    : [];
+
+  return {
+    status: job?.status ?? null,
+    completedAt: job?.completedAt?.toISOString() ?? null,
+    unavailableSources,
+    unavailableSkillCount: skillsUnavailable.length,
+    unavailableSkillDetails: skillsUnavailable.slice(0, 3).map((entry) => {
+      const skillId = text(entry.skillId, "unknown-skill");
+      const missing = Array.isArray(entry.missingRequiredSources)
+        ? entry.missingRequiredSources.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [];
+      const stale = Array.isArray(entry.staleRequiredSources)
+        ? entry.staleRequiredSources.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [];
+      const parts = [
+        missing.length > 0 ? `missing ${missing.join(", ")}` : "",
+        stale.length > 0 ? `stale ${stale.join(", ")}` : "",
+      ].filter(Boolean);
+      return `${skillId}: ${parts.join("; ") || text(entry.reason, "unavailable")}`;
+    }),
   };
 }
 
@@ -105,6 +184,7 @@ export async function GET(req: Request) {
       latestSeoSnapshot,
       latestGscQuery,
       latestPageAnalytics,
+      latestRunSkills,
     ] = await Promise.all([
       getJobsStatusPayload(),
       prisma.storeTask.findMany({
@@ -174,6 +254,11 @@ export async function GET(req: Request) {
       prisma.pageAnalytics.findFirst({
         orderBy: { capturedAt: "desc" },
         select: { capturedAt: true },
+      }),
+      prisma.jobRun.findFirst({
+        where: { jobName: "run-skills" },
+        orderBy: { startedAt: "desc" },
+        select: { status: true, completedAt: true, summary: true },
       }),
     ]);
 
@@ -251,6 +336,9 @@ export async function GET(req: Request) {
     }
 
     for (const proposal of contentProposals) {
+      const proposalSourceData = asRecord(proposal.sourceData);
+      const organicPriority = asRecord(proposalSourceData.organicPriority);
+      const proposalScore = numberValue(organicPriority.score);
       readyToApprove.push(asItem({
         id: `content:${proposal.id}`,
         title: proposal.title,
@@ -258,7 +346,13 @@ export async function GET(req: Request) {
         source: "Content Pilot",
         priority: proposal.priority,
         href: "/content-pilot",
-        meta: [proposal.proposalType, proposal.changeType, proposal.articleHandle ?? "new content"],
+        meta: evidenceMeta({
+          score: proposalScore,
+          impact: organicPriority.impact,
+          effort: organicPriority.effort,
+          extra: [proposal.proposalType, proposal.changeType, proposal.articleHandle ?? "new content"],
+        }),
+        sortScore: proposalScore,
       }));
     }
 
@@ -309,24 +403,26 @@ export async function GET(req: Request) {
         source: opportunity.source,
         priority: opportunity.priority,
         href: opportunity.targetType === "article" ? "/content-pilot" : "/store-pilot",
-        meta: [
-          opportunity.type,
-          `Score ${Math.round(opportunity.score)}`,
-          opportunity.impact ?? "",
-          opportunity.effort ?? "",
-        ].filter(Boolean),
+        meta: evidenceMeta({
+          score: opportunity.score,
+          impact: opportunity.impact,
+          effort: opportunity.effort,
+          extra: [opportunity.type],
+        }),
+        sortScore: opportunity.score,
       }));
     }
 
     const sortedNeedsAttention = needsAttention
-      .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+      .sort(compareBriefItems)
       .slice(0, 10);
     const sortedReady = readyToApprove
-      .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+      .sort(compareBriefItems)
       .slice(0, 10);
     const sortedQuickWins = quickWins
-      .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+      .sort(compareBriefItems)
       .slice(0, 10);
+    const runSkills = summarizeRunSkills(latestRunSkills);
 
     const nextAction = sortedNeedsAttention[0]
       ?? sortedReady[0]
@@ -352,6 +448,7 @@ export async function GET(req: Request) {
         gscCapturedAt: latestGscQuery?.capturedAt?.toISOString() ?? null,
         ga4CapturedAt: latestPageAnalytics?.capturedAt?.toISOString() ?? null,
         imageSummary,
+        runSkills,
         jobHealth: jobs.perJobHealth.map((job) => ({
           jobName: job.jobName,
           label: job.label,
