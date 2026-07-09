@@ -23,7 +23,7 @@ last_updated: 2026-06-25
 
 ## Context
 
-Production runs on a Linode VPS at `https://autopilot.agrikoph.com`. The app is a persistent Node.js process managed by PM2 behind nginx + certbot TLS. Deployment is via rsync over SSH using `scripts/linode-deploy.mjs`. Access: `ssh autopilot-prod` (passwordless key auth).
+Production runs on a Linode VPS at `https://autopilot.agrikoph.com`. The app is a persistent Node.js process managed by PM2 behind nginx + certbot TLS. Deployment is via git fetch/pull over SSH using `scripts/git-deploy.mjs`. Access: `ssh autopilot-prod` (passwordless key auth).
 
 App directory on server: `/opt/autopilot`
 
@@ -35,9 +35,9 @@ App directory on server: `/opt/autopilot`
 2. Build locally to catch type errors: `npm run build` (or `npm run build:remote` for remote-target build)
 3. Run the deploy script:
    ```bash
-   node scripts/linode-deploy.mjs
+   node scripts/git-deploy.mjs
    ```
-   This rsyncs the built app to the VPS and restarts via PM2.
+   This pushes the current branch to origin, fetches that branch in `/opt/autopilot`, builds remotely, swaps `.next` atomically, and restarts via PM2.
 4. Verify the deploy:
    ```bash
    ssh autopilot-prod "pm2 status"
@@ -50,7 +50,9 @@ App directory on server: `/opt/autopilot`
 
 - PM2 sends SIGTERM before killing the process. `server.js` handles this — allow up to 10 seconds for graceful shutdown. Do not force-kill unless the process is genuinely hung.
 - If `server.js` fails the required-env-vars check on startup, PM2 will loop-restart. Check `pm2 logs autopilot` immediately after deploy.
-- `npm run build:local` and `npm run build:remote` differ in how Prisma is generated — use `build:remote` (or just `build`) for prod.
+- `npm run build:local` and `npm run build:remote` differ in how Prisma is generated — deploy uses `build:remote` on the VPS.
+- `scripts/git-deploy.mjs` reads `GITHUB_TOKEN` from local env / `.env` and passes it to the server only for the fetch command; do not hard-code GitHub tokens in remotes or scripts.
+- Legacy `scripts/linode-deploy.mjs` still exists as an rsync fallback, but should not be the default deploy path.
 
 ## Task: Run Database Migrations in Production
 
@@ -90,7 +92,7 @@ App directory on server: `/opt/autopilot`
 
 PM2 does not keep previous build artifacts by default. Rollback procedure:
 1. `git revert` the offending commit and re-deploy, or
-2. On the server: `git checkout [previous-sha]` in `/opt/autopilot` and `pm2 restart autopilot`
+2. On the server: `git fetch origin`, `git checkout [previous-sha]` in `/opt/autopilot`, run `npm run build:remote`, then `pm2 restart autopilot`
 
 For database rollbacks: there is no automated down migration. If a migration needs to be reversed, write a new migration that undoes the change.
 

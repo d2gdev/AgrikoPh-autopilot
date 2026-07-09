@@ -24,22 +24,26 @@ ssh -i ~/.ssh/id_ed25519_autopilot root@172.105.161.83
 ## Deploy
 
 ```bash
-node scripts/linode-deploy.mjs
+node scripts/git-deploy.mjs
 ```
 
 What it does:
-1. Rsyncs repo to `/opt/autopilot` (excludes `.env`, `.env.local`, `node_modules`, `.next`, `.git`)
-2. Removes stale local env files left on the server
-3. Ensures 2 GB swap is mounted
-4. `npm install --prefer-offline` using `/opt/autopilot/.npm-cache` and preserving existing native modules
-5. `npm run db:migrate` (applies pending Prisma migrations)
-6. Seeds `.next.build/cache` from the previous `.next/cache`
-7. Builds into `.next.build` with `NEXT_OUTPUT_DIR=.next.build npm run build:remote`
-8. Atomic swap: `mv .next .next.old && mv .next.build .next`
-9. `pm2 restart autopilot --update-env`
-10. Removes `.next.old`
+1. Pushes the current branch to `origin`
+2. Fetches that branch into `/opt/autopilot` on the VPS
+3. Preserves server-owned runtime files (`.env`, `node_modules`, `.next`, `.npm-cache`)
+4. Removes stale local env files left on the server
+5. Ensures 2 GB swap is mounted
+6. `npm install --prefer-offline` using `/opt/autopilot/.npm-cache` and preserving existing native modules
+7. `npm run db:migrate` (applies pending Prisma migrations)
+8. Seeds `.next.build/cache` from the previous `.next/cache`
+9. Builds into `.next.build` with `NEXT_OUTPUT_DIR=.next.build npm run build:remote`
+10. Atomic swap: `mv .next .next.old && mv .next.build .next`
+11. `pm2 restart autopilot --update-env`
+12. Removes `.next.old`
 
-Set `LINODE_IP` or ensure `scripts/.linode-ip` exists. The deploy script uses `SSH_KEY` when set, otherwise it auto-detects `~/.ssh/autopilot_deploy`, `~/.ssh/id_ed25519_autopilot`, then `~/.ssh/id_ed25519`.
+Set `LINODE_IP` or ensure `scripts/.linode-ip` exists. The deploy script uses `SSH_KEY` when set, otherwise it auto-detects `~/.ssh/autopilot_deploy`, `~/.ssh/id_ed25519_autopilot`, then `~/.ssh/id_ed25519`. It reads `GITHUB_TOKEN` from local env / `.env` for git push/fetch auth.
+
+Legacy fallback: `node scripts/linode-deploy.mjs` still performs the old rsync deployment, but it should not be the default path.
 
 **The server `.env` is never overwritten by deploy.** Update env values directly on the server:
 
