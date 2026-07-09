@@ -1,55 +1,46 @@
-# Task 1 Report: Source Contract Metadata
+# Task 1 Report: SEO Pilot Evidence Sweep
 
-## What you implemented
+## What I changed
 
-- Extended `lib/skills/loader.ts` to parse skill source-contract metadata from frontmatter:
-  - `requiredSources`
-  - `optionalSources`
-  - `primarySource`
-  - `freshnessHours`
-- Added the new exported `SkillDataSource` union and validated parsing against the exact allowed source list from the task brief.
-- Preserved existing `extraSources` parsing behavior.
-- Added loader test coverage in `__tests__/lib/skills/loader.test.ts` for the required metadata fixture and assertions.
+- Added evidence-backed findings under `## SEO Pilot Findings` in:
+  - `docs/superpowers/reviews/2026-07-09-seo-content-pilot-audit-findings.md`
+- Consolidated findings with severity tags and issue format:
+  - `[Critical]` replacement-key collision in daily proposal refresh path
+  - `[Important]` SEO Opportunities UI marks skipped promotions as created
+- Updated this report with the executed command outputs, blockers/uncertainties, and changed file list.
 
-## Test commands and results
+## Test output summary
 
-- `npm test -- loader`
-  - RED: failed as expected because `requiredSources` parsed as `undefined`
-  - GREEN: passed with `1` test file and `7` tests passing
-
-## TDD Evidence: RED and GREEN
-
-### RED
-
-- Added a new loader test named `parses source contract metadata from skill frontmatter`
-- Ran `npm test -- loader`
-- Failure observed:
-  - `expected undefined to deeply equal [ 'gsc' ]`
-  - failure location: `__tests__/lib/skills/loader.test.ts`
-
-### GREEN
-
-- Implemented parser support in `lib/skills/loader.ts`
-- Re-ran `npm test -- loader`
-- Result:
+- `npm test -- __tests__/api/seo-pilot-routes.test.ts`
   - `Test Files  1 passed (1)`
-  - `Tests  7 passed (7)`
+  - `Tests 16 passed (16)`
+- `npm test -- __tests__/api/seo/analyze.test.ts __tests__/api/seo-analysis.test.ts`
+  - `No test files found, exiting with code 1`
+  - command is in the task brief but the files do not exist at these paths in this repo state.
 
-## Files changed
+## Blockers / uncertainties
 
-- `lib/skills/loader.ts`
-- `__tests__/lib/skills/loader.test.ts`
+- The brief references files that are not present in the current tree:
+  - `app/api/seo/pillars/route.ts`
+  - `app/api/seo/pilot/route.ts`
+- I therefore audited the existing equivalent SEO routes and components actually present:
+  - `app/api/seo/analysis/route.ts`
+  - `app/api/seo/analyze/route.ts`
+  - `app/api/seo/promote/route.ts`
+  - `app/api/seo/gaps/promote/route.ts`
+  - `app/api/seo/recommendations/decompose/route.ts`
+  - `lib/seo/data.ts`
+  - `lib/seo/gsc-normalized.ts`
+  - `app/api/cron/daily/route.ts`
+  - `app/(embedded)/(seo-pillar)/seo-pillar/components/*`
+  - `__tests__/api/seo-pilot-routes.test.ts`
+- I did not change runtime code; all findings are read-verified from source and behavior exercised by the above test run.
+
+## Commit
+
+- `SHA`: `5b51d0169a94674ab66f20db695d6f8f7b198e64`
+
+## File list
+
+- `docs/superpowers/reviews/2026-07-09-seo-content-pilot-audit-findings.md`
 - `.superpowers/sdd/task-1-report.md`
-
-## Self-review findings
-
-- Scope stayed within the owned loader code and loader tests, plus the required report file.
-- Parsing uses explicit allowlists and preserves existing warning behavior for unknown values.
-- `requiredSources` and `optionalSources` are deduplicated.
-- `primarySource` is ignored with a warning if invalid.
-- `freshnessHours` accepts positive finite numeric input and rounds it to an integer.
-
-## Any concerns
-
-- No functional concerns with Task 1 itself.
-- I did not modify `.mex/` project-record files because the task’s ownership boundary was explicit and the worktree already contained unrelated in-flight changes there.
