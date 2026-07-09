@@ -24,6 +24,7 @@ import {
   SeoDeltaBadge,
   ProposedChangeSummary,
 } from "../helpers";
+import { proposalEvidenceLines } from "../proposal-evidence";
 
 type Stage = "pending" | "approved" | "generating" | "ready" | "scheduled" | "published" | "failed" | "rejected";
 
@@ -120,6 +121,8 @@ export function ProposalRow({
   isFullExpanded: boolean;
   onToggleFullExpand: (id: string) => void;
 }) {
+  const evidenceLines = proposalEvidenceLines(p);
+
   function StageBadge() {
     if (stage === "pending") return <Badge tone="attention">Pending</Badge>;
     if (stage === "approved") return <Badge tone="info">Approved</Badge>;
@@ -128,6 +131,7 @@ export function ProposalRow({
     if (stage === "scheduled") return <Badge tone="info">Scheduled</Badge>;
     if (stage === "published") return <Badge tone="success">Published</Badge>;
     if (stage === "failed") return <Badge tone="critical">Failed</Badge>;
+    if (stage === "rejected") return <Badge tone="critical">Rejected</Badge>;
     return <Badge>—</Badge>;
   }
 
@@ -276,6 +280,19 @@ export function ProposalRow({
 
         {p.proposalType === "new-content" && !p.articleHandle && (
           <Text as="p" tone="subdued" variant="bodySm">Will create a new article in your blog.</Text>
+        )}
+
+        {evidenceLines.length > 0 && (
+          <Box background="bg-surface-secondary" padding="200" borderRadius="100">
+            <BlockStack gap="100">
+              <Text as="p" variant="bodySm" fontWeight="semibold">Why shown</Text>
+              <InlineStack gap="200" wrap>
+                {evidenceLines.map((line) => (
+                  <Badge key={line}>{line}</Badge>
+                ))}
+              </InlineStack>
+            </BlockStack>
+          </Box>
         )}
 
         <ProposedChangeSummary proposalType={p.proposalType} proposedState={p.proposedState} />

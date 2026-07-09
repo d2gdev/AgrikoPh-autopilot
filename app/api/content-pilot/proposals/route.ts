@@ -63,7 +63,7 @@ export async function GET(req: Request) {
         baselineSeoScore: true,
         followUpSeoScore: true,
         followUpScoredAt: true,
-        // sourceData omitted — not rendered in list view
+        sourceData: true,
       },
     });
     return NextResponse.json({ proposals, total: proposals.length });

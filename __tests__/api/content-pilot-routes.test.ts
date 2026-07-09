@@ -9,6 +9,7 @@ const mockPrisma = vi.hoisted(() => ({
   $transaction: vi.fn(),
   contentProposal: {
     findMany: vi.fn(),
+    updateMany: vi.fn(),
     deleteMany: vi.fn(),
     create: vi.fn(),
   },
@@ -59,11 +60,35 @@ describe("Content Pilot route regressions", () => {
     mockAuth.getSessionShop.mockResolvedValue("test-shop");
     mockCheckRateLimit.mockReturnValue(true);
     mockPrisma.$transaction.mockImplementation(async (ops) => Array.isArray(ops) ? Promise.all(ops) : ops(mockPrisma));
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.contentProposal.deleteMany.mockResolvedValue({ count: 0 });
     mockPrisma.contentProposal.create.mockImplementation(async ({ data }) => ({ id: `proposal-${data.title}`, ...data }));
     mockOpportunityFromProposal.mockImplementation((input) => ({ dedupeKey: input.title, title: input.title }));
     mockUpsertOpportunities.mockImplementation(async (_client, opportunities) => ({ upserted: opportunities.length }));
     mockMarkTerminal.mockResolvedValue({ count: 0 });
+  });
+
+  it("includes sourceData in the proposal list payload so queue rows can explain why they exist", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValueOnce([
+      {
+        id: "proposal-1",
+        title: "Improve SERP snippet",
+        sourceData: { source: "seo-pilot", query: "black rice benefits" },
+      },
+    ]);
+
+    const { GET } = await import("@/app/api/content-pilot/proposals/route");
+    const res = await GET(new Request("http://test.local/api/content-pilot/proposals"));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.proposals[0]).toMatchObject({
+      id: "proposal-1",
+      sourceData: { source: "seo-pilot", query: "black rice benefits" },
+    });
+    expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ sourceData: true }),
+    }));
   });
 
   it("only upserts opportunities for proposals that survive active duplicate filtering", async () => {

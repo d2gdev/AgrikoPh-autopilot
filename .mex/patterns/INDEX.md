@@ -17,5 +17,6 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [deploy.md#task-run-database-migrations-in-production](deploy.md#task-run-database-migrations-in-production) | Running Prisma migrations on the production database |
 | [deploy.md#task-update-environment-variables-in-production](deploy.md#task-update-environment-variables-in-production) | Changing env vars on the production server |
 | [generation-dedupe.md](generation-dedupe.md) | Generated recommendations/proposals/opportunities/tasks are recreating old or already finished ideas |
+| [pilot-queue-usability.md](pilot-queue-usability.md) | Pilot queues are technically deduped but still feel stale, opaque, or misleading to operators |
 | [seo-pilot-proposal-actions.md](seo-pilot-proposal-actions.md) | SEO Pilot actions create proposals that do not generate or publish correctly in Content Pilot |
 | [ad-approval-workflow.md](ad-approval-workflow.md) | Working on or debugging the Ad Approval workflow (state machine, AI reviews, reviewer assignment, SLA escalation, conflict-of-interest) |

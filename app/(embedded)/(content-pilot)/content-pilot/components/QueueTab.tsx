@@ -568,7 +568,7 @@ export function QueueTab({
       {lastGeneratedCount !== null && (
         <Banner tone={lastGeneratedCount === 0 ? "warning" : "success"} onDismiss={() => setLastGeneratedCount(null)}>
           {lastGeneratedCount === 0
-            ? "No new proposals generated — all opportunities are already in the queue."
+            ? "No new proposals generated. Existing, rejected, published, and otherwise finished ideas are being respected instead of recreated."
             : `Generated ${lastGeneratedCount} new proposal${lastGeneratedCount === 1 ? "" : "s"}.`}
         </Banner>
       )}
@@ -687,10 +687,17 @@ export function QueueTab({
       ) : proposals.length === 0 ? (
         <BlockStack gap="200">
           <Text as="p" tone="subdued">
-            No items{stageFilter !== "all" ? ` in "${stageFilter}"` : ""}{searchQuery ? ` matching "${searchQuery}"` : ""}.
+            {allProposals.length === 0
+              ? "No current proposals."
+              : `No items${stageFilter !== "all" ? ` in "${stageFilter}"` : ""}${searchQuery ? ` matching "${searchQuery}"` : ""}.`}
           </Text>
-          {stageFilter === "all" && !searchQuery && (
-            <Text as="p" tone="subdued">Click &quot;Generate Proposals&quot; to analyse your content.</Text>
+          {allProposals.length === 0 && (
+            <Text as="p" tone="subdued">
+              Generate fresh proposals after refreshing SEO and blog data. Finished or rejected ideas stay out of the queue unless you re-open them.
+            </Text>
+          )}
+          {allProposals.length > 0 && stageFilter === "pending" && pendingCount === 0 && !searchQuery && (
+            <Text as="p" tone="subdued">There are no pending decisions. Rejected and published ideas are kept as history so they do not come back as fresh work.</Text>
           )}
         </BlockStack>
       ) : (

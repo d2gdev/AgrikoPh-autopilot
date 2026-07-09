@@ -1,5 +1,6 @@
 import { Button, Text, Badge, InlineStack, BlockStack, DataTable } from "@shopify/polaris";
 import { timeAgo } from "@/lib/format";
+import { contentGapReason } from "../content-gap-reason";
 import { gapKey } from "../types";
 import type { Analysis, ContentGap } from "../types";
 
@@ -69,12 +70,13 @@ export function ContentGapsPanel({
             <BlockStack gap="200">
               <Text variant="headingSm" as="h3">Content gaps → draft proposals</Text>
               <DataTable
-                columnContentTypes={["text", "numeric", "numeric", "text", "text"]}
-                headings={["Query", "Impr.", "Position", "Suggested title", "Action"]}
+                columnContentTypes={["text", "numeric", "numeric", "text", "text", "text"]}
+                headings={["Query", "Impr.", "Position", "Reason", "Suggested title", "Action"]}
                 rows={gaps.map((g, i) => [
                   g.query,
                   Number(g.impressions ?? 0).toLocaleString(),
                   Number(g.position ?? 0).toFixed(1),
+                  contentGapReason(g),
                   g.suggestedTitle,
                   gapFlags[i]?.isPromoted
                     ? <Badge key={`${gapKey(g)}-${i}`} tone="success">Created</Badge>
@@ -85,6 +87,11 @@ export function ContentGapsPanel({
                 <Button variant="plain" onClick={onOpenContentPilot}>Open Content Pilot to review &amp; publish drafts →</Button>
               </InlineStack>
             </BlockStack>
+          )}
+          {gaps.length === 0 && (
+            <Text as="p" tone="subdued">
+              No actionable content gaps remain. Existing, rejected, published, and already handled ideas are filtered out of this queue.
+            </Text>
           )}
           {(analysis.recommendations ?? []).length > 0 && (
             <BlockStack gap="100">

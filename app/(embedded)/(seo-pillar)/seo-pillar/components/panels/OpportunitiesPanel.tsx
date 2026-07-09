@@ -40,7 +40,9 @@ export function OpportunitiesPanel({
       )}
       {oppRows.length === 0 ? (
         <Text as="p" tone="subdued">
-          {oppCount > 0 ? "No opportunities match the current search/filter." : "No opportunities surfaced. Fetch fresh GSC data first."}
+          {oppCount > 0
+            ? "No opportunities match the current search/filter."
+            : "No actionable opportunities are open. Refresh data or run SEO analysis when you need a new pass; handled and dismissed items stay out of this queue."}
         </Text>
       ) : (
         <DataTable
