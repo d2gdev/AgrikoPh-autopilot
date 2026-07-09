@@ -6,6 +6,7 @@ import { requireAppAuth, getSessionShop } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchBlogArticles } from "@/lib/shopify-admin";
+import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
@@ -23,11 +24,12 @@ export async function POST(req: Request) {
   try {
     const articles = await fetchBlogArticles();
 
-    // Find articles that already have an active (non-rejected) content-refresh proposal
+    // Find articles that already have active or terminal refresh history, so
+    // rejected/published decisions do not come back through this bulk bypass.
     const existing = await prisma.contentProposal.findMany({
       where: {
         proposalType: "content-refresh",
-        status: { notIn: ["rejected"] },
+        status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES },
       },
       select: { articleHandle: true },
     });

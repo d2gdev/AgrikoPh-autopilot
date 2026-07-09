@@ -69,6 +69,76 @@ function titleCoversQuery(title: string, query: string): boolean {
     : matchCount >= Math.ceil(queryTerms.length * 0.5) && matchCount >= 2;
 }
 
+function textIncludesNormalized(haystack: string, needle: string): boolean {
+  const h = haystack.toLowerCase().replace(/\s+/g, " ");
+  const n = needle.toLowerCase().replace(/\s+/g, " ");
+  return n.length > 3 && h.includes(n);
+}
+
+function evidenceForStrategyItem(
+  item: string,
+  context: {
+    queries: Array<{ query: string; impressions: number; clicks: number; position: string }>;
+    articles: Array<{ handle: string; title: string; wordCount: number | null; internalLinkCount: number | null; seoData: unknown }>;
+    missingMetaCount: number;
+    thinContentCount: number;
+    noInternalLinksCount: number;
+  },
+): string | null {
+  const normalized = item.toLowerCase();
+
+  if (/\b(query|keyword|serp|ranking|position|ctr|impression|click)\b/.test(normalized)) {
+    for (const query of context.queries) {
+      if (textIncludesNormalized(item, query.query)) {
+        return `Grounded in GSC query "${query.query}" (${query.impressions.toLocaleString()} impressions, avg position ${query.position}).`;
+      }
+    }
+  }
+
+  for (const article of context.articles) {
+    if (textIncludesNormalized(item, article.title) || textIncludesNormalized(item, article.handle)) {
+      return `Grounded in existing article "${article.title}" (${article.handle}).`;
+    }
+  }
+
+  for (const query of context.queries) {
+    if (textIncludesNormalized(item, query.query)) {
+      return `Grounded in GSC query "${query.query}" (${query.impressions.toLocaleString()} impressions, avg position ${query.position}).`;
+    }
+  }
+
+  if (context.missingMetaCount > 0 && /\b(meta|title tag|description|serp snippet)\b/.test(normalized)) {
+    return `Grounded in on-page health: ${context.missingMetaCount} article${context.missingMetaCount === 1 ? "" : "s"} missing meta.`;
+  }
+
+  if (context.thinContentCount > 0 && /\b(thin|expand|word count|short content|refresh)\b/.test(normalized)) {
+    return `Grounded in on-page health: ${context.thinContentCount} thin-content article${context.thinContentCount === 1 ? "" : "s"}.`;
+  }
+
+  if (context.noInternalLinksCount > 0 && /\b(internal link|internal links|linking|orphan)\b/.test(normalized)) {
+    return `Grounded in on-page health: ${context.noInternalLinksCount} article${context.noInternalLinksCount === 1 ? "" : "s"} with no internal links.`;
+  }
+
+  return null;
+}
+
+function groundedStrategyItems(
+  items: string[],
+  context: Parameters<typeof evidenceForStrategyItem>[1],
+): { items: string[]; evidence: string[] } {
+  const grounded: string[] = [];
+  const evidence: string[] = [];
+
+  for (const item of items) {
+    const reason = evidenceForStrategyItem(item, context);
+    if (!reason) continue;
+    grounded.push(item);
+    evidence.push(reason);
+  }
+
+  return { items: grounded, evidence };
+}
+
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
@@ -209,12 +279,23 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
     }
     const validated = SeoAnalysisSchema.safeParse(aiResult);
     const parsedAnalysis = validated.success ? validated.data : { quickWins: [], recommendations: [] };
+    const evidenceContext = {
+      queries: topQueries,
+      articles: articleRecords,
+      missingMetaCount: missingMeta.length,
+      thinContentCount: thinContent.length,
+      noInternalLinksCount: noInternalLinks.length,
+    };
+    const quickWins = groundedStrategyItems(parsedAnalysis.quickWins, evidenceContext);
+    const recommendations = groundedStrategyItems(parsedAnalysis.recommendations, evidenceContext);
 
     const analysis = {
       summary: parsedAnalysis.summary ?? `${articleRecords.length} articles indexed. ${missingMeta.length} missing meta, ${thinContent.length} thin content, ${noInternalLinks.length} with no internal links.`,
-      quickWins: parsedAnalysis.quickWins,
+      quickWins: quickWins.items,
+      quickWinEvidence: quickWins.evidence,
       contentGaps: programmaticGaps,
-      recommendations: parsedAnalysis.recommendations,
+      recommendations: recommendations.items,
+      recommendationEvidence: recommendations.evidence,
     };
 
     await prisma.rawSnapshot.upsert({

@@ -8,7 +8,7 @@ triggers:
   - "duplicate proposals"
   - "clear queue"
   - "start from scratch"
-last_updated: 2026-07-09T16:05:00Z
+last_updated: 2026-07-09T19:10:00Z
 ---
 
 # Generation Dedupe
@@ -34,6 +34,7 @@ Autopilot has multiple idea generators: skill recommendations, insight-derived a
 - Checking only `status: "pending"` prevents simultaneous duplicates but allows rejected/executed work to come back tomorrow.
 - Content Pilot daily generation deletes pending proposals before recreating fresh ones; this is not a historical reset and must still block rejected/published ideas.
 - SEO routes can bypass Content Pilot generation, so they must use the same recreate-blocking constants.
+- Bulk/manual bypass routes such as Content Pilot `refresh-all` and SEO recommendation decomposition must also use the shared logical key (`contentProposalDedupeKey`) or recreate-blocking statuses. Title-only checks are not enough because AI can reword the same article action.
 - Opportunity routing is another bypass path; rejected content ideas can return through it if it checks only active proposals.
 - Store task upserts should not set terminal rows back to pending unless the operator explicitly reopens them.
 

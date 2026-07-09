@@ -290,6 +290,74 @@ describe("SEO Pilot route regressions", () => {
     );
   });
 
+  it("filters AI strategy bullets to grounded items and returns evidence for each visible item", async () => {
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [
+        { query: "black rice benefits", clicks: 3, impressions: 320, ctr: "0.9%", position: "8.0" },
+      ],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      {
+        handle: "black-rice-benefits",
+        title: "Black Rice Benefits",
+        wordCount: 220,
+        internalLinkCount: 0,
+        seoData: { seoTitle: "", seoDescription: "" },
+      },
+    ]);
+    mockGetAiClient.mockResolvedValue({
+      model: "test-model",
+      client: {
+        chat: {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    summary: "Black Rice Benefits needs basic SEO cleanup.",
+                    quickWins: [
+                      "Expand Black Rice Benefits and fix its missing meta description.",
+                      "Launch a celebrity recipe hub for keto smoothies.",
+                    ],
+                    recommendations: [
+                      "Target the black rice benefits query with a better SERP snippet.",
+                      "Build an unrelated backlink campaign for luxury watches.",
+                    ],
+                  }),
+                },
+              }],
+            }),
+          },
+        },
+      },
+    });
+    const { POST } = await import("@/app/api/seo/analyze/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/analyze", { method: "POST" }) as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.analysis.quickWins).toEqual([
+      "Expand Black Rice Benefits and fix its missing meta description.",
+    ]);
+    expect(body.analysis.quickWinEvidence).toEqual([
+      expect.stringContaining("Black Rice Benefits"),
+    ]);
+    expect(body.analysis.recommendations).toEqual([
+      "Target the black rice benefits query with a better SERP snippet.",
+    ]);
+    expect(body.analysis.recommendationEvidence).toEqual([
+      expect.stringContaining("black rice benefits"),
+    ]);
+    expect(JSON.stringify(body.analysis)).not.toContain("celebrity recipe hub");
+    expect(JSON.stringify(body.analysis)).not.toContain("luxury watches");
+  });
+
   it("promotes analyzed missing-meta gaps as seo-fix proposals", async () => {
     mockSeoData.getLatestGscData.mockResolvedValue({
       queries: [{ query: "black rice", clicks: 1, impressions: 200, ctr: "0.5%", position: "8.0" }],
@@ -576,6 +644,58 @@ describe("SEO Pilot route regressions", () => {
         title: "Fix meta: Missing Meta Code",
       }),
     });
+  });
+
+  it("does not recreate rejected decomposed recommendations for the same article action under a new title", async () => {
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      {
+        handle: "black-rice-benefits",
+        title: "Black Rice Benefits",
+        wordCount: 700,
+        seoData: { seoTitle: "", seoDescription: "" },
+      },
+    ]);
+    mockGetAiClient.mockResolvedValue({
+      model: "test-model",
+      client: {
+        chat: {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{
+                message: {
+                  content: JSON.stringify([
+                    {
+                      type: "seo-fix",
+                      title: "Improve the Black Rice Benefits SERP snippet",
+                      articleHandle: "black-rice-benefits",
+                      targetQuery: "black rice benefits",
+                    },
+                  ]),
+                },
+              }],
+            }),
+          },
+        },
+      },
+    });
+    mockPrisma.contentProposal.findMany.mockResolvedValue([
+      {
+        articleHandle: "black-rice-benefits",
+        proposalType: "seo-fix",
+        title: "Rejected previous meta task",
+        proposedState: { targetQuery: "black rice benefits" },
+      },
+    ]);
+    const { POST } = await import("@/app/api/seo/recommendations/decompose/route");
+
+    const res = await POST(jsonRequest("/api/seo/recommendations/decompose", {
+      recommendation: "Improve the Black Rice Benefits SERP metadata",
+    }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({ created: 0, skipped: 1 }));
+    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
   });
 
   it("normalizes tracked keywords before persistence", async () => {

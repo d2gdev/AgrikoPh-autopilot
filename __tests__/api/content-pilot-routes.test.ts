@@ -20,6 +20,7 @@ const mockGenerateProposals = vi.hoisted(() => vi.fn());
 const mockOpportunityFromProposal = vi.hoisted(() => vi.fn());
 const mockUpsertOpportunities = vi.hoisted(() => vi.fn());
 const mockMarkTerminal = vi.hoisted(() => vi.fn());
+const mockFetchBlogArticles = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
   requireAppAuth: mockAuth.requireAppAuth,
@@ -35,6 +36,9 @@ vi.mock("@/lib/opportunities/generate", () => ({
 }));
 vi.mock("@/lib/opportunities/content-proposal-outcomes", () => ({
   markContentProposalOpportunitiesTerminal: mockMarkTerminal,
+}));
+vi.mock("@/lib/shopify-admin", () => ({
+  fetchBlogArticles: mockFetchBlogArticles,
 }));
 
 function proposal(title: string, targetKeyword: string) {
@@ -66,6 +70,7 @@ describe("Content Pilot route regressions", () => {
     mockOpportunityFromProposal.mockImplementation((input) => ({ dedupeKey: input.title, title: input.title }));
     mockUpsertOpportunities.mockImplementation(async (_client, opportunities) => ({ upserted: opportunities.length }));
     mockMarkTerminal.mockResolvedValue({ count: 0 });
+    mockFetchBlogArticles.mockResolvedValue([]);
   });
 
   it("includes sourceData in the proposal list payload so queue rows can explain why they exist", async () => {
@@ -170,5 +175,34 @@ describe("Content Pilot route regressions", () => {
     expect(body).toEqual(expect.objectContaining({ created: 0, opportunities: 0 }));
     expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
     expect(mockOpportunityFromProposal).not.toHaveBeenCalled();
+  });
+
+  it("does not recreate rejected guidelines refresh proposals during refresh-all", async () => {
+    mockFetchBlogArticles.mockResolvedValue([
+      { handle: "black-rice-benefits", title: "Black Rice Benefits" },
+    ]);
+    mockPrisma.contentProposal.findMany.mockResolvedValueOnce([
+      {
+        articleHandle: "black-rice-benefits",
+        proposalType: "content-refresh",
+        status: "rejected",
+      },
+    ]);
+
+    const { POST } = await import("@/app/api/content-pilot/proposals/refresh-all/route");
+    const res = await POST(new Request("http://test.local/api/content-pilot/proposals/refresh-all", { method: "POST" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({ created: 0 }));
+    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+    expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        proposalType: "content-refresh",
+        status: expect.objectContaining({
+          in: expect.arrayContaining(["rejected"]),
+        }),
+      }),
+    }));
   });
 });

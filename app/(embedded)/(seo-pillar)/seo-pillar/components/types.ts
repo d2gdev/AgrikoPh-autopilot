@@ -26,7 +26,14 @@ export interface ContentGap {
   articleHandle?: string;
   wordCount?: number | null;
 }
-export interface Analysis { summary?: string; quickWins?: string[]; contentGaps?: ContentGap[]; recommendations?: string[] }
+export interface Analysis {
+  summary?: string;
+  quickWins?: string[];
+  quickWinEvidence?: string[];
+  contentGaps?: ContentGap[];
+  recommendations?: string[];
+  recommendationEvidence?: string[];
+}
 export interface HealthTotals { total: number; missingMeta: number; thinContent: number; noInternalLinks: number; lowHeadings: number; orphan: number; titleLengthOff?: number; descLengthOff?: number; missingDesc?: number; missingH1?: number; duplicateTitle?: number }
 export interface HealthOffender { handle: string; title: string; wordCount: number; issues: string[] }
 export interface Health { totals: HealthTotals; worstOffenders: HealthOffender[] }

@@ -58,7 +58,12 @@ export function ContentGapsPanel({
               <Text variant="headingSm" as="h3">Quick wins</Text>
               {analysis.quickWins!.map((w, i) => (
                 <InlineStack key={i} gap="200" align="space-between" blockAlign="start" wrap={false}>
-                  <Text as="p">• {w}</Text>
+                  <BlockStack gap="050">
+                    <Text as="p">• {w}</Text>
+                    {analysis.quickWinEvidence?.[i] && (
+                      <Text as="p" tone="subdued" variant="bodySm">{analysis.quickWinEvidence[i]}</Text>
+                    )}
+                  </BlockStack>
                   {quickWinFlags[i]?.isPlanned
                     ? <Badge tone="success">Planned</Badge>
                     : <Button size="slim" loading={quickWinFlags[i]?.isPlanning} onClick={() => onPlanQuickWin(i, w)}>Plan it</Button>}
@@ -98,7 +103,12 @@ export function ContentGapsPanel({
               <Text variant="headingSm" as="h3">Recommendations</Text>
               {analysis.recommendations!.map((r, i) => (
                 <InlineStack key={i} gap="200" align="space-between" blockAlign="start" wrap={false}>
-                  <Text as="p">• {r}</Text>
+                  <BlockStack gap="050">
+                    <Text as="p">• {r}</Text>
+                    {analysis.recommendationEvidence?.[i] && (
+                      <Text as="p" tone="subdued" variant="bodySm">{analysis.recommendationEvidence[i]}</Text>
+                    )}
+                  </BlockStack>
                   {recFlags[i]?.isPlanned
                     ? <Badge tone="success">Planned</Badge>
                     : <Button size="slim" loading={recFlags[i]?.isPlanning} onClick={() => onPlanRecommendation(i, r)}>Plan it</Button>}

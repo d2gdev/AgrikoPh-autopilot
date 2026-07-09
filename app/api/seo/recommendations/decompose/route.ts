@@ -9,7 +9,10 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
 import { classifyPriority } from "@/lib/content-pilot/priority-score";
 import { hasMissingMeta } from "@/lib/seo/meta";
-import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
+import {
+  CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES,
+  contentProposalDedupeKey,
+} from "@/lib/content-pilot/proposal-dedupe";
 
 const MAX_TASKS = 8;
 
@@ -236,21 +239,27 @@ ${articleRecords.slice(0, 120).map((a) => `${a.handle} — ${a.title} — ${a.wo
     return NextResponse.json({ created: 0, skipped: 0, dropped, capped, proposals: [] });
   }
 
-  // Dedup against existing active proposals by title (case-insensitive).
-  const candidateTitles = Array.from(new Set(rows.map((r) => String(r.title))));
+  // Dedup against existing active/terminal proposals by logical proposal key,
+  // not only title. AI decomposition can reword task titles for the same article
+  // action, and rejected/published history must still block regeneration.
   let skipped = 0;
 
   const created = await prisma.$transaction(async (tx) => {
     const existing = await tx.contentProposal.findMany({
-      where: { title: { in: candidateTitles, mode: "insensitive" }, status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } },
-      select: { title: true },
+      where: { status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } },
+      select: { articleHandle: true, proposalType: true, title: true, proposedState: true },
     });
-    const existingTitleSet = new Set(existing.map((p) => p.title.toLowerCase()));
+    const existingKeys = new Set(existing.map(contentProposalDedupeKey));
     const seenInBatch = new Set<string>();
 
     const toCreate = rows.filter((r) => {
-      const key = String(r.title).toLowerCase();
-      if (existingTitleSet.has(key) || seenInBatch.has(key)) { skipped++; return false; }
+      const key = contentProposalDedupeKey({
+        articleHandle: typeof r.articleHandle === "string" ? r.articleHandle : null,
+        proposalType: String(r.proposalType),
+        title: String(r.title),
+        proposedState: r.proposedState,
+      });
+      if (existingKeys.has(key) || seenInBatch.has(key)) { skipped++; return false; }
       seenInBatch.add(key);
       return true;
     });

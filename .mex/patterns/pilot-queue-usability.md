@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-10
+last_updated: 2026-07-09T19:10:00Z
 ---
 
 # Pilot Queue Usability
@@ -22,17 +22,19 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 1. Preserve terminal history rows; do not delete rejected/published/executed/dismissed rows just to make a queue look clean.
 2. Confirm list APIs return the lightweight evidence fields the UI needs. For Content Pilot this includes `ContentProposal.sourceData`; keep full draft HTML out of list responses.
 3. Add a visible "why shown" or reason summary before the primary action buttons.
-4. Empty states must distinguish:
+4. Filter AI-generated strategy bullets before display. Keep only items grounded in real articles, GSC queries, or current issue counts, and render per-item evidence beside every visible quick win/recommendation.
+5. Empty states must distinguish:
    - truly no rows,
    - current filters/search hiding rows,
    - a clean actionable queue because terminal history/dedupe blocked old ideas.
-5. Terminal states need explicit badges; do not fall through to unlabeled fallback UI.
-6. Keep helper logic pure when possible so tests can lock the wording and evidence extraction without a browser.
+6. Terminal states need explicit badges; do not fall through to unlabeled fallback UI.
+7. Keep helper logic pure when possible so tests can lock the wording and evidence extraction without a browser.
 
 ## Gotchas
 - A successful "skipped/already handled" backend response still feels broken if the UI leaves the same row visible or says to fetch data first.
 - Dropping `sourceData` from list payloads saves bytes but makes generated work impossible to trust.
 - A queue reset should clear transient actionable rows, not historical tombstones that prevent regeneration.
+- Free-text AI strategy output can look useful while being unrelated to actual site data. Validate and evidence it at the API boundary before the UI can plan it into Content Pilot.
 
 ## Verify
 - Add or update a route/API regression proving list responses include the evidence fields the row renders.
