@@ -92,6 +92,96 @@ describe("getLatestGscData freshness selection", () => {
     });
   });
 
+  it("leaves freshness selection timestamps null when the raw snapshot payload is empty", async () => {
+    mockSnapshots.getLatestSnapshot.mockImplementation(async (source: string) => {
+      if (source === "gsc") {
+        return rawSnapshot(
+          "gsc",
+          "2026-07-09T04:30:00.000Z",
+          "2026-06-08T00:00:00.000Z",
+          "2026-07-06T00:00:00.000Z",
+          {},
+        );
+      }
+      return null;
+    });
+
+    const result = await getLatestGscData();
+
+    expect(result.source).toBe("none");
+    expect(result.freshness).toMatchObject({
+      selectedSource: "none",
+      selectedCapturedAt: null,
+      selectedDateRangeStart: null,
+      selectedDateRangeEnd: null,
+      fallbackReason: null,
+      rawCapturedAt: new Date("2026-07-09T04:30:00.000Z"),
+      rawDateRangeStart: new Date("2026-06-08T00:00:00.000Z"),
+      rawDateRangeEnd: new Date("2026-07-06T00:00:00.000Z"),
+    });
+  });
+
+  it("uses normalized_missing when normalized rows are empty but raw queries are available", async () => {
+    const window = {
+      dateRangeStart: new Date("2026-06-01T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-29T00:00:00.000Z"),
+      capturedAt: new Date("2026-07-09T04:00:00.000Z"),
+    };
+    mockNormalized.getLatestGscWindow.mockResolvedValue(window);
+    mockNormalized.getGscQueriesForWindow.mockResolvedValue([]);
+    mockSnapshots.getLatestSnapshot.mockImplementation(async (source: string) => {
+      if (source === "gsc") {
+        return rawSnapshot(
+          "gsc",
+          "2026-07-09T04:30:00.000Z",
+          "2026-06-08T00:00:00.000Z",
+          "2026-07-06T00:00:00.000Z",
+          {
+            topQueries: [{ query: "fresh raw", clicks: 9, impressions: 300, ctr: "3.0%", position: "5.0" }],
+          },
+        );
+      }
+      if (source === "gsc_pages") {
+        return rawSnapshot(
+          "gsc_pages",
+          "2026-07-09T04:30:00.000Z",
+          "2026-06-08T00:00:00.000Z",
+          "2026-07-06T00:00:00.000Z",
+          {
+            topPages: [{ page: "/blogs/fresh", clicks: 4, impressions: 100, ctr: "4.0%", position: "4.1" }],
+          },
+        );
+      }
+      if (source === "gsc_query_page") {
+        return rawSnapshot(
+          "gsc_query_page",
+          "2026-07-09T04:30:00.000Z",
+          "2026-06-08T00:00:00.000Z",
+          "2026-07-06T00:00:00.000Z",
+          {
+            pairs: [{ query: "fresh raw", page: "/blogs/fresh", clicks: 4, impressions: 100, position: "4.1" }],
+          },
+        );
+      }
+      return null;
+    });
+    mockSnapshots.getQueries.mockReturnValue([
+      { query: "fresh raw", clicks: 9, impressions: 300, ctr: "3.0%", position: "5.0" },
+    ]);
+
+    const result = await getLatestGscData();
+
+    expect(result.source).toBe("rawSnapshot");
+    expect(result.queries[0]?.query).toBe("fresh raw");
+    expect(result.freshness).toMatchObject({
+      selectedSource: "rawSnapshot",
+      selectedCapturedAt: new Date("2026-07-09T04:30:00.000Z"),
+      fallbackReason: "normalized_missing",
+      normalizedCapturedAt: window.capturedAt,
+      rawCapturedAt: new Date("2026-07-09T04:30:00.000Z"),
+    });
+  });
+
   it("falls back to raw GSC snapshot when raw data is more than 24 hours newer than normalized data", async () => {
     const window = {
       dateRangeStart: new Date("2026-06-01T00:00:00.000Z"),

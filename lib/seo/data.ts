@@ -170,9 +170,9 @@ export async function getLatestGscData(): Promise<LatestGscData> {
     window: null,
     freshness: buildFreshness({
       selectedSource: rawQueries.length ? "rawSnapshot" : "none",
-      selectedCapturedAt: gscSnap?.fetchedAt ?? null,
-      selectedDateRangeStart: gscSnap?.dateRangeStart ?? null,
-      selectedDateRangeEnd: gscSnap?.dateRangeEnd ?? null,
+      selectedCapturedAt: rawQueries.length ? gscSnap?.fetchedAt ?? null : null,
+      selectedDateRangeStart: rawQueries.length ? gscSnap?.dateRangeStart ?? null : null,
+      selectedDateRangeEnd: rawQueries.length ? gscSnap?.dateRangeEnd ?? null : null,
       normalizedWindow: null,
       rawSnapshot,
       fallbackReason: rawQueries.length ? "normalized_missing" : null,
