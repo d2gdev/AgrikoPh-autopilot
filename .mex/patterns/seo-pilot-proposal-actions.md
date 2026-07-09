@@ -1,7 +1,7 @@
 ---
 name: seo-pilot-proposal-actions
 description: Diagnose and fix SEO Pilot actions that create Content Pilot proposals which cannot generate or publish the intended draft.
-last_updated: 2026-07-09
+last_updated: 2026-07-09T15:50:00Z
 ---
 
 # Pattern: SEO Pilot Proposal Actions
@@ -45,6 +45,7 @@ last_updated: 2026-07-09
    - A GSC query is covered when its query/page pair lands on a known blog article handle or the query has majority meaningful-term overlap with an existing article title.
    - Handle-less `new-content` dedupe must include target keyword/title. Never key all null-handle proposals as one bucket.
    - Proposal-to-opportunity upserts must run after active-proposal filtering, not before it, or skipped duplicates leave stale open opportunities.
+   - UI promote handlers must treat any successful `skipped > 0` response as resolved for the current actionable queue, not only duplicate skips; missing-article and non-blog-page skips are also not retryable without changed source data.
 9. For H1 fixes, prompt intent is not enough. Draft validation must reject `action: "add_h1"` body drafts that do not contain an `<h1>`.
 10. Draft generation failures must preserve operator-actionable details.
    - AI provider auth/config failures should return `503` with a safe message.
@@ -66,6 +67,7 @@ Add or update route tests when changing these paths:
 - Already-covered GSC queries do not appear in SEO analysis `contentGaps`.
 - Distinct null-handle `new-content` proposals survive active duplicate filtering.
 - Proposals blocked as already active do not create/update `Opportunity` rows.
+- Skipped SEO promote results are removed from actionable UI queues.
 - SEO refresh queues `dashboard-refresh` and does not call fetch handlers inline.
 - Dashboard refresh preserves skipped history status.
 - Raw SEO fetch uses the configured `GSC_LAG_DAYS` window.

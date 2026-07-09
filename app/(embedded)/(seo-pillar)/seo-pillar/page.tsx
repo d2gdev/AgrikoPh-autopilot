@@ -124,13 +124,13 @@ export default function SeoPillarReportPage() {
       });
       const d = await res.json();
       if (res.ok) {
-        if (d.created > 0 || d.skippedReasons?.duplicate > 0) {
+        if (d.created > 0 || d.skipped > 0) {
           setPromoted((s) => new Set([...s, ...keys]));
         }
         if (d.created > 0) {
-          setToast(`Created ${d.created} draft proposal${d.created === 1 ? "" : "s"} in Content Pilot${d.skipped ? ` (${d.skipped} skipped)` : ""}.`);
+          setToast(`Created ${d.created} draft proposal${d.created === 1 ? "" : "s"} in Content Pilot${d.skipped ? ` (${d.skipped} already handled or not promotable)` : ""}.`);
         } else if (d.skipped > 0) {
-          setToast(`${d.skipped} gap${d.skipped === 1 ? "" : "s"} already handled or not promotable.`);
+          setToast(`${d.skipped} gap${d.skipped === 1 ? "" : "s"} already handled or not promotable — removed from this view.`);
         } else {
           setToast("No proposals created.");
         }
@@ -151,13 +151,13 @@ export default function SeoPillarReportPage() {
       });
       const d = await res.json();
       if (res.ok) {
-        if (d.created > 0 || d.skippedReasons?.duplicate > 0) {
+        if (d.created > 0 || d.skipped > 0) {
           setPromotedOpp((s) => new Set([...s, key]));
         }
         if (d.created > 0) {
           setToast("Created draft proposal in Content Pilot.");
         } else if (d.skipped > 0) {
-          setToast("Already handled or not promotable.");
+          setToast("Already handled or not promotable — removed from this view.");
         } else {
           setToast("No proposal created.");
         }
@@ -315,7 +315,8 @@ export default function SeoPillarReportPage() {
     { label: "All types", value: "all" },
     ...Array.from(new Set((data?.opportunities ?? []).map((o) => o.type))).map((t) => ({ label: OPP_LABEL[t] ?? t, value: t })),
   ];
-  const filteredOpps = (data?.opportunities ?? [])
+  const visibleOpportunities = (data?.opportunities ?? []).filter((o) => !promotedOpp.has(opportunityKey(o)));
+  const filteredOpps = visibleOpportunities
     .filter((o) => oppType === "all" || o.type === oppType)
     .filter((o) => {
       if (!oppSearch) return true;
@@ -354,8 +355,7 @@ export default function SeoPillarReportPage() {
   const pageHealth = data?.pageHealth ?? [];
   const flaggedPageHealth = pageHealth.filter((p) => p.flag !== null);
 
-  const gaps = analysis?.contentGaps ?? [];
-  const unpromotedGaps = gaps.filter((g) => !promoted.has(gapKey(g)));
+  const gaps = (analysis?.contentGaps ?? []).filter((g) => !promoted.has(gapKey(g)));
 
   // ── panel props derived from the promoted*/promoting* Sets ──
   // Booleans (not raw Sets) are threaded down so a single item's membership
@@ -475,7 +475,7 @@ export default function SeoPillarReportPage() {
                   {/* ── OPPORTUNITIES ── */}
                   {tab === 1 && (
                     <OpportunitiesPanel
-                      oppCount={data?.opportunities?.length ?? 0}
+                      oppCount={visibleOpportunities.length}
                       oppSearch={oppSearch}
                       setOppSearch={setOppSearch}
                       oppType={oppType}
@@ -491,9 +491,9 @@ export default function SeoPillarReportPage() {
                     <ContentGapsPanel
                       gaps={gaps}
                       gapFlags={gapFlags}
-                      unpromotedCount={unpromotedGaps.length}
+                      unpromotedCount={gaps.length}
                       anyPromoting={anyPromoting}
-                      onPromoteAll={() => promoteGaps(unpromotedGaps)}
+                      onPromoteAll={() => promoteGaps(gaps)}
                       onPromoteGap={(g) => promoteGaps([g])}
                       analysis={analysis}
                       analysisAt={analysisAt}

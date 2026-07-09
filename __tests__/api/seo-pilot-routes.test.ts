@@ -393,6 +393,17 @@ describe("SEO Pilot route regressions", () => {
     expect(pageSource).not.toContain("promotingOpp.has(o.query)");
   });
 
+  it("removes skipped SEO promote results from the actionable UI queues", () => {
+    const pageSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/page.tsx", "utf8");
+
+    expect(pageSource).toContain("d.created > 0 || d.skipped > 0");
+    expect(pageSource).toContain("const visibleOpportunities = (data?.opportunities ?? []).filter((o) => !promotedOpp.has(opportunityKey(o)))");
+    expect(pageSource).toContain("const gaps = (analysis?.contentGaps ?? []).filter((g) => !promoted.has(gapKey(g)))");
+    expect(pageSource).toContain("removed from this view");
+    expect(pageSource).not.toContain("d.skippedReasons?.duplicate > 0");
+    expect(pageSource).not.toContain("const unpromotedGaps =");
+  });
+
   it("returns retryable error when SEO brief output is blank", async () => {
     mockSeoData.getLatestGscData.mockResolvedValue({
       queries: [{ query: "black rice", clicks: 3, impressions: 200, ctr: "1.5%", position: "7.0" }],
