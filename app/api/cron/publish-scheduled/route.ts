@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireCronAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { publishDraft, resolveArticleHandle } from "@/lib/content-pilot/publish-draft";
+import { contentProposalPublishRecoveryStatus } from "@/lib/content-pilot/publish-recovery";
 import { fetchBlogContentHandler } from "@/jobs/fetch-blog-content";
 
 export async function GET(req: NextRequest) {
@@ -66,12 +67,8 @@ export async function GET(req: NextRequest) {
       // return to "ready" — a retry would double-create/double-append. Flag them
       // for manual inspection. Idempotent ops (seo-fix, content-refresh) are safe
       // to retry, so they return to "ready". Mirrors the manual publish route.
-      const nonIdempotent =
-        proposal.proposalType === "new-content" ||
-        proposal.proposalType === "internal-link";
       const errorMessage = String(err);
-      const missingArticleIdentity = errorMessage.includes("requires an articleHandle");
-      const recoveryStatus = missingArticleIdentity ? "failed" : nonIdempotent ? "publish-error" : "ready";
+      const recoveryStatus = contentProposalPublishRecoveryStatus(proposal.proposalType, errorMessage);
       await prisma.contentProposal
         .update({
           where: { id: proposal.id },

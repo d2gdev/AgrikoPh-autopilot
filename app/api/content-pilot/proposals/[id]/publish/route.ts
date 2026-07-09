@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { publishDraft, resolveArticleHandle } from "@/lib/content-pilot/publish-draft";
+import { contentProposalPublishRecoveryStatus } from "@/lib/content-pilot/publish-recovery";
 import { fetchBlogContentHandler } from "@/jobs/fetch-blog-content";
 import { markContentProposalOpportunityResolved } from "@/lib/opportunities/content-proposal-outcomes";
 
@@ -152,12 +153,8 @@ export async function POST(
     // silently return to "ready" — a re-publish would double-create/double-append in
     // the live store. Flag them for manual inspection instead. Idempotent ops
     // (seo-fix, body refresh) are safe to retry, so they return to "ready".
-    const nonIdempotent =
-      proposal.proposalType === "new-content" ||
-      proposal.proposalType === "internal-link";
     const errorMessage = String(err);
-    const missingArticleIdentity = errorMessage.includes("requires an articleHandle");
-    const recoveryStatus = missingArticleIdentity ? "failed" : nonIdempotent ? "publish-error" : "ready";
+    const recoveryStatus = contentProposalPublishRecoveryStatus(proposal.proposalType, errorMessage);
     await prisma.contentProposal.update({
       where: { id },
       data: { draftStatus: recoveryStatus, draftError: errorMessage.slice(0, 2000) },

@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-09T19:10:00Z
+last_updated: 2026-07-09T23:32:16Z
 ---
 
 # Pilot Queue Usability
@@ -28,13 +28,15 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
    - current filters/search hiding rows,
    - a clean actionable queue because terminal history/dedupe blocked old ideas.
 6. Terminal states need explicit badges; do not fall through to unlabeled fallback UI.
-7. Keep helper logic pure when possible so tests can lock the wording and evidence extraction without a browser.
+7. Publish failures that cannot succeed on retry without operator intervention must move to a visible failed state with the original error retained.
+8. Keep helper logic pure when possible so tests can lock the wording and evidence extraction without a browser.
 
 ## Gotchas
 - A successful "skipped/already handled" backend response still feels broken if the UI leaves the same row visible or says to fetch data first.
 - Dropping `sourceData` from list payloads saves bytes but makes generated work impossible to trust.
 - A queue reset should clear transient actionable rows, not historical tombstones that prevent regeneration.
 - Free-text AI strategy output can look useful while being unrelated to actual site data. Validate and evidence it at the API boundary before the UI can plan it into Content Pilot.
+- A missing target Shopify article is not a transient refresh failure. Mark it `draftStatus: "failed"` so it leaves the ready queue and tells the operator to recreate or reject it.
 
 ## Verify
 - Add or update a route/API regression proving list responses include the evidence fields the row renders.
