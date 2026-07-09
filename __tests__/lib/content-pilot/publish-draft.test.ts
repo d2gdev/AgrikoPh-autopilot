@@ -333,6 +333,56 @@ describe("publishDraft", () => {
     });
   });
 
+  it("publishes turmeric profile for generic titles when the keyword and tags point to turmeric tea", async () => {
+    let createVariables: Record<string, unknown> | undefined;
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes("blogs(first: 20)")) {
+        return { blogs: { edges: [{ node: { id: "gid://shopify/Blog/1", handle: "news" } }] } };
+      }
+      if (query.includes("ArticleCreate")) {
+        createVariables = variables;
+        return {
+          articleCreate: {
+            article: { id: "gid://shopify/Article/1102", handle: "generic-turmeric-guide" },
+            userErrors: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+
+    await publishDraft(
+      proposal({
+        proposalType: "new-content",
+        proposedState: { blogHandle: "news", targetKeyword: "turmeric tea philippines" },
+        draftContent: {
+          title: "A Practical Guide",
+          bodyHtml: "<h2>Turmeric tea</h2><p>Useful article copy.</p>",
+          tags: ["turmeric tea philippines"],
+          metaDescription: "A practical turmeric tea guide.",
+        },
+      })
+    );
+
+    expect(createVariables).toMatchObject({
+      article: {
+        tags: ["turmeric tea philippines", "turmeric"],
+        metafields: expect.arrayContaining([
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_template",
+            value: "guide",
+          }),
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_profile",
+            value: "turmeric",
+          }),
+        ]),
+      },
+    });
+  });
+
   it("classifies buying-intent black rice posts as rice buying guides", async () => {
     let createVariables: Record<string, unknown> | undefined;
     mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {

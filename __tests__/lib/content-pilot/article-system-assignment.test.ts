@@ -64,6 +64,28 @@ describe("resolveArticleSystemAssignment", () => {
     ).toEqual({ template: "guide", profile: "rice" });
   });
 
+  it("uses turmeric keyword fallback for generic titles without downgrading to general", () => {
+    expect(
+      resolveArticleSystemAssignment({
+        title: "A Practical Guide",
+        targetKeyword: "turmeric tea philippines",
+        tags: [],
+        blogHandle: "news",
+      }),
+    ).toEqual({ template: "guide", profile: "turmeric" });
+  });
+
+  it("normalizes generic turmeric tea drafts to turmeric tags", () => {
+    expect(
+      normalizeArticleSystemTags({
+        title: "A Practical Guide",
+        targetKeyword: "turmeric tea philippines",
+        tags: ["turmeric tea philippines"],
+        blogHandle: "news",
+      }),
+    ).toEqual(["turmeric tea philippines", "turmeric"]);
+  });
+
   it("prefers target keyword over body content for generic titles", () => {
     expect(
       resolveArticleSystemAssignment({

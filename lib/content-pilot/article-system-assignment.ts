@@ -16,6 +16,8 @@ export interface ArticleSystemAssignment {
 
 const RICE_RE = /\b(rice|black rice|red rice|brown rice|organic rice|whole grain|grain|grains|sinandomeng)\b/i;
 const TURMERIC_RE = /\b(turmeric|dulaw|luyang dilaw|curcumin)\b/i;
+const GENERIC_HERBAL_RE = /\b(herbal|herb|tea)\b/i;
+const SPECIFIC_HERBAL_RE = /\b(pito[-\s]?pito|sambong|lagundi|moringa|malunggay|ginger|salabat|guyabano|tsaang gubat|lemongrass|pandan)\b/i;
 const HERBAL_RE = /\b(herbal|herb|tea|pito[-\s]?pito|sambong|lagundi|moringa|malunggay|ginger|salabat|guyabano|tsaang gubat|lemongrass|pandan)\b/i;
 const FARMING_RE = /\b(farming|farm|farms|organic agriculture|sustainable|regenerative|soil|pest|biodiversity|water conservation|sourcing|provenance)\b/i;
 const RECIPE_RE = /\b(recipe|recipes|how to make|cook|cooking|brew|brewing|ingredients|preparation)\b/i;
@@ -39,6 +41,10 @@ function textEvidence(input: ArticleSystemAssignmentInput): string {
   return `${input.title || ""} ${input.targetKeyword || ""} ${normalizeTags(input.tags)} ${input.bodyHtml || ""}`;
 }
 
+function hasHerbalEvidence(text: string): boolean {
+  return SPECIFIC_HERBAL_RE.test(text) || (GENERIC_HERBAL_RE.test(text) && !TURMERIC_RE.test(text));
+}
+
 export function resolveArticleSystemAssignment(input: ArticleSystemAssignmentInput): ArticleSystemAssignment {
   const title = input.title || "";
   const keywordText = input.targetKeyword || "";
@@ -46,12 +52,12 @@ export function resolveArticleSystemAssignment(input: ArticleSystemAssignmentInp
   const bodyText = input.bodyHtml || "";
   const allText = `${title} ${keywordText} ${tagText} ${bodyText}`;
   const blogHandle = input.blogHandle || "";
-  const titleHasCategory = TURMERIC_RE.test(title) || RICE_RE.test(title) || HERBAL_RE.test(title) || FARMING_RE.test(title);
+  const titleHasCategory = TURMERIC_RE.test(title) || RICE_RE.test(title) || hasHerbalEvidence(title) || FARMING_RE.test(title);
   const titleHasFarming = FARMING_RE.test(title);
   const tagCategoryCount = [
     TURMERIC_RE.test(tagText),
     RICE_RE.test(tagText),
-    HERBAL_RE.test(tagText),
+    hasHerbalEvidence(tagText),
     FARMING_RE.test(tagText),
   ].filter(Boolean).length;
 
@@ -64,7 +70,7 @@ export function resolveArticleSystemAssignment(input: ArticleSystemAssignmentInp
     profile = "turmeric";
   } else if (RICE_RE.test(title)) {
     profile = "rice";
-  } else if (HERBAL_RE.test(title)) {
+  } else if (hasHerbalEvidence(title)) {
     profile = "herbal";
   } else if (FARMING_RE.test(title)) {
     profile = "farming";
@@ -74,7 +80,7 @@ export function resolveArticleSystemAssignment(input: ArticleSystemAssignmentInp
     profile = "turmeric";
   } else if (RICE_RE.test(tagText)) {
     profile = "rice";
-  } else if (HERBAL_RE.test(tagText)) {
+  } else if (hasHerbalEvidence(tagText)) {
     profile = "herbal";
   } else if (FARMING_RE.test(tagText)) {
     profile = "farming";
@@ -82,7 +88,7 @@ export function resolveArticleSystemAssignment(input: ArticleSystemAssignmentInp
     profile = "turmeric";
   } else if (RICE_RE.test(keywordText)) {
     profile = "rice";
-  } else if (HERBAL_RE.test(keywordText)) {
+  } else if (hasHerbalEvidence(keywordText)) {
     profile = "herbal";
   } else if (FARMING_RE.test(keywordText)) {
     profile = "farming";
@@ -90,7 +96,7 @@ export function resolveArticleSystemAssignment(input: ArticleSystemAssignmentInp
     profile = "turmeric";
   } else if (RICE_RE.test(bodyText)) {
     profile = "rice";
-  } else if (HERBAL_RE.test(bodyText)) {
+  } else if (hasHerbalEvidence(bodyText)) {
     profile = "herbal";
   } else if (FARMING_RE.test(bodyText)) {
     profile = "farming";
