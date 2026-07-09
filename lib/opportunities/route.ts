@@ -3,7 +3,7 @@ import {
   shouldRouteOpportunityToStoreTask,
   upsertStoreTasksFromOpportunities,
 } from "@/lib/store-tasks/route-opportunities";
-import { CONTENT_PROPOSAL_ACTIVE_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
+import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
 type OpportunityRouterClient = Pick<
   PrismaClient,
@@ -150,7 +150,7 @@ async function findExistingContentProposal(
       where: {
         articleHandle: data.articleHandle,
         proposalType: data.proposalType,
-        status: { in: CONTENT_PROPOSAL_ACTIVE_STATUSES },
+        status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES },
       },
       orderBy: { updatedAt: "desc" },
       select: { id: true },
@@ -161,7 +161,7 @@ async function findExistingContentProposal(
     where: {
       title: { equals: data.title, mode: "insensitive" },
       proposalType: data.proposalType,
-      status: { in: CONTENT_PROPOSAL_ACTIVE_STATUSES },
+      status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES },
     },
     orderBy: { updatedAt: "desc" },
     select: { id: true },

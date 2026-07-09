@@ -4,7 +4,7 @@ import {
   type ProposalInput,
 } from "@/lib/content-pilot/generate-proposals";
 import {
-  CONTENT_PROPOSAL_ACTIVE_STATUSES,
+  CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES,
   filterBlockedContentProposalInputs,
 } from "@/lib/content-pilot/proposal-dedupe";
 import {
@@ -456,7 +456,7 @@ export async function generateContentOpportunities(
   const fresh = await filterBlockedContentProposalInputs(
     prismaClient,
     proposals,
-    CONTENT_PROPOSAL_ACTIVE_STATUSES,
+    CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES,
   );
   const opportunities = fresh.map(opportunityFromProposal);
   const result = await upsertOpportunities(prismaClient, opportunities);

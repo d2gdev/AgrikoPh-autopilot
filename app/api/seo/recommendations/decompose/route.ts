@@ -9,7 +9,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
 import { classifyPriority } from "@/lib/content-pilot/priority-score";
 import { hasMissingMeta } from "@/lib/seo/meta";
-import { CONTENT_PROPOSAL_ACTIVE_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
+import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
 const MAX_TASKS = 8;
 
@@ -242,7 +242,7 @@ ${articleRecords.slice(0, 120).map((a) => `${a.handle} — ${a.title} — ${a.wo
 
   const created = await prisma.$transaction(async (tx) => {
     const existing = await tx.contentProposal.findMany({
-      where: { title: { in: candidateTitles, mode: "insensitive" }, status: { in: CONTENT_PROPOSAL_ACTIVE_STATUSES } },
+      where: { title: { in: candidateTitles, mode: "insensitive" }, status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } },
       select: { title: true },
     });
     const existingTitleSet = new Set(existing.map((p) => p.title.toLowerCase()));

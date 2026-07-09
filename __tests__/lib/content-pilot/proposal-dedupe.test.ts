@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES,
+  CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
   contentProposalDedupeKey,
   filterBlockedContentProposalInputs,
   uniqueContentProposalInputs,
@@ -81,5 +83,12 @@ describe("content proposal dedupe", () => {
     ]);
 
     expect(fresh.map((p) => p.title)).toEqual(["Keyword gap: moringa tea"]);
+  });
+
+  it("treats rejected proposals as finished ideas that block regeneration", () => {
+    expect(CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES).toContain("rejected");
+    expect(CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES).toEqual(
+      expect.arrayContaining(["pending", "approved", "override_approved", "published", "rejected"]),
+    );
   });
 });

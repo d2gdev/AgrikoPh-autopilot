@@ -61,6 +61,25 @@ describe("createFatigueActions", () => {
     expect(prismaMock.recommendation.create).not.toHaveBeenCalled();
   });
 
+  it("skips the rec when a rejected or executed rec already finished the same ad+action", async () => {
+    prismaMock.recommendation.findFirst.mockResolvedValue({ id: "existing", status: "executed" });
+    const result = await createFatigueActions({
+      runId: "run_1",
+      rows: [row([{ adId: "ad_1", adName: "A", status: "dead", rationale: "r" }])],
+    });
+
+    expect(result.pauseRecs).toBe(0);
+    expect(prismaMock.recommendation.create).not.toHaveBeenCalled();
+    expect(prismaMock.recommendation.findFirst).toHaveBeenCalledWith({
+      where: {
+        platform: "meta",
+        actionType: "pause_ad",
+        targetEntityId: "ad_1",
+        status: { in: ["pending", "approved", "override_approved", "executing", "executed", "rejected"] },
+      },
+    });
+  });
+
   it("ignores malformed items and non-fatigue rows without throwing", async () => {
     const result = await createFatigueActions({
       runId: "run_1",

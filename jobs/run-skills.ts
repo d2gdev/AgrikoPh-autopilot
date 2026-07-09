@@ -4,6 +4,7 @@ import type { RawSnapshot } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { sendOperatorAlert } from "@/lib/alerts";
 import { checkGuardrails } from "@/lib/guardrails";
+import { RECOMMENDATION_RECREATE_BLOCKING_STATUSES } from "@/lib/recommendations/dedupe";
 import { isSupportedAction } from "@/lib/executor";
 import { loadAllSkillsSync } from "@/lib/skills/loader";
 import { assembleDataPayload } from "@/lib/skills/runner";
@@ -349,7 +350,12 @@ export async function runSkillsHandler(): Promise<RunSkillsResult> {
         const guard = await checkGuardrails(rec);
 
         const existing = await prisma.recommendation.findFirst({
-          where: { platform, actionType: rec.actionType, targetEntityId: rec.targetEntityId, status: "pending" },
+          where: {
+            platform,
+            actionType: rec.actionType,
+            targetEntityId: rec.targetEntityId,
+            status: { in: RECOMMENDATION_RECREATE_BLOCKING_STATUSES },
+          },
         });
         if (existing) continue;
 

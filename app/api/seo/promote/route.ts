@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireAppAuth, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
 const PromoteBodySchema = z.object({
   handle: z.string().trim().min(1).max(180),
@@ -48,13 +49,14 @@ export async function POST(req: Request) {
     issue === "missing-h1" ? `Add heading structure: ${title}` :
     `Fix meta: ${title}`;
 
-  // Check for an existing non-rejected proposal for this exact article action.
+  // Check for an existing proposal for this exact article action, including
+  // terminal operator decisions so finished ideas do not come back.
   const existing = await prisma.contentProposal.findFirst({
     where: {
       articleHandle: handle,
       proposalType,
       title: proposalTitle,
-      status: { notIn: ["rejected"] },
+      status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES },
     },
     select: { id: true },
   });

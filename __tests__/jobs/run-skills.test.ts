@@ -458,6 +458,42 @@ describe("runSkillsHandler", () => {
     });
   });
 
+  it("does not recreate a recommendation already finished for the same target/action", async () => {
+    const skill = makeSkill("skill-1", "meta");
+    mockLoadAllSkillsSync.mockReturnValue([skill]);
+    mockRunSkill.mockResolvedValue({
+      recs: [
+        {
+          actionType: "pause_ad",
+          targetEntityType: "ad",
+          targetEntityId: "ad-1",
+          targetEntityName: "Test Ad",
+          currentValue: "active",
+          proposedValue: "paused",
+          changePercent: null,
+          rationale: "Low performance",
+          estimatedImpact: "Save budget",
+          confidenceScore: 0.9,
+        },
+      ],
+      truncated: false,
+    });
+    mockPrisma.recommendation.findFirst.mockResolvedValue({ id: "old-rec", status: "rejected" });
+
+    const result = await runSkillsHandler();
+
+    expect(result.newRecs).toBe(0);
+    expect(mockPrisma.recommendation.create).not.toHaveBeenCalled();
+    expect(mockPrisma.recommendation.findFirst).toHaveBeenCalledWith({
+      where: {
+        platform: "meta",
+        actionType: "pause_ad",
+        targetEntityId: "ad-1",
+        status: { in: ["pending", "approved", "override_approved", "executing", "executed", "rejected"] },
+      },
+    });
+  });
+
   describe("skills cap with round-robin rotation", () => {
     it("defers skills beyond MAX_SKILLS_PER_RUN and logs a warning", async () => {
       const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});

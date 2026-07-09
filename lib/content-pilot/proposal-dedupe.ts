@@ -9,6 +9,12 @@ export const CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES = [
   "approved",
   "override_approved",
   "published",
+  "rejected",
+];
+
+export const CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES = [
+  ...CONTENT_PROPOSAL_ACTIVE_STATUSES,
+  "rejected",
 ];
 
 export type ContentProposalDedupeInput = {

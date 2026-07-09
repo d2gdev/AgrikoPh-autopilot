@@ -7,7 +7,7 @@ import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { classifyPriority, findingToImpact, changeTypeToEffort } from "@/lib/content-pilot/priority-score";
 import { getLatestGscData } from "@/lib/seo/data";
-import { CONTENT_PROPOSAL_ACTIVE_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
+import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
 const GapInputSchema = z.object({
   query: z.string().trim().min(1).max(160),
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
             ...candidateTitles.map((title) => `Improve SERP snippet: ${title}`),
             ...candidateTitles.map((title) => `Expand thin content: ${title}`),
           ], mode: "insensitive" },
-          status: { in: CONTENT_PROPOSAL_ACTIVE_STATUSES },
+          status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES },
         },
         select: { title: true },
       }),

@@ -118,4 +118,32 @@ describe("Content Pilot route regressions", () => {
     expect(mockPrisma.contentProposal.create).toHaveBeenCalledTimes(2);
     expect(mockOpportunityFromProposal.mock.calls.map((call) => call[0])).toEqual([blackRice, moringa]);
   });
+
+  it("does not recreate rejected proposals as fresh pending ideas", async () => {
+    const rejected = proposal("Keyword gap: black rice benefits", "black rice benefits");
+    mockGenerateProposals.mockResolvedValue([rejected]);
+    const rejectedExisting = {
+      id: "rejected-1",
+      articleHandle: null,
+      proposalType: "new-content",
+      title: "Rejected black rice proposal",
+      proposedState: { targetKeyword: "black rice benefits" },
+      updatedAt: new Date("2026-07-01T00:00:00Z"),
+      status: "rejected",
+      draftStatus: null,
+      sourceData: {},
+    };
+    mockPrisma.contentProposal.findMany
+      .mockResolvedValueOnce([rejectedExisting])
+      .mockResolvedValueOnce([rejectedExisting]);
+
+    const { POST } = await import("@/app/api/content-pilot/proposals/generate/route");
+    const res = await POST(new Request("http://test.local/api/content-pilot/proposals/generate", { method: "POST" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({ created: 0, opportunities: 0 }));
+    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+    expect(mockOpportunityFromProposal).not.toHaveBeenCalled();
+  });
 });

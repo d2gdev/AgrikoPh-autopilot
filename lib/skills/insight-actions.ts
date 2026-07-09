@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { checkGuardrails } from "@/lib/guardrails";
+import { RECOMMENDATION_RECREATE_BLOCKING_STATUSES } from "@/lib/recommendations/dedupe";
 
 type InsightRow = {
   skillId: string;
@@ -74,7 +75,7 @@ export async function createFatigueActions(input: {
             platform: "meta",
             actionType: "pause_ad",
             targetEntityId: item.adId,
-            status: { in: ["pending", "approved", "override_approved"] },
+            status: { in: RECOMMENDATION_RECREATE_BLOCKING_STATUSES },
           },
         });
         if (!existing) {
