@@ -40,7 +40,7 @@ describe("resolveArticleSystemAssignment", () => {
         tags: [" Wellness "],
         blogHandle: "news",
       }),
-    ).toEqual(["wellness", "filipino herbal wellness", "sambong"]);
+    ).toEqual(["filipino herbal wellness", "sambong"]);
   });
 
   it("maps sustainable rice farming titles to farming-trust instead of rice guide", () => {
@@ -62,6 +62,28 @@ describe("resolveArticleSystemAssignment", () => {
         blogHandle: "news",
       }),
     ).toEqual({ template: "guide", profile: "rice" });
+  });
+
+  it("prefers target keyword over body content for generic titles", () => {
+    expect(
+      resolveArticleSystemAssignment({
+        title: "A Practical Guide for Filipino Families",
+        targetKeyword: "organic black rice philippines",
+        bodyHtml: "<p>This draft currently discusses turmeric tea benefits.</p>",
+        tags: [],
+        blogHandle: "news",
+      }),
+    ).toEqual({ template: "guide", profile: "rice" });
+  });
+
+  it("drops neutral tags for non-general profiles while keeping matching category tags", () => {
+    expect(
+      normalizeArticleSystemTags({
+        title: "Turmeric Tea Philippines: Benefits, How to Brew, and Best Options",
+        tags: ["wellness", "organic rice philippines", "best black rice brands philippines", "turmeric tea philippines"],
+        blogHandle: "news",
+      }),
+    ).toEqual(["turmeric tea philippines", "turmeric"]);
   });
 
   it("prunes conflicting rice tags from turmeric articles", () => {

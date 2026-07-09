@@ -78,14 +78,6 @@ export function resolveArticleSystemAssignment(input: ArticleSystemAssignmentInp
     profile = "herbal";
   } else if (FARMING_RE.test(tagText)) {
     profile = "farming";
-  } else if (TURMERIC_RE.test(bodyText)) {
-    profile = "turmeric";
-  } else if (RICE_RE.test(bodyText)) {
-    profile = "rice";
-  } else if (HERBAL_RE.test(bodyText)) {
-    profile = "herbal";
-  } else if (FARMING_RE.test(bodyText)) {
-    profile = "farming";
   } else if (TURMERIC_RE.test(keywordText)) {
     profile = "turmeric";
   } else if (RICE_RE.test(keywordText)) {
@@ -93,6 +85,14 @@ export function resolveArticleSystemAssignment(input: ArticleSystemAssignmentInp
   } else if (HERBAL_RE.test(keywordText)) {
     profile = "herbal";
   } else if (FARMING_RE.test(keywordText)) {
+    profile = "farming";
+  } else if (TURMERIC_RE.test(bodyText)) {
+    profile = "turmeric";
+  } else if (RICE_RE.test(bodyText)) {
+    profile = "rice";
+  } else if (HERBAL_RE.test(bodyText)) {
+    profile = "herbal";
+  } else if (FARMING_RE.test(bodyText)) {
     profile = "farming";
   }
 
@@ -166,11 +166,11 @@ export function normalizeArticleSystemTags(input: ArticleSystemAssignmentInput):
 function tagMatchesProfile(tag: string, profile: ArticleSystemProfile): boolean {
   const normalized = normalizeTag(tag);
   if (!normalized) return false;
-  if (profile === "rice") return RICE_RE.test(normalized) || (!TURMERIC_RE.test(normalized) && !HERBAL_RE.test(normalized) && !FARMING_RE.test(normalized));
-  if (profile === "turmeric") return TURMERIC_RE.test(normalized) || (!RICE_RE.test(normalized) && !HERBAL_RE.test(normalized) && !FARMING_RE.test(normalized));
-  if (profile === "herbal") return HERBAL_RE.test(normalized) || (!RICE_RE.test(normalized) && !TURMERIC_RE.test(normalized) && !FARMING_RE.test(normalized));
-  if (profile === "farming") return FARMING_RE.test(normalized) || (!RICE_RE.test(normalized) && !TURMERIC_RE.test(normalized) && !HERBAL_RE.test(normalized));
-  if (profile === "recipe") return RECIPE_RE.test(normalized) || normalized === "recipes" || (!RICE_RE.test(normalized) && !TURMERIC_RE.test(normalized) && !HERBAL_RE.test(normalized) && !FARMING_RE.test(normalized));
+  if (profile === "rice") return RICE_RE.test(normalized);
+  if (profile === "turmeric") return TURMERIC_RE.test(normalized);
+  if (profile === "herbal") return HERBAL_RE.test(normalized);
+  if (profile === "farming") return FARMING_RE.test(normalized);
+  if (profile === "recipe") return RECIPE_RE.test(normalized) || normalized === "recipes";
   return !RICE_RE.test(normalized) && !TURMERIC_RE.test(normalized) && !HERBAL_RE.test(normalized) && !FARMING_RE.test(normalized);
 }
 
