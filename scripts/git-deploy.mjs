@@ -219,6 +219,7 @@ mv .next.build .next
 
 pm2 restart autopilot --update-env || pm2 start /opt/autopilot/ecosystem.config.js
 rm -rf /opt/autopilot/.next.old /opt/autopilot/.next.build
+git checkout -- next-env.d.ts 2>/dev/null || true
 `;
 
 run("ssh", [
