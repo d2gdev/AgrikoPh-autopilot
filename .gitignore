@@ -28,3 +28,7 @@ repomix-core.xml
 repomix-plans.xml
 .codesight/
 .seo-cache/
+
+# Local/generated Superpowers plan drafts
+docs/superpowers/plans/2026-07-09-skill-hash-hardening.md
+docs/superpowers/plans/2026-07-09-skill-input-hash-fix.md

@@ -133,5 +133,10 @@ export async function computeAdLongevity(competitorId?: string): Promise<AdLonge
     });
   }
 
-  return rows.sort((a, b) => b.daysActive - a.daysActive).slice(0, TOP_N);
+  return rows.sort((a, b) =>
+    b.daysActive - a.daysActive
+    || String(a.competitor ?? "").localeCompare(String(b.competitor ?? ""))
+    || String(a.headline ?? "").localeCompare(String(b.headline ?? ""))
+    || a.adArchiveId.localeCompare(b.adArchiveId)
+  ).slice(0, TOP_N);
 }
