@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { CONTENT_PROPOSAL_ACTIVE_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
 export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
@@ -14,7 +15,7 @@ export async function GET(req: Request) {
   // status is a free-form String column, but only a known set of values is ever
   // written. Reject anything else so an arbitrary query param can't be passed
   // straight into the Prisma where clause.
-  const VALID_STATUSES = ["pending", "approved", "rejected", "published"];
+  const VALID_STATUSES = [...CONTENT_PROPOSAL_ACTIVE_STATUSES, "rejected"];
   if (status !== null && !VALID_STATUSES.includes(status)) {
     return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
   }

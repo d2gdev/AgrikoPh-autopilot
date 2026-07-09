@@ -9,8 +9,8 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
 import { classifyPriority } from "@/lib/content-pilot/priority-score";
 import { hasMissingMeta } from "@/lib/seo/meta";
+import { CONTENT_PROPOSAL_ACTIVE_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
-const ACTIVE_STATUSES = ["pending", "approved", "override_approved"];
 const MAX_TASKS = 8;
 
 const DecomposedTaskSchema = z.object({
@@ -242,7 +242,7 @@ ${articleRecords.slice(0, 120).map((a) => `${a.handle} — ${a.title} — ${a.wo
 
   const created = await prisma.$transaction(async (tx) => {
     const existing = await tx.contentProposal.findMany({
-      where: { title: { in: candidateTitles, mode: "insensitive" }, status: { in: ACTIVE_STATUSES } },
+      where: { title: { in: candidateTitles, mode: "insensitive" }, status: { in: CONTENT_PROPOSAL_ACTIVE_STATUSES } },
       select: { title: true },
     });
     const existingTitleSet = new Set(existing.map((p) => p.title.toLowerCase()));

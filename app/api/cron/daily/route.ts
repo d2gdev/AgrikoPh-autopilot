@@ -10,6 +10,10 @@ import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
 import { notifyJobFailure, checkAndAlertJobHealth, checkAndAlertDataFreshness } from "@/lib/alerts";
 import { generateProposals } from "@/lib/content-pilot/generate-proposals";
 import { markContentProposalOpportunitiesTerminal } from "@/lib/opportunities/content-proposal-outcomes";
+import {
+  CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
+  filterBlockedContentProposalInputs,
+} from "@/lib/content-pilot/proposal-dedupe";
 import { isJobSuccessful, type JobResult, type JobStatus } from "@/lib/jobs/types";
 import { cleanupDashboardRetention } from "@/lib/retention";
 
@@ -114,14 +118,10 @@ export async function GET(req: Request) {
 
         // Skip creating new pending rows if nothing was found.
         if (proposals.length > 0) {
-          const activeKeys = new Set(
-            (await prisma.contentProposal.findMany({
-              where: { status: { in: ["approved", "published"] } },
-              select: { articleHandle: true, proposalType: true },
-            })).map((p) => `${p.articleHandle ?? "__null__"}::${p.proposalType}`)
-          );
-          const fresh = proposals.filter(
-            (p) => !activeKeys.has(`${p.articleHandle ?? "__null__"}::${p.proposalType}`)
+          const fresh = await filterBlockedContentProposalInputs(
+            prisma,
+            proposals,
+            CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
           );
           if (fresh.length > 0) {
             const pendingToDelete = await prisma.contentProposal.findMany({

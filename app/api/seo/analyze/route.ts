@@ -16,6 +16,59 @@ const SeoAnalysisSchema = z.object({
   recommendations: z.array(z.string().trim().min(1).max(500)).max(8).default([]),
 });
 
+const STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "that",
+  "this",
+  "are",
+  "was",
+  "how",
+  "why",
+  "what",
+  "which",
+  "where",
+  "when",
+  "does",
+  "can",
+  "its",
+]);
+
+function articleHandleFromBlogPage(page: string | undefined): string | null {
+  if (!page) return null;
+  let path = page;
+  try {
+    path = new URL(page).pathname;
+  } catch {
+    path = page.split(/[?#]/)[0] ?? page;
+  }
+  const parts = path.split("/").filter(Boolean);
+  const blogIndex = parts.findIndex((part) => part === "blogs");
+  const handle = blogIndex >= 0 ? parts[blogIndex + 2] : null;
+  return handle && /^[a-z0-9][a-z0-9_-]*$/i.test(handle) ? handle.toLowerCase() : null;
+}
+
+function meaningfulTerms(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/[\s-]+/)
+    .filter((term) => term.length > 3 && !STOP_WORDS.has(term));
+}
+
+function titleCoversQuery(title: string, query: string): boolean {
+  const queryTerms = meaningfulTerms(query);
+  if (queryTerms.length === 0) return false;
+  const titleTerms = new Set(meaningfulTerms(title));
+  const matchCount = queryTerms.filter((term) => titleTerms.has(term)).length;
+  return queryTerms.length <= 2
+    ? matchCount >= queryTerms.length
+    : matchCount >= Math.ceil(queryTerms.length * 0.5) && matchCount >= 2;
+}
+
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
@@ -35,6 +88,15 @@ export async function POST(req: NextRequest) {
   const noInternalLinks = articleRecords.filter((a) => (a.internalLinkCount ?? 0) === 0);
   const missingMeta = articleRecords.filter((a) => hasMissingMeta(a.seoData));
   const existingTitles = articleRecords.map((a) => a.title);
+  const articleHandles = new Set(articleRecords.map((a) => a.handle.toLowerCase()));
+  const coveredQueries = new Set<string>();
+
+  for (const pair of gscData.queryPagePairs) {
+    const handle = articleHandleFromBlogPage(pair.page);
+    if (handle && articleHandles.has(handle)) {
+      coveredQueries.add(pair.query.toLowerCase());
+    }
+  }
 
   if (topQueries.length === 0 && articleRecords.length === 0) {
     return NextResponse.json({ error: "No GSC data or articles available — run fetch-seo-data and fetch-blog-content crons first" }, { status: 400 });
@@ -54,7 +116,11 @@ export async function POST(req: NextRequest) {
   // 1. Striking-distance GSC queries (pos 5–20)
   for (const q of topQueries) {
     const pos = parseFloat(q.position);
-    if (pos >= 5 && pos <= 20) {
+    const queryKey = q.query.toLowerCase();
+    const isCovered =
+      coveredQueries.has(queryKey) ||
+      existingTitles.some((title) => titleCoversQuery(title, q.query));
+    if (pos >= 5 && pos <= 20 && !isCovered) {
       const cap = q.query.charAt(0).toUpperCase() + q.query.slice(1);
       programmaticGaps.push({
         query: q.query,

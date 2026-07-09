@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { CONTENT_PROPOSAL_ACTIVE_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
   const title = `New article: ${topic}`;
   // Dedup: don't create a second active proposal for the same title.
   const existing = await prisma.contentProposal.findFirst({
-    where: { title, status: { in: ["pending", "approved", "override_approved"] } },
+    where: { title, status: { in: CONTENT_PROPOSAL_ACTIVE_STATUSES } },
     select: { id: true },
   });
   if (existing) {

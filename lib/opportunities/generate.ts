@@ -4,6 +4,10 @@ import {
   type ProposalInput,
 } from "@/lib/content-pilot/generate-proposals";
 import {
+  CONTENT_PROPOSAL_ACTIVE_STATUSES,
+  filterBlockedContentProposalInputs,
+} from "@/lib/content-pilot/proposal-dedupe";
+import {
   classifyOpportunityPriority,
   normalizeOpportunityScore,
 } from "@/lib/opportunities/scoring";
@@ -449,7 +453,12 @@ export async function generateContentOpportunities(
   prismaClient: OpportunityClient,
 ): Promise<{ generated: number; upserted: number }> {
   const proposals = await generateProposals(prismaClient as PrismaClient);
-  const opportunities = proposals.map(opportunityFromProposal);
+  const fresh = await filterBlockedContentProposalInputs(
+    prismaClient,
+    proposals,
+    CONTENT_PROPOSAL_ACTIVE_STATUSES,
+  );
+  const opportunities = fresh.map(opportunityFromProposal);
   const result = await upsertOpportunities(prismaClient, opportunities);
   return { generated: opportunities.length, upserted: result.upserted };
 }

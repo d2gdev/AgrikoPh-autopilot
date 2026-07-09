@@ -19,6 +19,9 @@ const mockPrisma = vi.hoisted(() => ({
     findMany: vi.fn(),
     create: vi.fn(),
   },
+  rawSnapshot: {
+    upsert: vi.fn(),
+  },
   auditLog: {
     create: vi.fn(),
   },
@@ -89,6 +92,7 @@ describe("SEO Pilot route regressions", () => {
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
     mockPrisma.contentProposal.findMany.mockResolvedValue([]);
     mockPrisma.articleRecord.findMany.mockResolvedValue([]);
+    mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
     mockPrisma.auditLog.create.mockResolvedValue({});
     mockPrisma.marketKeyword.findFirst.mockResolvedValue(null);
     mockPrisma.marketKeyword.create.mockResolvedValue({});
@@ -238,6 +242,52 @@ describe("SEO Pilot route regressions", () => {
 
     expect(res.status).toBe(400);
     expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+  });
+
+  it("does not report already-covered GSC queries as new content gaps", async () => {
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [
+        { query: "black rice benefits", clicks: 3, impressions: 320, ctr: "0.9%", position: "8.0" },
+        { query: "moringa tea recipe", clicks: 1, impressions: 180, ctr: "0.6%", position: "12.0" },
+      ],
+      pages: [],
+      queryPagePairs: [
+        {
+          query: "black rice benefits",
+          page: "https://agrikoph.com/blogs/news/black-rice-benefits",
+          clicks: 3,
+          impressions: 320,
+          position: "8.0",
+        },
+      ],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      {
+        handle: "black-rice-benefits",
+        title: "Black Rice Benefits",
+        wordCount: 900,
+        internalLinkCount: 2,
+        seoData: { seoTitle: "Black Rice Benefits", seoDescription: "A complete guide." },
+      },
+    ]);
+    const { POST } = await import("@/app/api/seo/analyze/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/analyze", { method: "POST" }) as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.analysis.contentGaps).toEqual([
+      expect.objectContaining({
+        query: "moringa tea recipe",
+        suggestedTitle: "Moringa tea recipe: Benefits, Uses & Complete Guide",
+      }),
+    ]);
+    expect(body.analysis.contentGaps).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ query: "black rice benefits" })])
+    );
   });
 
   it("promotes analyzed missing-meta gaps as seo-fix proposals", async () => {

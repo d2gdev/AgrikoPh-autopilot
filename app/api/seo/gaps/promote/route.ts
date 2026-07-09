@@ -7,6 +7,7 @@ import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { classifyPriority, findingToImpact, changeTypeToEffort } from "@/lib/content-pilot/priority-score";
 import { getLatestGscData } from "@/lib/seo/data";
+import { CONTENT_PROPOSAL_ACTIVE_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
 const GapInputSchema = z.object({
   query: z.string().trim().min(1).max(160),
@@ -22,8 +23,6 @@ const GapInputSchema = z.object({
 const PromoteGapsBodySchema = z.object({
   gaps: z.array(GapInputSchema).min(1).max(50),
 });
-
-const ACTIVE_STATUSES = ["pending", "approved", "override_approved"];
 
 function articleHandleFromPage(page: string | undefined): string | null {
   if (!page) return null;
@@ -85,7 +84,7 @@ export async function POST(req: NextRequest) {
             ...candidateTitles.map((title) => `Improve SERP snippet: ${title}`),
             ...candidateTitles.map((title) => `Expand thin content: ${title}`),
           ], mode: "insensitive" },
-          status: { in: ACTIVE_STATUSES },
+          status: { in: CONTENT_PROPOSAL_ACTIVE_STATUSES },
         },
         select: { title: true },
       }),

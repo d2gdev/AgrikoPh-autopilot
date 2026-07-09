@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  generateContentOpportunities,
   generateMarketOpportunities,
   generateSkillInsightOpportunities,
   opportunitiesFromSkillInsight,
@@ -37,6 +38,19 @@ const mockPrisma = {
   opportunity: {
     upsert: vi.fn(),
   },
+  contentProposal: {
+    findMany: vi.fn(),
+  },
+  articleRecord: {
+    findMany: vi.fn(),
+  },
+  rawSnapshot: {
+    findFirst: vi.fn(),
+  },
+  gscQuery: {
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+  },
   marketInsight: {
     findMany: vi.fn(),
   },
@@ -44,6 +58,7 @@ const mockPrisma = {
     findMany: vi.fn(),
   },
   skillInsight: {
+    findFirst: vi.fn(),
     findMany: vi.fn(),
   },
 };
@@ -51,7 +66,13 @@ const mockPrisma = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.opportunity.upsert.mockResolvedValue({});
+  mockPrisma.contentProposal.findMany.mockResolvedValue([]);
+  mockPrisma.articleRecord.findMany.mockResolvedValue([]);
+  mockPrisma.rawSnapshot.findFirst.mockResolvedValue(null);
+  mockPrisma.gscQuery.findFirst.mockResolvedValue(null);
+  mockPrisma.gscQuery.findMany.mockResolvedValue([]);
   mockPrisma.marketInsight.findMany.mockResolvedValue([]);
+  mockPrisma.skillInsight.findFirst.mockResolvedValue(null);
   mockPrisma.shoppingPriceHistory.findMany.mockResolvedValue([]);
   mockPrisma.skillInsight.findMany.mockResolvedValue([]);
 });
@@ -177,6 +198,40 @@ describe("upsertOpportunities", () => {
         score: input.score,
       }),
     });
+  });
+});
+
+describe("generateContentOpportunities", () => {
+  it("does not upsert content opportunities blocked by existing active proposals", async () => {
+    mockPrisma.marketInsight.findMany.mockResolvedValue([
+      {
+        id: "market-gap-1",
+        competitorId: "competitor-1",
+        evidence: {
+          keyword: "black rice benefits",
+          competitorDomain: "competitor.example",
+          competitorPosition: 3,
+          searchVolume: 1200,
+        },
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      },
+    ]);
+    mockPrisma.contentProposal.findMany.mockResolvedValue([
+      {
+        articleHandle: null,
+        proposalType: "new-content",
+        title: "Existing black rice proposal",
+        proposedState: { targetKeyword: "black rice benefits" },
+      },
+    ]);
+
+    const result = await generateContentOpportunities(mockPrisma as any);
+
+    expect(result).toEqual({ generated: 0, upserted: 0 });
+    expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: { in: expect.arrayContaining(["pending", "approved", "override_approved", "published"]) } },
+    }));
+    expect(mockPrisma.opportunity.upsert).not.toHaveBeenCalled();
   });
 });
 

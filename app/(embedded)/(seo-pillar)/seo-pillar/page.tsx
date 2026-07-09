@@ -124,8 +124,16 @@ export default function SeoPillarReportPage() {
       });
       const d = await res.json();
       if (res.ok) {
-        setPromoted((s) => new Set([...s, ...keys]));
-        setToast(`Created ${d.created} draft proposal${d.created === 1 ? "" : "s"} in Content Pilot${d.skipped ? ` (${d.skipped} skipped as duplicates)` : ""}.`);
+        if (d.created > 0 || d.skippedReasons?.duplicate > 0) {
+          setPromoted((s) => new Set([...s, ...keys]));
+        }
+        if (d.created > 0) {
+          setToast(`Created ${d.created} draft proposal${d.created === 1 ? "" : "s"} in Content Pilot${d.skipped ? ` (${d.skipped} skipped)` : ""}.`);
+        } else if (d.skipped > 0) {
+          setToast(`${d.skipped} gap${d.skipped === 1 ? "" : "s"} already handled or not promotable.`);
+        } else {
+          setToast("No proposals created.");
+        }
       } else setToast(d.error ?? "Could not create proposals.");
     } catch { setToast("Could not create proposals."); }
     finally { setPromoting((s) => { const n = new Set(s); keys.forEach((k) => n.delete(k)); return n; }); }
@@ -143,8 +151,16 @@ export default function SeoPillarReportPage() {
       });
       const d = await res.json();
       if (res.ok) {
-        setPromotedOpp((s) => new Set([...s, key]));
-        setToast(`Created draft proposal in Content Pilot${d.skipped ? " (already exists)" : ""}.`);
+        if (d.created > 0 || d.skippedReasons?.duplicate > 0) {
+          setPromotedOpp((s) => new Set([...s, key]));
+        }
+        if (d.created > 0) {
+          setToast("Created draft proposal in Content Pilot.");
+        } else if (d.skipped > 0) {
+          setToast("Already handled or not promotable.");
+        } else {
+          setToast("No proposal created.");
+        }
       } else setToast(d.error ?? "Could not create proposal.");
     } catch { setToast("Could not create proposal."); }
     finally { setPromotingOpp((s) => { const n = new Set(s); n.delete(key); return n; }); }

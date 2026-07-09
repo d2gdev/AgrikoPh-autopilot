@@ -8,6 +8,11 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { generateProposals } from "@/lib/content-pilot/generate-proposals";
 import { opportunityFromProposal, upsertOpportunities } from "@/lib/opportunities/generate";
 import { markContentProposalOpportunitiesTerminal } from "@/lib/opportunities/content-proposal-outcomes";
+import {
+  CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
+  contentProposalDedupeKey,
+  filterBlockedContentProposalInputs,
+} from "@/lib/content-pilot/proposal-dedupe";
 
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
@@ -23,25 +28,21 @@ export async function POST(req: Request) {
 
   try {
     const proposals = await generateProposals(prisma);
-    const opportunityResult = await upsertOpportunities(
-      prisma,
-      proposals.map(opportunityFromProposal),
-    );
 
     // Deduplicate existing approved proposals: for each (articleHandle, proposalType)
     // group with more than one record, keep ONE and delete the rest. We keep the
     // row with the most recent updatedAt so operator edits (which bump updatedAt)
     // are preserved rather than silently discarded in favour of a newer createdAt.
     const approved = await prisma.contentProposal.findMany({
-      where: { status: { in: ["approved", "rejected"] } },
-      select: { id: true, articleHandle: true, proposalType: true, updatedAt: true, status: true, draftStatus: true, sourceData: true },
+      where: { status: { in: ["approved", "override_approved", "rejected"] } },
+      select: { id: true, articleHandle: true, proposalType: true, title: true, proposedState: true, updatedAt: true, status: true, draftStatus: true, sourceData: true },
       // Most recently edited first → the first row seen per key is the keeper.
       orderBy: { updatedAt: "desc" },
     });
     const seen = new Set<string>();
     const toDelete: typeof approved = [];
     for (const p of approved) {
-      const key = `${p.articleHandle ?? "__null__"}::${p.proposalType}`;
+      const key = contentProposalDedupeKey(p);
       if (seen.has(key)) {
         toDelete.push(p);
       } else {
@@ -54,24 +55,17 @@ export async function POST(req: Request) {
     }
 
     if (proposals.length === 0) {
-      return NextResponse.json({ created: 0, proposals: [], deduplicated: toDelete.length, opportunities: opportunityResult.upserted });
+      return NextResponse.json({ created: 0, proposals: [], deduplicated: toDelete.length, opportunities: 0 });
     }
 
-    // Build a set of already-active (approved/published) article+type combos so we
-    // don't create new proposals that would immediately duplicate them.
-    const activeKeys = new Set(
-      (await prisma.contentProposal.findMany({
-        where: { status: { in: ["approved", "published"] } },
-        select: { articleHandle: true, proposalType: true },
-      })).map((p) => `${p.articleHandle ?? "__null__"}::${p.proposalType}`)
-    );
-
-    const fresh = proposals.filter(
-      (p) => !activeKeys.has(`${p.articleHandle ?? "__null__"}::${p.proposalType}`)
+    const fresh = await filterBlockedContentProposalInputs(
+      prisma,
+      proposals,
+      CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
     );
 
     if (fresh.length === 0) {
-      return NextResponse.json({ created: 0, proposals: [], deduplicated: toDelete.length, opportunities: opportunityResult.upserted });
+      return NextResponse.json({ created: 0, proposals: [], deduplicated: toDelete.length, opportunities: 0 });
     }
 
     // Delete existing pending proposals and create the fresh set atomically, so a
@@ -106,6 +100,10 @@ export async function POST(req: Request) {
 
     // First element is the deleteMany batch result; the rest are the created rows.
     const createdRows = created.slice(1);
+    const opportunityResult = await upsertOpportunities(
+      prisma,
+      fresh.map(opportunityFromProposal),
+    );
     return NextResponse.json({
       created: createdRows.length,
       proposals: createdRows,
