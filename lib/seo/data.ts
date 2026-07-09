@@ -26,6 +26,20 @@ import type {
 export type GscDataSource = "normalized" | "rawSnapshot" | "none";
 export type Ga4DataSource = "normalized" | "rawSnapshot" | "none";
 
+export interface GscFreshness {
+  selectedSource: GscDataSource;
+  selectedCapturedAt: Date | null;
+  selectedDateRangeStart: Date | null;
+  selectedDateRangeEnd: Date | null;
+  normalizedCapturedAt: Date | null;
+  normalizedDateRangeStart: Date | null;
+  normalizedDateRangeEnd: Date | null;
+  rawCapturedAt: Date | null;
+  rawDateRangeStart: Date | null;
+  rawDateRangeEnd: Date | null;
+  fallbackReason: "normalized_missing" | "raw_newer_than_normalized" | null;
+}
+
 export interface LatestGscData {
   queries: GscQueryRow[];
   pages: GscPageRow[];
@@ -33,6 +47,7 @@ export interface LatestGscData {
   fetchedAt: Date | null;
   source: GscDataSource;
   window: GscWindow | null;
+  freshness: GscFreshness;
 }
 
 export interface LatestGa4Data {
@@ -45,6 +60,37 @@ function formatPercent(value: number | null | undefined, digits = 1): string {
   return value == null ? "—" : `${(value * 100).toFixed(digits)}%`;
 }
 
+const RAW_NEWER_THAN_NORMALIZED_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+function buildFreshness(input: {
+  selectedSource: GscDataSource;
+  selectedCapturedAt: Date | null;
+  selectedDateRangeStart: Date | null;
+  selectedDateRangeEnd: Date | null;
+  normalizedWindow: GscWindow | null;
+  rawSnapshot: { fetchedAt: Date; dateRangeStart: Date; dateRangeEnd: Date } | null;
+  fallbackReason: GscFreshness["fallbackReason"];
+}): GscFreshness {
+  return {
+    selectedSource: input.selectedSource,
+    selectedCapturedAt: input.selectedCapturedAt,
+    selectedDateRangeStart: input.selectedDateRangeStart,
+    selectedDateRangeEnd: input.selectedDateRangeEnd,
+    normalizedCapturedAt: input.normalizedWindow?.capturedAt ?? null,
+    normalizedDateRangeStart: input.normalizedWindow?.dateRangeStart ?? null,
+    normalizedDateRangeEnd: input.normalizedWindow?.dateRangeEnd ?? null,
+    rawCapturedAt: input.rawSnapshot?.fetchedAt ?? null,
+    rawDateRangeStart: input.rawSnapshot?.dateRangeStart ?? null,
+    rawDateRangeEnd: input.rawSnapshot?.dateRangeEnd ?? null,
+    fallbackReason: input.fallbackReason,
+  };
+}
+
+function rawIsMateriallyNewer(rawFetchedAt: Date | null, normalizedCapturedAt: Date | null): boolean {
+  if (!rawFetchedAt || !normalizedCapturedAt) return false;
+  return rawFetchedAt.getTime() - normalizedCapturedAt.getTime() > RAW_NEWER_THAN_NORMALIZED_THRESHOLD_MS;
+}
+
 export async function getLatestGscData(): Promise<LatestGscData> {
   const [gscSnap, gscPagesSnap, queryPageSnap, latestWindow] = await Promise.all([
     getLatestSnapshot("gsc"),
@@ -53,32 +99,84 @@ export async function getLatestGscData(): Promise<LatestGscData> {
     getLatestGscWindow(),
   ]);
 
+  const rawSnapshot =
+    gscSnap?.fetchedAt && gscSnap?.dateRangeStart && gscSnap?.dateRangeEnd
+      ? {
+          fetchedAt: gscSnap.fetchedAt,
+          dateRangeStart: gscSnap.dateRangeStart,
+          dateRangeEnd: gscSnap.dateRangeEnd,
+        }
+      : null;
+  const pagesRaw = gscPagesSnap?.payload?.topPages;
+  const pairsRaw = queryPageSnap?.payload?.pairs;
+  const rawQueries = getQueries(gscSnap);
+  const rawPages = Array.isArray(pagesRaw) ? (pagesRaw as GscPageRow[]) : [];
+  const rawQueryPagePairs = Array.isArray(pairsRaw) ? (pairsRaw as GscQueryPageRow[]) : [];
+
   if (latestWindow) {
     const [queries, pages, queryPagePairs] = await Promise.all([
       getGscQueriesForWindow(latestWindow),
       getGscPagesForWindow(latestWindow),
       getGscQueryPagePairsForWindow(latestWindow),
     ]);
+    const rawIsNewer = rawIsMateriallyNewer(gscSnap?.fetchedAt ?? null, latestWindow.capturedAt);
+    const shouldUseRaw = rawQueries.length > 0 && (rawIsNewer || queries.length === 0);
+
+    if (!shouldUseRaw) {
+      return {
+        queries,
+        pages,
+        queryPagePairs,
+        fetchedAt: latestWindow.capturedAt,
+        source: "normalized",
+        window: latestWindow,
+        freshness: buildFreshness({
+          selectedSource: "normalized",
+          selectedCapturedAt: latestWindow.capturedAt,
+          selectedDateRangeStart: latestWindow.dateRangeStart,
+          selectedDateRangeEnd: latestWindow.dateRangeEnd,
+          normalizedWindow: latestWindow,
+          rawSnapshot,
+          fallbackReason: null,
+        }),
+      };
+    }
+
     return {
-      queries,
-      pages,
-      queryPagePairs,
-      fetchedAt: latestWindow.capturedAt,
-      source: "normalized",
-      window: latestWindow,
+      queries: rawQueries,
+      pages: rawPages,
+      queryPagePairs: rawQueryPagePairs,
+      fetchedAt: gscSnap?.fetchedAt ?? null,
+      source: "rawSnapshot",
+      window: null,
+      freshness: buildFreshness({
+        selectedSource: "rawSnapshot",
+        selectedCapturedAt: gscSnap?.fetchedAt ?? null,
+        selectedDateRangeStart: gscSnap?.dateRangeStart ?? null,
+        selectedDateRangeEnd: gscSnap?.dateRangeEnd ?? null,
+        normalizedWindow: latestWindow,
+        rawSnapshot,
+        fallbackReason: rawIsNewer ? "raw_newer_than_normalized" : "normalized_missing",
+      }),
     };
   }
 
-  const pagesRaw = gscPagesSnap?.payload?.topPages;
-  const pairsRaw = queryPageSnap?.payload?.pairs;
-  const queries = getQueries(gscSnap);
   return {
-    queries,
-    pages: Array.isArray(pagesRaw) ? (pagesRaw as GscPageRow[]) : [],
-    queryPagePairs: Array.isArray(pairsRaw) ? (pairsRaw as GscQueryPageRow[]) : [],
+    queries: rawQueries,
+    pages: rawPages,
+    queryPagePairs: rawQueryPagePairs,
     fetchedAt: gscSnap?.fetchedAt ?? null,
-    source: queries.length ? "rawSnapshot" : "none",
+    source: rawQueries.length ? "rawSnapshot" : "none",
     window: null,
+    freshness: buildFreshness({
+      selectedSource: rawQueries.length ? "rawSnapshot" : "none",
+      selectedCapturedAt: gscSnap?.fetchedAt ?? null,
+      selectedDateRangeStart: gscSnap?.dateRangeStart ?? null,
+      selectedDateRangeEnd: gscSnap?.dateRangeEnd ?? null,
+      normalizedWindow: null,
+      rawSnapshot,
+      fallbackReason: rawQueries.length ? "normalized_missing" : null,
+    }),
   };
 }
 
