@@ -7,6 +7,7 @@ import { sanitizeHtmlServer } from "@/lib/content-pilot/sanitize-html-server";
 import { getArticleFeaturedImage } from "@/lib/content-pilot/article-featured-images";
 import {
   articleSystemMetafields,
+  resolveArticleTemplateSuffix,
   normalizeArticleSystemTags,
 } from "@/lib/content-pilot/article-system-assignment";
 
@@ -349,7 +350,8 @@ async function publishNewContent(
   draft: { title: string; bodyHtml: string; tags: string[]; metaDescription: string },
   existingArticleId?: string | null,
   blogHandle?: string | null,
-  targetKeyword?: string | null
+  targetKeyword?: string | null,
+  articleHandle?: string | null
 ): Promise<{ id: string; handle: string | null }> {
   const safeBody = sanitizeHtmlServer(draft.bodyHtml);
   const tags = normalizeArticleSystemTags({
@@ -358,6 +360,7 @@ async function publishNewContent(
     tags: draft.tags,
     blogHandle,
     targetKeyword,
+    articleHandle,
   });
   const systemMetafields = articleSystemMetafields({
     title: draft.title,
@@ -365,6 +368,15 @@ async function publishNewContent(
     tags,
     blogHandle,
     targetKeyword,
+    articleHandle,
+  });
+  const templateSuffix = resolveArticleTemplateSuffix({
+    title: draft.title,
+    bodyHtml: safeBody,
+    tags,
+    blogHandle,
+    targetKeyword,
+    articleHandle,
   });
   const metafields = [
     {
@@ -386,6 +398,18 @@ async function publishNewContent(
     tags,
     blogHandle,
   });
+  const articlePayload: Record<string, unknown> = {
+    title: draft.title,
+    body: safeBody,
+    tags,
+    ...(featuredImage ? { image: featuredImage } : {}),
+    isPublished: true,
+    author: { name: "Agriko" },
+    metafields,
+  };
+  if (templateSuffix) {
+    articlePayload.templateSuffix = templateSuffix;
+  }
   // Idempotency guard: if this proposal already created a Shopify article (e.g. a
   // retry after a partial failure or a double-publish), don't create a duplicate.
   // Instead update the existing article so it reflects the latest draft.
@@ -402,10 +426,7 @@ async function publishNewContent(
       {
         id: existingArticleId,
         article: {
-          title: draft.title,
-          body: safeBody,
-          tags,
-          metafields,
+          ...articlePayload,
         },
       }
     );
@@ -426,13 +447,7 @@ async function publishNewContent(
     {
       article: {
         blogId,
-        title: draft.title,
-        body: safeBody,
-        tags,
-        ...(featuredImage ? { image: featuredImage } : {}),
-        isPublished: true,
-        author: { name: "Agriko" },
-        metafields,
+        ...articlePayload,
       },
     }
   );
@@ -508,11 +523,16 @@ export async function publishDraft(
       const blogHandle = typeof ps.blogHandle === "string" && ps.blogHandle ? ps.blogHandle : null;
       const targetKeyword =
         typeof ps.targetKeyword === "string" && ps.targetKeyword ? ps.targetKeyword : null;
+      const articleHandle =
+        normalizeHandle(
+          typeof ps.articleHandle === "string" && ps.articleHandle ? ps.articleHandle : proposal.articleHandle,
+        ) ?? null;
       const created = await publishNewContent(
         draft as { title: string; bodyHtml: string; tags: string[]; metaDescription: string },
         proposal.shopifyArticleId,
         blogHandle,
-        targetKeyword
+        targetKeyword,
+        articleHandle
       );
       shopifyId = created.id;
       handle = created.handle ?? handle;

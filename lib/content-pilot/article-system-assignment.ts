@@ -7,6 +7,7 @@ export interface ArticleSystemAssignmentInput {
   blogHandle?: string | null;
   bodyHtml?: string | null;
   targetKeyword?: string | null;
+  articleHandle?: string | null;
 }
 
 export interface ArticleSystemAssignment {
@@ -23,6 +24,41 @@ const FARMING_RE = /\b(farming|farm|farms|organic agriculture|sustainable|regene
 const RECIPE_RE = /\b(recipe|recipes|how to make|cook|cooking|brew|brewing|ingredients|preparation)\b/i;
 const BUYING_RE = /\b(how to choose|where to buy|buying guide|best\s+.+\s+brands?|brands?\s+in\s+the\s+philippines|supplier|suppliers|options to buy)\b/i;
 const COMPARISON_RE = /\b(vs\.?|versus|compare|comparison|which is better|difference between|black rice vs red rice|red rice vs black rice)\b/i;
+
+const HANDLE_SUFFIX_MAP: Array<[RegExp, string]> = [
+  [
+    /turmeric-?tea-philippines-benefits-how-to-brew-and-best-options/i,
+    "turmeric-tea-benefits-philippines",
+  ],
+  [
+    /organic-rice-philippines-a-practical-guide-to-healthier-grains-from-local-farms/i,
+    "health-benefits-organic-rice",
+  ],
+  [/pito-?pito-tea-philippines/i, "herbal-tea-recipes"],
+  [/sambong-herb-philippines/i, "herbal-tea-recipes"],
+  [/how-to-choose-the-best-black-rice-brands/i, "where-to-buy-organic-rice"],
+  [/how-to-choose.*best.*rice.*brands/i, "where-to-buy-organic-rice"],
+];
+
+const TEXT_SUFFIX_MAP: Array<[RegExp, string]> = [
+  [/\b(herbal|herb)\b|\bpito[-\s]?pito\b|\bpito-pito tea\b/i, "herbal-tea-recipes"],
+  [/\bsambong\b/i, "herbal-tea-recipes"],
+  [/\blagundi\b/i, "lagundi-herb-philippines"],
+  [/\bmoringa\b|\bmalunggay\b/i, "moringa-superfood-guide"],
+  [/\bsalabat\b|\bginger tea\b/i, "herbal-tea-recipes"],
+  [/\bguyabano\b/i, "guyabano-health-benefits"],
+  [/\bturmeric\b.*\bbenefit|\bbenefits\b.*\bturmeric\b/i, "turmeric-tea-benefits-philippines"],
+  [/\bturmeric\b.*\bhow to brew|\bhow to brew\b.*\bturmeric\b/i, "turmeric-tea-benefits-philippines"],
+  [/\bturmeric\b.*\bginger|\bginger\b.*\bturmeric\b/i, "turmeric-vs-ginger"],
+  [/\bturmeric\b.*\binflammation|\binflammation\b.*\bturmeric\b/i, "turmeric-for-inflammation"],
+  [/\bturmeric\b.*\bdosage|\bdosage\b.*\bturmeric\b|\bsafety\b.*\bturmeric\b/i, "turmeric-dosage-safety"],
+  [/\bblack rice\b.*\bvs\b.*\bred rice|\bred rice\b.*\bvs\b.*\bblack rice/i, "black-rice-vs-red-rice"],
+  [/\bcomparison\b|\bcomparison of\b|\bcompare\b|\bwhich is better\b/i, "rice-nutrition-breakdown"],
+  [/\borganic rice\b.*\btypes|\btypes of\b.*\borganic rice/i, "types-of-organic-rice"],
+  [/\bblack rice\b.*\bguide|\bred rice\b.*\bguide|\borganic rice\b.*\bbenefit/i, "health-benefits-organic-rice"],
+  [/\bbuying\b|\bbrands\b|\bwhere to buy\b/i, "where-to-buy-organic-rice"],
+  [/\bfuture of organic farming\b|\borganic farming\b/i, "future-of-organic-farming"],
+];
 
 function normalizeTags(tags: string[] | undefined): string {
   return (tags || []).filter(Boolean).join(" ");
@@ -116,6 +152,70 @@ export function resolveArticleSystemAssignment(input: ArticleSystemAssignmentInp
   }
 
   return { template, profile };
+}
+
+export function resolveArticleTemplateSuffix(input: ArticleSystemAssignmentInput): string | null {
+  const title = input.title || "";
+  const handle = (input.articleHandle || "").toLowerCase();
+  const keywordText = (input.targetKeyword || "").toLowerCase();
+  const allText = `${title} ${keywordText} ${normalizeTags(input.tags)} ${input.bodyHtml || ""}`.toLowerCase();
+
+  for (const [matcher, suffix] of HANDLE_SUFFIX_MAP) {
+    if (matcher.test(handle)) return suffix;
+  }
+
+  for (const [matcher, suffix] of TEXT_SUFFIX_MAP) {
+    if (matcher.test(allText)) return suffix;
+  }
+
+  const assignment = resolveArticleSystemAssignment(input);
+
+  if (assignment.template === "recipe" || input.blogHandle === "recipes") {
+    return "herbal-tea-recipes";
+  }
+
+  if (assignment.profile === "turmeric") {
+    if (COMPARISON_RE.test(allText)) return "turmeric-vs-ginger";
+    if (/complete guide|complete benefits|brew|best options|benefits|why/i.test(allText)) {
+      return "turmeric-tea-benefits-philippines";
+    }
+    return "turmeric-tea-benefits-philippines";
+  }
+
+  if (assignment.profile === "herbal") {
+    if (/lagundi/i.test(allText)) return "lagundi-herb-philippines";
+    if (/moringa|malunggay/i.test(allText)) return "moringa-superfood-guide";
+    if (/salabat|ginger/i.test(allText)) return "herbal-tea-recipes";
+    return "herbal-tea-recipes";
+  }
+
+  if (assignment.profile === "rice") {
+    if (COMPARISON_RE.test(allText)) return "black-rice-vs-red-rice";
+    if (/\bbuying\b|\bchoose\b|\bbest brand\b|\bwhere to buy\b|\bbest options\b/i.test(allText)) {
+      return "where-to-buy-organic-rice";
+    }
+    if (/\btypes of\b/i.test(allText)) return "types-of-organic-rice";
+    if (/\bblack rice\b/i.test(allText)) return "black-rice-philippines";
+    if (/\bred rice\b/i.test(allText)) return "red-rice-philippines";
+  }
+
+  if (assignment.profile === "farming" || assignment.template === "farming-trust") {
+    return "sustainable-rice-farming";
+  }
+
+  if (assignment.profile === "recipe") {
+    return "herbal-tea-recipes";
+  }
+
+  if (assignment.template === "comparison") {
+    return "black-rice-vs-red-rice";
+  }
+
+  if (assignment.template === "buying-guide") {
+    return "where-to-buy-organic-rice";
+  }
+
+  return null;
 }
 
 export function normalizeArticleSystemTags(input: ArticleSystemAssignmentInput): string[] {

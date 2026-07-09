@@ -241,6 +241,44 @@ describe("publishDraft", () => {
     });
   });
 
+  it("sets templateSuffix from article handle when publishing new content", async () => {
+    let createVariables: Record<string, unknown> | undefined;
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes("blogs(first: 20)")) {
+        return { blogs: { edges: [{ node: { id: "gid://shopify/Blog/1", handle: "news" } }] } };
+      }
+      if (query.includes("ArticleCreate")) {
+        createVariables = variables;
+        return {
+          articleCreate: {
+            article: { id: "gid://shopify/Article/1003", handle: "new-guide" },
+            userErrors: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+
+    await publishDraft(
+      proposal({
+        proposalType: "new-content",
+        proposedState: { blogHandle: "news", articleHandle: "turmeric-tea-philippines-benefits-how-to-brew-and-best-options" },
+        draftContent: {
+          title: "Turmeric Tea Philippines: Benefits, How to Brew, and Best Options",
+          bodyHtml: "<h2>Guide</h2><p>Useful article copy.</p>",
+          tags: [],
+          metaDescription: "A practical turmeric tea guide.",
+        },
+      })
+    );
+
+    expect(createVariables).toMatchObject({
+      article: {
+        templateSuffix: "turmeric-tea-benefits-philippines",
+      },
+    });
+  });
+
   it("uses targetKeyword fallback when publishing generic new-content drafts", async () => {
     let createVariables: Record<string, unknown> | undefined;
     mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
@@ -570,6 +608,7 @@ describe("publishDraft", () => {
     expect(updateVariables).toMatchObject({
       id: "gid://shopify/Article/existing",
       article: {
+        templateSuffix: "turmeric-tea-benefits-philippines",
         tags: ["turmeric", "turmeric tea philippines"],
         metafields: expect.arrayContaining([
           expect.objectContaining({

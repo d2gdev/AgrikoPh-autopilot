@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeArticleSystemTags,
   resolveArticleSystemAssignment,
+  resolveArticleTemplateSuffix,
 } from "@/lib/content-pilot/article-system-assignment";
 
 describe("resolveArticleSystemAssignment", () => {
@@ -126,5 +127,38 @@ describe("resolveArticleSystemAssignment", () => {
         blogHandle: "news",
       }),
     ).toEqual(["turmeric tea philippines", "turmeric"]);
+  });
+});
+
+describe("resolveArticleTemplateSuffix", () => {
+  it("maps specific handles to explicit template suffixes", () => {
+    expect(
+      resolveArticleTemplateSuffix({
+        title: "Turmeric Tea Philippines — Benefits, How to Brew, and Best Options",
+        articleHandle: "turmeric-tea-philippines-benefits-how-to-brew-and-best-options",
+        tags: [],
+        blogHandle: "news",
+      }),
+    ).toBe("turmeric-tea-benefits-philippines");
+  });
+
+  it("uses target content for buying-focused rice pages", () => {
+    expect(
+      resolveArticleTemplateSuffix({
+        title: "How to Choose the Best Black Rice Brands in the Philippines",
+        tags: ["rice"],
+        blogHandle: "news",
+      }),
+    ).toBe("where-to-buy-organic-rice");
+  });
+
+  it("defaults to null for unknown article themes", () => {
+    expect(
+      resolveArticleTemplateSuffix({
+        title: "A general guide to wellness and health",
+        tags: ["nutrition", "wellbeing"],
+        blogHandle: "news",
+      }),
+    ).toBeNull();
   });
 });
