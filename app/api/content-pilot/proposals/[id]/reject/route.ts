@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { requireAppAuth, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { markContentProposalOpportunityDismissed } from "@/lib/opportunities/content-proposal-outcomes";
+import { canRejectContentProposal, CONTENT_PROPOSAL_NON_REJECTABLE_DRAFT_STATUSES } from "@/lib/content-pilot/proposal-state";
 
 export async function POST(
   req: Request,
@@ -20,17 +21,33 @@ export async function POST(
   try {
     const proposal = await prisma.contentProposal.findUnique({ where: { id } });
     if (!proposal) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    if (proposal.status !== "pending") {
+    if (!canRejectContentProposal(proposal)) {
       return NextResponse.json(
-        { error: `Cannot reject a proposal with status "${proposal.status}"` },
+        { error: `Cannot reject a proposal with status "${proposal.status}" and draft status "${proposal.draftStatus ?? "none"}"` },
         { status: 409 }
       );
     }
 
-    const updated = await prisma.contentProposal.update({
-      where: { id, status: "pending" },
+    const updatedCount = await prisma.contentProposal.updateMany({
+      where: {
+        id,
+        status: { not: "rejected" },
+        OR: [
+          { draftStatus: null },
+          { draftStatus: { notIn: [...CONTENT_PROPOSAL_NON_REJECTABLE_DRAFT_STATUSES] } },
+        ],
+      },
       data: { status: "rejected", reviewedBy, reviewedAt: new Date(), reviewNote: reviewNote ?? null },
     });
+    if (updatedCount.count === 0) {
+      return NextResponse.json(
+        { error: "Proposal was modified by another request — please refresh" },
+        { status: 409 }
+      );
+    }
+
+    const updated = await prisma.contentProposal.findUnique({ where: { id } });
+    if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     await markContentProposalOpportunityDismissed(prisma, {
       proposalId: id,
@@ -43,7 +60,7 @@ export async function POST(
         entityId: id,
         action: "rejected",
         actor: reviewedBy,
-        before: { status: "pending" },
+        before: { status: proposal.status, draftStatus: proposal.draftStatus },
         after: { status: "rejected", reviewNote: reviewNote ?? null },
       },
     });

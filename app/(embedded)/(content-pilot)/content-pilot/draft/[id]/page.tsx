@@ -51,6 +51,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { priorityTone } from "@/lib/ui/tones";
 import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
+import { canRejectContentProposal } from "@/lib/content-pilot/proposal-state";
 import { GroundingCitations } from "@/components/content-pilot/grounding-citations";
 import type { DraftCitation } from "@/lib/content-pilot/generate-draft";
 
@@ -418,6 +419,9 @@ export default function DraftReviewPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectConfirm, setRejectConfirm] = useState(false);
+  const [rejectNote, setRejectNote] = useState("");
   // Publish scheduling
   const [scheduledAt, setScheduledAt] = useState("");
   const [scheduling, setScheduling] = useState(false);
@@ -597,6 +601,25 @@ export default function DraftReviewPage() {
     }
   };
 
+  const reject = async () => {
+    setRejecting(true);
+    setError(null);
+    try {
+      const res = await authFetch(`/api/content-pilot/proposals/${id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewNote: rejectNote || null }),
+      });
+      const d = await safeJson(res);
+      if (!res.ok) { setError((d.error as string) ?? "Reject failed"); return; }
+      router.push(withShopifyContextUrl("/content-pilot?tab=1"));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRejecting(false);
+    }
+  };
+
   if (loading) {
     return (
       <Page title="Draft Review">
@@ -624,6 +647,7 @@ export default function DraftReviewPage() {
   const isPublished = proposal.draftStatus === "published";
   const hasDraft = proposal.draftStatus === "ready";
   const isGenerating = proposal.draftStatus === "generating" || generating;
+  const isRejectable = canRejectContentProposal(proposal) && !publishing;
 
   return (
     <Page
@@ -759,6 +783,51 @@ export default function DraftReviewPage() {
                         </Button>
                       )}
                     </InlineStack>
+                  </BlockStack>
+                )}
+                {isRejectable && (
+                  <BlockStack gap="200">
+                    <Divider />
+                    {!rejectConfirm ? (
+                      <Button
+                        tone="critical"
+                        disabled={publishing || saving}
+                        loading={rejecting}
+                        onClick={() => {
+                          setRejectConfirm(true);
+                          setPublishConfirm(false);
+                          setConfirmRegenerate(false);
+                        }}
+                      >
+                        Reject proposal
+                      </Button>
+                    ) : (
+                      <BlockStack gap="200">
+                        <Text as="p" tone="caution">Reject this proposal and remove it from actionable queues.</Text>
+                        <TextField
+                          label="Rejection reason (optional)"
+                          value={rejectNote}
+                          onChange={setRejectNote}
+                          multiline={2}
+                          autoComplete="off"
+                          placeholder="e.g. Changed direction after reviewing the draft"
+                        />
+                        <InlineStack gap="200">
+                          <Button variant="primary" tone="critical" loading={rejecting} onClick={reject}>
+                            Confirm Reject
+                          </Button>
+                          <Button
+                            disabled={rejecting}
+                            onClick={() => {
+                              setRejectConfirm(false);
+                              setRejectNote("");
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </InlineStack>
+                      </BlockStack>
+                    )}
                   </BlockStack>
                 )}
                 <Divider />

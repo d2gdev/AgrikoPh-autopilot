@@ -50,4 +50,16 @@ describe("pilot usability helper regressions", () => {
     expect(queueSource).toContain("finished ideas are being respected instead of recreated");
     expect(queueSource).toContain("Finished or rejected ideas stay out of the queue unless you re-open them");
   });
+
+  it("keeps reject actions available before publishing", () => {
+    const rowSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/queue/ProposalRow.tsx", "utf8");
+    const draftSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/draft/[id]/page.tsx", "utf8");
+
+    expect(rowSource).toContain("canRejectContentProposal");
+    expect(rowSource).toContain("<RejectButton />");
+    expect(rowSource).toContain("{canReject && isRejectFormOpen &&");
+    expect(draftSource).toContain("canRejectContentProposal");
+    expect(draftSource).toContain("Reject proposal");
+    expect(draftSource).toContain("Confirm Reject");
+  });
 });

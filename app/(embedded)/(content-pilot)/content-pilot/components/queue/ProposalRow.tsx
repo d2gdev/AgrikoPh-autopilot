@@ -15,6 +15,7 @@ import {
 import type { useRouter } from "next/navigation";
 import { withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
+import { canRejectContentProposal } from "@/lib/content-pilot/proposal-state";
 
 import type { ContentProposal } from "../types";
 import {
@@ -122,6 +123,18 @@ export function ProposalRow({
   onToggleFullExpand: (id: string) => void;
 }) {
   const evidenceLines = proposalEvidenceLines(p);
+  const canReject = canRejectContentProposal(p);
+
+  function RejectButton() {
+    if (!canReject) return null;
+    return (
+      <Button size="slim" tone="critical"
+        loading={isRejecting} disabled={bulkActing || isApproving}
+        onClick={() => onToggleRejectForm(p.id)}>
+        {isRejectFormOpen ? "Cancel" : "Reject"}
+      </Button>
+    );
+  }
 
   function StageBadge() {
     if (stage === "pending") return <Badge tone="attention">Pending</Badge>;
@@ -149,25 +162,29 @@ export function ProposalRow({
             onClick={() => onApprove(p.id, { generate: false })}>
             Approve
           </Button>
-          <Button size="slim" tone="critical"
-            loading={isRejecting} disabled={bulkActing || isApproving}
-            onClick={() => onToggleRejectForm(p.id)}>
-            {isRejectFormOpen ? "Cancel" : "Reject"}
-          </Button>
+          <RejectButton />
         </InlineStack>
       );
     }
     if (stage === "approved") {
       return (
-        <Button size="slim"
-          loading={isGeneratingDraft}
-          onClick={() => onGenerateDraft(p.id)}>
-          Generate Draft
-        </Button>
+        <InlineStack gap="200">
+          <Button size="slim"
+            loading={isGeneratingDraft}
+            onClick={() => onGenerateDraft(p.id)}>
+            Generate Draft
+          </Button>
+          <RejectButton />
+        </InlineStack>
       );
     }
     if (stage === "generating") {
-      return <Button size="slim" disabled loading>Generating…</Button>;
+      return (
+        <InlineStack gap="200">
+          <Button size="slim" disabled loading>Generating…</Button>
+          <RejectButton />
+        </InlineStack>
+      );
     }
     if (stage === "ready") {
       return (
@@ -183,6 +200,7 @@ export function ProposalRow({
           <Button size="slim" onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
             Edit / Schedule
           </Button>
+          <RejectButton />
         </InlineStack>
       );
     }
@@ -200,6 +218,7 @@ export function ProposalRow({
           <Button size="slim" onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
             Edit / Schedule
           </Button>
+          <RejectButton />
         </InlineStack>
       );
     }
@@ -212,6 +231,7 @@ export function ProposalRow({
           <Button size="slim" onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
             View
           </Button>
+          <RejectButton />
         </InlineStack>
       );
     }
@@ -464,7 +484,7 @@ export function ProposalRow({
         )}
 
         {/* Inline reject form */}
-        {p.status === "pending" && isRejectFormOpen && (
+        {canReject && isRejectFormOpen && (
           <BlockStack gap="200">
             <Divider />
             <TextField
