@@ -5,6 +5,10 @@ import { prisma } from "@/lib/db";
 import { getDraftSchema } from "@/lib/content-pilot/generate-draft";
 import { sanitizeHtmlServer } from "@/lib/content-pilot/sanitize-html-server";
 import { getArticleFeaturedImage } from "@/lib/content-pilot/article-featured-images";
+import {
+  articleSystemMetafields,
+  normalizeArticleSystemTags,
+} from "@/lib/content-pilot/article-system-assignment";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -344,12 +348,42 @@ async function publishBodyHtml(
 async function publishNewContent(
   draft: { title: string; bodyHtml: string; tags: string[]; metaDescription: string },
   existingArticleId?: string | null,
-  blogHandle?: string | null
+  blogHandle?: string | null,
+  targetKeyword?: string | null
 ): Promise<{ id: string; handle: string | null }> {
   const safeBody = sanitizeHtmlServer(draft.bodyHtml);
+  const tags = normalizeArticleSystemTags({
+    title: draft.title,
+    bodyHtml: safeBody,
+    tags: draft.tags,
+    blogHandle,
+    targetKeyword,
+  });
+  const systemMetafields = articleSystemMetafields({
+    title: draft.title,
+    bodyHtml: safeBody,
+    tags,
+    blogHandle,
+    targetKeyword,
+  });
+  const metafields = [
+    {
+      namespace: "global",
+      key: "title_tag",
+      value: draft.title,
+      type: "single_line_text_field",
+    },
+    {
+      namespace: "global",
+      key: "description_tag",
+      value: draft.metaDescription,
+      type: "multi_line_text_field",
+    },
+    ...systemMetafields,
+  ];
   const featuredImage = getArticleFeaturedImage({
     title: draft.title,
-    tags: draft.tags,
+    tags,
     blogHandle,
   });
   // Idempotency guard: if this proposal already created a Shopify article (e.g. a
@@ -367,7 +401,12 @@ async function publishNewContent(
       }`,
       {
         id: existingArticleId,
-        article: { title: draft.title, body: safeBody, tags: draft.tags },
+        article: {
+          title: draft.title,
+          body: safeBody,
+          tags,
+          metafields,
+        },
       }
     );
     assertNoUserErrors(updated.articleUpdate.userErrors);
@@ -389,18 +428,11 @@ async function publishNewContent(
         blogId,
         title: draft.title,
         body: safeBody,
-        tags: draft.tags,
+        tags,
         ...(featuredImage ? { image: featuredImage } : {}),
         isPublished: true,
         author: { name: "Agriko" },
-        metafields: [
-          {
-            namespace: "global",
-            key: "description_tag",
-            value: draft.metaDescription,
-            type: "multi_line_text_field",
-          },
-        ],
+        metafields,
       },
     }
   );
@@ -474,10 +506,13 @@ export async function publishDraft(
     case "new-content": {
       const ps = proposal.proposedState as Record<string, unknown>;
       const blogHandle = typeof ps.blogHandle === "string" && ps.blogHandle ? ps.blogHandle : null;
+      const targetKeyword =
+        typeof ps.targetKeyword === "string" && ps.targetKeyword ? ps.targetKeyword : null;
       const created = await publishNewContent(
         draft as { title: string; bodyHtml: string; tags: string[]; metaDescription: string },
         proposal.shopifyArticleId,
-        blogHandle
+        blogHandle,
+        targetKeyword
       );
       shopifyId = created.id;
       handle = created.handle ?? handle;

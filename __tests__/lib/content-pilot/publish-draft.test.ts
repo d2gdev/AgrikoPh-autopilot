@@ -137,7 +137,7 @@ describe("publishDraft", () => {
   });
 
   it("publishes content-refresh proposals that only carry a Shopify URL", async () => {
-    mockShopifyFetch.mockImplementation(async (query: string) => {
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
       if (query.includes("ArticleByHandle")) {
         return { articles: { edges: [{ node: { id: "gid://shopify/Article/123" } }] } };
       }
@@ -178,11 +178,13 @@ describe("publishDraft", () => {
   });
 
   it("does not require an articleHandle for new-content proposals", async () => {
-    mockShopifyFetch.mockImplementation(async (query: string) => {
+    let createVariables: Record<string, unknown> | undefined;
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
       if (query.includes("blogs(first: 20)")) {
         return { blogs: { edges: [{ node: { id: "gid://shopify/Blog/1", handle: "news" } }] } };
       }
       if (query.includes("ArticleCreate")) {
+        createVariables = variables;
         return {
           articleCreate: {
             article: { id: "gid://shopify/Article/999", handle: "new-guide" },
@@ -207,6 +209,342 @@ describe("publishDraft", () => {
     );
 
     expect(result).toEqual({ shopifyId: "gid://shopify/Article/999", handle: "new-guide" });
+    expect(createVariables).toMatchObject({
+      article: {
+        metafields: expect.arrayContaining([
+          expect.objectContaining({
+            namespace: "global",
+            key: "title_tag",
+            value: "New Guide",
+            type: "single_line_text_field",
+          }),
+          expect.objectContaining({
+            namespace: "global",
+            key: "description_tag",
+            value: "A useful guide from Agriko.",
+            type: "multi_line_text_field",
+          }),
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_template",
+            value: "guide",
+            type: "single_line_text_field",
+          }),
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_profile",
+            value: "rice",
+            type: "single_line_text_field",
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("uses targetKeyword fallback when publishing generic new-content drafts", async () => {
+    let createVariables: Record<string, unknown> | undefined;
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes("blogs(first: 20)")) {
+        return { blogs: { edges: [{ node: { id: "gid://shopify/Blog/1", handle: "news" } }] } };
+      }
+      if (query.includes("ArticleCreate")) {
+        createVariables = variables;
+        return {
+          articleCreate: {
+            article: { id: "gid://shopify/Article/1100", handle: "generic-black-rice-guide" },
+            userErrors: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+
+    await publishDraft(
+      proposal({
+        proposalType: "new-content",
+        proposedState: { blogHandle: "news", targetKeyword: "organic black rice philippines" },
+        draftContent: {
+          title: "A Practical Guide for Filipino Families",
+          bodyHtml: "<h2>Guide</h2><p>Useful article copy.</p>",
+          tags: [],
+          metaDescription: "A practical guide from Agriko.",
+        },
+      })
+    );
+
+    expect(createVariables).toMatchObject({
+      article: {
+        tags: expect.arrayContaining([
+          "black rice",
+          "rice-type:black-rice",
+          "organic black rice philippines",
+        ]),
+        metafields: expect.arrayContaining([
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_template",
+            value: "guide",
+          }),
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_profile",
+            value: "rice",
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("publishes clean turmeric tags when draft tags contain rice noise", async () => {
+    let createVariables: Record<string, unknown> | undefined;
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes("blogs(first: 20)")) {
+        return { blogs: { edges: [{ node: { id: "gid://shopify/Blog/1", handle: "news" } }] } };
+      }
+      if (query.includes("ArticleCreate")) {
+        createVariables = variables;
+        return {
+          articleCreate: {
+            article: { id: "gid://shopify/Article/1101", handle: "turmeric-clean-tags" },
+            userErrors: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+
+    await publishDraft(
+      proposal({
+        proposalType: "new-content",
+        proposedState: { blogHandle: "news" },
+        draftContent: {
+          title: "Turmeric Tea Philippines: Benefits, How to Brew, and Best Options",
+          bodyHtml: "<h2>Turmeric tea</h2><p>Useful article copy.</p>",
+          tags: ["organic rice philippines", "black rice", "turmeric tea philippines"],
+          metaDescription: "A practical turmeric tea guide.",
+        },
+      })
+    );
+
+    expect(createVariables).toMatchObject({
+      article: {
+        tags: ["turmeric tea philippines", "turmeric"],
+      },
+    });
+  });
+
+  it("classifies buying-intent black rice posts as rice buying guides", async () => {
+    let createVariables: Record<string, unknown> | undefined;
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes("blogs(first: 20)")) {
+        return { blogs: { edges: [{ node: { id: "gid://shopify/Blog/1", handle: "news" } }] } };
+      }
+      if (query.includes("ArticleCreate")) {
+        createVariables = variables;
+        return {
+          articleCreate: {
+            article: { id: "gid://shopify/Article/1000", handle: "best-black-rice-brands" },
+            userErrors: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+
+    await publishDraft(
+      proposal({
+        proposalType: "new-content",
+        proposedState: { blogHandle: "news" },
+        draftContent: {
+          title: "How to Choose the Best Black Rice Brands in the Philippines",
+          bodyHtml: "<h2>Brand guide</h2><p>Useful article copy.</p>",
+          tags: ["black rice", "organic rice"],
+          metaDescription: "A practical black rice buying guide.",
+        },
+      })
+    );
+
+    expect(createVariables).toMatchObject({
+      article: {
+        metafields: expect.arrayContaining([
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_template",
+            value: "buying-guide",
+          }),
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_profile",
+            value: "rice",
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("lets turmeric titles override noisy rice tags", async () => {
+    let createVariables: Record<string, unknown> | undefined;
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes("blogs(first: 20)")) {
+        return { blogs: { edges: [{ node: { id: "gid://shopify/Blog/1", handle: "news" } }] } };
+      }
+      if (query.includes("ArticleCreate")) {
+        createVariables = variables;
+        return {
+          articleCreate: {
+            article: { id: "gid://shopify/Article/1001", handle: "turmeric-tea-guide" },
+            userErrors: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+
+    await publishDraft(
+      proposal({
+        proposalType: "new-content",
+        proposedState: { blogHandle: "news" },
+        draftContent: {
+          title: "Turmeric Tea Philippines: Benefits, How to Brew, and Best Options",
+          bodyHtml: "<h2>Turmeric tea</h2><p>Useful article copy.</p>",
+          tags: ["organic rice philippines", "best black rice brands philippines", "turmeric tea philippines"],
+          metaDescription: "A practical turmeric tea guide.",
+        },
+      })
+    );
+
+    expect(createVariables).toMatchObject({
+      article: {
+        metafields: expect.arrayContaining([
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_template",
+            value: "guide",
+          }),
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_profile",
+            value: "turmeric",
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("enriches missing article tags before publishing new content", async () => {
+    let createVariables: Record<string, unknown> | undefined;
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes("blogs(first: 20)")) {
+        return { blogs: { edges: [{ node: { id: "gid://shopify/Blog/1", handle: "news" } }] } };
+      }
+      if (query.includes("ArticleCreate")) {
+        createVariables = variables;
+        return {
+          articleCreate: {
+            article: { id: "gid://shopify/Article/1002", handle: "black-rice-brands" },
+            userErrors: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+
+    await publishDraft(
+      proposal({
+        proposalType: "new-content",
+        proposedState: { blogHandle: "news" },
+        draftContent: {
+          title: "How to Choose the Best Black Rice Brands in the Philippines",
+          bodyHtml: "<h2>Black rice brands</h2><p>Useful article copy.</p>",
+          tags: [],
+          metaDescription: "A practical black rice buying guide.",
+        },
+      })
+    );
+
+    expect(createVariables).toMatchObject({
+      article: {
+        tags: [
+          "organic rice",
+          "organic rice philippines",
+          "black rice",
+          "rice-type:black-rice",
+          "organic black rice philippines",
+          "buying guide",
+        ],
+        metafields: expect.arrayContaining([
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_template",
+            value: "buying-guide",
+          }),
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_profile",
+            value: "rice",
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("keeps SEO and article-system metafields when retrying an existing new-content article", async () => {
+    let updateVariables: Record<string, unknown> | undefined;
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes("ArticleUpdate")) {
+        updateVariables = variables;
+        return {
+          articleUpdate: {
+            article: { id: "gid://shopify/Article/existing", handle: "turmeric-tea-guide" },
+            userErrors: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+
+    await publishDraft(
+      proposal({
+        proposalType: "new-content",
+        proposedState: { blogHandle: "news" },
+        shopifyArticleId: "gid://shopify/Article/existing",
+        draftContent: {
+          title: "Turmeric Tea Philippines: Benefits, How to Brew, and Best Options",
+          bodyHtml: "<h2>Turmeric tea</h2><p>Useful article copy.</p>",
+          tags: [],
+          metaDescription: "A practical turmeric tea guide.",
+        },
+      })
+    );
+
+    expect(updateVariables).toMatchObject({
+      id: "gid://shopify/Article/existing",
+      article: {
+        tags: ["turmeric", "turmeric tea philippines"],
+        metafields: expect.arrayContaining([
+          expect.objectContaining({
+            namespace: "global",
+            key: "title_tag",
+            value: "Turmeric Tea Philippines: Benefits, How to Brew, and Best Options",
+          }),
+          expect.objectContaining({
+            namespace: "global",
+            key: "description_tag",
+            value: "A practical turmeric tea guide.",
+          }),
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_template",
+            value: "guide",
+          }),
+          expect.objectContaining({
+            namespace: "custom",
+            key: "article_system_profile",
+            value: "turmeric",
+          }),
+        ]),
+      },
+    });
   });
 
   it("resolves internal-link source handles from proposedState.fromArticle", () => {
