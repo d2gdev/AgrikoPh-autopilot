@@ -86,6 +86,16 @@ describe("resolveArticleSystemAssignment", () => {
     ).toEqual(["turmeric tea philippines", "turmeric"]);
   });
 
+  it("preserves neutral tags for general articles while removing category noise", () => {
+    expect(
+      normalizeArticleSystemTags({
+        title: "How to Choose an Organic Health Products Distributor Philippines Families Trust",
+        tags: ["supplier", "organic rice philippines", "turmeric tea philippines"],
+        blogHandle: "news",
+      }),
+    ).toEqual(["supplier", "organic health products", "buying guide"]);
+  });
+
   it("prunes conflicting rice tags from turmeric articles", () => {
     expect(
       normalizeArticleSystemTags({
