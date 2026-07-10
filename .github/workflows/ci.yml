@@ -24,7 +24,7 @@ jobs:
 
       - name: Secret scan
         run: |
-          ! git grep -nE 'BEGIN (RSA |EC |OPENSSH |)?PRIVATE KEY|sk-or-v1-|ghp_[A-Za-z0-9_]{20,}|Bearer [A-Za-z0-9._-]{40,}' -- ':!package-lock.json'
+          ! git grep -nE 'BEGIN (RSA |EC |OPENSSH |)?PRIVATE KEY|sk-or-v1-|ghp_[A-Za-z0-9_]{20,}|Bearer [A-Za-z0-9._-]{40,}' -- ':!package-lock.json' ':!.github/workflows/ci.yml'
 
       - name: Audit dependencies
         run: npm audit --audit-level=moderate
