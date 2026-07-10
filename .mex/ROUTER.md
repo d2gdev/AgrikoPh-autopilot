@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-10T23:00:00+08:00
+last_updated: 2026-07-10T23:07:00+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **Content Pilot unified publishing (Task 5, 2026-07-10)**: manual and scheduled publication now claim an operation token, re-fetch the owned row before Shopify, persist a durable published receipt before bookkeeping, and finalize Opportunity/audit work idempotently. Post-publish bookkeeping or reindex errors keep the row published with a visible warning; receipt uncertainty is reconciliation-required instead of an unsafe automatic retry. Scheduled work retries up to fifty incomplete finalizers without Shopify. Publish and reconciliation routes use embedded auth followed by `CONTENT_PUBLISH`; scheduled and reindex cron routes use auth then a job lock. Covered by `__tests__/lib/content-pilot/publish-service.test.ts` and publish-failure regressions.
 - **Content Pilot atomic proposal transitions (Task 3, 2026-07-10)**: Added nullable operation/lifecycle fields (`draftGenerationToken`, `draftGenerationStartedAt`, `publishOperationId`, `publishStartedAt`, `publishFinalizedAt`, `publishWarning`) and wired `approve/reject/reopen/edit/schedule` through `lib/content-pilot/proposal-transitions.ts` inside `prisma.$transaction`. Transitions now perform a single-write guard+audit+opportunity/history unit, enforce ready/approved/override status gates, and throw typed 409 conflicts when stale state is detected. Covered by `__tests__/lib/content-pilot/proposal-transitions.test.ts`, `__tests__/prisma/content-proposal-operation-state-migration.test.ts`, `__tests__/api/content-pilot-routes.test.ts`, `__tests__/api/content-pilot-reject-route.test.ts`.
 - **Content Pilot durable draft ownership (Task 4, 2026-07-10)**: draft generation uses token-based ownership and finalizes inside a conditional transaction against `draftGenerationToken`, preserving one active generation per proposal and preventing stale ownership from overriding fresh work. Claims explicitly include `draftStatus: null` while excluding `generating`/`publishing`; all conditional validation/failure writes return `discarded` when ownership is lost. Receipt preservation is selected atomically by first claiming an actually `published` draft without changing its visible receipt, then conditionally claiming only a non-published draft with `generating`; stale published→ready and ready→published reads therefore cannot hide an active generation or erase a live receipt. Citation collection remains best-effort, but its successful value is persisted in the same token-guarded finalization rather than a later unguarded update. Time-only stale recovery in `GET /api/content-pilot/proposals` was removed in favor of token-aware completion. Covered by `__tests__/lib/content-pilot/generation-service.test.ts`, `__tests__/api/content-pilot-draft-citations.test.ts`, and focused route transition suites.
 

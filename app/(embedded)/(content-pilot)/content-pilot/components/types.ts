@@ -52,4 +52,6 @@ export interface ContentProposal {
   baselineSeoScore?: number | null;
   followUpSeoScore?: number | null;
   followUpScoredAt?: string | null;
+  publishWarning?: string | null;
+  publishOperationId?: string | null;
 }

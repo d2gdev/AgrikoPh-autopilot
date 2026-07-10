@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAuth = vi.hoisted(() => ({
   getSessionUser: vi.fn(),
+  requireAppAuth: vi.fn(),
   requireCronAuth: vi.fn(),
   requirePermission: vi.fn(),
 }));
@@ -30,6 +31,7 @@ const mockLocks = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({
   PERMISSIONS: { CONTENT_PUBLISH: "content:publish" },
   getSessionUser: mockAuth.getSessionUser,
+  requireAppAuth: mockAuth.requireAppAuth,
   requireCronAuth: mockAuth.requireCronAuth,
   requirePermission: mockAuth.requirePermission,
 }));
@@ -67,6 +69,7 @@ describe("Content Pilot publish failure recovery", () => {
     vi.clearAllMocks();
     mockAuth.getSessionUser.mockResolvedValue("operator");
     mockAuth.requireCronAuth.mockReturnValue(null);
+    mockAuth.requireAppAuth.mockResolvedValue(null);
     mockAuth.requirePermission.mockResolvedValue(null);
     mockPrisma.auditLog.create.mockResolvedValue({});
     mockPrisma.contentProposal.findMany.mockResolvedValue([]);
@@ -85,6 +88,7 @@ describe("Content Pilot publish failure recovery", () => {
       ...readyRefreshProposal(),
       status: "rejected",
     });
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 0 });
 
     const { POST } = await import("@/app/api/content-pilot/proposals/[id]/publish/route");
     const res = await POST(
@@ -93,11 +97,10 @@ describe("Content Pilot publish failure recovery", () => {
     );
 
     expect(res.status).toBe(409);
-    expect(mockPrisma.contentProposal.updateMany).not.toHaveBeenCalled();
     expect(mockPublishDraft).not.toHaveBeenCalled();
   });
 
-  it("requires approved status in the manual publish lock", async () => {
+  it("authenticates the embedded publish route before permission", async () => {
     mockPublishDraft.mockRejectedValue(new Error("stop after lock"));
 
     const { POST } = await import("@/app/api/content-pilot/proposals/[id]/publish/route");
@@ -106,14 +109,8 @@ describe("Content Pilot publish failure recovery", () => {
       { params: Promise.resolve({ id: "proposal-1" }) },
     );
 
-    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: "proposal-1",
-        status: { in: ["approved", "override_approved"] },
-        draftStatus: "ready",
-      },
-      data: { draftStatus: "publishing" },
-    });
+    expect(mockAuth.requireAppAuth).toHaveBeenCalled();
+    expect(mockAuth.requirePermission).toHaveBeenCalled();
   });
 
   it("marks a manual publish failed when the target Shopify article no longer exists", async () => {
@@ -131,13 +128,13 @@ describe("Content Pilot publish failure recovery", () => {
 
     expect(res.status).toBe(500);
     expect(body.error).toContain("no longer exists in Shopify");
-    expect(mockPrisma.contentProposal.update).toHaveBeenCalledWith({
-      where: { id: "proposal-1" },
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: "proposal-1" }),
       data: expect.objectContaining({
         draftStatus: "failed",
         draftError: expect.stringContaining("no longer exists in Shopify"),
       }),
-    });
+    }));
   });
 
   it("marks a scheduled publish failed when the target Shopify article no longer exists", async () => {
@@ -155,15 +152,15 @@ describe("Content Pilot publish failure recovery", () => {
     expect(res.status).toBe(200);
     expect(body).toEqual(expect.objectContaining({ published: 0 }));
     expect(body.results).toEqual([
-      expect.objectContaining({ id: "proposal-1", ok: false, error: expect.stringContaining("no longer exists in Shopify") }),
+      expect.objectContaining({ id: "proposal-1", kind: "failed_before_external_write", error: expect.stringContaining("no longer exists in Shopify") }),
     ]);
-    expect(mockPrisma.contentProposal.update).toHaveBeenCalledWith({
-      where: { id: "proposal-1" },
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: "proposal-1" }),
       data: expect.objectContaining({
         draftStatus: "failed",
         draftError: expect.stringContaining("no longer exists in Shopify"),
       }),
-    });
+    }));
     expect(mockLocks.acquireJobLock).toHaveBeenCalledWith("publish-scheduled");
     expect(mockLocks.releaseJobLock).toHaveBeenCalledWith("publish-scheduled");
     expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith({
@@ -172,14 +169,7 @@ describe("Content Pilot publish failure recovery", () => {
         draftStatus: "ready",
         scheduledPublishAt: { lte: expect.any(Date) },
       },
-    });
-    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: "proposal-1",
-        status: { in: ["approved", "override_approved"] },
-        draftStatus: "ready",
-      },
-      data: { draftStatus: "publishing" },
+      select: { id: true },
     });
   });
 

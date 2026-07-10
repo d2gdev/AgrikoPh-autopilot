@@ -4,6 +4,7 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { requireCronAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
 
 const BATCH = 20;
 const MIN_DAYS = 14;
@@ -12,6 +13,10 @@ const MAX_DAYS = 60;
 export async function GET(req: Request) {
   const authError = requireCronAuth(req);
   if (authError) return authError;
+  const acquired = await acquireJobLock("reindex-published");
+  if (!acquired) return NextResponse.json({ skipped: true }, { status: 409 });
+
+  try {
 
   const now = new Date();
   const minDate = new Date(now.getTime() - MAX_DAYS * 24 * 60 * 60 * 1000);
@@ -81,4 +86,7 @@ export async function GET(req: Request) {
   await Promise.all(updates);
 
   return NextResponse.json({ scored, total: proposals.length });
+  } finally {
+    await releaseJobLock("reindex-published");
+  }
 }

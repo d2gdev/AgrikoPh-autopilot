@@ -258,6 +258,7 @@ export function ProposalRow({
           {p.followUpScoredAt == null && p.baselineSeoScore != null && (
             <Text as="p" tone="subdued" variant="bodySm">SEO score tracked — check back in 14 days.</Text>
           )}
+          {p.publishWarning && <Banner tone="warning" title="Published with warning"><p>{p.publishWarning}</p></Banner>}
         </BlockStack>
       );
     }
@@ -296,6 +297,9 @@ export function ProposalRow({
           <Banner tone="critical" title="Draft generation failed">
             <p>{p.draftError}</p>
           </Banner>
+        )}
+        {(p.draftStatus === "publishing" || p.draftStatus === "publish-error") && (
+          <Banner tone="critical" title="Publication needs reconciliation"><p>Do not retry until the Shopify result has been reconciled.</p></Banner>
         )}
 
         {p.proposalType === "new-content" && !p.articleHandle && (

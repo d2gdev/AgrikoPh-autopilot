@@ -73,6 +73,7 @@ interface ContentProposal {
   draftGeneratedAt: string | null;
   publishedAt: string | null;
   scheduledPublishAt: string | null;
+  publishWarning?: string | null;
   citations?: unknown;
 }
 
@@ -677,6 +678,12 @@ export default function DraftReviewPage() {
               <Text as="p"><strong>Validation error:</strong> {proposal.draftError}</Text>
             </Banner>
           </Layout.Section>
+        )}
+        {proposal.publishWarning && (
+          <Banner tone="warning" title="Published with warning"><p>{proposal.publishWarning}</p></Banner>
+        )}
+        {(proposal.draftStatus === "publishing" || proposal.draftStatus === "publish-error") && (
+          <Banner tone="critical" title="Publication requires reconciliation"><p>Confirm the Shopify outcome before publishing again.</p></Banner>
         )}
 
         <Layout.Section variant="oneThird">
