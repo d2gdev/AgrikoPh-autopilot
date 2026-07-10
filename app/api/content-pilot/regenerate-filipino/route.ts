@@ -73,15 +73,16 @@ export async function GET(req: Request) {
   }
 }
 
-// Apply step: regenerate flagged Filipino drafts in English and republish published
-// ones to Shopify. Pass ?id=<proposalId> to do exactly one; omit to process all flagged.
+// Apply step: regenerate explicitly selected Filipino drafts and optionally republish
+// published ones to Shopify.
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
   const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_PUBLISH);
   if (permissionError) return permissionError;
   const actor = (await getSessionUser(req)) ?? "operator";
-  const rateKey = (await getSessionShop(req)) ?? actor;
+  const shop = (await getSessionShop(req)) ?? "unknown-shop";
+  const rateKey = `${shop}:${actor}`;
   if (!checkRateLimit(`regenerate-filipino:${rateKey}`, 5, 60_000)) return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
 
   const schema = z.object({ proposalIds: z.array(z.string().min(1)).min(1).max(25), confirmation: z.literal("REGENERATE_FILIPINO"), republishPublished: z.boolean() }).strict();
@@ -112,11 +113,10 @@ export async function POST(req: Request) {
         const generated = await generateProposalDraft({ prismaClient: prisma as any, proposalId: proposal.id, actor, preservePublishedReceipt: Boolean(proposal.publishedAt) });
         if (generated.kind !== "ready") { results.push({ id: proposal.id, status: generated.kind === "conflict" ? "conflict" : "failed" }); continue; }
         const generatedText = extractDraftText(generated.proposal.draftContent);
-        // A detector can be conservative or unavailable for generated text;
-        // classify as still Filipino only when the generated content remains
-        // materially identical to the source (the authoritative guard is the
-        // persisted generation result).
-        if (proposal.status && generatedText.trim() === originalText.trim()) {
+        const generatedVerdict = detectFilipino(generatedText);
+        // Re-check generated output server-side. Legacy/null statuses are valid,
+        // and unchanged output is still Filipino even if detection is uncertain.
+        if (generatedVerdict.isFilipino || generatedText.trim() === originalText.trim()) {
           results.push({ id: proposal.id, status: "still_filipino" }); continue;
         }
         if (proposal.publishedAt && body.republishPublished) {
@@ -131,7 +131,8 @@ export async function POST(req: Request) {
     const counts = results.reduce((a, r: any) => { a[r.status] = (a[r.status] ?? 0) + 1; return a; }, {} as Record<string, number>);
     counts.succeeded = counts.ok ?? 0;
     counts.failed = (counts.failed ?? 0) + (counts.error ?? 0);
-    return NextResponse.json({ ok: true, processed: results.length, results, counts }, { status: results.some((r: any) => ["conflict", "failed"].includes(r.status)) ? 207 : 200 });
+    const hasNonSuccess = results.some((r: any) => r.status !== "ok");
+    return NextResponse.json({ ok: !hasNonSuccess, processed: results.length, results, counts }, { status: hasNonSuccess ? 207 : 200 });
   } catch (error) {
     console.error("[content-pilot] regenerate-filipino apply failed", error);
     return NextResponse.json(
