@@ -32,6 +32,8 @@ describe("SEO Pilot responsive layout contract", () => {
     expect(css).toMatch(/overflow-wrap:\s*anywhere/);
     expect(css).toContain("min-width: 0");
     expect(css).toContain("max-width: 100%");
+    expect(css).toContain(":global(.Polaris-Badge)");
+    expect(css).toMatch(/white-space:\s*normal/);
   });
 
   it("uses non-scrolling compact navigation", () => {

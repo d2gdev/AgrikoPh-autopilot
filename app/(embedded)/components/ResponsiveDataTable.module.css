@@ -87,6 +87,15 @@
   overflow-wrap: anywhere;
 }
 
+.value :global(.Polaris-Badge),
+.value :global(.Polaris-Badge__Content),
+.value :global(.Polaris-InlineStack) {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .sortControls {
   display: flex;
   flex-wrap: wrap;
