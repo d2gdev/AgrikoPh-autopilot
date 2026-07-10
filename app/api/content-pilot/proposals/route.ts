@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
@@ -31,17 +32,6 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Recover drafts stuck in "generating" — if a generation crashed, timed out,
-    // or the server restarted mid-run, the row would otherwise stay "generating"
-    // forever and the UI would never let the operator retry. The generate-draft
-    // route has maxDuration=300s (5 min), so anything still generating after
-    // 6 minutes is guaranteed dead and safe to mark failed.
-    const STALE_MS = 6 * 60 * 1000;
-    await prisma.contentProposal.updateMany({
-      where: { draftStatus: "generating", updatedAt: { lt: new Date(Date.now() - STALE_MS) } },
-      data: { draftStatus: "failed" },
-    });
-
     // Omit draftContent (full article HTML) from the list — it's only needed on
     // the draft detail page, and shipping it for every row bloats the payload.
     const baseWhere: any = status ? { status } : {};

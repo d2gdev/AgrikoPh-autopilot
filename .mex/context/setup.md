@@ -15,7 +15,7 @@ edges:
     condition: when understanding how components connect during setup
   - target: context/decisions.md
     condition: when understanding why deployment is structured a particular way
-last_updated: 2026-06-25
+last_updated: 2026-07-10T20:33:00Z
 ---
 
 # Setup
@@ -32,6 +32,8 @@ last_updated: 2026-06-25
 1. `npm install`
 2. Copy `.env.example` to `.env` and fill in the required values (see below)
 3. `npm run db:generate` — generates the Prisma client from `prisma/schema.prisma`
+   and writes its freshness stamp; run `npm run verify:prisma-client` before typechecking
+   when dependencies or the Prisma schema changed.
 4. `npm run db:migrate` — deploys all pending migrations against your `DATABASE_URL`
 5. For Shopify embedding: start ngrok (`ngrok http 3000`), set `SHOPIFY_APP_URL` to the HTTPS forwarding URL
 6. `npm run dev` — starts the dev server on port 3000
@@ -78,6 +80,13 @@ last_updated: 2026-06-25
 - `npm run typecheck:test` — TypeScript check on test files
 - `npm run db:migrate` — deploy pending Prisma migrations
 - `npm run db:generate` — regenerate Prisma client after schema changes
+- `npm run verify:prisma-client` — fail if the generated Prisma client stamp does not match
+  `prisma/schema.prisma`, `package.json`, and `package-lock.json`
+- `DATABASE_URL_TEST='postgresql://test:test@127.0.0.1:5432/autopilot_test' npm run test:postgres`
+  — run PostgreSQL integration tests only against the exact local `autopilot_test` database.
+  The guard rejects missing URLs, every non-local host, and every URL-decoded database path
+  other than `autopilot_test`.
+  CI may use its `postgres` service host only with `CI=true` and `ALLOW_CI_POSTGRES=true`.
 - `npm run db:studio` — Prisma Studio browser UI for DB inspection
 - `npm run db:report` — PostgreSQL diagnostics report
 - `npm run data:audit` — data layer health audit (`scripts/data-layer-audit.mjs`)

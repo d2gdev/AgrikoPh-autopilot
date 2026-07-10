@@ -2,22 +2,23 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
-import { requireAppAuth, getSessionShop } from "@/lib/auth";
+import { getSessionShop, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { generateProposals } from "@/lib/content-pilot/generate-proposals";
-import { opportunityFromProposal, upsertOpportunities } from "@/lib/opportunities/generate";
-import { markContentProposalOpportunitiesTerminal } from "@/lib/opportunities/content-proposal-outcomes";
 import {
   CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
   contentProposalDedupeKey,
   filterBlockedContentProposalInputs,
 } from "@/lib/content-pilot/proposal-dedupe";
 import { createContentProposalOnce, withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
+import { replacePendingContentProposals } from "@/lib/content-pilot/proposal-replacement";
 
 export async function POST(req: Request) {
-  const authError = await requireAppAuth(req);
-  if (authError) return authError;
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   const shop = (await getSessionShop(req)) ?? "api";
   if (!checkRateLimit(`proposals-generate:${shop}`, 5, 60_000)) {
@@ -50,10 +51,6 @@ export async function POST(req: Request) {
         seen.add(key);
       }
     }
-    if (toDelete.length > 0) {
-      await markContentProposalOpportunitiesTerminal(prisma, toDelete);
-      await prisma.contentProposal.deleteMany({ where: { id: { in: toDelete.map((p) => p.id) } } });
-    }
 
     if (proposals.length === 0) {
       return NextResponse.json({ created: 0, proposals: [], deduplicated: toDelete.length, opportunities: 0 });
@@ -72,19 +69,7 @@ export async function POST(req: Request) {
     // Delete existing pending proposals and create the fresh set atomically, so a
     // failure can never leave the table with the old pending rows wiped and no
     // replacements written.
-    const pendingToDelete = await prisma.contentProposal.findMany({
-      where: { status: "pending" },
-      select: { id: true, status: true, draftStatus: true, sourceData: true },
-    });
-    if (pendingToDelete.length > 0) {
-      await markContentProposalOpportunitiesTerminal(prisma, pendingToDelete);
-    }
-    const createdRows = await prisma.$transaction(async (tx) => {
-      await tx.contentProposal.deleteMany({ where: { status: "pending" } });
-      const rows = [];
-      for (const p of fresh) {
-        const result = await createContentProposalOnce(tx, {
-            ...withContentProposalDedupeKey({ articleHandle: p.articleHandle,
+    const replacement = await replacePendingContentProposals(prisma, fresh.map((p) => ({ articleHandle: p.articleHandle,
             proposalType: p.proposalType,
             changeType: p.changeType,
             priority: p.priority,
@@ -93,21 +78,12 @@ export async function POST(req: Request) {
             title: p.title,
             description: p.description,
             proposedState: p.proposedState as object,
-            sourceData: p.sourceData as object }),
-        });
-        if (result.created) rows.push(result.proposal);
-      }
-      return rows;
-    });
-    const opportunityResult = await upsertOpportunities(
-      prisma,
-      fresh.map(opportunityFromProposal),
-    );
+            sourceData: p.sourceData as object })), toDelete.map((p) => p.id));
     return NextResponse.json({
-      created: createdRows.length,
-      proposals: createdRows,
+      created: replacement.created,
+      proposals: replacement.proposals,
       deduplicated: toDelete.length,
-      opportunities: opportunityResult.upserted,
+      opportunities: replacement.opportunities,
     });
   } catch (err) {
     console.error("[content-pilot/proposals/generate] error:", err);

@@ -88,5 +88,9 @@ describe("privileged route RBAC", () => {
 
     expect(res.status).toBe(403);
     expect(mockPrisma.contentProposal.update).not.toHaveBeenCalled();
+    expect(mockAuth.requirePermission).toHaveBeenCalledWith(
+      expect.any(Request),
+      "content:review",
+    );
   });
 });

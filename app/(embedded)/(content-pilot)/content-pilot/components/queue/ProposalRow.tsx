@@ -26,8 +26,8 @@ import {
   ProposedChangeSummary,
 } from "../helpers";
 import { proposalEvidenceLines } from "../proposal-evidence";
+import type { ContentProposalQueueStage as Stage } from "../queue-stage";
 
-type Stage = "pending" | "approved" | "generating" | "ready" | "scheduled" | "published" | "failed" | "rejected";
 
 export function ProposalRow({
   p,
@@ -42,9 +42,12 @@ export function ProposalRow({
   isRejecting,
   isGeneratingDraft,
   isPublishing,
+  isReconciling,
   onApprove,
   onGenerateDraft,
   onPublishDraft,
+  onReconcile,
+  onRetryBookkeeping,
   onReopen,
 
   isRejectFormOpen,
@@ -88,9 +91,12 @@ export function ProposalRow({
   isRejecting: boolean;
   isGeneratingDraft: boolean;
   isPublishing: boolean;
+  isReconciling: boolean;
   onApprove: (id: string, opts?: { generate?: boolean }) => void;
   onGenerateDraft: (id: string) => void;
   onPublishDraft: (id: string) => void;
+  onReconcile: (id: string) => void;
+  onRetryBookkeeping: (id: string) => void;
   onReopen: (id: string) => void;
 
   isRejectFormOpen: boolean;
@@ -142,6 +148,8 @@ export function ProposalRow({
     if (stage === "generating") return <Badge tone="attention">Generating…</Badge>;
     if (stage === "ready") return <Badge tone="success">Ready</Badge>;
     if (stage === "scheduled") return <Badge tone="info">Scheduled</Badge>;
+    if (stage === "publishing") return <Badge tone="attention">Publishing…</Badge>;
+    if (stage === "publish-error") return <Badge tone="critical">Publication error</Badge>;
     if (stage === "published") return <Badge tone="success">Published</Badge>;
     if (stage === "failed") return <Badge tone="critical">Failed</Badge>;
     if (stage === "rejected") return <Badge tone="critical">Rejected</Badge>;
@@ -258,8 +266,15 @@ export function ProposalRow({
           {p.followUpScoredAt == null && p.baselineSeoScore != null && (
             <Text as="p" tone="subdued" variant="bodySm">SEO score tracked — check back in 14 days.</Text>
           )}
+          {p.publishWarning && <Banner tone="warning" title="Published with warning"><p>{p.publishWarning}</p></Banner>}
+          {p.publishFinalizedAt == null && p.publishOperationId && (
+            <Button size="slim" loading={isReconciling} onClick={() => onRetryBookkeeping(p.id)}>Retry bookkeeping</Button>
+          )}
         </BlockStack>
       );
+    }
+    if (p.draftStatus === "publishing" || p.draftStatus === "publish-error") {
+      return <Button size="slim" tone="critical" loading={isReconciling} onClick={() => onReconcile(p.id)}>Reconcile</Button>;
     }
     if (stage === "rejected") {
       return (
@@ -296,6 +311,9 @@ export function ProposalRow({
           <Banner tone="critical" title="Draft generation failed">
             <p>{p.draftError}</p>
           </Banner>
+        )}
+        {(p.draftStatus === "publishing" || p.draftStatus === "publish-error") && (
+          <Banner tone="critical" title="Publication needs reconciliation"><p>Do not retry until the Shopify result has been reconciled.</p></Banner>
         )}
 
         {p.proposalType === "new-content" && !p.articleHandle && (

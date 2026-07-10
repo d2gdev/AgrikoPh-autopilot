@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAuth = vi.hoisted(() => ({
   getSessionUser: vi.fn(),
+  requireAppAuth: vi.fn(),
   requireCronAuth: vi.fn(),
   requirePermission: vi.fn(),
 }));
@@ -16,6 +17,10 @@ const mockPrisma = vi.hoisted(() => ({
     update: vi.fn(),
     updateMany: vi.fn(),
   },
+  articleRecord: {
+    findFirst: vi.fn(),
+  },
+  $transaction: vi.fn(),
 }));
 
 const mockPublishDraft = vi.hoisted(() => vi.fn());
@@ -30,6 +35,7 @@ const mockLocks = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({
   PERMISSIONS: { CONTENT_PUBLISH: "content:publish" },
   getSessionUser: mockAuth.getSessionUser,
+  requireAppAuth: mockAuth.requireAppAuth,
   requireCronAuth: mockAuth.requireCronAuth,
   requirePermission: mockAuth.requirePermission,
 }));
@@ -67,12 +73,15 @@ describe("Content Pilot publish failure recovery", () => {
     vi.clearAllMocks();
     mockAuth.getSessionUser.mockResolvedValue("operator");
     mockAuth.requireCronAuth.mockReturnValue(null);
+    mockAuth.requireAppAuth.mockResolvedValue(null);
     mockAuth.requirePermission.mockResolvedValue(null);
     mockPrisma.auditLog.create.mockResolvedValue({});
     mockPrisma.contentProposal.findMany.mockResolvedValue([]);
     mockPrisma.contentProposal.findUnique.mockResolvedValue(readyRefreshProposal());
     mockPrisma.contentProposal.update.mockResolvedValue({});
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue(null);
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockPrisma) => unknown) => fn(mockPrisma));
     mockResolveArticleHandle.mockReturnValue("creating-your-own-herbal-blends-a-practical-guide-for-everyday-use");
     mockFetchBlogContentHandler.mockResolvedValue({});
     mockMarkResolved.mockResolvedValue({});
@@ -85,6 +94,7 @@ describe("Content Pilot publish failure recovery", () => {
       ...readyRefreshProposal(),
       status: "rejected",
     });
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 0 });
 
     const { POST } = await import("@/app/api/content-pilot/proposals/[id]/publish/route");
     const res = await POST(
@@ -93,11 +103,10 @@ describe("Content Pilot publish failure recovery", () => {
     );
 
     expect(res.status).toBe(409);
-    expect(mockPrisma.contentProposal.updateMany).not.toHaveBeenCalled();
     expect(mockPublishDraft).not.toHaveBeenCalled();
   });
 
-  it("requires approved status in the manual publish lock", async () => {
+  it("authenticates the embedded publish route before permission", async () => {
     mockPublishDraft.mockRejectedValue(new Error("stop after lock"));
 
     const { POST } = await import("@/app/api/content-pilot/proposals/[id]/publish/route");
@@ -106,14 +115,8 @@ describe("Content Pilot publish failure recovery", () => {
       { params: Promise.resolve({ id: "proposal-1" }) },
     );
 
-    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: "proposal-1",
-        status: { in: ["approved", "override_approved"] },
-        draftStatus: "ready",
-      },
-      data: { draftStatus: "publishing" },
-    });
+    expect(mockAuth.requireAppAuth).toHaveBeenCalled();
+    expect(mockAuth.requirePermission).toHaveBeenCalled();
   });
 
   it("marks a manual publish failed when the target Shopify article no longer exists", async () => {
@@ -131,13 +134,13 @@ describe("Content Pilot publish failure recovery", () => {
 
     expect(res.status).toBe(500);
     expect(body.error).toContain("no longer exists in Shopify");
-    expect(mockPrisma.contentProposal.update).toHaveBeenCalledWith({
-      where: { id: "proposal-1" },
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: "proposal-1" }),
       data: expect.objectContaining({
         draftStatus: "failed",
         draftError: expect.stringContaining("no longer exists in Shopify"),
       }),
-    });
+    }));
   });
 
   it("marks a scheduled publish failed when the target Shopify article no longer exists", async () => {
@@ -155,15 +158,15 @@ describe("Content Pilot publish failure recovery", () => {
     expect(res.status).toBe(200);
     expect(body).toEqual(expect.objectContaining({ published: 0 }));
     expect(body.results).toEqual([
-      expect.objectContaining({ id: "proposal-1", ok: false, error: expect.stringContaining("no longer exists in Shopify") }),
+      expect.objectContaining({ id: "proposal-1", kind: "failed_before_external_write", error: expect.stringContaining("no longer exists in Shopify") }),
     ]);
-    expect(mockPrisma.contentProposal.update).toHaveBeenCalledWith({
-      where: { id: "proposal-1" },
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: "proposal-1" }),
       data: expect.objectContaining({
         draftStatus: "failed",
         draftError: expect.stringContaining("no longer exists in Shopify"),
       }),
-    });
+    }));
     expect(mockLocks.acquireJobLock).toHaveBeenCalledWith("publish-scheduled");
     expect(mockLocks.releaseJobLock).toHaveBeenCalledWith("publish-scheduled");
     expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith({
@@ -172,14 +175,7 @@ describe("Content Pilot publish failure recovery", () => {
         draftStatus: "ready",
         scheduledPublishAt: { lte: expect.any(Date) },
       },
-    });
-    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: "proposal-1",
-        status: { in: ["approved", "override_approved"] },
-        draftStatus: "ready",
-      },
-      data: { draftStatus: "publishing" },
+      select: { id: true },
     });
   });
 
@@ -202,5 +198,58 @@ describe("Content Pilot publish failure recovery", () => {
 
     expect(res.status).toBe(200);
     expect(mockLocks.releaseJobLock).toHaveBeenCalledWith("publish-scheduled");
+  });
+
+  it("reindexes once after a scheduled batch rather than once per proposal", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValue([{ id: "proposal-1" }, { id: "proposal-2" }]);
+    mockPublishDraft.mockResolvedValue({ shopifyId: "gid://shopify/Article/1", handle: "edited" });
+    const { GET } = await import("@/app/api/cron/publish-scheduled/route");
+
+    await GET(new Request("http://test.local/api/cron/publish-scheduled") as never);
+
+    expect(mockFetchBlogContentHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("durably warns every successfully published row when scheduled batch reindexing fails", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValue([{ id: "proposal-1" }, { id: "proposal-2" }]);
+    mockPublishDraft.mockResolvedValue({ shopifyId: "gid://shopify/Article/1", handle: "edited" });
+    mockFetchBlogContentHandler.mockRejectedValueOnce(new Error("index offline"));
+    const { GET } = await import("@/app/api/cron/publish-scheduled/route");
+
+    const res = await GET(new Request("http://test.local/api/cron/publish-scheduled") as never);
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "proposal-1", draftStatus: "published" },
+      data: { publishWarning: expect.stringContaining("index offline") },
+    }));
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "proposal-2", draftStatus: "published" },
+      data: { publishWarning: expect.stringContaining("index offline") },
+    }));
+  });
+
+  it("preserves each publish warning when a scheduled batch reindex also fails", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValue([{ id: "proposal-1" }]);
+    mockPublishDraft.mockResolvedValue({ shopifyId: "gid://shopify/Article/1", handle: "edited" });
+    mockPrisma.articleRecord.findFirst.mockRejectedValueOnce(new Error("local metadata unavailable"));
+    mockFetchBlogContentHandler.mockRejectedValueOnce(new Error("index offline"));
+    const { GET } = await import("@/app/api/cron/publish-scheduled/route");
+
+    const res = await GET(new Request("http://test.local/api/cron/publish-scheduled") as never);
+    const body = await res.json();
+
+    expect(body.results).toEqual([
+      expect.objectContaining({
+        id: "proposal-1",
+        kind: "published_with_warnings",
+        warning: expect.stringContaining("local metadata unavailable"),
+      }),
+    ]);
+    expect(body.results[0].warning).toContain("index offline");
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "proposal-1", draftStatus: "published" },
+      data: { publishWarning: expect.stringContaining("local metadata unavailable") },
+    }));
   });
 });

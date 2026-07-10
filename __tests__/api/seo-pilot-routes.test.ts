@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 
 const mockAuth = vi.hoisted(() => ({
   requireAppAuth: vi.fn(),
+  requirePermission: vi.fn(),
   getSessionShop: vi.fn(),
   getSessionUser: vi.fn(),
 }));
@@ -18,6 +19,8 @@ const mockPrisma = vi.hoisted(() => ({
     findFirst: vi.fn(),
     findMany: vi.fn(),
     create: vi.fn(),
+    createMany: vi.fn(),
+    findUnique: vi.fn(),
   },
   rawSnapshot: {
     upsert: vi.fn(),
@@ -56,7 +59,9 @@ const mockEnqueueJob = vi.hoisted(() => vi.fn());
 const mockMaterializeJobsStatusSnapshot = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
+  PERMISSIONS: { CONTENT_REVIEW: "content:review" },
   requireAppAuth: mockAuth.requireAppAuth,
+  requirePermission: mockAuth.requirePermission,
   getSessionShop: mockAuth.getSessionShop,
   getSessionUser: mockAuth.getSessionUser,
 }));
@@ -90,11 +95,14 @@ describe("SEO Pilot route regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockAuth.requirePermission.mockResolvedValue(null);
     mockAuth.getSessionShop.mockResolvedValue(null);
     mockAuth.getSessionUser.mockResolvedValue("api-key");
     mockCheckRateLimit.mockReturnValue(true);
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
     mockPrisma.contentProposal.findMany.mockResolvedValue([]);
+    mockPrisma.contentProposal.createMany.mockImplementation(async ({ data }) => { const p = await mockPrisma.contentProposal.create({ data: data[0] }); mockPrisma.contentProposal.findUnique.mockResolvedValue(p); return { count: 1 }; });
+    mockPrisma.contentProposal.findUnique.mockResolvedValue({ id: "proposal-1" });
     mockPrisma.articleRecord.findMany.mockResolvedValue([]);
     mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
     mockPrisma.auditLog.create.mockResolvedValue({});

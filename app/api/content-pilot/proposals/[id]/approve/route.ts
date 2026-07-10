@@ -2,13 +2,17 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 import { NextResponse } from "next/server";
-import { getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
+import { ContentProposalConflictError } from "@/lib/content-pilot/proposal-transitions";
+import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { approveProposal } from "@/lib/content-pilot/proposal-transitions";
 
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
   if (authError) return authError;
   const { id } = await params;
@@ -17,36 +21,25 @@ export async function POST(
   const reviewedBy = (await getSessionUser(req)) ?? "operator";
 
   try {
-    const proposal = await prisma.contentProposal.findUnique({ where: { id } });
-    if (!proposal) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    if (proposal.status !== "pending") {
-      return NextResponse.json(
-        { error: `Cannot approve a proposal with status "${proposal.status}"` },
-        { status: 409 }
-      );
-    }
+    const { proposal } = await prisma.$transaction((tx) =>
+      approveProposal(tx, {
+        id,
+        reviewedBy,
+        reviewNote: reviewNote ?? null,
+      }),
+    );
 
-    const updated = await prisma.contentProposal.update({
-      where: { id, status: "pending" },
-      data: { status: "approved", reviewedBy, reviewedAt: new Date(), reviewNote: reviewNote ?? null },
-    });
-
-    await prisma.auditLog.create({
-      data: {
-        entityType: "ContentProposal",
-        entityId: id,
-        action: "approved",
-        actor: reviewedBy,
-        before: { status: "pending" },
-        after: { status: "approved", reviewNote: reviewNote ?? null },
-      },
-    });
-
-    // Standardized shape: all single-proposal routes return { proposal }.
-    return NextResponse.json({ proposal: updated });
+    return NextResponse.json({ proposal });
   } catch (err) {
-    // P2025: the optimistic-locked update found no matching row — another request
-    // changed the status between our read and write. Report it as a conflict.
+    if (err instanceof ContentProposalConflictError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    if (typeof err === "object" && err !== null && (err as Error).message.startsWith("Proposal not found:")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (typeof err === "object" && err !== null && (err as Error).message.startsWith("Cannot approve")) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 409 });
+    }
     if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2025") {
       return NextResponse.json(
         { error: "Proposal was modified by another request — please refresh" },

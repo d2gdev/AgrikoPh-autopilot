@@ -17,8 +17,8 @@ function client(overrides: Record<string, unknown> = {}) {
     contentProposal: {
       findMany: vi.fn().mockResolvedValue([{ id: "old", status: "pending", draftStatus: "ready", sourceData: {} }]),
       deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
-      create: vi.fn().mockResolvedValue({ id: "new", proposalType: "new-content", title: "A", proposedState: {} }),
-      findUnique: vi.fn(),
+      createMany: vi.fn().mockResolvedValue({ count: 1 }),
+      findUnique: vi.fn().mockResolvedValue({ id: "new", proposalType: "new-content", title: "A", proposedState: {} }),
     },
     ...overrides,
   };
@@ -32,12 +32,12 @@ describe("replacePendingContentProposals", () => {
     await replacePendingContentProposals(root, [input]);
     expect(root.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.contentProposal.deleteMany).toHaveBeenCalled();
-    expect(tx.contentProposal.create).toHaveBeenCalledWith({ data: expect.objectContaining({ dedupeKey: expect.any(String) }) });
+    expect(tx.contentProposal.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ dedupeKey: expect.any(String) })], skipDuplicates: true });
   });
 
   it("rejects on insert failure and performs no root writes", async () => {
     const { root, tx } = client();
-    tx.contentProposal.create.mockRejectedValueOnce(new Error("insert failed"));
+    tx.contentProposal.createMany.mockRejectedValueOnce(new Error("insert failed"));
     await expect(replacePendingContentProposals(root, [input])).rejects.toThrow("insert failed");
     expect(root).toHaveProperty("$transaction");
   });
@@ -46,6 +46,6 @@ describe("replacePendingContentProposals", () => {
     const { root, tx } = client();
     const { opportunityFromProposal } = await import("@/lib/opportunities/generate");
     await replacePendingContentProposals(root, [input]);
-    expect(opportunityFromProposal).toHaveBeenCalledWith(expect.objectContaining({ id: "new" }), 0, expect.any(Array));
+    expect(opportunityFromProposal).toHaveBeenCalledWith(expect.objectContaining({ id: "new" }));
   });
 });

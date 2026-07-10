@@ -381,6 +381,14 @@ model ContentProposal {
   followUpSeoScore    Int?
   followUpScoredAt    DateTime?
   citations           Json?
+  draftGenerationToken     String?
+  draftGenerationStartedAt DateTime?
+  publishOperationId       String?   @unique
+  publishStartedAt         DateTime?
+  publishFinalizedAt       DateTime?
+  publishWarning           String?
+  publishActor             String?
+  publishTrigger           String?
 
   draftHistory  ContentProposalDraftHistory[]
 

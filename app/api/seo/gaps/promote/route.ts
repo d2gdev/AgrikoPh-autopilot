@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
-import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
+import { getSessionShop, getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { classifyPriority, findingToImpact, changeTypeToEffort } from "@/lib/content-pilot/priority-score";
 import { getLatestGscData } from "@/lib/seo/data";
@@ -31,8 +31,10 @@ function normalizeHandle(handle: string | null | undefined): string | null {
 }
 
 export async function POST(req: NextRequest) {
-  const authError = await requireAppAuth(req);
-  if (authError) return authError;
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
   if (!checkRateLimit(`seo-promote:${actor}`, 10, 60_000)) {

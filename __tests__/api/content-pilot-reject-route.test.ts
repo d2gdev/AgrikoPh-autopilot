@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockAuth = vi.hoisted(() => ({
   getSessionUser: vi.fn(),
   requireAppAuth: vi.fn(),
+  requirePermission: vi.fn(),
 }));
 
 const mockPrisma = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   auditLog: {
     create: vi.fn(),
   },
@@ -13,13 +15,18 @@ const mockPrisma = vi.hoisted(() => ({
     findUnique: vi.fn(),
     updateMany: vi.fn(),
   },
+  opportunity: {
+    updateMany: vi.fn(),
+  },
 }));
 
 const mockMarkDismissed = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
+  PERMISSIONS: { CONTENT_REVIEW: "content:review" },
   getSessionUser: mockAuth.getSessionUser,
   requireAppAuth: mockAuth.requireAppAuth,
+  requirePermission: mockAuth.requirePermission,
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
@@ -50,9 +57,12 @@ describe("Content Pilot reject route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockAuth.requirePermission.mockResolvedValue(null);
     mockAuth.getSessionUser.mockResolvedValue("operator");
     mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal());
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.opportunity.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.auditLog.create.mockResolvedValue({});
     mockMarkDismissed.mockResolvedValue({});
   });
@@ -90,10 +100,13 @@ describe("Content Pilot reject route", () => {
         reviewNote: "changed my mind",
       }),
     });
-    expect(mockMarkDismissed).toHaveBeenCalledWith(mockPrisma, {
-      proposalId: "proposal-1",
-      sourceData: existing.sourceData,
-    });
+    expect(mockMarkDismissed).toHaveBeenCalledWith(
+      { opportunity: mockPrisma.opportunity },
+      {
+        proposalId: "proposal-1",
+        sourceData: existing.sourceData,
+      },
+    );
   });
 
   it("cancels a scheduled draft when it is rejected", async () => {

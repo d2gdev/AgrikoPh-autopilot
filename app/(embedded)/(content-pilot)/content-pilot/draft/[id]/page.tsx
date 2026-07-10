@@ -73,6 +73,9 @@ interface ContentProposal {
   draftGeneratedAt: string | null;
   publishedAt: string | null;
   scheduledPublishAt: string | null;
+  publishWarning?: string | null;
+  publishOperationId?: string | null;
+  publishFinalizedAt?: string | null;
   citations?: unknown;
 }
 
@@ -414,6 +417,7 @@ export default function DraftReviewPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [publishConfirm, setPublishConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -601,6 +605,30 @@ export default function DraftReviewPage() {
     }
   };
 
+  const reconcilePublish = async () => {
+    setReconciling(true);
+    setError(null);
+    try {
+      const res = await authFetch(`/api/content-pilot/proposals/${id}/reconcile-publish`, { method: "POST" });
+      const d = await safeJson(res);
+      if (!res.ok) { setError((d.error as string) ?? "Reconciliation failed"); return; }
+      await load();
+    } catch (e) { setError(String(e)); }
+    finally { setReconciling(false); }
+  };
+
+  const retryBookkeeping = async () => {
+    setReconciling(true);
+    setError(null);
+    try {
+      const res = await authFetch(`/api/content-pilot/proposals/${id}/retry-bookkeeping`, { method: "POST" });
+      const d = await safeJson(res);
+      if (!res.ok) { setError((d.error as string) ?? "Bookkeeping retry failed"); return; }
+      await load();
+    } catch (e) { setError(String(e)); }
+    finally { setReconciling(false); }
+  };
+
   const reject = async () => {
     setRejecting(true);
     setError(null);
@@ -677,6 +705,20 @@ export default function DraftReviewPage() {
               <Text as="p"><strong>Validation error:</strong> {proposal.draftError}</Text>
             </Banner>
           </Layout.Section>
+        )}
+        {proposal.publishWarning && (
+          <Banner tone="warning" title="Published with warning">
+            <p>{proposal.publishWarning}</p>
+            {isPublished && proposal.publishFinalizedAt == null && proposal.publishOperationId && (
+              <Button size="slim" loading={reconciling} onClick={retryBookkeeping}>Retry bookkeeping</Button>
+            )}
+          </Banner>
+        )}
+        {(proposal.draftStatus === "publishing" || proposal.draftStatus === "publish-error") && (
+          <Banner tone="critical" title="Publication requires reconciliation">
+            <p>Confirm the Shopify outcome before publishing again.</p>
+            <Button size="slim" tone="critical" loading={reconciling} onClick={reconcilePublish}>Reconcile</Button>
+          </Banner>
         )}
 
         <Layout.Section variant="oneThird">
