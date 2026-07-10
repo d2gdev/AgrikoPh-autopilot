@@ -103,11 +103,57 @@ function classifyValidationFailure(error: string): DraftGenerationValidationOutc
 
 async function claimDraftSlot(input: GenerationServiceInput, proposal: DraftPersistedProposal) {
   const token = randomUUID();
+  const ownershipAvailable = {
+    OR: [{ draftGenerationToken: null }, { draftGenerationToken: "" }],
+  };
+  const claimBase = {
+    id: proposal.id,
+    status: { in: [...CONTENT_PROPOSAL_PUBLISHABLE_STATUSES] as string[] },
+  };
+
+  if (input.preservePublishedReceipt) {
+    const publishedReceiptClaim = await input.prismaClient.contentProposal.updateMany({
+      where: {
+        ...claimBase,
+        draftStatus: "published",
+        AND: [ownershipAvailable],
+      },
+      data: {
+        draftGenerationToken: token,
+        draftGenerationStartedAt: new Date(),
+      },
+    });
+
+    if (publishedReceiptClaim.count > 0) {
+      return { token };
+    }
+
+    const otherDraftClaim = await input.prismaClient.contentProposal.updateMany({
+      where: {
+        ...claimBase,
+        AND: [
+          {
+            OR: [
+              { draftStatus: null },
+              { draftStatus: { notIn: ["published", "generating", "publishing"] } },
+            ],
+          },
+          ownershipAvailable,
+        ],
+      },
+      data: {
+        draftStatus: "generating",
+        draftGenerationToken: token,
+        draftGenerationStartedAt: new Date(),
+      },
+    });
+
+    return otherDraftClaim.count > 0 ? { token } : null;
+  }
 
   const claim = await input.prismaClient.contentProposal.updateMany({
     where: {
-      id: proposal.id,
-      status: { in: [...CONTENT_PROPOSAL_PUBLISHABLE_STATUSES] as string[] },
+      ...claimBase,
       AND: [
         {
           OR: [
@@ -115,15 +161,11 @@ async function claimDraftSlot(input: GenerationServiceInput, proposal: DraftPers
             { draftStatus: { notIn: ["generating", "publishing"] } },
           ],
         },
-        { OR: [{ draftGenerationToken: null }, { draftGenerationToken: "" }] },
+        ownershipAvailable,
       ],
     },
     data: {
-      ...(
-        input.preservePublishedReceipt && proposal.draftStatus === "published"
-          ? {}
-          : { draftStatus: "generating" }
-      ),
+      draftStatus: "generating",
       draftGenerationToken: token,
       draftGenerationStartedAt: new Date(),
     },

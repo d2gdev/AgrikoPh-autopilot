@@ -250,18 +250,23 @@ describe("generateProposalDraft", () => {
     });
 
     expect(result.kind).toBe("conflict");
-    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockPrisma.contentProposal.updateMany.mock.calls[0]?.[0]).toMatchObject({
+      where: expect.objectContaining({
+        draftStatus: "published",
+      }),
+    });
+    expect(mockPrisma.contentProposal.updateMany.mock.calls[1]?.[0]).toMatchObject({
       where: expect.objectContaining({
         AND: expect.arrayContaining([
-          {
+          expect.objectContaining({
             OR: expect.arrayContaining([
               { draftStatus: null },
-              { draftStatus: { notIn: ["generating", "publishing"] } },
+              { draftStatus: { notIn: ["published", "generating", "publishing"] } },
             ]),
-          },
+          }),
         ]),
       }),
-    }));
+    });
     expect(mockGenerateDraft).not.toHaveBeenCalled();
   });
 
@@ -376,16 +381,7 @@ describe("generateProposalDraft", () => {
     await draftStarted;
 
     const claim = mockPrisma.contentProposal.updateMany.mock.calls[0]?.[0];
-    expect(claim?.where).toMatchObject({
-      AND: expect.arrayContaining([
-        {
-          OR: expect.arrayContaining([
-            { draftStatus: null },
-            { draftStatus: { notIn: ["generating", "publishing"] } },
-          ]),
-        },
-      ]),
-    });
+    expect(claim?.where).toMatchObject({ draftStatus: "published" });
     expect(claim?.data).toMatchObject({
       draftGenerationToken: expect.any(String),
       draftGenerationStartedAt: expect.any(Date),
@@ -405,7 +401,9 @@ describe("generateProposalDraft", () => {
 
   it("marks a ready draft generating when receipt preservation is requested", async () => {
     mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({ draftStatus: "ready" }));
-    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.contentProposal.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 });
     mockTx.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
 
     const result = await generateProposalDraft({
@@ -419,8 +417,68 @@ describe("generateProposalDraft", () => {
     });
 
     expect(result.kind).toBe("ready");
-    expect(mockPrisma.contentProposal.updateMany.mock.calls[0]?.[0]?.data).toMatchObject({
+    expect(mockPrisma.contentProposal.updateMany.mock.calls[1]?.[0]?.data).toMatchObject({
       draftStatus: "generating",
+    });
+  });
+
+  it("marks the current ready draft generating when a stale published read loses the published receipt claim", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({ draftStatus: "published" }));
+    mockPrisma.contentProposal.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 });
+    mockTx.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      preservePublishedReceipt: true,
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result.kind).toBe("ready");
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.contentProposal.updateMany.mock.calls[0]?.[0]).toMatchObject({
+      where: expect.objectContaining({ draftStatus: "published" }),
+    });
+    expect(mockPrisma.contentProposal.updateMany.mock.calls[1]?.[0]).toMatchObject({
+      where: expect.objectContaining({
+        AND: expect.arrayContaining([
+          expect.objectContaining({
+            OR: expect.arrayContaining([
+              { draftStatus: null },
+              { draftStatus: { notIn: ["published", "generating", "publishing"] } },
+            ]),
+          }),
+        ]),
+      }),
+      data: expect.objectContaining({ draftStatus: "generating" }),
+    });
+  });
+
+  it("keeps the current published receipt when a stale ready read wins the published receipt claim", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({ draftStatus: "ready" }));
+    mockPrisma.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+    mockTx.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      preservePublishedReceipt: true,
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result.kind).toBe("ready");
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.contentProposal.updateMany.mock.calls[0]?.[0]).toMatchObject({
+      where: expect.objectContaining({ draftStatus: "published" }),
+      data: expect.not.objectContaining({ draftStatus: expect.anything() }),
     });
   });
 

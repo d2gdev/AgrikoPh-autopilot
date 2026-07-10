@@ -126,3 +126,32 @@ tsc --noEmit passed
 git diff --check
 passed
 ```
+
+---
+
+## Atomic receipt-claim follow-up (2026-07-10)
+
+### Finding
+
+Receipt preservation was chosen from the proposal read before the ownership claim. A concurrent `published` → `ready` transition could leave the ready draft without the visible `generating` state, while `ready` → `published` could overwrite the now-live receipt with `generating`.
+
+### Red evidence
+
+Two mocked conditional-update regressions failed before the correction: a stale published read with a failed published claim followed by a successful ready claim returned `conflict`, and a stale ready read could not prove the actual published receipt claim retained its visible status.
+
+### Correction
+
+When preservation is requested, `claimDraftSlot()` now first conditionally claims only `draftStatus: "published"` with token/start fields and no visible-status write. If that update affects no row, it conditionally claims only a null or other non-published/non-active status and writes `draftStatus: "generating"`. Both predicates include the publishable proposal status and empty ownership token.
+
+### Verification
+
+```text
+npm test -- --run __tests__/lib/content-pilot/generation-service.test.ts __tests__/api/content-pilot-draft-citations.test.ts __tests__/api/embedded-fallback-auth-routes.test.ts __tests__/api/content-pilot-reject-route.test.ts
+4 test files passed, 30 tests passed
+
+npm run typecheck
+tsc --noEmit passed
+
+git diff --check
+passed
+```
