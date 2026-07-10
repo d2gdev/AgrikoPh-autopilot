@@ -197,6 +197,29 @@ describe("generateProposalDraft", () => {
     expect(mockGenerateDraft).not.toHaveBeenCalled();
   });
 
+  it("never claims generation ownership while publishing, including when preserving a receipt", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({ draftStatus: "publishing" }));
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 0 });
+
+    const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      preservePublishedReceipt: true,
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result.kind).toBe("conflict");
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        draftStatus: { notIn: ["generating", "publishing"] },
+      }),
+    }));
+    expect(mockGenerateDraft).not.toHaveBeenCalled();
+  });
+
   it("returns failed when validation rejects the generated draft before finalization", async () => {
     mockPrisma.contentProposal.findUnique.mockResolvedValue(
       proposal({ proposedState: { targetWordCount: 500 } }),
@@ -310,11 +333,16 @@ describe("generateProposalDraft", () => {
     const claim = mockPrisma.contentProposal.updateMany.mock.calls[0]?.[0];
     expect(claim?.where).toMatchObject({
       draftStatus: {
-        notIn: ["generating"],
+        notIn: ["generating", "publishing"],
       },
     });
+    expect(claim?.data).toMatchObject({
+      draftGenerationToken: expect.any(String),
+      draftGenerationStartedAt: expect.any(Date),
+    });
+    expect((claim?.data as Record<string, unknown>).draftStatus).toBeUndefined();
     expect(publishedReceipt).toMatchObject({
-      draftStatus: "generating",
+      draftStatus: "published",
       publishedAt,
       shopifyArticleId: "gid://shopify/Article/42",
       publishedHandle: "live-season-guide",

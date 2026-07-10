@@ -55,3 +55,42 @@ passed
 - Record: updated `.mex/ROUTER.md` and the closest recurring-generation gotcha in `.mex/patterns/generation-dedupe.md`.
 - Orient: no new pattern file was necessary; the existing generation pattern now documents the conditional-write-count rule.
 - Write: the corresponding project rationale is recorded through `mex log` before commit.
+
+---
+
+## Spec-review follow-up (2026-07-10)
+
+### Findings corrected
+
+1. Receipt-preserving generation could claim a `publishing` proposal because its claim predicate excluded only `generating`.
+2. Receipt-preserving generation replaced the visible published `draftStatus` with `generating` while AI ran, despite its durable token already providing ownership.
+
+### Test-first evidence
+
+Added/updated regressions in `__tests__/lib/content-pilot/generation-service.test.ts` and ran them before the implementation:
+
+```text
+npm test -- --run __tests__/lib/content-pilot/generation-service.test.ts
+2 failed, 7 passed
+```
+
+The failures showed the claim predicate was `notIn: ["generating"]` and the receipt-preserving claim payload contained `draftStatus: "generating"`.
+
+### Minimal correction
+
+The ownership predicate always excludes `generating` and `publishing`. When `preservePublishedReceipt` is true, the claim writes only `draftGenerationToken` and `draftGenerationStartedAt`; it leaves the visible published status and receipt untouched.
+
+### Verification
+
+```text
+npm test -- --run __tests__/lib/content-pilot/generation-service.test.ts
+9 tests passed
+
+npm test -- --run __tests__/lib/content-pilot/generation-service.test.ts __tests__/api/content-pilot-draft-citations.test.ts __tests__/api/embedded-fallback-auth-routes.test.ts __tests__/api/content-pilot-reject-route.test.ts
+4 test files passed, 25 tests passed
+
+npm run typecheck
+tsc --noEmit passed
+```
+
+No Task 5 file was modified and no stash was applied.

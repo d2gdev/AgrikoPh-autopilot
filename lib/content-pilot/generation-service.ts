@@ -109,12 +109,12 @@ async function claimDraftSlot(input: GenerationServiceInput, proposal: DraftPers
       id: proposal.id,
       status: { in: [...CONTENT_PROPOSAL_PUBLISHABLE_STATUSES] as string[] },
       draftStatus: {
-        notIn: input.preservePublishedReceipt ? ["generating"] : ["generating", "publishing"],
+        notIn: ["generating", "publishing"],
       },
       OR: [{ draftGenerationToken: null }, { draftGenerationToken: "" }],
     },
   data: {
-    draftStatus: "generating",
+    ...(input.preservePublishedReceipt ? {} : { draftStatus: "generating" }),
     draftGenerationToken: token,
     draftGenerationStartedAt: new Date(),
   },
