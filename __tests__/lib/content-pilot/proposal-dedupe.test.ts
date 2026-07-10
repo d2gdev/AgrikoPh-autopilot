@@ -109,7 +109,7 @@ describe("content proposal dedupe", () => {
     expect(toArticleB).not.toBe(toArticleC);
   });
 
-  it("keeps different SEO issues on the same article distinct", () => {
+  it("dedupes competing SEO meta rewrites for the same article", () => {
     const missingMeta = contentProposalDedupeKey({
       articleHandle: "black-rice-benefits",
       proposalType: "seo-fix",
@@ -120,10 +120,10 @@ describe("content proposal dedupe", () => {
       articleHandle: "black-rice-benefits",
       proposalType: "seo-fix",
       title: "Add a clear heading",
-      proposedState: { targetQuery: "black rice benefits", issue: "missing-h1" },
+      proposedState: { targetQuery: "organic black rice", issue: "low-ctr" },
     });
 
-    expect(missingMeta).not.toBe(missingHeading);
+    expect(missingMeta).toBe(missingHeading);
   });
 
   it("dedupes reworded SEO proposals with the same structured action", () => {

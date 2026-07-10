@@ -79,13 +79,6 @@ export function contentProposalDedupeKey(input: ContentProposalDedupeInput): str
       return `${base}:to:${normalizeKeyPart(destination)}`;
     }
 
-    if (proposalType === "seo-fix") {
-      const issue = text(proposedState.issue) ?? text(proposedState.action);
-      const targetQuery = text(proposedState.targetQuery);
-      const action = [issue, targetQuery].filter((part): part is string => Boolean(part)).join(":") || input.title;
-      return `${base}:action:${normalizeKeyPart(action)}`;
-    }
-
     return base;
   }
 
