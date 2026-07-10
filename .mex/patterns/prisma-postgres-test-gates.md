@@ -12,14 +12,14 @@ edges:
     condition: when running local verification commands
   - target: context/conventions.md
     condition: when database access is added to an integration test
-last_updated: 2026-07-10T20:09:00Z
+last_updated: 2026-07-10T20:20:00Z
 ---
 
 # Prisma and PostgreSQL Test Gates
 
 ## Context
 
-`npm run db:generate` must be followed by a current hash stamp based on `prisma/schema.prisma`, `package.json`, and `package-lock.json`. PostgreSQL integration tests use `DATABASE_URL_TEST` only; `vitest.postgres.config.ts` validates it before assigning it to `DATABASE_URL` for the test process.
+`npm run db:generate` must be followed by a current hash stamp based on `prisma/schema.prisma`, `package.json`, and `package-lock.json`. The default Vitest configuration explicitly excludes `__tests__/postgres/**`, so ordinary `npm test` does not require or read `DATABASE_URL_TEST`. PostgreSQL integration tests use `DATABASE_URL_TEST` only; `vitest.postgres.config.ts` validates it before assigning it to `DATABASE_URL` for the test process.
 
 ## Steps
 
@@ -34,6 +34,7 @@ last_updated: 2026-07-10T20:09:00Z
 - `prisma generate` alone is not enough for this repository: it must update the freshness stamp through `npm run db:generate`.
 - The PostgreSQL guard rejects a missing URL, production-looking database names, and all non-local hosts. Production-name detection treats any non-alphanumeric character as a token boundary after URL decoding, so names such as `autopilot_test_production%2Efoo` are rejected. The `postgres` service hostname is allowed only when both `CI=true` and `ALLOW_CI_POSTGRES=true`.
 - Keep the generated-client verification before both typecheck steps, otherwise a reused dependency cache can hide stale Prisma types.
+- Keep `__tests__/postgres/**` in the default Vitest `exclude` list. The PostgreSQL config's `include` is not enough by itself because the default suite otherwise discovers future integration files.
 
 ## Verify
 

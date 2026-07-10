@@ -14,6 +14,7 @@ export default defineConfig({
       ".claude/**",
       ".serena/**",
       "tmp/**",
+      "__tests__/postgres/**",
     ],
     coverage: {
       provider: "v8",

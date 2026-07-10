@@ -58,6 +58,27 @@ describe("checkPrismaClientFreshness", () => {
     });
   });
 
+  it("reports a missing Prisma stamp as not current", () => {
+    const fixture = makeFixture();
+
+    expect(checkPrismaClientFreshness({ rootDir: fixture })).toMatchObject({
+      current: false,
+      actualHash: null,
+    });
+  });
+
+  it("reports a malformed Prisma stamp as not current", () => {
+    const fixture = makeFixture();
+    const stampPath = join(fixture, "node_modules/.cache/autopilot/prisma-generate.json");
+    mkdirSync(join(fixture, "node_modules/.cache/autopilot"), { recursive: true });
+    writeFileSync(stampPath, "not valid JSON");
+
+    expect(checkPrismaClientFreshness({ rootDir: fixture })).toMatchObject({
+      current: false,
+      actualHash: null,
+    });
+  });
+
   it("accepts the exact schema/package hash", () => {
     const fixture = makeFixture();
     writeMatchingStamp(fixture);
