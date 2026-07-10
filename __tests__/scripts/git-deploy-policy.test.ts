@@ -8,6 +8,12 @@ import {
 } from "../../scripts/git-deploy-policy.mjs";
 
 describe("git deploy policy", () => {
+  it("requires a redacted remote completion marker after health succeeds", async () => {
+    const source = readFileSync("scripts/git-deploy.mjs", "utf8");
+    expect(source).toContain("DEPLOY_COMPLETE");
+    expect(source).toContain("buildIdMtime");
+    expect(source).toContain("pm2StartedAt");
+  });
   it("defaults production deploys to main", () => {
     expect(resolveDeployBranch({ requestedBranch: null, allowNonMain: false })).toBe("main");
   });

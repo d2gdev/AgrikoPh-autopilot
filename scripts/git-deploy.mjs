@@ -307,6 +307,11 @@ fi
 
 rm -rf /opt/autopilot/.next.old /opt/autopilot/.next.build
 git checkout -- next-env.d.ts 2>/dev/null || true
+commit=$(git rev-parse HEAD)
+buildIdMtime=$(stat -c %Y .next/BUILD_ID)
+pm2Pid=$(pm2 pid autopilot)
+pm2StartedAt=$(ps -o lstart= -p "$pm2Pid" | xargs)
+printf 'DEPLOY_COMPLETE {"commit":"%s","buildIdMtime":"%s","pm2StartedAt":"%s","healthStatus":"ok"}\n' "$commit" "$buildIdMtime" "$pm2StartedAt"
 `;
 
 assertRemoteStepOrder(remoteScript);
