@@ -337,11 +337,13 @@ async function requestTokenWithRetry(
       );
       const expiresAtMs = getJwtExpiresAtMs(token);
 
-      if (expiresAtMs && expiresAtMs - TOKEN_EXPIRY_SKEW_MS <= nowMs) {
+      if (expiresAtMs && expiresAtMs <= Date.now()) {
         throw new Error("Shopify App Bridge returned an expired idToken");
       }
 
-      cachedIdToken = expiresAtMs ? { token, expiresAtMs } : null;
+      cachedIdToken = expiresAtMs && expiresAtMs - TOKEN_EXPIRY_SKEW_MS > Date.now()
+        ? { token, expiresAtMs }
+        : null;
       setAuthSnapshot({
         status: "ready",
         hasHost: context.hasHost,

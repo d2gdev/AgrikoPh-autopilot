@@ -101,6 +101,22 @@ describe("getAppBridgeIdToken", () => {
     expect(idToken).toHaveBeenCalledTimes(2);
   });
 
+  it("accepts a valid near-expiry token but refreshes it instead of caching it", async () => {
+    const nearExpiryToken = jwtExpiresIn(20);
+    const freshToken = jwtExpiresIn(120);
+    const idToken = vi.fn()
+      .mockResolvedValueOnce(nearExpiryToken)
+      .mockResolvedValueOnce(freshToken);
+    stubEmbeddedShopifyWindow(idToken);
+
+    const now = Date.now();
+    const options = { retryDelaysMs: [0], timeoutMs: 50, pollIntervalMs: 1 };
+    await expect(getAppBridgeIdToken(now, options)).resolves.toBe(nearExpiryToken);
+    await expect(getAppBridgeIdToken(now + 1_000, options)).resolves.toBe(freshToken);
+
+    expect(idToken).toHaveBeenCalledTimes(2);
+  });
+
   it("does not call App Bridge idToken in a direct top-level window", async () => {
     const idToken = vi.fn().mockResolvedValue(jwtExpiresIn(120));
     const top = {};
