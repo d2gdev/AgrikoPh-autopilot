@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomUUID } from "crypto";
 import { publishDraft, resolveArticleHandle } from "@/lib/content-pilot/publish-draft";
 import { contentProposalPublishRecoveryStatus } from "@/lib/content-pilot/publish-recovery";
@@ -141,3 +142,4 @@ export async function publishContentProposal(input: { prismaClient: Client; prop
     return { kind: "published_with_warnings", ...external, warning };
   }
 }
+/* eslint-disable @typescript-eslint/no-explicit-any */

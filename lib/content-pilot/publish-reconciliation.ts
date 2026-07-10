@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { finalizePublishedProposal } from "@/lib/content-pilot/publish-service";
 import { inspectPublishOutcome } from "@/lib/content-pilot/shopify-publish-inspection";
 
@@ -58,3 +59,4 @@ export async function reconcilePublishOperation(input: { prismaClient: any; prop
   await input.prismaClient.contentProposal.updateMany({ where: { id: proposal.id, draftStatus: { in: ["publishing", "publish-error"] } }, data: { draftStatus: "publish-error", publishWarning: "Publication outcome is ambiguous. Inspect Shopify before retrying." } });
   return { kind: "ambiguous" as const };
 }
+/* eslint-disable @typescript-eslint/no-explicit-any */

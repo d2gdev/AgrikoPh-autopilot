@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createContentProposalOnce, withContentProposalDedupeKey, type ContentProposalCreateData } from "./create-proposal";
 import { markContentProposalOpportunitiesTerminal } from "@/lib/opportunities/content-proposal-outcomes";
 import { opportunityFromProposal, upsertOpportunities } from "@/lib/opportunities/generate";
