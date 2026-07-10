@@ -408,7 +408,7 @@ git commit -m "fix: make Content Pilot transitions atomic"
 - Result is one of ready, failed, discarded, or conflict with safe error fields.
 - Uses injected generateDraftImpl, fetchArticlesImpl, and collectCitationsImpl in tests; production defaults use existing modules.
 
-- [ ] **Step 1: Write generation ownership tests**
+- [x] **Step 1: Write generation ownership tests**
 
 Cover claim token persistence, successful conditional completion, conditional failure, and reject invalidation:
 
@@ -425,7 +425,7 @@ it("discards a late AI result after rejection clears its token", async () => {
 
 Also prove history failure rolls back ready state and published-preserving maintenance generation does not erase the prior live receipt while AI runs.
 
-- [ ] **Step 2: Run Task 4 tests and verify RED**
+- [x] **Step 2: Run Task 4 tests and verify RED**
 
 ~~~bash
 npm test -- --run __tests__/lib/content-pilot/generation-service.test.ts __tests__/api/content-pilot-draft-citations.test.ts __tests__/api/embedded-fallback-auth-routes.test.ts
@@ -433,7 +433,7 @@ npm test -- --run __tests__/lib/content-pilot/generation-service.test.ts __tests
 
 Expected: generation-service module absent and current completion update matches only ID.
 
-- [ ] **Step 3: Implement claim and conditional completion**
+- [x] **Step 3: Implement claim and conditional completion**
 
 Claim predicate includes proposal ID, approved/override_approved status, no active publishing, and no active generation token. Store randomUUID(), generation start time, and visible generating status unless preservePublishedReceipt is true.
 
@@ -449,15 +449,15 @@ where: {
 
 It writes ready content and history atomically. Failure writes are conditional on the same token. Citation persistence remains isolated and returns a warning, not a failed draft.
 
-- [ ] **Step 4: Remove unsafe time-only publishing recovery**
+- [x] **Step 4: Remove unsafe time-only publishing recovery**
 
 Delete the generate-draft route branch that changes stale publishing to ready after two minutes. Generating recovery requires both a stale start time and token-aware conditional update; it never overwrites a newer operation.
 
-- [ ] **Step 5: Make the route a thin service adapter**
+- [x] **Step 5: Make the route a thin service adapter**
 
 Keep permission and rate limiting at the route. Map ready to 200, discarded/conflict to 409, validation failures to 422, provider failures to their typed status, and safe details to the existing UI error shape.
 
-- [ ] **Step 6: Run Task 4 verification**
+- [x] **Step 6: Run Task 4 verification**
 
 ~~~bash
 npm test -- --run __tests__/lib/content-pilot/generation-service.test.ts __tests__/api/content-pilot-draft-citations.test.ts __tests__/api/embedded-fallback-auth-routes.test.ts __tests__/api/content-pilot-reject-route.test.ts
@@ -466,7 +466,7 @@ npm run typecheck
 
 Expected: pass.
 
-- [ ] **Step 7: Run GROW and commit Task 4**
+- [x] **Step 7: Run GROW and commit Task 4**
 
 ~~~bash
 git add lib/content-pilot/generation-service.ts app/api/content-pilot/proposals __tests__/lib/content-pilot/generation-service.test.ts __tests__/api/content-pilot-draft-citations.test.ts __tests__/api/embedded-fallback-auth-routes.test.ts .mex
