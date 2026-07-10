@@ -1199,6 +1199,24 @@ After all local gates, PostgreSQL gates, reviews, traceability, and PR CI pass, 
 
 ---
 
+## Final F01–F18 Traceability Matrix
+
+| Finding | Implementation evidence | Verification evidence | Review status |
+|---|---|---|---|
+| F01 | 2449e14 | regenerate-filipino 13 tests | implemented |
+| F02 | 870dcd5, 48d94da | permission/route suites | implemented |
+| F03–F05 | d1c4da4, 75defd2 | publish/reconciliation suites | implemented |
+| F06 | 52e75f0 | generation ownership suites; PostgreSQL integration | implemented |
+| F07, F18 | 3dac902, eaeb933 | SEO AI parser/route suites | implemented |
+| F08, F15 | 1b79090 | GA4/data/UI suites | implemented |
+| F09, F16 | f06f437, 2065659 | replacement suites; PostgreSQL migration/race tests | implemented |
+| F10 | 14d4a0b | proposal transition suites | implemented |
+| F11, F13, F14 | 3e46012, b02df5b, ebdd9c9 | queue/API/component suites | implemented |
+| F12 | existing Prisma freshness gate + e3c2679 | db:generate, verify client, typechecks | implemented |
+| F17 | 2065659 | 50 migrations applied on PostgreSQL 16 | implemented |
+
+Final local evidence: full suite 1041 passed/2 skipped; focused cross-pilot 320 passed; PostgreSQL integration 2 passed; app/test typechecks passed; Prisma validation passed; production build passed against disposable PostgreSQL; lint 0 errors; npm audit 0 vulnerabilities.
+
 ## Plan Self-Review Checklist
 
 - [x] Spec coverage: Tasks 1–12 cover every F01–F18 row.
