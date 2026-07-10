@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchBlogArticles } from "@/lib/shopify-admin";
 import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
-import { createContentProposalOnce, withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
+import { replacePendingContentProposals } from "@/lib/content-pilot/proposal-replacement";
 
 export async function POST(req: Request) {
   const appAuthError = await requireAppAuth(req);
@@ -44,11 +44,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ created: 0, message: "All articles already have a refresh proposal." });
     }
 
-    const created = await prisma.$transaction(async (tx) => {
-      let count = 0;
-      for (const a of toCreate) {
-        const result = await createContentProposalOnce(tx, {
-            ...withContentProposalDedupeKey({ articleHandle: a.handle,
+    const result = await replacePendingContentProposals(prisma, toCreate.map((a) => ({ articleHandle: a.handle,
             proposalType: "content-refresh",
             changeType: "update",
             priority: "P3",
@@ -57,14 +53,9 @@ export async function POST(req: Request) {
             title: `Guidelines refresh: ${a.title}`,
             description: `Re-write "${a.title}" to apply the current brand & writing guidelines.`,
             proposedState: { articleHandle: a.handle, articleTitle: a.title },
-            sourceData: { trigger: "manual-guidelines-refresh" } }),
-        });
-        if (result.created) count++;
-      }
-      return count;
-    });
+            sourceData: { trigger: "manual-guidelines-refresh" } })));
 
-    return NextResponse.json({ created });
+    return NextResponse.json({ created: result.created });
   } catch (err) {
     console.error("[proposals/refresh-all] error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
