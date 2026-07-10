@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-10T23:24:00+08:00
+last_updated: 2026-07-10T23:35:00+08:00
 ---
 
 # Pilot Queue Usability
@@ -36,6 +36,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 12. Use this Task 2 permission matrix exactly: every listed embedded handler first calls `await requireAppAuth(req)`, then immediately calls `requirePermission(req, PERMISSIONS.CONTENT_REVIEW)` before any boundary: `POST /api/content-pilot/proposals/[id]/{reject,reopen,clone,generate-draft}`, `PATCH /api/content-pilot/proposals/[id]`, `POST /api/content-pilot/proposals/{generate,manual,refresh-all}`, `POST /api/seo/promote`, `POST /api/seo/gaps/promote`, and `POST /api/seo/recommendations/decompose`. Reads stay on `requireAppAuth`. This is not a publication matrix: `POST /api/content-pilot/regenerate-filipino` is mandatory Task 6 remediation and must use `CONTENT_PUBLISH`; Task 2 neither fixes nor defers it.
 13. Shopify success is final for the operator: write a durable published receipt before any audit, Opportunity, or reindex work. Any bookkeeping failure remains `published` with `publishWarning`; only a receipt that cannot be stored requires reconciliation, never an automatic republish.
 14. A published receipt with `publishFinalizedAt: null` needs an explicit "Retry bookkeeping" action protected by `CONTENT_PUBLISH`; it may call only the idempotent local finalizer, never Shopify. Batch reindex failure must persist its warning on every affected published row.
+15. Reconciliation must inspect Shopify through proposal-specific read-only evidence before resetting any interrupted publish: exact article content for new/refresh work, exact metafields for SEO, and the operation marker for internal links. A missing or non-deterministic result is ambiguous, never retryable. Queue stages must expose `publishing`/`publish-error` so Reconcile is reachable, and successful warning responses must say “Published with warning.”
 
 ## Gotchas
 - A successful "skipped/already handled" backend response still feels broken if the UI leaves the same row visible or says to fetch data first.

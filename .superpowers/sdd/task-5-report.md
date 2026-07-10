@@ -22,6 +22,13 @@ Implemented and committed after fresh red-green service tests.
 
 - Shopify inspection helpers do not yet expose a proposal-type-specific read API. Reconciliation is intentionally conservative: it finalizes a durable published receipt, returns ready only for an operation with no recorded Shopify ID, and otherwise leaves an ambiguous state for operator inspection. No live Shopify mutation is issued.
 
+## Final specification follow-up (2026-07-10)
+
+- Added a guarded, read-only Shopify inspection adapter for new-content, body refresh/thin-content, SEO metafield, and internal-link marker operations. Reconciliation records an inspected receipt as `applied`; it returns a proposal to `ready` only after the inspector proves `not_applied`; missing or uncertain reads remain `ambiguous`.
+- Added explicit QueueTab stages/pills for `publishing` and `publish-error`, preserving the existing approval gate while making ProposalRow’s Reconcile action reachable.
+- Queue feedback now renders `Published with warning: ...` and includes the server warning for `published_with_warnings` results.
+- Verification: focused Task 5 suite — 7 files / 32 tests; `npm run typecheck`; `npm run typecheck:test`; `git diff --check`.
+
 ## Specification follow-up — 2026-07-10
 
 ### Red evidence

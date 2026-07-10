@@ -21,6 +21,8 @@ import { draftFailureMessage } from "./helpers";
 import { ProposalRow } from "./queue/ProposalRow";
 import { QueueFilters } from "./queue/QueueFilters";
 import { QueueModals } from "./queue/QueueModals";
+import { contentProposalQueueStage } from "./queue-stage";
+import { publishFeedback } from "./publish-feedback";
 
 // Safely parse a Response as JSON. If the body is not JSON (e.g. an HTML error
 // page from a proxy or Next.js itself), returns { error: <raw text> } rather
@@ -56,7 +58,7 @@ export function QueueTab({
   const [loadingDraftId, setLoadingDraftId] = useState<string | null>(null);
   // Search & filter
   const [searchQuery, setSearchQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<"all" | "pending" | "approved" | "generating" | "ready" | "scheduled" | "published" | "failed" | "rejected">("all");
+  const [stageFilter, setStageFilter] = useState<"all" | "pending" | "approved" | "generating" | "ready" | "scheduled" | "publishing" | "publish-error" | "published" | "failed" | "rejected">("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sortKey, setSortKey] = useState<"priority" | "createdAt" | "impact">("priority");
@@ -69,7 +71,7 @@ export function QueueTab({
   const [pendingRejectId, setPendingRejectId] = useState<string | null>(null);
   const [pendingRejectNote, setPendingRejectNote] = useState("");
   // Publish success feedback
-  const [lastPublishedTitle, setLastPublishedTitle] = useState<string | null>(null);
+  const [lastPublishFeedback, setLastPublishFeedback] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   // Generate proposals feedback
   const [lastGeneratedCount, setLastGeneratedCount] = useState<number | null>(null);
   // Clone
@@ -84,23 +86,15 @@ export function QueueTab({
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [scheduleInputs, setScheduleInputs] = useState<Record<string, string>>({});
 
-  // Stage classification: maps each proposal to a simple pipeline stage for filtering/display
-  const getStage = (p: ContentProposal): "pending" | "approved" | "generating" | "ready" | "scheduled" | "published" | "failed" | "rejected" => {
-    if (p.status === "rejected") return "rejected";
-    if (p.status === "pending") return "pending";
-    if (p.draftStatus === "published") return "published";
-    if (p.draftStatus === "ready" && p.scheduledPublishAt) return "scheduled";
-    if (p.draftStatus === "ready") return "ready";
-    if (p.draftStatus === "generating") return "generating";
-    if (p.draftStatus === "failed") return "failed";
-    return "approved";
-  };
+  const getStage = contentProposalQueueStage;
 
   const pendingCount = allProposals.filter((p) => p.status === "pending").length;
   const approvedCount = allProposals.filter((p) => p.status === "approved" && !p.draftStatus).length;
   const generatingCount = allProposals.filter((p) => p.draftStatus === "generating").length;
   const readyCount = allProposals.filter((p) => p.draftStatus === "ready" && !p.scheduledPublishAt).length;
   const scheduledCount = allProposals.filter((p) => p.draftStatus === "ready" && p.scheduledPublishAt).length;
+  const publishingCount = allProposals.filter((p) => p.draftStatus === "publishing").length;
+  const publishErrorCount = allProposals.filter((p) => p.draftStatus === "publish-error").length;
   const publishedCount = allProposals.filter((p) => p.draftStatus === "published").length;
   const failedCount = allProposals.filter((p) => p.draftStatus === "failed").length;
   const rejectedCount = allProposals.filter((p) => p.status === "rejected").length;
@@ -271,11 +265,12 @@ export function QueueTab({
     try {
       const res = await authFetch(`/api/content-pilot/proposals/${id}/publish`, { method: "POST" });
       if (!res.ok) { const d = await safeJson(res); setError((d.error as string) ?? "Publish failed"); return false; }
+      const result = await safeJson(res);
       // Optimistic update then confirm from server
       const title = allProposals.find(p => p.id === id)?.title ?? "Article";
       setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "published" } : p));
-      setLastPublishedTitle(title);
-      setTimeout(() => setLastPublishedTitle(null), 4000);
+      setLastPublishFeedback(publishFeedback(title, result as { kind?: string; publishWarning?: string }));
+      setTimeout(() => setLastPublishFeedback(null), 4000);
       void loadProposals({ silent: true });
       return true;
     } catch (e) { setError(String(e)); return false; }
@@ -531,6 +526,8 @@ export function QueueTab({
     { key: "generating", label: "Generating", count: generatingCount },
     { key: "ready", label: "Ready", count: readyCount },
     { key: "scheduled", label: "Scheduled", count: scheduledCount },
+    { key: "publishing", label: "Publishing", count: publishingCount },
+    { key: "publish-error", label: "Publication errors", count: publishErrorCount },
     { key: "published", label: "Published", count: publishedCount },
     { key: "failed", label: "Failed", count: failedCount },
     { key: "rejected", label: "Rejected", count: rejectedCount },
@@ -583,9 +580,9 @@ export function QueueTab({
   return (
     <BlockStack gap="400">
       {error && <Banner tone="critical" onDismiss={() => setError(null)}>{error}</Banner>}
-      {lastPublishedTitle && (
-        <Banner tone="success" onDismiss={() => setLastPublishedTitle(null)}>
-          {`"${lastPublishedTitle}" published to Shopify.`}
+      {lastPublishFeedback && (
+        <Banner tone={lastPublishFeedback.tone} onDismiss={() => setLastPublishFeedback(null)}>
+          {lastPublishFeedback.message}
         </Banner>
       )}
       {lastGeneratedCount !== null && (

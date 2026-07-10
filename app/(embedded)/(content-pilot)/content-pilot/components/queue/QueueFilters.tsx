@@ -1,6 +1,7 @@
 import { Button, InlineStack, Select, TextField } from "@shopify/polaris";
+import type { ContentProposalQueueStage } from "../queue-stage";
 
-type StageFilter = "all" | "pending" | "approved" | "generating" | "ready" | "scheduled" | "published" | "failed" | "rejected";
+type StageFilter = "all" | ContentProposalQueueStage;
 
 export function QueueFilters({
   loading,

@@ -26,8 +26,8 @@ import {
   ProposedChangeSummary,
 } from "../helpers";
 import { proposalEvidenceLines } from "../proposal-evidence";
+import type { ContentProposalQueueStage as Stage } from "../queue-stage";
 
-type Stage = "pending" | "approved" | "generating" | "ready" | "scheduled" | "published" | "failed" | "rejected";
 
 export function ProposalRow({
   p,
@@ -148,6 +148,8 @@ export function ProposalRow({
     if (stage === "generating") return <Badge tone="attention">Generating…</Badge>;
     if (stage === "ready") return <Badge tone="success">Ready</Badge>;
     if (stage === "scheduled") return <Badge tone="info">Scheduled</Badge>;
+    if (stage === "publishing") return <Badge tone="attention">Publishing…</Badge>;
+    if (stage === "publish-error") return <Badge tone="critical">Publication error</Badge>;
     if (stage === "published") return <Badge tone="success">Published</Badge>;
     if (stage === "failed") return <Badge tone="critical">Failed</Badge>;
     if (stage === "rejected") return <Badge tone="critical">Rejected</Badge>;
