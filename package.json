@@ -28,12 +28,11 @@
     "shopify:refresh-token": "node scripts/refresh-shopify-admin-token.mjs",
     "shopify:check-token": "node scripts/refresh-shopify-admin-token.mjs --check-only",
     "test": "vitest run",
-    "test:postgres": "DATABASE_URL=\"$DATABASE_URL_TEST\" prisma migrate deploy && vitest run --run __tests__/integration/postgres-content-pilot.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "verify:prisma-client": "node scripts/check-prisma-client.mjs",
-    "test:postgres": "DATABASE_URL=\"$DATABASE_URL_TEST\" vitest run --config vitest.postgres.config.ts"
+    "test:postgres": "DATABASE_URL=\"$DATABASE_URL_TEST\" prisma migrate deploy && DATABASE_URL=\"$DATABASE_URL_TEST\" vitest run --config vitest.postgres.config.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

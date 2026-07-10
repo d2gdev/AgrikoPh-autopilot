@@ -224,7 +224,9 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
       try { await persistAnalysis(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
       return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source }, { status: 200 });
     }
-    console.error("[seo/analyze]", err);
-    return NextResponse.json({ error: "Analysis failed" }, { status: 500 });
+    console.error("[seo/analyze] AI request failed", err);
+    const analysis = partialAnalysis("AI provider unavailable");
+    try { await persistAnalysis(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
+    return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source }, { status: 200 });
   }
 }
