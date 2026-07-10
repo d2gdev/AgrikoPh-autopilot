@@ -15,3 +15,4 @@
 
 ## Self-review / concerns
 - Existing route tests mock the old data export and must be updated as specified by Task 6. Compatibility fallback cannot safely probe Vitest mocked missing exports because the mock proxy throws on property access.
+- Follow-up commit `62d06c2` updates the route mock with `getPreviousGscData`; focused route/data suite now passes (30 tests), and `tsc --noEmit` plus `git diff --check` pass.
