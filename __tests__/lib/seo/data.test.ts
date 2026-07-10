@@ -29,7 +29,7 @@ vi.mock("@/lib/seo/snapshot", () => mockSnapshots);
 vi.mock("@/lib/seo/gsc-normalized", () => mockNormalized);
 vi.mock("@/lib/seo/history", () => ({ computeSnapshotTrend: vi.fn(() => []) }));
 
-const { getLatestGscData } = await import("@/lib/seo/data");
+const { getLatestGscData, getPreviousGscData } = await import("@/lib/seo/data");
 
 function rawSnapshot(source: string, fetchedAt: string, start: string, end: string, payload: object) {
   return {
@@ -261,5 +261,15 @@ describe("getLatestGscData freshness selection", () => {
       rawDateRangeEnd: null,
       fallbackReason: null,
     });
+  });
+
+  it("returns previous normalized rows with capture and window metadata", async () => {
+    const currentWindow = { capturedAt: new Date("2026-07-10T00:00:00.000Z"), dateRangeStart: new Date("2026-07-01T00:00:00.000Z"), dateRangeEnd: new Date("2026-07-09T00:00:00.000Z") };
+    const previousWindow = { capturedAt: new Date("2026-06-01T00:00:00.000Z"), dateRangeStart: new Date("2026-05-23T00:00:00.000Z"), dateRangeEnd: new Date("2026-05-31T00:00:00.000Z") };
+    mockNormalized.getPreviousGscWindow.mockResolvedValue(previousWindow);
+    mockNormalized.getGscQueriesForWindow.mockResolvedValue([{ query: "old", clicks: 1, impressions: 2, ctr: "50%", position: "4" }]);
+    const result = await getPreviousGscData({ source: "normalized", window: currentWindow, queries: [], pages: [], queryPagePairs: [], fetchedAt: currentWindow.capturedAt, freshness: {} as never });
+    expect(result).toMatchObject({ source: "normalized", fetchedAt: previousWindow.capturedAt, dateRangeStart: previousWindow.dateRangeStart, dateRangeEnd: previousWindow.dateRangeEnd });
+    expect(result?.queries).toHaveLength(1);
   });
 });
