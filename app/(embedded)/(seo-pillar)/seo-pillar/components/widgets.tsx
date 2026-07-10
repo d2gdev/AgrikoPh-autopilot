@@ -51,7 +51,7 @@ export function Sparkline({ points, color = "var(--p-color-bg-fill-info)", heigh
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-hidden>
+    <svg width={width} height={height} style={{ display: "block", maxWidth: "100%", height: "auto" }} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-hidden>
       <polyline fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" points={coords.join(" ")} />
     </svg>
   );

@@ -63,4 +63,9 @@ describe("SEO Pilot responsive layout contract", () => {
     expect(css).toContain("max-width: 100%");
     expect(css).toMatch(/overflow-wrap:\s*anywhere/);
   });
+
+  it("lets fixed-aspect sparklines shrink inside narrow cards", () => {
+    const source = read("app/(embedded)/(seo-pillar)/seo-pillar/components/widgets.tsx");
+    expect(source).toContain('maxWidth: "100%"');
+  });
 });
