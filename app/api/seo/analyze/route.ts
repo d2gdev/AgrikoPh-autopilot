@@ -6,7 +6,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getAiClient } from "@/lib/ai/client";
+import { chatCompletionWithFailover } from "@/lib/ai/client";
+import { parseJsonObject } from "@/lib/seo/ai-output";
 import { getLatestGscData } from "@/lib/seo/data";
 import { buildProgrammaticSeoGaps, type SeoAnalysisLimits } from "@/lib/seo/analysis";
 import { hasMissingMeta } from "@/lib/seo/meta";
@@ -132,9 +133,7 @@ export async function POST(req: NextRequest) {
 
   const aiTimeout = AbortSignal.timeout(25_000);
   try {
-    const ai = await getAiClient({ deepseekModel: "deepseek-v4-pro", openRouterModel: "deepseek/deepseek-v4-pro" });
-    const response = await ai.client.chat.completions.create({
-      model: ai.model,
+    const response = await chatCompletionWithFailover({
       max_tokens: 1000,
       messages: [
         {
@@ -170,16 +169,10 @@ ${programmaticGaps.map(g => `- "${g.suggestedTitle}"`).join("\n")}
 Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
         },
       ],
-    }, { signal: aiTimeout });
-
-    const raw = response.choices[0]?.message?.content ?? "{}";
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    let aiResult: Record<string, unknown> = {};
-    if (jsonMatch) {
-      try { aiResult = JSON.parse(jsonMatch[0]); } catch { /* ignore */ }
-    }
-    const validated = SeoAnalysisSchema.safeParse(aiResult);
-    const parsedAnalysis = validated.success ? validated.data : { quickWins: [], recommendations: [] };
+    }, { deepseekModel: "deepseek-v4-pro", openRouterModel: "deepseek/deepseek-v4-pro", requestOptions: { signal: aiTimeout } });
+    const rawContent = response.content ?? (response as unknown as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content ?? "";
+    const parsed = parseJsonObject(rawContent, SeoAnalysisSchema);
+    const parsedAnalysis = parsed.ok ? parsed.data : { quickWins: [], recommendations: [] };
     const evidenceContext = {
       queries: topQueries,
       articles: articleRecords,
@@ -187,8 +180,8 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
       thinContentCount: thinContent.length,
       noInternalLinksCount: noInternalLinks.length,
     };
-    const quickWins = groundedStrategyItems(parsedAnalysis.quickWins, evidenceContext);
-    const recommendations = groundedStrategyItems(parsedAnalysis.recommendations, evidenceContext);
+    const quickWins = groundedStrategyItems(parsedAnalysis.quickWins ?? [], evidenceContext);
+    const recommendations = groundedStrategyItems(parsedAnalysis.recommendations ?? [], evidenceContext);
 
     const analysis = {
       summary: parsedAnalysis.summary ?? `${articleRecords.length} articles indexed. ${missingMeta.length} missing meta, ${thinContent.length} thin content, ${noInternalLinks.length} with no internal links.`,
@@ -198,6 +191,8 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
       recommendations: recommendations.items,
       recommendationEvidence: recommendations.evidence,
       limits,
+      aiStatus: parsed.ok ? "complete" : "partial",
+      ...(parsed.ok ? {} : { aiError: "AI returned invalid structured output" }),
     };
 
     await prisma.rawSnapshot.upsert({

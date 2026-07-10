@@ -7,7 +7,8 @@ import { prisma } from "@/lib/db";
 import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getAiClient } from "@/lib/ai/client";
+import { chatCompletionWithFailover } from "@/lib/ai/client";
+import { parseJsonArray } from "@/lib/seo/ai-output";
 import { classifyPriority } from "@/lib/content-pilot/priority-score";
 import { hasMissingMeta } from "@/lib/seo/meta";
 import {
@@ -92,10 +93,8 @@ export async function POST(req: NextRequest) {
   // ── AI: decompose the strategy into concrete, typed tasks ──
   let tasks: DecomposedTask[] = [];
   try {
-    const ai = await getAiClient({ deepseekModel: "deepseek-v4-pro", openRouterModel: "deepseek/deepseek-v4-pro" });
-    const response = await ai.client.chat.completions.create(
+    const response = await chatCompletionWithFailover(
       {
-        model: ai.model,
         max_tokens: 1200,
         messages: [
           {
@@ -131,19 +130,17 @@ ${articleRecords.slice(0, 120).map((a) => `${a.handle} — ${a.title} — ${a.wo
           },
         ],
       },
-      { signal: AbortSignal.timeout(25_000) }
+      { deepseekModel: "deepseek-v4-pro", openRouterModel: "deepseek/deepseek-v4-pro", requestOptions: { signal: AbortSignal.timeout(25_000) } }
     );
 
-    const raw = response.choices[0]?.message?.content ?? "[]";
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0]);
-        const validated = DecomposedTasksSchema.safeParse(parsed);
-        if (validated.success) tasks = validated.data;
-      } catch { /* fall through to empty */ }
-    }
-  } catch {
+    const rawContent = response.content ?? (response as unknown as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content ?? "";
+    const parsed = parseJsonArray(rawContent, DecomposedTasksSchema);
+    if (!parsed.ok) return NextResponse.json({ error: "AI returned invalid structured output" }, { status: 502 });
+    tasks = parsed.data;
+  } catch (err) {
+    if (err instanceof Error && (err.name === "AbortError" || /timeout/i.test(err.message))) return NextResponse.json({ error: "AI decomposition timed out" }, { status: 504 });
+    const status = (err as { status?: number })?.status;
+    if (status === 401 || status === 403 || status === 429 || status === 503) return NextResponse.json({ error: "AI provider unavailable" }, { status: 503 });
     return NextResponse.json({ error: "AI decomposition failed. Please try again." }, { status: 502 });
   }
 

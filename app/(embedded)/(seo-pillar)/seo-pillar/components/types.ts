@@ -27,6 +27,8 @@ export interface ContentGap {
   wordCount?: number | null;
 }
 export interface Analysis {
+  aiStatus?: "complete" | "partial";
+  aiError?: string;
   summary?: string;
   quickWins?: string[];
   quickWinEvidence?: string[];

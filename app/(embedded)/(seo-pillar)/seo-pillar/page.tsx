@@ -439,6 +439,11 @@ export default function SeoPillarReportPage() {
             <Banner tone="critical" title="AI Analysis failed" onDismiss={() => setAnalysisError(null)}><p>{analysisError}</p></Banner>
           </Layout.Section>
         )}
+        {analysis?.aiStatus === "partial" && (
+          <Layout.Section>
+            <Banner tone="warning" title="AI strategy is incomplete"><p>Programmatic findings are available, but AI strategy text failed. Retry AI Analysis to complete it.</p></Banner>
+          </Layout.Section>
+        )}
         {briefError && (
           <Layout.Section>
             <Banner tone="critical" title="Brief generation failed" onDismiss={() => setBriefError(null)}><p>{briefError}</p></Banner>
