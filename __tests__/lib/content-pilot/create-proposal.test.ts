@@ -27,7 +27,7 @@ describe("createContentProposalOnce", () => {
   });
 
   it("returns the existing proposal when a concurrent canonical-key insert wins", async () => {
-    const existing = { id: "winner", dedupeKey: "seo-fix:article:black-rice:action:missing-meta" };
+    const existing = { id: "winner", dedupeKey: contentProposalDedupeKey(proposalData) };
     const client = {
       contentProposal: {
         createMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -40,6 +40,30 @@ describe("createContentProposalOnce", () => {
       created: false,
     });
     expect(client.contentProposal.findUnique).toHaveBeenCalledWith({ where: { dedupeKey: existing.dedupeKey } });
+  });
+
+  it("returns a proposal stored under the legacy query-specific SEO key", async () => {
+    const existing = {
+      id: "legacy",
+      dedupeKey: "seo-fix:article:black-rice:action:missing-meta:black rice",
+    };
+    const client = {
+      contentProposal: {
+        findFirst: vi.fn().mockResolvedValue(existing),
+        createMany: vi.fn(),
+        findUnique: vi.fn(),
+      },
+    };
+
+    await expect(createContentProposalOnce(client, proposalData as never)).resolves.toEqual({
+      proposal: existing,
+      created: false,
+    });
+    expect(client.contentProposal.findFirst).toHaveBeenCalledWith({
+      where: { proposalType: "seo-fix", articleHandle: "black-rice" },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(client.contentProposal.createMany).not.toHaveBeenCalled();
   });
 
   it("rethrows errors other than unique conflicts", async () => {
