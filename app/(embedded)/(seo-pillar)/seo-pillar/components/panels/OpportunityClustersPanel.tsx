@@ -1,4 +1,5 @@
-import { Text, Card, Badge, InlineStack, BlockStack, DataTable, Button } from "@shopify/polaris";
+import { Text, Card, Badge, InlineStack, BlockStack, Button } from "@shopify/polaris";
+import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { OpportunityCluster } from "../types";
 
 export function OpportunityClustersPanel({
@@ -33,7 +34,7 @@ export function OpportunityClustersPanel({
                   <Text as="span" tone="subdued" variant="bodySm">Show member queries</Text>
                 </summary>
                 <div style={{ marginTop: "var(--p-space-200)" }}>
-                  <DataTable
+                  <ResponsiveDataTable
                     columnContentTypes={["text", "numeric", "numeric", "numeric"]}
                     headings={["Query", "Impr.", "Position", "Potential"]}
                     rows={c.opportunities.map((o, i) => [

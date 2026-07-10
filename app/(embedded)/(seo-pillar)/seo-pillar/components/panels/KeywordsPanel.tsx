@@ -1,4 +1,5 @@
-import { Text, InlineStack, BlockStack, TextField, Button, DataTable, Badge } from "@shopify/polaris";
+import { Text, InlineStack, BlockStack, TextField, Button, Badge } from "@shopify/polaris";
+import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { Dispatch, SetStateAction } from "react";
 import type { KeywordRow } from "../types";
 
@@ -38,7 +39,7 @@ export function KeywordsPanel({
         </div>
       </InlineStack>
       {keywords.length === 0 ? <Text as="p" tone="subdued">No keywords tracked yet.</Text> : (
-        <DataTable
+        <ResponsiveDataTable
           columnContentTypes={["text", "numeric", "text", "numeric", "numeric", "text"]}
           headings={["Keyword", "Position", "Δ Pos", "Clicks", "Impr.", "Status"]}
           sortable={[true, true, true, true, true, false]}

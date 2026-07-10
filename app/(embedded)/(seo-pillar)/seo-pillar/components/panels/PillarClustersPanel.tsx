@@ -1,4 +1,5 @@
-import { Text, BlockStack, DataTable, Badge } from "@shopify/polaris";
+import { Text, BlockStack, Badge } from "@shopify/polaris";
+import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { Cluster } from "../types";
 
 export function PillarClustersPanel({ clusters }: { clusters: Cluster[] }) {
@@ -7,7 +8,7 @@ export function PillarClustersPanel({ clusters }: { clusters: Cluster[] }) {
       <Text variant="headingMd" as="h2">Pillar / topic-cluster gaps</Text>
       <Text as="p" tone="subdued">Clusters with high gap scores have the least supporting content — strong candidates for new articles and pillar pages.</Text>
       {clusters.length === 0 ? <Text as="p" tone="subdued">No cluster data. Index blog content in Content Pilot.</Text> : (
-        <DataTable
+        <ResponsiveDataTable
           columnContentTypes={["text", "numeric", "numeric", "text"]}
           headings={["Topic", "Articles", "Keywords", "Gap score"]}
           rows={clusters.map((c, i) => [
