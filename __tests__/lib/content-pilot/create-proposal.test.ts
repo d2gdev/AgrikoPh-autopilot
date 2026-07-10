@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
+import { contentProposalDedupeKey } from "@/lib/content-pilot/proposal-dedupe";
 
 const proposalData = {
   proposalType: "seo-fix",
@@ -9,6 +10,27 @@ const proposalData = {
 };
 
 describe("createContentProposalOnce", () => {
+  it("creates with the canonical dedupe key", async () => {
+    const proposal = { id: "created" };
+    const client = {
+      contentProposal: {
+        create: vi.fn().mockResolvedValue(proposal),
+        findUnique: vi.fn(),
+      },
+    };
+
+    await expect(createContentProposalOnce(client, proposalData as never)).resolves.toEqual({
+      proposal,
+      created: true,
+    });
+    expect(client.contentProposal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        ...proposalData,
+        dedupeKey: contentProposalDedupeKey(proposalData),
+      }),
+    });
+  });
+
   it("returns the existing proposal when a concurrent canonical-key insert wins", async () => {
     const existing = { id: "winner", dedupeKey: "seo-fix:article:black-rice:action:missing-meta" };
     const client = {
