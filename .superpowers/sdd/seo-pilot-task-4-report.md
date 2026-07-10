@@ -12,8 +12,13 @@ Canonical `createContentProposalOnce` is now used by SEO promote, SEO gap promot
 
 ## Commit
 
-Pending parent-agent integration commit.
+Commits: `b885a84`, follow-up `5ee2d35`.
+
+Final focused command:
+`npm test -- --run __tests__/api/seo-pilot-routes.test.ts __tests__/api/content-pilot-routes.test.ts __tests__/lib/content-pilot/proposal-dedupe.test.ts __tests__/lib/opportunities/route.test.ts`
+
+Result: 4 files passed, 41 tests passed. `npx tsc --noEmit` passed. Diff check for follow-up: three automated producer files, 10 insertions and 6 deletions.
 
 ## Self-review / concerns
 
-Generate, refresh-all, and daily proposal creation paths still need the same helper conversion in the parent integration pass. Opportunity routing retains its historical pre-check for compatibility while using the atomic helper for the create path.
+Generate, refresh-all, and daily paths now attach canonical dedupe keys; they retain transaction creates. Opportunity routing retains its historical pre-check for compatibility while using the atomic helper for the create path.
