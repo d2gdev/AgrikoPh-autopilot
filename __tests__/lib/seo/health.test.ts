@@ -2,6 +2,20 @@ import { describe, expect, it } from "vitest";
 import { aggregateOnPageHealth } from "@/lib/seo/health";
 
 describe("aggregateOnPageHealth", () => {
+  it("returns every offender in the bounded analyzed corpus", () => {
+    const articles = Array.from({ length: 25 }, (_, index) => ({
+      handle: `thin-${index}`,
+      title: `Thin ${index}`,
+      wordCount: 100,
+      internalLinkCount: 1,
+      headingCount: 2,
+      inboundCount: 1,
+      seoData: { h1Count: 1, issues: [] },
+    }));
+
+    expect(aggregateOnPageHealth(articles).worstOffenders).toHaveLength(25);
+  });
+
   it("reports missing H1 when H2/H3 headings exist", () => {
     const result = aggregateOnPageHealth([{
       handle: "structured-without-h1",

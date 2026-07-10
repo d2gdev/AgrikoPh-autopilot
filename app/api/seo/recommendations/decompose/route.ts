@@ -56,10 +56,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No recommendation provided" }, { status: 400 });
   }
 
+  const isBulkMeta =
+    /meta\s*(title|description|tag)|title\s*tag/i.test(recommendation) &&
+    /\ball\b|every|systematic|template|articles/i.test(recommendation);
+
   // Ground the AI in real articles so it can only reference handles that exist.
   const articleRecords = await prisma.articleRecord.findMany({
     select: { handle: true, title: true, wordCount: true, seoData: true },
-    take: 200,
+    orderBy: { handle: "asc" },
+    ...(isBulkMeta ? {} : { take: 200 }),
   });
   const handleSet = new Set(articleRecords.map((a) => a.handle));
   const wordCountByHandle = new Map(articleRecords.map((a) => [a.handle, a.wordCount ?? 0]));
@@ -71,10 +76,6 @@ export async function POST(req: NextRequest) {
   // A bulk meta strategy ("systematic meta titles/descriptions for all articles")
   // can't be expressed as a handful of AI tasks — fan out deterministically to
   // EVERY article currently missing meta, bypassing the AI cap.
-  const isBulkMeta =
-    /meta\s*(title|description|tag)|title\s*tag/i.test(recommendation) &&
-    /\ball\b|every|systematic|template|articles/i.test(recommendation);
-
   if (isBulkMeta) {
     for (const a of articleRecords) {
       if (!hasMissingMeta(a.seoData)) continue;

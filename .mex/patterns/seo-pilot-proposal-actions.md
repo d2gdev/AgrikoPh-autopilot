@@ -60,6 +60,12 @@ last_updated: 2026-07-11
 12. Persist complete-map attribution for query/page evidence, classify striking-distance opportunities separately, and retain H1-specific findings. Partial analysis must be explicit (never presented as complete); client caches must not retain failed responses and should surface retryable errors.
    - Raw GSC fallback may combine query, page, and query-page evidence only when each snapshot has the selected query snapshot's exact reporting window. Omit mismatched evidence rather than attributing an opportunity to stale pages.
 13. GA4 selection must distinguish a missing normalized window from an existing window with zero usable rows. When raw rows are used after an empty normalized window, return `fallbackReason: "normalized_empty"`.
+   - A raw snapshot is eligible to replace normalized data only when it contains at least one usable page with traffic. A newer empty raw snapshot must not suppress usable normalized rows.
+14. Broad deterministic proposal actions must not silently inherit AI context caps.
+   - A bulk meta action that says “all articles” must scan the complete article corpus; the 200-record AI grounding limit applies only to ordinary AI decomposition.
+15. On-page health must keep every offender from the route's bounded corpus reachable.
+   - Meta title/description length findings use the existing SEO-fix action.
+   - Findings without a safe existing proposal type are labelled for manual review instead of rendering a blank action cell.
 
 ## Regression Tests
 Add or update route tests when changing these paths:

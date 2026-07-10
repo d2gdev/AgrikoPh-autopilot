@@ -319,4 +319,47 @@ describe("getLatestGa4Data freshness selection", () => {
       freshness: { selectedSource: "rawSnapshot", fallbackReason: "normalized_empty" },
     });
   });
+
+  it("keeps usable normalized GA4 rows when a newer raw snapshot has no usable pages", async () => {
+    const window = {
+      dateRangeStart: new Date("2026-06-01T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-29T00:00:00.000Z"),
+      capturedAt: new Date("2026-07-01T04:00:00.000Z"),
+    };
+    mockDb.pageAnalytics.findFirst.mockResolvedValue(window);
+    mockDb.pageAnalytics.findMany.mockResolvedValue([
+      { page: "/blogs/normalized", sessions: 25, bounceRate: 0.5, conversionRate: 0.02 },
+    ]);
+    mockSnapshots.getLatestSnapshot.mockResolvedValue(rawSnapshot("ga4", "2026-07-09T04:30:00.000Z", "2026-06-08T00:00:00.000Z", "2026-07-06T00:00:00.000Z", {}));
+    mockSnapshots.getPages.mockReturnValue([]);
+
+    const result = await getLatestGa4Data();
+
+    expect(result).toMatchObject({
+      source: "normalized",
+      pages: [{ page: "/blogs/normalized", sessions: 25 }],
+      freshness: { selectedSource: "normalized", fallbackReason: null },
+    });
+  });
+
+  it("falls back to populated raw GA4 when normalized rows have zero usable traffic", async () => {
+    mockDb.pageAnalytics.findFirst.mockResolvedValue({
+      dateRangeStart: new Date("2026-06-01T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-29T00:00:00.000Z"),
+      capturedAt: new Date("2026-07-09T04:00:00.000Z"),
+    });
+    mockDb.pageAnalytics.findMany.mockResolvedValue([
+      { page: "/blogs/empty", sessions: 0, bounceRate: null, conversionRate: null },
+    ]);
+    mockSnapshots.getLatestSnapshot.mockResolvedValue(rawSnapshot("ga4", "2026-07-09T04:30:00.000Z", "2026-06-08T00:00:00.000Z", "2026-07-06T00:00:00.000Z", {}));
+    mockSnapshots.getPages.mockReturnValue([{ page: "/blogs/raw", sessions: 42 }]);
+
+    const result = await getLatestGa4Data();
+
+    expect(result).toMatchObject({
+      source: "rawSnapshot",
+      pages: [{ page: "/blogs/raw", sessions: 42 }],
+      freshness: { selectedSource: "rawSnapshot", fallbackReason: "normalized_empty" },
+    });
+  });
 });

@@ -228,10 +228,12 @@ export async function getLatestGa4Data(): Promise<LatestGa4Data> {
   });
 
   const ga4Snap = await getLatestSnapshot("ga4");
-  const rawPages = getPages(ga4Snap);
-  const rawNewer = !!(ga4Snap?.fetchedAt && latestWindow?.capturedAt && ga4Snap.fetchedAt.getTime() - latestWindow.capturedAt.getTime() > 24 * 60 * 60 * 1000);
+  const usablePages = <T extends { page?: string; sessions?: number | string }>(pages: T[]): T[] =>
+    pages.filter((row) => Boolean(row.page?.trim()) && Number(row.sessions ?? 0) > 0);
+  const rawPages = usablePages(getPages(ga4Snap));
+  const rawNewer = rawPages.length > 0 && !!(ga4Snap?.fetchedAt && latestWindow?.capturedAt && ga4Snap.fetchedAt.getTime() - latestWindow.capturedAt.getTime() > 24 * 60 * 60 * 1000);
   if (latestWindow && !rawNewer) {
-    const rows = await prisma.pageAnalytics.findMany({
+    const rows = usablePages(await prisma.pageAnalytics.findMany({
       where: {
         dateRangeStart: latestWindow.dateRangeStart,
         dateRangeEnd: latestWindow.dateRangeEnd,
@@ -243,7 +245,7 @@ export async function getLatestGa4Data(): Promise<LatestGa4Data> {
         bounceRate: true,
         conversionRate: true,
       },
-    });
+    }));
     if (rows.length || !rawPages.length) return {
       pages: rows.map((row) => ({
         page: row.page,

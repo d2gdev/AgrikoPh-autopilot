@@ -1,6 +1,7 @@
 import { Button, Card, Text, Badge, InlineStack, BlockStack } from "@shopify/polaris";
 import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { Health } from "../types";
+import { onPageHealthActions } from "../on-page-health-actions";
 
 type OffenderFlags = {
   isPromotedMeta: boolean;
@@ -66,9 +67,7 @@ export function OnPageHealthPanel({
                       if (["Thin content", "Title length off", "Description length off", "Duplicate title"].includes(iss)) return "warning";
                       return "info";
                     };
-                    const hasMeta = a.issues.some((i) => i === "Missing meta title" || i === "Missing meta description");
-                    const hasH1 = a.issues.includes("Missing H1");
-                    const hasThin = a.issues.includes("Thin content");
+                    const actions = onPageHealthActions(a.issues);
                     const flags = offenderFlags[a.handle];
                     return [
                       <Button key={a.handle} variant="plain" onClick={onOpenContentPilot}>{a.title}</Button>,
@@ -79,21 +78,22 @@ export function OnPageHealthPanel({
                         ))}
                       </InlineStack>,
                       <InlineStack key={`actions-${a.handle}`} gap="100" wrap>
-                        {hasMeta && (
+                        {actions.meta && (
                           flags?.isPromotedMeta
                             ? <Badge key={`${a.handle}:missing-meta`} tone="success">Meta queued</Badge>
                             : <Button key={`fix-meta-${a.handle}`} size="slim" loading={flags?.isPromotingMeta} onClick={() => onPromote(a.handle, a.title, "missing-meta", a.wordCount)}>Fix Meta</Button>
                         )}
-                        {hasH1 && (
+                        {actions.h1 && (
                           flags?.isPromotedH1
                             ? <Badge key={`${a.handle}:missing-h1`} tone="success">H1 queued</Badge>
                             : <Button key={`fix-h1-${a.handle}`} size="slim" loading={flags?.isPromotingH1} onClick={() => onPromote(a.handle, a.title, "missing-h1", a.wordCount)}>Fix H1</Button>
                         )}
-                        {hasThin && (
+                        {actions.thin && (
                           flags?.isPromotedThin
                             ? <Badge key={`${a.handle}:thin-content`} tone="success">Expand queued</Badge>
                             : <Button key={`expand-${a.handle}`} size="slim" loading={flags?.isPromotingThin} onClick={() => onPromote(a.handle, a.title, "thin-content", a.wordCount)}>Expand</Button>
                         )}
+                        {actions.manual && <Badge key={`manual-${a.handle}`} tone="info">Manual review</Badge>}
                       </InlineStack>,
                     ];
                   })}

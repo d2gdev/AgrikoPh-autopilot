@@ -2,9 +2,19 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { proposalEvidenceLines } from "@/app/(embedded)/(content-pilot)/content-pilot/components/proposal-evidence";
 import { contentGapReason } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/content-gap-reason";
+import { onPageHealthActions } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/on-page-health-actions";
 import { trackedKeywordSet } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/types";
 
 describe("pilot usability helper regressions", () => {
+  it("classifies supported fixes and diagnostic-only on-page health findings", () => {
+    expect(onPageHealthActions(["Title length off", "Description length off"])).toEqual({ meta: true, h1: false, thin: false, manual: false });
+    expect(onPageHealthActions(["No internal links", "Few headings", "Orphan (no inbound links)"])).toEqual({ meta: false, h1: false, thin: false, manual: true });
+    expect(onPageHealthActions(["Thin content", "Duplicate title"])).toEqual({ meta: false, h1: false, thin: true, manual: true });
+    const panelSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/OnPageHealthPanel.tsx", "utf8");
+    expect(panelSource).toContain("onPageHealthActions");
+    expect(panelSource).toContain("Manual review");
+  });
+
   it("normalizes persisted tracked keyword identity", () => {
     expect(trackedKeywordSet([{ keyword: " Black Rice Benefits ", position: null, clicks: 0, impressions: 0, positionDelta: null, status: "tracked", alert: false }])).toEqual(new Set(["black rice benefits"]));
   });

@@ -133,9 +133,26 @@ export async function POST(req: NextRequest) {
     articles: articleRecords,
   });
 
+  const deterministicQuickWins = [
+    missingMeta.length > 0 ? {
+      item: `Fix missing meta on ${missingMeta.length} article${missingMeta.length === 1 ? "" : "s"}, starting with “${missingMeta[0]?.title}”.`,
+      evidence: `${missingMeta.length} indexed article${missingMeta.length === 1 ? " is" : "s are"} missing a meta title or description.`,
+    } : null,
+    thinContent.length > 0 ? {
+      item: `Expand thin content on ${thinContent.length} article${thinContent.length === 1 ? "" : "s"}, starting with “${thinContent[0]?.title}”.`,
+      evidence: `${thinContent.length} indexed article${thinContent.length === 1 ? " has" : "s have"} fewer than 300 words.`,
+    } : null,
+    noInternalLinks.length > 0 ? {
+      item: `Add internal links to ${noInternalLinks.length} article${noInternalLinks.length === 1 ? "" : "s"}, starting with “${noInternalLinks[0]?.title}”.`,
+      evidence: `${noInternalLinks.length} indexed article${noInternalLinks.length === 1 ? " has" : "s have"} no internal links.`,
+    } : null,
+  ].filter((entry): entry is { item: string; evidence: string } => entry !== null);
+
   const partialAnalysis = (aiError: string) => ({
     summary: `${articleRecords.length} articles indexed. ${missingMeta.length} missing meta, ${thinContent.length} thin content, ${noInternalLinks.length} with no internal links.`,
-    quickWins: [], quickWinEvidence: [], recommendations: [], recommendationEvidence: [],
+    quickWins: deterministicQuickWins.map((entry) => entry.item),
+    quickWinEvidence: deterministicQuickWins.map((entry) => entry.evidence),
+    recommendations: [], recommendationEvidence: [],
     contentGaps: programmaticGaps, limits, aiStatus: "partial" as const, aiError,
   });
   const persistAnalysis = async (analysis: object) => prisma.rawSnapshot.upsert({
@@ -224,7 +241,7 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
       try { await persistAnalysis(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
       return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source }, { status: 200 });
     }
-    console.error("[seo/analyze] AI request failed", err);
+    console.error("[seo/analyze] AI request failed");
     const analysis = partialAnalysis("AI provider unavailable");
     try { await persistAnalysis(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
     return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source }, { status: 200 });

@@ -196,5 +196,5 @@ export function aggregateOnPageHealth(articles: ArticleHealthInput[]): OnPageHea
 
   offenders.sort((x, y) => y.issues.length - x.issues.length);
 
-  return { totals, worstOffenders: offenders.slice(0, 20) };
+  return { totals, worstOffenders: offenders };
 }

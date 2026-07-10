@@ -368,6 +368,37 @@ describe("SEO Pilot route regressions", () => {
     expect(JSON.stringify(body.analysis)).not.toContain("luxury watches");
   });
 
+  it("preserves deterministic meta, thin-content, and internal-link findings when AI fails", async () => {
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [{ query: "black rice benefits", clicks: 3, impressions: 320, ctr: "0.9%", position: "8.0" }],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      { handle: "black-rice", title: "Black Rice", wordCount: 220, internalLinkCount: 0, seoData: { seoTitle: "", seoDescription: "" } },
+    ]);
+    mockChatCompletion.mockRejectedValue(new Error("network unavailable"));
+    const { POST } = await import("@/app/api/seo/analyze/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/analyze", { method: "POST" }) as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.analysis.aiStatus).toBe("partial");
+    expect(body.analysis.quickWins).toEqual(expect.arrayContaining([
+      expect.stringMatching(/missing meta/i),
+      expect.stringMatching(/thin content/i),
+      expect.stringMatching(/internal link/i),
+    ]));
+    expect(body.analysis.quickWinEvidence).toHaveLength(body.analysis.quickWins.length);
+    expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: expect.objectContaining({ payload: expect.objectContaining({ aiStatus: "partial" }) }),
+    }));
+  });
+
   it("promotes analyzed missing-meta gaps as seo-fix proposals", async () => {
     mockSeoData.getLatestGscData.mockResolvedValue({
       queries: [{ query: "black rice", clicks: 1, impressions: 200, ctr: "0.5%", position: "8.0" }],
@@ -758,6 +789,7 @@ describe("SEO Pilot route regressions", () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual(expect.objectContaining({ created: 2, skipped: 0, dropped: 0 }));
+    expect(mockPrisma.articleRecord.findMany).toHaveBeenCalledWith(expect.not.objectContaining({ take: expect.anything() }));
     expect(mockPrisma.contentProposal.create).toHaveBeenCalledTimes(2);
     expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
