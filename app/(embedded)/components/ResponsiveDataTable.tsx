@@ -1,8 +1,8 @@
 "use client";
 
-import { BlockStack, DataTable, Divider, InlineStack, Text, useBreakpoints } from "@shopify/polaris";
+import { BlockStack, Button, DataTable, Divider, InlineStack, Select, Text, useBreakpoints } from "@shopify/polaris";
 import type { SortDirection } from "@shopify/polaris";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 type Cell = string | number | ReactNode;
 
@@ -15,9 +15,17 @@ export function ResponsiveDataTable({ headings, rows, columnContentTypes, sortab
   onSort?: (headingIndex: number, direction: SortDirection) => void;
 }) {
   const { mdUp } = useBreakpoints({ defaults: { mdUp: true } });
+  const [sortIndex, setSortIndex] = useState(() => sortable?.findIndex(Boolean) ?? -1);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("ascending");
   if (mdUp) return <DataTable headings={headings} rows={rows} columnContentTypes={columnContentTypes} sortable={sortable} onSort={onSort} />;
   return (
     <BlockStack gap="200">
+      {onSort && sortable?.some(Boolean) && (
+        <InlineStack gap="200" wrap>
+          <Select label="Sort rows" labelHidden value={String(sortIndex)} options={headings.map((heading, index) => ({ label: String(heading), value: String(index), disabled: !sortable[index] }))} onChange={(value) => { const index = Number(value); setSortIndex(index); onSort(index, sortDirection); }} />
+          <Button size="slim" onClick={() => { const next = sortDirection === "ascending" ? "descending" : "ascending"; setSortDirection(next); if (sortIndex >= 0) onSort(sortIndex, next); }}>{sortDirection === "ascending" ? "Ascending" : "Descending"}</Button>
+        </InlineStack>
+      )}
       {rows.map((row, rowIndex) => (
         <BlockStack gap="100" key={rowIndex}>
           {row.map((cell, index) => (
