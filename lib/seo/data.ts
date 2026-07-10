@@ -105,6 +105,17 @@ function rawIsMateriallyNewer(rawFetchedAt: Date | null, normalizedCapturedAt: D
   return rawFetchedAt.getTime() - normalizedCapturedAt.getTime() > RAW_NEWER_THAN_NORMALIZED_THRESHOLD_MS;
 }
 
+function sharesReportingWindow(
+  primary: { dateRangeStart: Date; dateRangeEnd: Date } | null,
+  candidate: { dateRangeStart: Date; dateRangeEnd: Date } | null,
+): boolean {
+  return Boolean(
+    primary && candidate &&
+    primary.dateRangeStart.getTime() === candidate.dateRangeStart.getTime() &&
+    primary.dateRangeEnd.getTime() === candidate.dateRangeEnd.getTime(),
+  );
+}
+
 export async function getLatestGscData(): Promise<LatestGscData> {
   const [gscSnap, gscPagesSnap, queryPageSnap, latestWindow] = await Promise.all([
     getLatestSnapshot("gsc"),
@@ -121,8 +132,8 @@ export async function getLatestGscData(): Promise<LatestGscData> {
           dateRangeEnd: gscSnap.dateRangeEnd,
         }
       : null;
-  const pagesRaw = gscPagesSnap?.payload?.topPages;
-  const pairsRaw = queryPageSnap?.payload?.pairs;
+  const pagesRaw = sharesReportingWindow(gscSnap, gscPagesSnap) ? gscPagesSnap?.payload?.topPages : undefined;
+  const pairsRaw = sharesReportingWindow(gscSnap, queryPageSnap) ? queryPageSnap?.payload?.pairs : undefined;
   const rawQueries = getQueries(gscSnap);
   const rawPages = Array.isArray(pagesRaw) ? (pagesRaw as GscPageRow[]) : [];
   const rawQueryPagePairs = Array.isArray(pairsRaw) ? (pairsRaw as GscQueryPageRow[]) : [];

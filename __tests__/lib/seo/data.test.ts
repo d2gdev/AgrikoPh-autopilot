@@ -184,6 +184,22 @@ describe("getLatestGscData freshness selection", () => {
     });
   });
 
+  it("does not join raw page evidence from a different reporting window", async () => {
+    mockSnapshots.getLatestSnapshot.mockImplementation(async (source: string) => {
+      if (source === "gsc") return rawSnapshot("gsc", "2026-07-09T04:30:00.000Z", "2026-06-08T00:00:00.000Z", "2026-07-06T00:00:00.000Z", { topQueries: [{ query: "black rice", clicks: 9, impressions: 300, ctr: "3.0%", position: "5.0" }] });
+      if (source === "gsc_pages") return rawSnapshot("gsc_pages", "2026-07-09T04:30:00.000Z", "2026-05-01T00:00:00.000Z", "2026-05-31T00:00:00.000Z", { topPages: [{ page: "/stale", clicks: 4, impressions: 100, ctr: "4.0%", position: "4.1" }] });
+      if (source === "gsc_query_page") return rawSnapshot("gsc_query_page", "2026-07-09T04:30:00.000Z", "2026-05-01T00:00:00.000Z", "2026-05-31T00:00:00.000Z", { pairs: [{ query: "black rice", page: "/stale", clicks: 4, impressions: 100, position: "4.1" }] });
+      return null;
+    });
+    mockSnapshots.getQueries.mockReturnValue([{ query: "black rice", clicks: 9, impressions: 300, ctr: "3.0%", position: "5.0" }]);
+
+    const result = await getLatestGscData();
+
+    expect(result.source).toBe("rawSnapshot");
+    expect(result.pages).toEqual([]);
+    expect(result.queryPagePairs).toEqual([]);
+  });
+
   it("falls back to raw GSC snapshot when raw data is more than 24 hours newer than normalized data", async () => {
     const window = {
       dateRangeStart: new Date("2026-06-01T00:00:00.000Z"),
