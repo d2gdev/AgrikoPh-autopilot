@@ -131,12 +131,12 @@ describe("routeOpportunityToContentProposal", () => {
     });
   });
 
-  it("reuses an existing active proposal", async () => {
+  it("uses canonical create-once identity instead of title prechecks", async () => {
     mockPrisma.contentProposal.findFirst.mockResolvedValue({ id: "existing-proposal" });
 
     const result = await routeOpportunityToContentProposal(mockPrisma as any, opportunity());
 
-    expect(result.routedToId).toBe("existing-proposal");
-    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+    expect(result.routedToId).toBe("proposal-1");
+    expect(mockPrisma.contentProposal.create).toHaveBeenCalled();
   });
 });
