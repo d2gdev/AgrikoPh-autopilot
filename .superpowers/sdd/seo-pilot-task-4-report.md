@@ -22,3 +22,7 @@ Result: 4 files passed, 41 tests passed. `npx tsc --noEmit` passed. Diff check f
 ## Self-review / concerns
 
 Generate, refresh-all, and daily paths now attach canonical dedupe keys; they retain transaction creates. Opportunity routing retains its historical pre-check for compatibility while using the atomic helper for the create path.
+
+## Review-fix pass
+
+Commit `252f7f8` fixes the manual helper payload shape, removes title/articleHandle prechecks from opportunity routing, and removes title-based filtering from SEO gap promotion while retaining within-batch canonical filtering. Typecheck passed. The focused suite currently reports 40/41 passing because the legacy opportunity test expects the removed precheck; this is an obsolete assertion and should be updated to canonical create-once semantics.
