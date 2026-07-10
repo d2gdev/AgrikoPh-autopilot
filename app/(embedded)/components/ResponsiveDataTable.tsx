@@ -1,8 +1,9 @@
 "use client";
 
-import { BlockStack, Button, DataTable, Divider, InlineStack, Select, Text, useBreakpoints } from "@shopify/polaris";
+import { Button, Divider, Select, useBreakpoints } from "@shopify/polaris";
 import type { SortDirection } from "@shopify/polaris";
 import { useState, type ReactNode } from "react";
+import styles from "./ResponsiveDataTable.module.css";
 
 type Cell = string | number | ReactNode;
 
@@ -16,33 +17,76 @@ export function ResponsiveDataTable({ headings, rows, columnContentTypes, sortab
   compactSortIndex?: number;
   compactSortDirection?: SortDirection;
 }) {
-  const { mdUp } = useBreakpoints({ defaults: { mdUp: true } });
+  const { xlUp } = useBreakpoints({ defaults: { xlUp: true } });
   const [localSortIndex, setLocalSortIndex] = useState(-1);
   const [localSortDirection, setLocalSortDirection] = useState<SortDirection>("ascending");
   const sortIndex = compactSortIndex ?? localSortIndex;
   const sortDirection = compactSortDirection ?? localSortDirection;
-  if (mdUp) return <DataTable headings={headings} rows={rows} columnContentTypes={columnContentTypes} sortable={sortable} onSort={onSort} />;
+  const applySort = (index: number, direction: SortDirection) => {
+    setLocalSortIndex(direction === "none" ? -1 : index);
+    setLocalSortDirection(direction === "none" ? "ascending" : direction);
+    onSort?.(index, direction);
+  };
+  const cycleSort = (index: number) => {
+    const direction: SortDirection = sortIndex !== index
+      ? "ascending"
+      : sortDirection === "ascending"
+        ? "descending"
+        : "none";
+    applySort(index, direction);
+  };
+
+  if (xlUp) {
+    return (
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            {headings.map((heading, index) => (
+              <th className={`${styles.heading} ${columnContentTypes[index] === "numeric" ? styles.numeric : ""}`} key={index} scope="col" aria-sort={onSort && sortable?.[index] && sortIndex === index ? sortDirection : undefined}>
+                {onSort && sortable?.[index] ? (
+                  <button className={styles.sortButton} type="button" onClick={() => cycleSort(index)}>
+                    {heading}{sortIndex === index && sortDirection !== "none" ? ` (${sortDirection})` : ""}
+                  </button>
+                ) : heading}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {row.map((cell, index) => (
+                <td className={`${styles.cell} ${columnContentTypes[index] === "numeric" ? styles.numeric : ""}`} key={index}>
+                  <div className={styles.value}>{cell}</div>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
   return (
-    <BlockStack gap="200">
+    <div className={styles.stackedTable}>
       {onSort && sortable?.some(Boolean) && (
-        <InlineStack gap="200" wrap>
-          <Select label="Sort rows" labelHidden value={String(sortIndex)} options={[{ label: "Current order", value: "-1" }, ...headings.map((heading, index) => ({ label: String(heading), value: String(index), disabled: !sortable[index] }))]} onChange={(value) => { const index = Number(value); setLocalSortIndex(index); if (index < 0) onSort(sortable.findIndex(Boolean), "none"); else onSort(index, sortDirection); }} />
-          <Button size="slim" disabled={sortIndex < 0} onClick={() => { const next = sortDirection === "ascending" ? "descending" : "ascending"; setLocalSortDirection(next); if (sortIndex >= 0) onSort(sortIndex, next); }}>{sortDirection === "ascending" ? "Ascending" : "Descending"}</Button>
-        </InlineStack>
+        <div className={styles.sortControls}>
+          <div className={styles.sortSelect}>
+            <Select label="Sort rows" value={String(sortIndex)} options={[{ label: "Current order", value: "-1" }, ...headings.map((heading, index) => ({ label: String(heading), value: String(index), disabled: !sortable[index] }))]} onChange={(value) => { const index = Number(value); if (index < 0) applySort(sortable.findIndex(Boolean), "none"); else applySort(index, sortDirection); }} />
+          </div>
+          <Button size="slim" disabled={sortIndex < 0} onClick={() => applySort(sortIndex, sortDirection === "ascending" ? "descending" : "ascending")}>{sortDirection === "ascending" ? "Ascending" : "Descending"}</Button>
+        </div>
       )}
       {rows.map((row, rowIndex) => (
-        <BlockStack gap="100" key={rowIndex}>
+        <div className={styles.stackedRow} key={rowIndex}>
           {row.map((cell, index) => (
-            <InlineStack key={index} align="space-between" gap="200" wrap={false} blockAlign="start">
-              <Text as="span" tone="subdued" variant="bodySm">{headings[index]}</Text>
-              {typeof cell === "string" || typeof cell === "number"
-                ? <Text as="span" alignment={columnContentTypes[index] === "numeric" ? "end" : "start"}>{cell}</Text>
-                : <div style={{ minWidth: 0 }}>{cell}</div>}
-            </InlineStack>
+            <div className={styles.stackedCell} key={index}>
+              <div className={styles.label}>{headings[index]}</div>
+              <div className={`${styles.value} ${columnContentTypes[index] === "numeric" ? styles.numeric : ""}`}>{cell}</div>
+            </div>
           ))}
           {rowIndex < rows.length - 1 && <Divider />}
-        </BlockStack>
+        </div>
       ))}
-    </BlockStack>
+    </div>
   );
 }

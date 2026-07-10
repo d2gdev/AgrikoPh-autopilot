@@ -1,0 +1,115 @@
+.table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.heading,
+.cell {
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--p-space-200);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  vertical-align: top;
+  border-bottom: var(--p-border-width-025) solid var(--p-color-border-secondary);
+}
+
+.heading {
+  color: var(--p-color-text-secondary);
+  font-size: var(--p-font-size-300);
+  font-weight: var(--p-font-weight-semibold);
+  text-align: left;
+}
+
+.numeric {
+  text-align: right;
+}
+
+.sortButton {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  overflow-wrap: anywhere;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.sortButton:focus-visible {
+  outline: var(--p-border-width-050) solid var(--p-color-border-focus);
+  outline-offset: var(--p-space-050);
+}
+
+.stackedTable,
+.stackedRow,
+.stackedCell,
+.label,
+.value {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.stackedRow {
+  padding-block: var(--p-space-200);
+}
+
+.stackedCell {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.4fr) minmax(0, 1fr);
+  gap: var(--p-space-200);
+  align-items: start;
+  padding-block: var(--p-space-100);
+}
+
+.label {
+  color: var(--p-color-text-secondary);
+  font-size: var(--p-font-size-300);
+  overflow-wrap: anywhere;
+}
+
+.value {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.value > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.value :global(.Polaris-Button__Text) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.sortControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--p-space-200);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sortSelect {
+  flex: 1 1 12rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 30rem) {
+  .stackedCell {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--p-space-050);
+  }
+
+  .sortSelect,
+  .sortControls > * {
+    flex-basis: 100%;
+    width: 100%;
+  }
+}
