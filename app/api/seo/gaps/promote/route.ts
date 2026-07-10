@@ -8,7 +8,7 @@ import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { classifyPriority, findingToImpact, changeTypeToEffort } from "@/lib/content-pilot/priority-score";
 import { getLatestGscData } from "@/lib/seo/data";
-import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
+import { withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 import { articleHandleFromBlogPage, classifySeoPromotion } from "@/lib/seo/promotion";
 
 const GapInputSchema = z.object({
@@ -60,23 +60,7 @@ export async function POST(req: NextRequest) {
   const skippedReasons = { duplicate: 0, missingArticle: 0, nonBlogExistingPage: 0 };
 
   const created = await prisma.$transaction(async (tx) => {
-    // Batched dedup reads (single query each) inside the transaction so concurrent
-    // calls can't both pass the check-then-write window.
-    // TODO: a DB partial-unique index on (title, proposalType, status) would be the
-    // robust fix for this race; add via Prisma migration as a follow-up.
-    const [existingProposals, existingArticles] = await Promise.all([
-      tx.contentProposal.findMany({
-        where: {
-          title: { in: [
-            ...candidateTitles,
-            ...candidateTitles.map((title) => `Improve SERP snippet: ${title}`),
-            ...candidateTitles.map((title) => `Expand thin content: ${title}`),
-          ], mode: "insensitive" },
-          status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES },
-        },
-        select: { title: true },
-      }),
-      tx.articleRecord.findMany({
+    const existingArticles = await tx.articleRecord.findMany({
         where: {
           OR: [
             { title: { in: candidateTitles, mode: "insensitive" } },
@@ -84,8 +68,7 @@ export async function POST(req: NextRequest) {
           ],
         },
         select: { handle: true, title: true, wordCount: true },
-      }),
-    ]);
+      });
 
     const articleByHandle = new Map(existingArticles.map((a) => [a.handle.toLowerCase(), a]));
     const articleByTitle = new Map(existingArticles.map((a) => [a.title.toLowerCase(), a]));
@@ -124,16 +107,6 @@ export async function POST(req: NextRequest) {
           : proposalType === "content-refresh"
             ? `Expand thin content: ${title}`
             : title;
-      const rowKey = `${proposalType}:${normalizeHandle(articleHandle) ?? ""}:${title.toLowerCase()}`;
-
-      // Dedup against existing rows and within this same batch (case-insensitive).
-      if (seenInBatch.has(rowKey)) {
-        skipped++;
-        skippedReasons.duplicate++;
-        continue;
-      }
-      seenInBatch.add(rowKey);
-
     const score = Math.min(
       100,
       Math.round((impressions ?? 0) / 20) +
@@ -180,6 +153,10 @@ export async function POST(req: NextRequest) {
               },
       sourceData: { source: "seo-pilot", query: gap.query, impressions: impressions ?? 0, position: position ?? null, issue: gap.issue ?? null, page: gap.page ?? null },
     });
+    const keyed = withContentProposalDedupeKey(rows[rows.length - 1] as any);
+    if (seenInBatch.has(keyed.dedupeKey)) {
+      rows.pop(); skipped++; skippedReasons.duplicate++;
+    } else seenInBatch.add(keyed.dedupeKey);
     }
 
     if (rows.length === 0) return [];

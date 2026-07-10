@@ -6,7 +6,6 @@ import { requireAppAuth, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
 const PromoteBodySchema = z.object({
   handle: z.string().trim().min(1).max(180),
@@ -49,22 +48,6 @@ export async function POST(req: Request) {
     issue === "thin-content" ? `Expand thin content: ${title}` :
     issue === "missing-h1" ? `Add heading structure: ${title}` :
     `Fix meta: ${title}`;
-
-  // Check for an existing proposal for this exact article action, including
-  // terminal operator decisions so finished ideas do not come back.
-  const existing = await prisma.contentProposal.findFirst({
-    where: {
-      articleHandle: handle,
-      proposalType,
-      title: proposalTitle,
-      status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES },
-    },
-    select: { id: true },
-  });
-
-  if (existing) {
-    return NextResponse.json({ id: existing.id, existed: true });
-  }
 
   type ProposalCreateData = Parameters<typeof prisma.contentProposal.create>[0]["data"];
   let proposalData: ProposalCreateData;
