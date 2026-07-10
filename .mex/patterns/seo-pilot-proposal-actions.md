@@ -87,6 +87,7 @@ last_updated: 2026-07-11
    - After queueing a dashboard refresh, follow its returned run ID through bounded `/api/jobs/status` polling and reload on terminal success/partial state. A passive reload, not another enqueue, is the timeout recovery.
 20. An article-backed SEO meta rewrite is one mutation surface even when several queries support it.
    - Key active `seo-fix` proposals by proposal type plus article handle; keep target queries and issue labels as evidence, not parallel proposal discriminators.
+   - During canonical-key migrations, check article type/handle history before inserting so rows stored under legacy query-specific keys still block regeneration.
    - Internal-link proposals still discriminate by destination, and handle-less new-content proposals still discriminate by target keyword/title.
 21. Apply deterministic analysis bounds after selecting eligible work.
    - Content-gap discovery first filters to uncovered position 5-20 queries, then ranks by impressions, clicks, position, and query before applying the query limit.
