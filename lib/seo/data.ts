@@ -59,7 +59,7 @@ export interface LatestGa4Data {
     selectedCapturedAt: Date | null;
     normalizedCapturedAt: Date | null;
     rawCapturedAt: Date | null;
-    fallbackReason: "normalized_missing" | "raw_newer_than_normalized" | null;
+    fallbackReason: "normalized_missing" | "normalized_empty" | "raw_newer_than_normalized" | null;
   };
 }
 export interface PreviousGscData {
@@ -250,7 +250,7 @@ export async function getLatestGa4Data(): Promise<LatestGa4Data> {
     pages,
     fetchedAt: ga4Snap?.fetchedAt ?? null,
     source: pages.length ? "rawSnapshot" : "none",
-    freshness: { selectedSource: pages.length ? "rawSnapshot" : "none", selectedCapturedAt: pages.length ? ga4Snap?.fetchedAt ?? null : null, normalizedCapturedAt: latestWindow?.capturedAt ?? null, rawCapturedAt: ga4Snap?.fetchedAt ?? null, fallbackReason: rawNewer ? "raw_newer_than_normalized" : latestWindow ? "normalized_missing" : null },
+    freshness: { selectedSource: pages.length ? "rawSnapshot" : "none", selectedCapturedAt: pages.length ? ga4Snap?.fetchedAt ?? null : null, normalizedCapturedAt: latestWindow?.capturedAt ?? null, rawCapturedAt: ga4Snap?.fetchedAt ?? null, fallbackReason: rawNewer ? "raw_newer_than_normalized" : latestWindow ? "normalized_empty" : null },
   };
 }
 
