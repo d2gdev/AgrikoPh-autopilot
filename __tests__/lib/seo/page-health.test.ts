@@ -23,7 +23,7 @@ describe("computePageHealth nullable analytics", () => {
     }]);
 
     expect(row).toMatchObject({
-      flag: "high-impressions-high-bounce",
+      flag: "high-impressions-low-conversion",
       flags: ["high-impressions-high-bounce", "high-impressions-low-conversion"],
     });
     expect(row?.severity).toBeCloseTo(230);

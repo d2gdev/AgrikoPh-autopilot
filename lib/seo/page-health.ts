@@ -108,7 +108,9 @@ export function computePageHealth(
       sessions,
       bounceRate,
       conversionRate,
-      flag: flags[0] ?? null,
+      flag: flags.includes("high-impressions-low-conversion")
+        ? "high-impressions-low-conversion"
+        : flags[0] ?? null,
       flags,
       severity,
     });
