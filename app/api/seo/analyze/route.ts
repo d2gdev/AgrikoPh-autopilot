@@ -217,7 +217,7 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
           quickWins: [], recommendations: [], contentGaps: programmaticGaps,
           limits, aiStatus: "partial", aiError: "AI provider unavailable",
         },
-      }, { status: 503 });
+      }, { status: 200 });
     }
     console.error("[seo/analyze]", err);
     return NextResponse.json({ error: "Analysis failed" }, { status: 500 });
