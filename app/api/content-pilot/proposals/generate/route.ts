@@ -13,6 +13,8 @@ import {
   contentProposalDedupeKey,
   filterBlockedContentProposalInputs,
 } from "@/lib/content-pilot/proposal-dedupe";
+import { withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
+import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
@@ -83,7 +85,7 @@ export async function POST(req: Request) {
       ...fresh.map((p) =>
         prisma.contentProposal.create({
           data: {
-            articleHandle: p.articleHandle,
+            ...withContentProposalDedupeKey({ articleHandle: p.articleHandle,
             proposalType: p.proposalType,
             changeType: p.changeType,
             priority: p.priority,
@@ -92,7 +94,7 @@ export async function POST(req: Request) {
             title: p.title,
             description: p.description,
             proposedState: p.proposedState as object,
-            sourceData: p.sourceData as object,
+            sourceData: p.sourceData as object }),
           },
         })
       ),

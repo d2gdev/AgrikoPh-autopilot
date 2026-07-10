@@ -10,6 +10,7 @@ import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
 import { notifyJobFailure, checkAndAlertJobHealth, checkAndAlertDataFreshness } from "@/lib/alerts";
 import { generateProposals } from "@/lib/content-pilot/generate-proposals";
 import { markContentProposalOpportunitiesTerminal } from "@/lib/opportunities/content-proposal-outcomes";
+import { withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 import {
   CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
   filterBlockedContentProposalInputs,
@@ -136,7 +137,7 @@ export async function GET(req: Request) {
               ...fresh.map((p) =>
                 prisma.contentProposal.create({
                   data: {
-                    articleHandle: p.articleHandle,
+                    ...withContentProposalDedupeKey({ articleHandle: p.articleHandle,
                     proposalType: p.proposalType,
                     changeType: p.changeType,
                     priority: p.priority,
@@ -145,7 +146,7 @@ export async function GET(req: Request) {
                     title: p.title,
                     description: p.description,
                     proposedState: p.proposedState as object,
-                    sourceData: p.sourceData as object,
+                    sourceData: p.sourceData as object }),
                   },
                 })
               ),

@@ -4,6 +4,7 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { requireAppAuth, getSessionShop } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchBlogArticles } from "@/lib/shopify-admin";
 import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
       toCreate.map((a) =>
         prisma.contentProposal.create({
           data: {
-            articleHandle: a.handle,
+            ...withContentProposalDedupeKey({ articleHandle: a.handle,
             proposalType: "content-refresh",
             changeType: "update",
             priority: "P3",
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
             title: `Guidelines refresh: ${a.title}`,
             description: `Re-write "${a.title}" to apply the current brand & writing guidelines.`,
             proposedState: { articleHandle: a.handle, articleTitle: a.title },
-            sourceData: { trigger: "manual-guidelines-refresh" },
+            sourceData: { trigger: "manual-guidelines-refresh" } }),
           },
         })
       )
