@@ -41,6 +41,7 @@ const mockSeoData = vi.hoisted(() => ({
   getLatestGscData: vi.fn(),
   getLatestGa4Data: vi.fn(),
   getPreviousGscQueries: vi.fn(),
+  getPreviousGscData: vi.fn(),
 }));
 const mockGetAiClient = vi.hoisted(() => vi.fn());
 const mockChatCompletion = vi.hoisted(() => vi.fn());
@@ -116,6 +117,10 @@ describe("SEO Pilot route regressions", () => {
       window: null,
     });
     mockSeoData.getPreviousGscQueries.mockResolvedValue([]);
+    mockSeoData.getPreviousGscData.mockImplementation(async () => {
+      const queries = await mockSeoData.getPreviousGscQueries();
+      return queries ? { queries, fetchedAt: new Date("2026-06-01T00:00:00.000Z"), dateRangeStart: new Date("2026-05-01T00:00:00.000Z"), dateRangeEnd: new Date("2026-05-31T00:00:00.000Z"), source: "rawSnapshot" } : null;
+    });
     mockGetAiClient.mockResolvedValue({
       model: "test-model",
       client: {
