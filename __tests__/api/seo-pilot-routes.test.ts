@@ -759,10 +759,16 @@ describe("SEO Pilot route regressions", () => {
 
     expect(res.status).toBe(200);
     expect(body.keyword).toBe("black rice benefits");
-    expect(mockPrisma.marketKeyword.findFirst).toHaveBeenCalledWith({
-      where: { keyword: "black rice benefits", locationName: null, languageCode: "en" },
-      select: { id: true },
-    });
+    expect(mockPrisma.marketKeyword.create).toHaveBeenCalledWith({ data: { keyword: "black rice benefits", category: "seo", languageCode: "en", active: true } });
+  });
+
+  it("recovers concurrent tracked-keyword inserts", async () => {
+    const { POST } = await import("@/app/api/seo/keywords/route");
+    mockPrisma.marketKeyword.create.mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" }));
+    mockPrisma.marketKeyword.findFirst.mockResolvedValue({ id: "winner" });
+    const res = await POST(jsonRequest("/api/seo/keywords", { keyword: " Black   Rice Benefits " }));
+    expect(await res.json()).toEqual({ ok: true, keyword: "black rice benefits" });
+    expect(mockPrisma.marketKeyword.update).toHaveBeenCalledWith({ where: { id: "winner" }, data: { active: true, category: "seo" } });
   });
 
   it("queues SEO refresh work instead of running fetch handlers inline", async () => {

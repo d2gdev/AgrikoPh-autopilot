@@ -16,6 +16,10 @@ function normalizeKeyword(keyword: string): string {
   return keyword.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function isPrismaUniqueError(error: unknown): error is { code: "P2002" } {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "P2002";
+}
+
 export async function GET(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
@@ -48,21 +52,20 @@ export async function POST(req: NextRequest) {
 
   const keyword = normalizeKeyword(parsed.data.keyword);
 
-  // locationName is nullable and part of the compound unique; Prisma's compound
-  // unique `where` input does not accept null, so use findFirst-then-upsert.
-  const existing = await prisma.marketKeyword.findFirst({
-    where: { keyword, locationName: null, languageCode: "en" },
-    select: { id: true },
-  });
-
-  if (existing) {
+  try {
+    await prisma.marketKeyword.create({
+      data: { keyword, category: "seo", languageCode: "en", active: true },
+    });
+  } catch (error) {
+    if (!isPrismaUniqueError(error)) throw error;
+    const existing = await prisma.marketKeyword.findFirst({
+      where: { keyword: { equals: keyword, mode: "insensitive" }, locationName: null, languageCode: "en" },
+      select: { id: true },
+    });
+    if (!existing) throw error;
     await prisma.marketKeyword.update({
       where: { id: existing.id },
       data: { active: true, category: "seo" },
-    });
-  } else {
-    await prisma.marketKeyword.create({
-      data: { keyword, category: "seo", languageCode: "en", active: true },
     });
   }
 
