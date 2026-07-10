@@ -1359,7 +1359,7 @@ git commit -m "chore: add non-interactive ESLint gate"
 - Consumes: all prior task deliverables.
 - Produces: verified repository state and durable project guidance for future SEO Pilot work.
 
-- [ ] **Step 1: Review migration safety without applying production changes**
+- [x] **Step 1: Review migration safety without applying production changes**
 
 Run:
 
@@ -1378,7 +1378,7 @@ Confirm explicitly:
 - Market Keyword children are reassigned before duplicate parents are deleted;
 - no migration modifies proposal approval, draft, publish, or review fields.
 
-- [ ] **Step 2: Run focused functional suites**
+- [x] **Step 2: Run focused functional suites**
 
 ```bash
 npm test -- --run \
@@ -1395,7 +1395,7 @@ npm test -- --run \
 
 Expected: PASS.
 
-- [ ] **Step 3: Run all repository gates**
+- [x] **Step 3: Run all repository gates**
 
 Run each command separately and record its exit status:
 
@@ -1410,7 +1410,7 @@ git diff --check
 
 Expected: every command exits 0. Do not claim completion from partial output.
 
-- [ ] **Step 4: Perform the project Verify Checklist explicitly**
+- [x] **Step 4: Perform the project Verify Checklist explicitly**
 
 Record PASS/FAIL for every item:
 
@@ -1423,7 +1423,7 @@ Record PASS/FAIL for every item:
 7. No prompt was hard-coded outside the existing direct SEO route scope.
 8. `pause_ad` guardrail membership was untouched.
 
-- [ ] **Step 5: Update GROW documentation**
+- [x] **Step 5: Update GROW documentation**
 
 Update `.mex/ROUTER.md` with the completed SEO Pilot remediation, exact verification totals, and migration names. Update `seo-pilot-proposal-actions.md` with complete-map attribution, striking-distance classification, H1-specific evidence, explicit partial analysis, and client cache failure rules. Update `generation-dedupe.md` with persisted canonical keys and `P2002` create-or-return-existing behavior. Bump `last_updated` in each changed scaffold.
 
@@ -1433,7 +1433,7 @@ Run:
 mex log --type decision "SEO Pilot automated creation now uses canonical database-enforced proposal identity; landing-page attribution, structured findings, AI partial states, and tracked-keyword identity are explicit and regression-tested."
 ```
 
-- [ ] **Step 6: Inspect final scope**
+- [x] **Step 6: Inspect final scope**
 
 ```bash
 git status --short
@@ -1443,7 +1443,7 @@ git log --oneline -10
 
 Expected: only planned SEO, Content Proposal identity, keyword identity, lint, tests, migrations, and GROW files changed. No `.env`, credential, deployment, or unrelated feature files appear.
 
-- [ ] **Step 7: Commit documentation and final verification record**
+- [x] **Step 7: Commit documentation and final verification record**
 
 ```bash
 git add .mex/ROUTER.md .mex/patterns/seo-pilot-proposal-actions.md .mex/patterns/generation-dedupe.md docs/superpowers/plans/2026-07-10-seo-pilot-functional-remediation.md .mex/events/decisions.jsonl

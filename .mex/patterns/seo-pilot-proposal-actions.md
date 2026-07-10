@@ -1,7 +1,7 @@
 ---
 name: seo-pilot-proposal-actions
 description: Diagnose and fix SEO Pilot actions that create Content Pilot proposals which cannot generate or publish the intended draft.
-last_updated: 2026-07-09T15:50:00Z
+last_updated: 2026-07-10T16:45:00Z
 ---
 
 # Pattern: SEO Pilot Proposal Actions
@@ -56,6 +56,7 @@ last_updated: 2026-07-09T15:50:00Z
    - DeepSeek responses can have blank `message.content`; also read `message.reasoning_content` before treating output as empty.
    - Empty brief output should return a retryable `502`; provider auth/config failures should return actionable `503` details.
    - UI error banners should display both `error` and safe `detail` fields.
+12. Persist complete-map attribution for query/page evidence, classify striking-distance opportunities separately, and retain H1-specific findings. Partial analysis must be explicit (never presented as complete); client caches must not retain failed responses and should surface retryable errors.
 
 ## Regression Tests
 Add or update route tests when changing these paths:

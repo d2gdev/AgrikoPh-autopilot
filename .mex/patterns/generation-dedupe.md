@@ -8,7 +8,7 @@ triggers:
   - "duplicate proposals"
   - "clear queue"
   - "start from scratch"
-last_updated: 2026-07-09T19:10:00Z
+last_updated: 2026-07-10T16:45:00Z
 ---
 
 # Generation Dedupe
@@ -29,6 +29,7 @@ Autopilot has multiple idea generators: skill recommendations, insight-derived a
    - Handle-less proposals: proposalType + target keyword/query/title discriminator.
    - Opportunities/tasks: dedupeKey plus status handling.
 5. When a queue is intentionally reset, mark or remove only transient pending rows. Do not remove rejected/published/executed rows that act as tombstones.
+6. Persist a canonical proposal `dedupeKey` with a database unique constraint. Create-first flows must return the existing row on `P2002` races; historical collisions retain one canonical row and receive stable `:history:<id>` keys.
 
 ## Gotchas
 - Checking only `status: "pending"` prevents simultaneous duplicates but allows rejected/executed work to come back tomorrow.
