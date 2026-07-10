@@ -2,8 +2,12 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { proposalEvidenceLines } from "@/app/(embedded)/(content-pilot)/content-pilot/components/proposal-evidence";
 import { contentGapReason } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/content-gap-reason";
+import { trackedKeywordSet } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/types";
 
 describe("pilot usability helper regressions", () => {
+  it("normalizes persisted tracked keyword identity", () => {
+    expect(trackedKeywordSet([{ keyword: " Black Rice Benefits ", position: null, clicks: 0, impressions: 0, positionDelta: null, status: "tracked", alert: false }])).toEqual(new Set(["black rice benefits"]));
+  });
   it("summarizes proposal source evidence from existing sourceData", () => {
     expect(proposalEvidenceLines({
       articleHandle: "black-rice",
