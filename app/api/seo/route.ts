@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { requireAppAuth } from "@/lib/auth";
+import { getSessionShop, requireAppAuth } from "@/lib/auth";
 import { computeTrends } from "@/lib/seo/trends";
 import { computeCtrOpportunities } from "@/lib/seo/opportunities";
 import { computeOpportunityClusters } from "@/lib/seo/clusters";
@@ -25,11 +25,12 @@ type SeoSummaryPayload = {
 
 const SEO_SUMMARY_CACHE_TTL_MS = 60_000;
 
-let seoSummaryCache: { expiresAt: number; limit: number; payload: SeoSummaryPayload } | null = null;
+let seoSummaryCache: { expiresAt: number; limit: number; shop: string; payload: SeoSummaryPayload } | null = null;
 
 export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const shop = (await getSessionShop(req)) ?? "unknown-shop";
   try {
     const url = new URL(req.url);
     const view = url.searchParams.get("view");
@@ -46,6 +47,7 @@ export async function GET(req: Request) {
       view === "summary" &&
       !forceRefresh &&
       seoSummaryCache &&
+      seoSummaryCache.shop === shop &&
       seoSummaryCache.limit === limit &&
       seoSummaryCache.expiresAt > Date.now()
     ) {
@@ -93,7 +95,7 @@ export async function GET(req: Request) {
         cachedAt: new Date().toISOString(),
         cacheTtlMs: SEO_SUMMARY_CACHE_TTL_MS,
       };
-      seoSummaryCache = { expiresAt: Date.now() + SEO_SUMMARY_CACHE_TTL_MS, limit, payload };
+      seoSummaryCache = { expiresAt: Date.now() + SEO_SUMMARY_CACHE_TTL_MS, limit, shop, payload };
       return NextResponse.json(payload);
     }
 

@@ -23,7 +23,9 @@ export function ResponsiveDataTable({ headings, rows, columnContentTypes, sortab
           {row.map((cell, index) => (
             <InlineStack key={index} align="space-between" gap="200" wrap={false} blockAlign="start">
               <Text as="span" tone="subdued" variant="bodySm">{headings[index]}</Text>
-              <Text as="span" alignment={columnContentTypes[index] === "numeric" ? "end" : "start"}>{cell}</Text>
+              {typeof cell === "string" || typeof cell === "number"
+                ? <Text as="span" alignment={columnContentTypes[index] === "numeric" ? "end" : "start"}>{cell}</Text>
+                : <div style={{ minWidth: 0 }}>{cell}</div>}
             </InlineStack>
           ))}
           {rowIndex < rows.length - 1 && <Divider />}
