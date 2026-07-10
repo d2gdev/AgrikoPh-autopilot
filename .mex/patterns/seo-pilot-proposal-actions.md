@@ -58,6 +58,7 @@ last_updated: 2026-07-11
    - Empty brief output should return a retryable `502`; provider auth/config failures should return actionable `503` details.
    - UI error banners should display both `error` and safe `detail` fields. Never return a provider response, raw exception message, secret, or stack trace in `detail`.
 12. Persist complete-map attribution for query/page evidence, classify striking-distance opportunities separately, and retain H1-specific findings. Partial analysis must be explicit (never presented as complete); client caches must not retain failed responses and should surface retryable errors.
+   - Raw GSC fallback may combine query, page, and query-page evidence only when each snapshot has the selected query snapshot's exact reporting window. Omit mismatched evidence rather than attributing an opportunity to stale pages.
 13. GA4 selection must distinguish a missing normalized window from an existing window with zero usable rows. When raw rows are used after an empty normalized window, return `fallbackReason: "normalized_empty"`.
 
 ## Regression Tests
