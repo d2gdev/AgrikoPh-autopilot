@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-10T11:45:00Z
+last_updated: 2026-07-10T12:00:00Z
 ---
 
 # Session Bootstrap
@@ -83,6 +83,7 @@ Then read this file fully before doing anything else in this session.
 - **A11y & theming sweep (Phase 9, 2026-07-05 — the roadmap's final item)**: raw hex colors replaced with Polaris design tokens on the two remaining offender pages — campaigns (`roasBarColor`, `ConfBar`, with their existing non-color channels — `Badge tone`/"% conf" text — confirmed retained) and recommendations (exec-detail background); emoji-as-icons (▲▼ 💰 ⚠ ✓ ✗) replaced with Polaris icons / `Button disclosure` / plain labels across campaigns, recommendations, and market-intelligence; three scrollable regions made keyboard-focusable (`tabIndex={0} role="region"` + distinct labels: recommendations exec detail, content-pilot raw-JSON pre, dashboard JobHealth error pre — Polaris `Collapsible` unmounts fully-closed children, verified in installed source, so no invisible-focusable region). **The market-intelligence brand hero is the single deliberate no-raw-hex exemption**: its palette is hoisted into a documented `BRAND_HERO` constant (do not "fix" those hexes) and allowlisted in the new policy test `__tests__/a11y/no-raw-hex.test.ts`, which permanently fails CI on any other raw hex under `app/(embedded)`; the hero's muted text alphas were raised 0.68/0.62 → 0.75 for WCAG AA (≈5.6:1) — the phase's one intentional visual change. Browser keyboard-walk was blocked by embedded Shopify auth (307 → `/api/auth/shopify` outside the admin iframe) — recorded, static sweeps clean, tokens are theme-aware by construction. Zero behavior change otherwise; every task gated on the full suite (742/742 incl. the new test) per 8c's process-gap lesson. seo-pillar's lifted promote/plan/track handlers untouched. **Final deploy executed 2026-07-05 on operator go-ahead**: `linode-deploy` clean, health check `ok` with no degraded reasons, `prisma migrate status` up to date, fetch-orders live acceptance succeeded (the `DailySales` backfill turned out to have already run 2026-07-04 — see Phase 4 entry).
 
 **Not yet built / in progress:**
+- **SEO Pilot functional remediation plan approved (2026-07-10)**: all ten confirmed functional audit findings are covered by the approved design in `docs/superpowers/specs/2026-07-10-seo-pilot-functional-remediation-design.md` and the test-first execution plan in `docs/superpowers/plans/2026-07-10-seo-pilot-functional-remediation.md`. The plan fixes complete query-page attribution, striking-distance classification, database-enforced proposal identity, separate thin/meta findings, H1-specific health signals, explicit AI partial/failure states, cache-safe loading, comparison metadata, persisted tracked state, null-safe keyword identity, and non-interactive linting. Implementation has not started; no runtime behavior, schema, production data, or live Shopify state changed during planning.
 - Social Pilot — page exists but pipeline not fully wired
 - Ad Pilot automated creative generation — recommendations exist but creative upload flow incomplete
 - Store Pilot — images page and store-pilot page exist; scope TBD
