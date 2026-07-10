@@ -4,10 +4,10 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { requireAppAuth, getSessionShop } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchBlogArticles } from "@/lib/shopify-admin";
 import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
+import { createContentProposalOnce, withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
@@ -42,10 +42,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ created: 0, message: "All articles already have a refresh proposal." });
     }
 
-    const created = await prisma.$transaction(
-      toCreate.map((a) =>
-        prisma.contentProposal.create({
-          data: {
+    const created = await prisma.$transaction(async (tx) => {
+      let count = 0;
+      for (const a of toCreate) {
+        const result = await createContentProposalOnce(tx, {
             ...withContentProposalDedupeKey({ articleHandle: a.handle,
             proposalType: "content-refresh",
             changeType: "update",
@@ -56,12 +56,13 @@ export async function POST(req: Request) {
             description: `Re-write "${a.title}" to apply the current brand & writing guidelines.`,
             proposedState: { articleHandle: a.handle, articleTitle: a.title },
             sourceData: { trigger: "manual-guidelines-refresh" } }),
-          },
-        })
-      )
-    );
+        });
+        if (result.created) count++;
+      }
+      return count;
+    });
 
-    return NextResponse.json({ created: created.length });
+    return NextResponse.json({ created });
   } catch (err) {
     console.error("[proposals/refresh-all] error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

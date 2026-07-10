@@ -10,11 +10,11 @@ import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
 import { notifyJobFailure, checkAndAlertJobHealth, checkAndAlertDataFreshness } from "@/lib/alerts";
 import { generateProposals } from "@/lib/content-pilot/generate-proposals";
 import { markContentProposalOpportunitiesTerminal } from "@/lib/opportunities/content-proposal-outcomes";
-import { withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 import {
   CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
   filterBlockedContentProposalInputs,
 } from "@/lib/content-pilot/proposal-dedupe";
+import { createContentProposalOnce, withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 import { isJobSuccessful, type JobResult, type JobStatus } from "@/lib/jobs/types";
 import { cleanupDashboardRetention } from "@/lib/retention";
 
@@ -132,11 +132,11 @@ export async function GET(req: Request) {
             if (pendingToDelete.length > 0) {
               await markContentProposalOpportunitiesTerminal(prisma, pendingToDelete);
             }
-            await prisma.$transaction([
-              prisma.contentProposal.deleteMany({ where: { status: "pending" } }),
-              ...fresh.map((p) =>
-                prisma.contentProposal.create({
-                  data: {
+            const createdCount = await prisma.$transaction(async (tx) => {
+              await tx.contentProposal.deleteMany({ where: { status: "pending" } });
+              let count = 0;
+              for (const p of fresh) {
+                const result = await createContentProposalOnce(tx, {
                     ...withContentProposalDedupeKey({ articleHandle: p.articleHandle,
                     proposalType: p.proposalType,
                     changeType: p.changeType,
@@ -147,12 +147,15 @@ export async function GET(req: Request) {
                     description: p.description,
                     proposedState: p.proposedState as object,
                     sourceData: p.sourceData as object }),
-                  },
-                })
-              ),
-            ]);
+                });
+                if (result.created) count++;
+              }
+              return count;
+            });
+            results.generateProposals = { created: createdCount, total: proposals.length };
+          } else {
+            results.generateProposals = { created: 0, total: proposals.length };
           }
-          results.generateProposals = { created: fresh.length, total: proposals.length };
         } else {
           results.generateProposals = { created: 0, total: 0 };
         }

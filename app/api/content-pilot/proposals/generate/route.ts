@@ -13,8 +13,7 @@ import {
   contentProposalDedupeKey,
   filterBlockedContentProposalInputs,
 } from "@/lib/content-pilot/proposal-dedupe";
-import { withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
-import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
+import { createContentProposalOnce, withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
@@ -80,11 +79,11 @@ export async function POST(req: Request) {
     if (pendingToDelete.length > 0) {
       await markContentProposalOpportunitiesTerminal(prisma, pendingToDelete);
     }
-    const created = await prisma.$transaction([
-      prisma.contentProposal.deleteMany({ where: { status: "pending" } }),
-      ...fresh.map((p) =>
-        prisma.contentProposal.create({
-          data: {
+    const createdRows = await prisma.$transaction(async (tx) => {
+      await tx.contentProposal.deleteMany({ where: { status: "pending" } });
+      const rows = [];
+      for (const p of fresh) {
+        const result = await createContentProposalOnce(tx, {
             ...withContentProposalDedupeKey({ articleHandle: p.articleHandle,
             proposalType: p.proposalType,
             changeType: p.changeType,
@@ -95,13 +94,11 @@ export async function POST(req: Request) {
             description: p.description,
             proposedState: p.proposedState as object,
             sourceData: p.sourceData as object }),
-          },
-        })
-      ),
-    ]);
-
-    // First element is the deleteMany batch result; the rest are the created rows.
-    const createdRows = created.slice(1);
+        });
+        if (result.created) rows.push(result.proposal);
+      }
+      return rows;
+    });
     const opportunityResult = await upsertOpportunities(
       prisma,
       fresh.map(opportunityFromProposal),
