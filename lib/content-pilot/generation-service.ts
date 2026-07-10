@@ -96,7 +96,7 @@ function validateDraftContent(proposal: DraftPersistedProposal, draftContent: Dr
 }
 
 function classifyValidationFailure(error: string): DraftGenerationValidationOutcome {
-  return error.startsWith("Draft too short") || error.startsWith("Draft is missing")
+  return /draft too short/i.test(error) || /draft is missing/i.test(error)
     ? { kind: "validation", error }
     : { kind: "other", error };
 }
@@ -224,7 +224,14 @@ export async function generateProposalDraft(input: GenerationServiceInput): Prom
     const draftContent = await generateDraftImpl(proposalForDraft, article);
     const validationError = validateDraftImpl(proposalForDraft, draftContent);
     if (validationError) {
-      await failGeneration({ prismaClient, proposalId: proposal.id, token, error: validationError });
+      const failed = await failGeneration({ prismaClient, proposalId: proposal.id, token, error: validationError });
+      if (failed.count === 0) {
+        return {
+          kind: "discarded",
+          reason: "Proposal changed before validation failure persistence could complete",
+        };
+      }
+
       return { kind: "failed", error: validationError };
     }
 
@@ -293,12 +300,20 @@ export async function generateProposalDraft(input: GenerationServiceInput): Prom
   } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
     if (classifyValidationFailure(message).kind === "validation") {
-      await failGeneration({
+      const failed = await failGeneration({
         prismaClient,
         proposalId: proposal.id,
         token,
         error: message,
       });
+
+      if (failed.count === 0) {
+        return {
+          kind: "discarded",
+          reason: "Proposal changed before validation failure persistence could complete",
+        };
+      }
+
       return { kind: "failed", error: message };
     }
 

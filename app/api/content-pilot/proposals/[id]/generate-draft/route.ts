@@ -14,7 +14,7 @@ function classifyDraftGenerationError(raw: string): { status: number; error: str
   const lower = raw.toLowerCase();
   const message = raw.trim();
 
-  if (lower.startsWith("draft too short") || lower.startsWith("draft is missing")) {
+  if (lower.includes("draft too short") || lower.includes("draft is missing")) {
     return {
       status: 422,
       error: "Draft validation failed",
@@ -54,9 +54,32 @@ function classifyDraftGenerationError(raw: string): { status: number; error: str
 }
 
 function parseBody(rawBody: string): GenerateDraftBody {
+  if (!rawBody.trim()) {
+    return {};
+  }
+
   try {
     const parsed = JSON.parse(rawBody) as GenerateDraftBody;
-    return parsed?.preservePublishedReceipt === true ? { preservePublishedReceipt: true } : {};
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      Object.keys(parsed as Record<string, unknown>).every((key) => key === "preservePublishedReceipt") &&
+      (parsed as { preservePublishedReceipt?: unknown }).preservePublishedReceipt === true
+    ) {
+      return { preservePublishedReceipt: true };
+    }
+
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      (parsed as { preservePublishedReceipt?: unknown }).preservePublishedReceipt === false
+    ) {
+      return {};
+    }
+
+    return {};
   } catch {
     return {};
   }

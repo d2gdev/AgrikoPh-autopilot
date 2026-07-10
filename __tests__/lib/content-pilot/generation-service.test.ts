@@ -71,6 +71,7 @@ function proposal(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.resetAllMocks();
   mockPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback(txClient));
   mockPrisma.contentProposal.findUnique.mockResolvedValue(null);
   mockPrisma.contentProposal.update.mockResolvedValue({});
@@ -218,5 +219,56 @@ describe("generateProposalDraft", () => {
     });
     expect(mockCollectDraftCitations).not.toHaveBeenCalled();
     expect(mockTx.contentProposal.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("returns discarded when token is cleared during validation failure", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal());
+    mockPrisma.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+    mockPrisma.contentProposal.updateMany.mockResolvedValueOnce({ count: 0 });
+    mockGenerateDraft.mockResolvedValueOnce({ bodyHtml: "<p>too short</p>", title: "Short" });
+    mockGenerateDraft.mockResolvedValueOnce({ bodyHtml: "<p>too short</p>", title: "Short" });
+
+    const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result).toEqual({
+      kind: "discarded",
+      reason: "Proposal changed before validation failure persistence could complete",
+    });
+  });
+
+  it("allows concurrent publishing when preservePublishedReceipt is true", async () => {
+    const withPublishedReceipt = proposal({
+      draftStatus: "publishing",
+      draftGenerationToken: null,
+      draftGenerationStartedAt: null,
+    });
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(withPublishedReceipt);
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockTx.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      preservePublishedReceipt: true,
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result.kind).toBe("ready");
+    const claim = mockPrisma.contentProposal.updateMany.mock.calls[0]?.[0];
+    expect(claim?.where).toMatchObject({
+      draftStatus: {
+        notIn: ["generating"],
+      },
+    });
   });
 });
