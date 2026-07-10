@@ -6,7 +6,7 @@ last_updated: 2026-07-11
 
 # Surface Fix
 
-Use `.claude/commands/surface-fix.md` when a user wants a recurring audit/fix loop for one named product surface.
+Use `.codex/skills/surface-fix/SKILL.md` when a user wants a recurring audit/fix loop for one named product surface in Codex.
 
 - No flag is audit-only and non-mutating.
 - `--fix` permits isolated remediation and direct merge after all local gates pass.

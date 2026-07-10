@@ -1,7 +1,7 @@
 ---
 name: agents
 description: Always-loaded project anchor. Read this first. Contains project identity, non-negotiables, commands, and pointer to ROUTER.md for full context.
-last_updated: 2026-06-25
+last_updated: 2026-07-11
 ---
 
 # Agriko Autopilot
@@ -35,9 +35,9 @@ After meaningful work, run GROW:
 - Write: bump `last_updated` on changed scaffold files and run `mex log` when rationale matters
 
 ## Surface-Fix Execution Contract
-- For an authorized `$surface-fix --fix` or `--deploy` run, do not return routine progress, plans, or “next step” messages. Return only a start acknowledgement, a blocker requiring new authority, or the final verified result.
-- Never report `merged`, `deployed`, or `complete` unless the persisted Surface-Fix state records every required gate as passed.
-- `deployed` additionally requires matching server commit, newer active build artifact, newer PM2 process, and healthy public endpoint evidence.
+- For an authorized `$surface-fix --fix` or `--deploy` run, provide concise in-turn progress but no partial handoffs, plans, or “next step” endings. Continue until a verified final result or a genuine blocker requiring new authority.
+- Never report `merged`, `deployed`, or `complete` without fresh evidence from every required gate.
+- `deployed` additionally requires matching server commit, active build artifact, restarted PM2 process, and healthy public endpoint evidence.
 - Record rejected audit findings with evidence; do not reintroduce them as defects.
 
 ## Navigation
