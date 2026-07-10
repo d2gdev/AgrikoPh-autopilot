@@ -468,6 +468,8 @@ export default function SeoPillarReportPage() {
                       cur={cur}
                       prev={prev}
                       gscFetchedAt={data?.gscFetchedAt}
+                      ga4FetchedAt={data?.ga4FetchedAt}
+                      ga4Freshness={data?.ga4Freshness}
                       previousFetchedAt={t?.previousFetchedAt}
                       trend={trend}
                       trendFirst={trendFirst}

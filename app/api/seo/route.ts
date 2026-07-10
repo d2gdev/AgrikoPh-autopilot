@@ -18,6 +18,7 @@ type SeoSummaryPayload = {
     gsc: "normalized" | "rawSnapshot" | "none";
     ga4: "normalized" | "rawSnapshot" | "none";
   };
+  ga4Freshness: Awaited<ReturnType<typeof getLatestGa4Data>>["freshness"];
   cachedAt?: string;
   cacheTtlMs?: number;
 };
@@ -88,6 +89,7 @@ export async function GET(req: Request) {
           gsc: gscData.source,
           ga4: ga4Data.source,
         },
+        ga4Freshness: ga4Data.freshness,
         cachedAt: new Date().toISOString(),
         cacheTtlMs: SEO_SUMMARY_CACHE_TTL_MS,
       };
@@ -174,6 +176,7 @@ export async function GET(req: Request) {
         gsc: gscData.source,
         ga4: ga4Data.source,
       },
+      ga4Freshness: ga4Data.freshness,
       trends,
       opportunities,
       clusters,
