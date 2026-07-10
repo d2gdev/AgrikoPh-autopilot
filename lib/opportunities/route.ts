@@ -4,6 +4,7 @@ import {
   upsertStoreTasksFromOpportunities,
 } from "@/lib/store-tasks/route-opportunities";
 import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
+import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 
 type OpportunityRouterClient = Pick<
   PrismaClient,
@@ -178,7 +179,7 @@ export async function routeOpportunityToContentProposal(
   }
 
   const existing = await findExistingContentProposal(prismaClient, data);
-  const proposal = existing ?? await prismaClient.contentProposal.create({ data });
+  const proposal = existing ?? (await createContentProposalOnce(prismaClient, data as never)).proposal;
 
   await prismaClient.opportunity.update({
     where: { id: opportunity.id },

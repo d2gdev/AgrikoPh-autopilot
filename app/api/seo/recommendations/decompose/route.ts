@@ -4,6 +4,7 @@ export const maxDuration = 30;
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
@@ -265,7 +266,12 @@ ${articleRecords.slice(0, 120).map((a) => `${a.handle} — ${a.title} — ${a.wo
     });
 
     if (toCreate.length === 0) return [];
-    return Promise.all(toCreate.map((r) => tx.contentProposal.create({ data: r as never })));
+    const results = [];
+    for (const r of toCreate) {
+      const result = await createContentProposalOnce(tx, r as never);
+      if (result.created) results.push(result.proposal); else skipped++;
+    }
+    return results;
   });
 
   if (created.length > 0) {

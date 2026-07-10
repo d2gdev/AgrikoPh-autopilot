@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAppAuth, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 
@@ -119,6 +120,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unknown issue type" }, { status: 400 });
   }
 
-  const proposal = await prisma.contentProposal.create({ data: proposalData });
-  return NextResponse.json({ id: proposal.id, existed: false });
+  const result = await createContentProposalOnce(prisma, proposalData as never);
+  return NextResponse.json({ id: result.proposal.id, existed: !result.created });
 }

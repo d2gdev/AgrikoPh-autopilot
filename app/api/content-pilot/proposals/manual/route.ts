@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
+import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
@@ -26,15 +26,7 @@ export async function POST(req: NextRequest) {
 
   const title = `New article: ${topic}`;
   // Dedup: don't recreate a proposal the operator already handled.
-  const existing = await prisma.contentProposal.findFirst({
-    where: { title, status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } },
-    select: { id: true },
-  });
-  if (existing) {
-    return NextResponse.json({ proposal: { id: existing.id, title }, existed: true });
-  }
-
-  const proposal = await prisma.contentProposal.create({
+  const result = await createContentProposalOnce(prisma, {
     data: {
       proposalType: "new-content",
       changeType: "create",
@@ -50,6 +42,6 @@ export async function POST(req: NextRequest) {
       },
       sourceData: { trigger: "manual", topic },
     },
-  });
-  return NextResponse.json({ proposal });
+  } as never);
+  return NextResponse.json({ proposal: result.proposal, existed: !result.created });
 }

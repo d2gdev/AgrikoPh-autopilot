@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { classifyPriority, findingToImpact, changeTypeToEffort } from "@/lib/content-pilot/priority-score";
@@ -188,9 +189,12 @@ export async function POST(req: NextRequest) {
 
     if (rows.length === 0) return [];
 
-    return Promise.all(
-      rows.map((r) => tx.contentProposal.create({ data: r as never })),
-    );
+    const results = [];
+    for (const r of rows) {
+      const result = await createContentProposalOnce(tx, r as never);
+      if (result.created) results.push(result.proposal); else skipped++;
+    }
+    return results;
   });
 
   if (created.length === 0) {
