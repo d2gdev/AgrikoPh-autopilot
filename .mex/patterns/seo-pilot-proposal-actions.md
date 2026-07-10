@@ -85,6 +85,21 @@ last_updated: 2026-07-11
    - Missing GA4 rates (`null`, blank, or `—`) stay `null`; only an explicit measured zero is 0%.
    - Do not surface or promote an opportunity with zero estimated click upside.
    - After queueing a dashboard refresh, follow its returned run ID through bounded `/api/jobs/status` polling and reload on terminal success/partial state. A passive reload, not another enqueue, is the timeout recovery.
+20. An article-backed SEO meta rewrite is one mutation surface even when several queries support it.
+   - Key active `seo-fix` proposals by proposal type plus article handle; keep target queries and issue labels as evidence, not parallel proposal discriminators.
+   - Internal-link proposals still discriminate by destination, and handle-less new-content proposals still discriminate by target keyword/title.
+21. Apply deterministic analysis bounds after selecting eligible work.
+   - Content-gap discovery first filters to uncovered position 5-20 queries, then ranks by impressions, clicks, position, and query before applying the query limit.
+   - Do not inherit a click-sorted presentation order for zero-click opportunity discovery.
+22. Refresh diagnostics shown in SEO Pilot must come from structured job summary fields.
+   - Display bounded job names and `failed`/`partial`/`skipped` statuses.
+   - Never copy `JobRun.errorLog`, connector messages, provider bodies, or arbitrary raw errors into the embedded UI.
+23. Transport source-selection evidence to the operator.
+   - `/api/seo` returns `gscFreshness` in both summary and full views.
+   - Overview identifies raw GSC fallback and its safe reason instead of showing only a timestamp.
+24. Page Health retains every applicable finding.
+   - Return `flags[]` for simultaneous high-bounce and low-conversion conditions and render every badge.
+   - Keep the primary `flag` only as a compatibility field; severity accounts for all findings.
 
 ## Regression Tests
 Add or update route tests when changing these paths:
@@ -108,5 +123,6 @@ Add or update route tests when changing these paths:
 - SEO cache keys differ across Shopify contexts, unsupported history sources return `400`, and compact sort controls mirror page state.
 - Navigation, every panel data grid, long/custom cells, control rows, action rows, badges, and sparklines satisfy the no-horizontal-scroll source contract.
 - Previously ranking keywords that disappear alert; movers include vanished queries exactly once; missing GA4 rates do not create flags; zero-upside opportunities are absent; refresh polling is bounded and run-ID-specific.
+- Competing article meta rewrites dedupe; high-impression eligible gaps survive the query bound; refresh diagnostics exclude raw errors; GSC fallback provenance is visible; dual Page Health findings render together.
 
 Current coverage: `__tests__/api/seo-pilot-routes.test.ts`, `__tests__/jobs/seo-refresh-jobs.test.ts`, and `__tests__/api/embedded-fallback-auth-routes.test.ts`.
