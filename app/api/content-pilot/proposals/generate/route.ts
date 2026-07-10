@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
-import { getSessionShop, PERMISSIONS, requirePermission } from "@/lib/auth";
+import { getSessionShop, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { generateProposals } from "@/lib/content-pilot/generate-proposals";
@@ -16,8 +16,10 @@ import {
 import { createContentProposalOnce, withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 
 export async function POST(req: Request) {
-  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
-  if (authError) return authError;
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   const shop = (await getSessionShop(req)) ?? "api";
   if (!checkRateLimit(`proposals-generate:${shop}`, 5, 60_000)) {

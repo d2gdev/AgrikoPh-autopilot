@@ -15,6 +15,15 @@ const mockGenerateProposals = vi.hoisted(() => vi.fn());
 const mockFetchBlogArticles = vi.hoisted(() => vi.fn());
 const mockGetLatestGscData = vi.hoisted(() => vi.fn());
 const mockChatCompletionWithFailover = vi.hoisted(() => vi.fn());
+const mockOpportunityOutcomes = vi.hoisted(() => ({
+  markContentProposalOpportunitiesTerminal: vi.fn(),
+  markContentProposalOpportunityDismissed: vi.fn(),
+  markContentProposalOpportunityRouted: vi.fn(),
+}));
+const mockOpportunityGeneration = vi.hoisted(() => ({
+  opportunityFromProposal: vi.fn(),
+  upsertOpportunities: vi.fn(),
+}));
 const mockPrisma = vi.hoisted(() => ({
   $transaction: vi.fn(),
   articleRecord: { findMany: vi.fn(), findUnique: vi.fn() },
@@ -27,6 +36,7 @@ const mockPrisma = vi.hoisted(() => ({
     update: vi.fn(),
     updateMany: vi.fn(),
   },
+  contentProposalDraftHistory: { create: vi.fn() },
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -64,11 +74,11 @@ vi.mock("@/lib/content-pilot/priority-score", () => ({
   findingToImpact: vi.fn(),
 }));
 vi.mock("@/lib/opportunities/content-proposal-outcomes", () => ({
-  markContentProposalOpportunitiesTerminal: vi.fn(),
-  markContentProposalOpportunityDismissed: vi.fn(),
-  markContentProposalOpportunityRouted: vi.fn(),
+  markContentProposalOpportunitiesTerminal: mockOpportunityOutcomes.markContentProposalOpportunitiesTerminal,
+  markContentProposalOpportunityDismissed: mockOpportunityOutcomes.markContentProposalOpportunityDismissed,
+  markContentProposalOpportunityRouted: mockOpportunityOutcomes.markContentProposalOpportunityRouted,
 }));
-vi.mock("@/lib/opportunities/generate", () => ({ opportunityFromProposal: vi.fn(), upsertOpportunities: vi.fn() }));
+vi.mock("@/lib/opportunities/generate", () => mockOpportunityGeneration);
 vi.mock("@/lib/shopify-admin", () => ({ fetchBlogArticles: mockFetchBlogArticles }));
 vi.mock("@/lib/seo/data", () => ({ getLatestGscData: mockGetLatestGscData }));
 vi.mock("@/lib/seo/promotion", () => ({ articleHandleFromBlogPage: vi.fn(), classifySeoPromotion: vi.fn() }));
@@ -81,6 +91,7 @@ function mockPrismaCalls() {
     ...Object.values(mockPrisma.articleRecord),
     ...Object.values(mockPrisma.auditLog),
     ...Object.values(mockPrisma.contentProposal),
+    ...Object.values(mockPrisma.contentProposalDraftHistory),
   ].reduce((count, fn) => count + fn.mock.calls.length, 0);
 }
 
@@ -93,6 +104,11 @@ function expectNoMutationBoundaries() {
   expect(mockFetchBlogArticles).not.toHaveBeenCalled();
   expect(mockGetLatestGscData).not.toHaveBeenCalled();
   expect(mockChatCompletionWithFailover).not.toHaveBeenCalled();
+  expect(mockOpportunityOutcomes.markContentProposalOpportunitiesTerminal).not.toHaveBeenCalled();
+  expect(mockOpportunityOutcomes.markContentProposalOpportunityDismissed).not.toHaveBeenCalled();
+  expect(mockOpportunityOutcomes.markContentProposalOpportunityRouted).not.toHaveBeenCalled();
+  expect(mockOpportunityGeneration.opportunityFromProposal).not.toHaveBeenCalled();
+  expect(mockOpportunityGeneration.upsertOpportunities).not.toHaveBeenCalled();
 }
 
 const contentReviewMutations: Array<[string, (req: Request) => Promise<Response>]> = [
@@ -124,14 +140,15 @@ describe("Content Pilot mutation permissions", () => {
   });
 
   it.each(contentReviewMutations)("returns 401 before boundaries when %s is unauthenticated", async (name, invoke) => {
-    mockAuth.requirePermission.mockResolvedValue(
+    mockAuth.requireAppAuth.mockResolvedValue(
       NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
     );
     const req = mutationRequest(name);
     const response = await invoke(req);
 
     expect(response.status).toBe(401);
-    expect(mockAuth.requirePermission).toHaveBeenCalledWith(req, "content:review");
+    expect(mockAuth.requireAppAuth).toHaveBeenCalledWith(req);
+    expect(mockAuth.requirePermission).not.toHaveBeenCalled();
     expectNoMutationBoundaries();
   });
 
@@ -140,7 +157,11 @@ describe("Content Pilot mutation permissions", () => {
     const response = await invoke(req);
 
     expect(response.status).toBe(403);
+    expect(mockAuth.requireAppAuth).toHaveBeenCalledWith(req);
     expect(mockAuth.requirePermission).toHaveBeenCalledWith(req, "content:review");
+    expect(mockAuth.requireAppAuth.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockAuth.requirePermission.mock.invocationCallOrder[0]!,
+    );
     expectNoMutationBoundaries();
   });
 

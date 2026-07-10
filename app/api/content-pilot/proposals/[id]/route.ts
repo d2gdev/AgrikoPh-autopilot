@@ -35,8 +35,10 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
-  if (authError) return authError;
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
   const { id } = await params;
   const actor = (await getSessionUser(req)) ?? "operator";
 
@@ -62,11 +64,15 @@ export async function PATCH(
       );
     }
 
-    // Optimistic guard: re-assert draftStatus === "ready" in the WHERE clause so
-    // a concurrent publish that flipped the row to "publishing" between our read
-    // and write can't get its draft silently overwritten. P2025 → 409 below.
+    // Optimistic guard: repeat the publishable-status plus ready-draft predicate
+    // from canEditContentProposal() so a concurrent rejection, approval revocation,
+    // or publish transition cannot silently overwrite the draft. P2025 → 409 below.
     const updated = await prisma.contentProposal.update({
-      where: { id, draftStatus: "ready" },
+      where: {
+        id,
+        status: { in: ["approved", "override_approved"] },
+        draftStatus: "ready",
+      },
       data: { draftContent: parsed.data },
     });
 

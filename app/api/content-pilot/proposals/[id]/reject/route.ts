@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 import { NextResponse } from "next/server";
-import { getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
+import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { markContentProposalOpportunityDismissed } from "@/lib/opportunities/content-proposal-outcomes";
 import { canRejectContentProposal, CONTENT_PROPOSAL_NON_REJECTABLE_DRAFT_STATUSES } from "@/lib/content-pilot/proposal-state";
@@ -11,8 +11,10 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
-  if (authError) return authError;
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
   const { id } = await params;
 
   const { reviewNote } = (await req.json().catch(() => ({}))) as { reviewNote?: string };

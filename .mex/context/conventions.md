@@ -15,7 +15,7 @@ edges:
     condition: when adding a new API route or cron endpoint
   - target: context/skills-recommendations.md
     condition: when writing skill or recommendation handling code
-last_updated: 2026-07-10
+last_updated: 2026-07-10T13:21:47Z
 ---
 
 # Conventions
@@ -49,16 +49,21 @@ export async function GET(req: Request) {
 }
 ```
 
-**Permission gate — operator mutations, always first:**
+**Permission gate — embedded operator mutations, immediately after embedded auth:**
 ```ts
 export async function POST(req: Request) {
-  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
-  if (authError) return authError;
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
   // ... handler logic
 }
 ```
-`requirePermission` authenticates the request before checking the named role. Keep
-read-only handlers on `requireAppAuth`; keep publish mutations on their separate
+Every embedded handler, including an operator mutation, starts with
+`await requireAppAuth(req)`. `requirePermission` repeats identity verification
+while checking the named role, so it must run immediately after that auth gate and
+before any request parsing or data/AI/Shopify/audit side effect. Keep read-only
+handlers on `requireAppAuth`; keep publish mutations on their separate
 `CONTENT_PUBLISH` permission instead of broadening `CONTENT_REVIEW`.
 
 **Auth gate — every cron route handler:**
@@ -104,7 +109,7 @@ const validated = result.data;
 
 Before presenting any code change:
 - [ ] New API route exports `export const dynamic = "force-dynamic"` at the top
-- [ ] Embedded read handler calls `await requireAppAuth(req)` as the very first statement; an operator mutation calls `await requirePermission(req, PERMISSIONS.<role>)` as its very first statement
+- [ ] Every embedded handler calls `await requireAppAuth(req)` as the very first statement; an operator mutation immediately follows it with `await requirePermission(req, PERMISSIONS.<role>)` before parsing or any boundary
 - [ ] Cron route calls `requireCronAuth(req)` (sync) then `acquireJobLock` with a matching `releaseJobLock` in `finally`
 - [ ] All database access imports `prisma` from `@/lib/db` — no `new PrismaClient()` anywhere
 - [ ] LLM outputs are validated with Zod `.safeParse()` before any `prisma.*.create()` or `prisma.*.update()`

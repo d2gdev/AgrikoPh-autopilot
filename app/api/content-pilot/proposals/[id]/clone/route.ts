@@ -1,12 +1,14 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { PERMISSIONS, requirePermission } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
-  if (authError) return authError;
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   const { id } = await params;
   const source = await prisma.contentProposal.findUnique({ where: { id } });
