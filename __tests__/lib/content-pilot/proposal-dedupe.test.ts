@@ -91,4 +91,55 @@ describe("content proposal dedupe", () => {
       expect.arrayContaining(["pending", "approved", "override_approved", "published", "rejected"]),
     );
   });
+
+  it("keeps internal-link proposals with different destination articles distinct", () => {
+    const toArticleB = contentProposalDedupeKey({
+      articleHandle: "source-article",
+      proposalType: "internal-link",
+      title: "Link source to article B",
+      proposedState: { fromArticle: "source-article", toArticle: "article-b" },
+    });
+    const toArticleC = contentProposalDedupeKey({
+      articleHandle: "source-article",
+      proposalType: "internal-link",
+      title: "Link source to article C",
+      proposedState: { fromArticle: "source-article", toArticle: "article-c" },
+    });
+
+    expect(toArticleB).not.toBe(toArticleC);
+  });
+
+  it("keeps different SEO issues on the same article distinct", () => {
+    const missingMeta = contentProposalDedupeKey({
+      articleHandle: "black-rice-benefits",
+      proposalType: "seo-fix",
+      title: "Improve the SERP snippet",
+      proposedState: { targetQuery: "black rice benefits", issue: "missing-meta" },
+    });
+    const missingHeading = contentProposalDedupeKey({
+      articleHandle: "black-rice-benefits",
+      proposalType: "seo-fix",
+      title: "Add a clear heading",
+      proposedState: { targetQuery: "black rice benefits", issue: "missing-h1" },
+    });
+
+    expect(missingMeta).not.toBe(missingHeading);
+  });
+
+  it("dedupes reworded SEO proposals with the same structured action", () => {
+    const original = contentProposalDedupeKey({
+      articleHandle: "black-rice-benefits",
+      proposalType: "seo-fix",
+      title: "Improve the SERP snippet",
+      proposedState: { targetQuery: "black rice benefits", issue: "missing-meta" },
+    });
+    const reworded = contentProposalDedupeKey({
+      articleHandle: "black-rice-benefits",
+      proposalType: "seo-fix",
+      title: "Rewrite metadata for stronger CTR",
+      proposedState: { targetQuery: "  Black   Rice Benefits ", issue: "missing-meta" },
+    });
+
+    expect(reworded).toBe(original);
+  });
 });

@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-09T23:55:12Z
+last_updated: 2026-07-10T00:28:13Z
 ---
 
 # Pilot Queue Usability
@@ -30,7 +30,9 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 6. Terminal states need explicit badges; do not fall through to unlabeled fallback UI.
 7. Publish failures that cannot succeed on retry without operator intervention must move to a visible failed state with the original error retained.
 8. Content Pilot proposals must remain rejectable until publishing starts. The Reject action should be available for approved, ready, scheduled, failed, and other pre-publish states, and hidden only once a proposal is already rejected, publishing, or published.
-9. Keep helper logic pure when possible so tests can lock the wording and evidence extraction without a browser.
+9. Rejection must atomically make the proposal non-publishable: set both proposal and draft state to rejected and clear `scheduledPublishAt`. Manual and scheduled publish locks must independently require approved/override-approved status as well as `draftStatus: "ready"`.
+10. Scheduled publishing must use a route-level job lock in addition to its per-proposal optimistic lock.
+11. Keep helper logic pure when possible so tests can lock the wording and evidence extraction without a browser.
 
 ## Gotchas
 - A successful "skipped/already handled" backend response still feels broken if the UI leaves the same row visible or says to fetch data first.
@@ -39,6 +41,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 - Free-text AI strategy output can look useful while being unrelated to actual site data. Validate and evidence it at the API boundary before the UI can plan it into Content Pilot.
 - A missing target Shopify article is not a transient refresh failure. Mark it `draftStatus: "failed"` so it leaves the ready queue and tells the operator to recreate or reject it.
 - Do not gate Content Pilot rejection on `status === "pending"` only. Operators can change their mind after approval or draft generation, up until live publish begins.
+- Never let `draftStatus: "ready"` alone authorize a Shopify write. A rejected or concurrently modified proposal must fail the publish status predicate even if stale draft state remains.
 
 ## Verify
 - Add or update a route/API regression proving list responses include the evidence fields the row renders.

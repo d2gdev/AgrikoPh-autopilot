@@ -40,6 +40,7 @@ function proposal(overrides: Record<string, unknown> = {}) {
     id: "proposal-1",
     status: "approved",
     draftStatus: "ready",
+    scheduledPublishAt: null,
     sourceData: {},
     ...overrides,
   };
@@ -84,6 +85,8 @@ describe("Content Pilot reject route", () => {
       }),
       data: expect.objectContaining({
         status: "rejected",
+        draftStatus: "rejected",
+        scheduledPublishAt: null,
         reviewNote: "changed my mind",
       }),
     });
@@ -91,6 +94,34 @@ describe("Content Pilot reject route", () => {
       proposalId: "proposal-1",
       sourceData: existing.sourceData,
     });
+  });
+
+  it("cancels a scheduled draft when it is rejected", async () => {
+    const existing = proposal({ scheduledPublishAt: new Date("2026-07-15T00:00:00Z") });
+    mockPrisma.contentProposal.findUnique
+      .mockResolvedValueOnce(existing)
+      .mockResolvedValueOnce({
+        ...existing,
+        status: "rejected",
+        draftStatus: "rejected",
+        scheduledPublishAt: null,
+      });
+
+    const { POST } = await import("@/app/api/content-pilot/proposals/[id]/reject/route");
+    const res = await POST(request(), {
+      params: Promise.resolve({ id: "proposal-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "rejected",
+          draftStatus: "rejected",
+          scheduledPublishAt: null,
+        }),
+      }),
+    );
   });
 
   it.each([

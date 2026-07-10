@@ -37,7 +37,14 @@ export async function POST(
           { draftStatus: { notIn: [...CONTENT_PROPOSAL_NON_REJECTABLE_DRAFT_STATUSES] } },
         ],
       },
-      data: { status: "rejected", reviewedBy, reviewedAt: new Date(), reviewNote: reviewNote ?? null },
+      data: {
+        status: "rejected",
+        draftStatus: "rejected",
+        scheduledPublishAt: null,
+        reviewedBy,
+        reviewedAt: new Date(),
+        reviewNote: reviewNote ?? null,
+      },
     });
     if (updatedCount.count === 0) {
       return NextResponse.json(
@@ -61,7 +68,12 @@ export async function POST(
         action: "rejected",
         actor: reviewedBy,
         before: { status: proposal.status, draftStatus: proposal.draftStatus },
-        after: { status: "rejected", reviewNote: reviewNote ?? null },
+        after: {
+          status: "rejected",
+          draftStatus: "rejected",
+          scheduledPublishAt: null,
+          reviewNote: reviewNote ?? null,
+        },
       },
     });
 

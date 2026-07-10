@@ -3,7 +3,7 @@
  *
  * Run:
  *   node scripts/git-deploy.mjs
- *   node scripts/git-deploy.mjs --branch main
+ *   node scripts/git-deploy.mjs --branch feature/emergency --allow-non-main
  *
  * This script:
  * - pushes the selected local branch to origin
@@ -17,6 +17,11 @@ import { spawnSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
+import {
+  assertCleanWorktree,
+  assertRemoteStepOrder,
+  resolveDeployBranch,
+} from "./git-deploy-policy.mjs";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dir, "..");
@@ -107,11 +112,11 @@ function argValue(name) {
   return index >= 0 ? process.argv[index + 1] : null;
 }
 
-const branch = argValue("--branch") || run("git", ["branch", "--show-current"], { stdio: "pipe" });
-if (!branch) {
-  console.error("Could not determine current git branch. Pass --branch <name>.");
-  process.exit(1);
-}
+const branch = resolveDeployBranch({
+  requestedBranch: argValue("--branch"),
+  allowNonMain: process.argv.includes("--allow-non-main"),
+});
+assertCleanWorktree(run("git", ["status", "--porcelain"], { stdio: "pipe" }));
 
 const originUrl = run("git", ["config", "--get", "remote.origin.url"], { stdio: "pipe" });
 if (!originUrl) {
@@ -128,7 +133,7 @@ if (!githubToken) {
 const githubAuthHeader = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${githubToken}`).toString("base64")}`;
 
 const sshKey = resolveSshKey();
-const sshOpts = ["-o", "StrictHostKeyChecking=no", ...(sshKey ? ["-i", sshKey] : [])];
+const sshOpts = sshKey ? ["-i", sshKey] : [];
 
 console.log(sshKey ? `Using SSH key ${sshKey}` : "Using default SSH agent/config keys");
 console.log(`Deploying branch ${branch} to ${IP} through git...\n`);
@@ -202,8 +207,6 @@ source .env
 set -e
 set +a
 
-npm run db:migrate || exit 1
-
 rm -rf .next.build
 mkdir -p .next.build
 if [ -d .next/cache ]; then
@@ -213,14 +216,32 @@ fi
 
 bash --norc --noprofile -c 'set -o pipefail; NEXT_OUTPUT_DIR=.next.build npm run build:remote 2>&1 | tail -80' || (rm -rf /opt/autopilot/.next.build; exit 1)
 
+npm run db:migrate || (rm -rf /opt/autopilot/.next.build; exit 1)
+
 rm -rf .next.old
 (mv .next .next.old 2>/dev/null || true)
 mv .next.build .next
 
-pm2 restart autopilot --update-env || pm2 start /opt/autopilot/ecosystem.config.js
+if pm2 restart autopilot --update-env; then
+  :
+elif pm2 start /opt/autopilot/ecosystem.config.js; then
+  :
+else
+  rm -rf .next.failed
+  mv .next .next.failed
+  if [ -d .next.old ]; then
+    mv .next.old .next
+    pm2 restart autopilot --update-env || true
+  fi
+  rm -rf .next.failed .next.build
+  exit 1
+fi
+
 rm -rf /opt/autopilot/.next.old /opt/autopilot/.next.build
 git checkout -- next-env.d.ts 2>/dev/null || true
 `;
+
+assertRemoteStepOrder(remoteScript);
 
 run("ssh", [
   ...sshOpts,

@@ -27,19 +27,27 @@ ssh -i ~/.ssh/id_ed25519_autopilot root@172.105.161.83
 node scripts/git-deploy.mjs
 ```
 
+The default command deploys local `main`. The working tree must be clean. For an emergency non-main deployment, name the branch and explicitly acknowledge the override:
+
+```bash
+node scripts/git-deploy.mjs --branch feature/emergency --allow-non-main
+```
+
+SSH host-key verification remains enabled. Before the first deployment, connect once with `ssh autopilot-prod` and verify/save the VPS fingerprint in `~/.ssh/known_hosts`; do not bypass host verification.
+
 What it does:
-1. Pushes the current branch to `origin`
+1. Validates a clean working tree and pushes `main` (or an explicitly allowed non-main branch) to `origin`
 2. Fetches that branch into `/opt/autopilot` on the VPS
 3. Preserves server-owned runtime files (`.env`, `node_modules`, `.next`, `.npm-cache`)
 4. Removes stale local env files left on the server
 5. Ensures 2 GB swap is mounted
 6. `npm install --prefer-offline` using `/opt/autopilot/.npm-cache` and preserving existing native modules
-7. `npm run db:migrate` (applies pending Prisma migrations)
-8. Seeds `.next.build/cache` from the previous `.next/cache`
-9. Builds into `.next.build` with `NEXT_OUTPUT_DIR=.next.build npm run build:remote`
+7. Seeds `.next.build/cache` from the previous `.next/cache`
+8. Builds into `.next.build` with `NEXT_OUTPUT_DIR=.next.build npm run build:remote`
+9. `npm run db:migrate` only after the new build succeeds
 10. Atomic swap: `mv .next .next.old && mv .next.build .next`
 11. `pm2 restart autopilot --update-env`
-12. Removes `.next.old`
+12. Restores `.next.old` if PM2 cannot start the new build; otherwise removes it
 
 Set `LINODE_IP` or ensure `scripts/.linode-ip` exists. The deploy script uses `SSH_KEY` when set, otherwise it auto-detects `~/.ssh/autopilot_deploy`, `~/.ssh/id_ed25519_autopilot`, then `~/.ssh/id_ed25519`. It reads `GITHUB_TOKEN` from local env / `.env` for git push/fetch auth.
 

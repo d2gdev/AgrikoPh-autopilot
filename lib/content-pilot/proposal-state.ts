@@ -1,4 +1,5 @@
 export const CONTENT_PROPOSAL_NON_REJECTABLE_DRAFT_STATUSES = ["publishing", "published"] as const;
+export const CONTENT_PROPOSAL_PUBLISHABLE_STATUSES = ["approved", "override_approved"] as const;
 
 export function canRejectContentProposal(proposal: {
   status?: string | null;

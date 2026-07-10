@@ -8,6 +8,7 @@ import { publishDraft, resolveArticleHandle } from "@/lib/content-pilot/publish-
 import { contentProposalPublishRecoveryStatus } from "@/lib/content-pilot/publish-recovery";
 import { fetchBlogContentHandler } from "@/jobs/fetch-blog-content";
 import { markContentProposalOpportunityResolved } from "@/lib/opportunities/content-proposal-outcomes";
+import { CONTENT_PROPOSAL_PUBLISHABLE_STATUSES } from "@/lib/content-pilot/proposal-state";
 
 export async function POST(
   req: Request,
@@ -25,6 +26,14 @@ export async function POST(
   if (!proposal) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  if (!CONTENT_PROPOSAL_PUBLISHABLE_STATUSES.includes(
+    proposal.status as (typeof CONTENT_PROPOSAL_PUBLISHABLE_STATUSES)[number]
+  )) {
+    return NextResponse.json(
+      { error: `Cannot publish a proposal with status "${proposal.status}"` },
+      { status: 409 }
+    );
+  }
   if (proposal.draftStatus !== "ready") {
     const detail = proposal.draftStatus === "failed" && proposal.draftError
       ? `: ${proposal.draftError}`
@@ -36,7 +45,11 @@ export async function POST(
   }
 
   const locked = await prisma.contentProposal.updateMany({
-    where: { id, draftStatus: "ready" },
+    where: {
+      id,
+      status: { in: [...CONTENT_PROPOSAL_PUBLISHABLE_STATUSES] },
+      draftStatus: "ready",
+    },
     data: { draftStatus: "publishing" },
   });
   if (locked.count === 0) {

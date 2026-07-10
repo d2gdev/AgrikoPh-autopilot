@@ -16,7 +16,7 @@ edges:
     condition: for why the self-hosted VPS approach was chosen
   - target: patterns/debug-pipeline.md
     condition: if a deploy breaks the pipeline
-last_updated: 2026-06-25
+last_updated: 2026-07-10T00:28:13Z
 ---
 
 # Deploy
@@ -37,7 +37,7 @@ App directory on server: `/opt/autopilot`
    ```bash
    node scripts/git-deploy.mjs
    ```
-   This pushes the current branch to origin, fetches that branch in `/opt/autopilot`, builds remotely, swaps `.next` atomically, and restarts via PM2.
+   This requires a clean working tree, pushes local `main` to origin, fetches `main` in `/opt/autopilot`, builds remotely before applying migrations, swaps `.next` atomically, and restarts via PM2. An emergency branch requires both `--branch <name>` and `--allow-non-main`.
 4. Verify the deploy:
    ```bash
    ssh autopilot-prod "pm2 status"
@@ -52,6 +52,8 @@ App directory on server: `/opt/autopilot`
 - If `server.js` fails the required-env-vars check on startup, PM2 will loop-restart. Check `pm2 logs autopilot` immediately after deploy.
 - `npm run build:local` and `npm run build:remote` differ in how Prisma is generated — deploy uses `build:remote` on the VPS.
 - `scripts/git-deploy.mjs` reads `GITHUB_TOKEN` from local env / `.env` and passes it to the server only for the fetch command; do not hard-code GitHub tokens in remotes or scripts.
+- SSH host-key verification must remain enabled. Verify and save the VPS fingerprint in `~/.ssh/known_hosts` before the first deploy; never add `StrictHostKeyChecking=no`.
+- The deploy build must finish before `npm run db:migrate`. If PM2 cannot restart or start the new build, the script restores `.next.old`; migrations still need expand/contract compatibility because there are no down migrations.
 - Legacy `scripts/linode-deploy.mjs` still exists as an rsync fallback, but should not be the default deploy path.
 
 ## Task: Run Database Migrations in Production
@@ -90,7 +92,7 @@ App directory on server: `/opt/autopilot`
 
 ## Rollback
 
-PM2 does not keep previous build artifacts by default. Rollback procedure:
+The deploy script keeps `.next.old` through the PM2 transition and restores it automatically if the new process cannot start. For a failure discovered after startup/health verification:
 1. `git revert` the offending commit and re-deploy, or
 2. On the server: `git fetch origin`, `git checkout [previous-sha]` in `/opt/autopilot`, run `npm run build:remote`, then `pm2 restart autopilot`
 

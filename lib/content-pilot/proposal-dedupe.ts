@@ -67,7 +67,26 @@ export function contentProposalDedupeKey(input: ContentProposalDedupeInput): str
   const proposalType = normalizeKeyPart(input.proposalType);
   const articleHandle = text(input.articleHandle);
   if (articleHandle) {
-    return `${proposalType}:article:${normalizeKeyPart(articleHandle)}`;
+    const base = `${proposalType}:article:${normalizeKeyPart(articleHandle)}`;
+    const proposedState = asRecord(input.proposedState);
+
+    if (proposalType === "internal-link") {
+      const destination =
+        text(proposedState.toArticle) ??
+        text(proposedState.targetArticle) ??
+        text(proposedState.suggestedAnchorText) ??
+        input.title;
+      return `${base}:to:${normalizeKeyPart(destination)}`;
+    }
+
+    if (proposalType === "seo-fix") {
+      const issue = text(proposedState.issue) ?? text(proposedState.action);
+      const targetQuery = text(proposedState.targetQuery);
+      const action = [issue, targetQuery].filter((part): part is string => Boolean(part)).join(":") || input.title;
+      return `${base}:action:${normalizeKeyPart(action)}`;
+    }
+
+    return base;
   }
 
   return `${proposalType}:handleless:${handlelessDiscriminator(input)}`;

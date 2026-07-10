@@ -22,6 +22,10 @@ const mockPublishDraft = vi.hoisted(() => vi.fn());
 const mockResolveArticleHandle = vi.hoisted(() => vi.fn());
 const mockFetchBlogContentHandler = vi.hoisted(() => vi.fn());
 const mockMarkResolved = vi.hoisted(() => vi.fn());
+const mockLocks = vi.hoisted(() => ({
+  acquireJobLock: vi.fn(),
+  releaseJobLock: vi.fn(),
+}));
 
 vi.mock("@/lib/auth", () => ({
   PERMISSIONS: { CONTENT_PUBLISH: "content:publish" },
@@ -41,12 +45,17 @@ vi.mock("@/jobs/fetch-blog-content", () => ({
 vi.mock("@/lib/opportunities/content-proposal-outcomes", () => ({
   markContentProposalOpportunityResolved: mockMarkResolved,
 }));
+vi.mock("@/lib/job-lock", () => ({
+  acquireJobLock: mockLocks.acquireJobLock,
+  releaseJobLock: mockLocks.releaseJobLock,
+}));
 
 function readyRefreshProposal() {
   return {
     id: "proposal-1",
     articleHandle: "creating-your-own-herbal-blends-a-practical-guide-for-everyday-use",
     proposalType: "content-refresh",
+    status: "approved",
     draftStatus: "ready",
     draftError: null,
     sourceData: {},
@@ -67,6 +76,44 @@ describe("Content Pilot publish failure recovery", () => {
     mockResolveArticleHandle.mockReturnValue("creating-your-own-herbal-blends-a-practical-guide-for-everyday-use");
     mockFetchBlogContentHandler.mockResolvedValue({});
     mockMarkResolved.mockResolvedValue({});
+    mockLocks.acquireJobLock.mockResolvedValue(true);
+    mockLocks.releaseJobLock.mockResolvedValue(undefined);
+  });
+
+  it("blocks a rejected proposal from manual publishing", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue({
+      ...readyRefreshProposal(),
+      status: "rejected",
+    });
+
+    const { POST } = await import("@/app/api/content-pilot/proposals/[id]/publish/route");
+    const res = await POST(
+      new Request("http://test.local/api/content-pilot/proposals/proposal-1/publish", { method: "POST" }),
+      { params: Promise.resolve({ id: "proposal-1" }) },
+    );
+
+    expect(res.status).toBe(409);
+    expect(mockPrisma.contentProposal.updateMany).not.toHaveBeenCalled();
+    expect(mockPublishDraft).not.toHaveBeenCalled();
+  });
+
+  it("requires approved status in the manual publish lock", async () => {
+    mockPublishDraft.mockRejectedValue(new Error("stop after lock"));
+
+    const { POST } = await import("@/app/api/content-pilot/proposals/[id]/publish/route");
+    await POST(
+      new Request("http://test.local/api/content-pilot/proposals/proposal-1/publish", { method: "POST" }),
+      { params: Promise.resolve({ id: "proposal-1" }) },
+    );
+
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "proposal-1",
+        status: { in: ["approved", "override_approved"] },
+        draftStatus: "ready",
+      },
+      data: { draftStatus: "publishing" },
+    });
   });
 
   it("marks a manual publish failed when the target Shopify article no longer exists", async () => {
@@ -117,5 +164,43 @@ describe("Content Pilot publish failure recovery", () => {
         draftError: expect.stringContaining("no longer exists in Shopify"),
       }),
     });
+    expect(mockLocks.acquireJobLock).toHaveBeenCalledWith("publish-scheduled");
+    expect(mockLocks.releaseJobLock).toHaveBeenCalledWith("publish-scheduled");
+    expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith({
+      where: {
+        status: { in: ["approved", "override_approved"] },
+        draftStatus: "ready",
+        scheduledPublishAt: { lte: expect.any(Date) },
+      },
+    });
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "proposal-1",
+        status: { in: ["approved", "override_approved"] },
+        draftStatus: "ready",
+      },
+      data: { draftStatus: "publishing" },
+    });
+  });
+
+  it("returns 409 without querying proposals when the scheduled publisher is locked", async () => {
+    mockLocks.acquireJobLock.mockResolvedValue(false);
+
+    const { GET } = await import("@/app/api/cron/publish-scheduled/route");
+    const res = await GET(new Request("http://test.local/api/cron/publish-scheduled") as never);
+
+    expect(res.status).toBe(409);
+    expect(mockPrisma.contentProposal.findMany).not.toHaveBeenCalled();
+    expect(mockLocks.releaseJobLock).not.toHaveBeenCalled();
+  });
+
+  it("releases the scheduled publisher lock when no proposals are due", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValue([]);
+
+    const { GET } = await import("@/app/api/cron/publish-scheduled/route");
+    const res = await GET(new Request("http://test.local/api/cron/publish-scheduled") as never);
+
+    expect(res.status).toBe(200);
+    expect(mockLocks.releaseJobLock).toHaveBeenCalledWith("publish-scheduled");
   });
 });
