@@ -8,6 +8,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { classifyPriority, findingToImpact, changeTypeToEffort } from "@/lib/content-pilot/priority-score";
 import { getLatestGscData } from "@/lib/seo/data";
 import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
+import { articleHandleFromBlogPage, classifySeoPromotion } from "@/lib/seo/promotion";
 
 const GapInputSchema = z.object({
   query: z.string().trim().min(1).max(160),
@@ -23,20 +24,6 @@ const GapInputSchema = z.object({
 const PromoteGapsBodySchema = z.object({
   gaps: z.array(GapInputSchema).min(1).max(50),
 });
-
-function articleHandleFromPage(page: string | undefined): string | null {
-  if (!page) return null;
-  let path = page;
-  try {
-    path = new URL(page).pathname;
-  } catch {
-    path = page.split(/[?#]/)[0] ?? page;
-  }
-  const parts = path.split("/").filter(Boolean);
-  const blogIndex = parts.findIndex((part) => part === "blogs");
-  const handle = blogIndex >= 0 ? parts[blogIndex + 2] : null;
-  return handle && /^[a-z0-9][a-z0-9_-]*$/i.test(handle) ? handle : null;
-}
 
 function normalizeHandle(handle: string | null | undefined): string | null {
   return handle ? handle.toLowerCase() : null;
@@ -67,7 +54,7 @@ export async function POST(req: NextRequest) {
 
   // Candidate titles/handles from the input (deduped, valid gaps only).
   const candidateTitles = Array.from(new Set(gaps.map((g) => g.suggestedTitle)));
-  const gapHandles = gaps.map((g) => g.articleHandle ?? articleHandleFromPage(g.page)).filter((h): h is string => Boolean(h));
+  const gapHandles = gaps.map((g) => g.articleHandle ?? articleHandleFromBlogPage(g.page)).filter((h): h is string => Boolean(h));
   const candidateHandles = Array.from(new Set(gapHandles));
   const skippedReasons = { duplicate: 0, missingArticle: 0, nonBlogExistingPage: 0 };
 
@@ -114,26 +101,23 @@ export async function POST(req: NextRequest) {
       const impressions = gap.impressions ?? knownQuery?.impressions ?? 0;
       const position = gap.position ?? (knownQuery ? Number(knownQuery.position) : undefined);
       const inputTitle = gap.suggestedTitle;
-      const requestedHandle = gap.articleHandle ?? articleHandleFromPage(gap.page);
-      if (!requestedHandle && gap.page && !gap.issue) {
-        skipped++;
-        skippedReasons.nonBlogExistingPage++;
-        continue;
-      }
+      const requestedHandle = gap.articleHandle ?? articleHandleFromBlogPage(gap.page);
       const matchedArticle =
         (requestedHandle ? articleByHandle.get(requestedHandle.toLowerCase()) : undefined) ??
         articleByTitle.get(inputTitle.toLowerCase());
-      const proposalType =
-        gap.issue === "missing-meta" || (requestedHandle && (gap.type === "low_ctr" || gap.type === "high_impression_no_click"))
-          ? "seo-fix"
-          : gap.issue === "thin-content"
-            ? "content-refresh"
-            : "new-content";
-      if (proposalType !== "new-content" && !matchedArticle) {
+      const decision = classifySeoPromotion({
+        issue: gap.issue,
+        opportunityType: gap.type,
+        page: gap.page,
+        requestedHandle,
+        matchedArticle: matchedArticle ?? null,
+      });
+      if (decision.kind === "skip") {
         skipped++;
-        skippedReasons.missingArticle++;
+        skippedReasons[decision.reason]++;
         continue;
       }
+      const proposalType = decision.proposalType;
       const articleHandle = matchedArticle?.handle ?? requestedHandle ?? null;
       const title = matchedArticle?.title ?? inputTitle;
       const wordCount = matchedArticle?.wordCount ?? gap.wordCount ?? 0;

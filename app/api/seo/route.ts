@@ -103,7 +103,7 @@ export async function GET(req: Request) {
       null,
     );
     const gscPages = gscData.pages;
-    const queryPagePairs = gscData.queryPagePairs.slice(0, 50);
+    const allQueryPagePairs = gscData.queryPagePairs;
     const topQueries = queries;
 
     // Build keyword-research lookup: latest row per keyword, keyed by
@@ -147,10 +147,11 @@ export async function GET(req: Request) {
 
     const opportunities = computeCtrOpportunities(
       queries,
-      queryPagePairs,
+      allQueryPagePairs,
       research,
       pageConversion,
     );
+    const queryPagePairs = allQueryPagePairs.slice(0, 50);
     const clusters = computeOpportunityClusters(opportunities);
 
     const pageHealth = computePageHealth(gscPages, topPages);
@@ -160,6 +161,11 @@ export async function GET(req: Request) {
       topPages,
       gscPages,
       queryPagePairs,
+      limits: {
+        queryPagePairsTotal: allQueryPagePairs.length,
+        queryPagePairsReturned: queryPagePairs.length,
+        queryPagePairsTruncated: allQueryPagePairs.length > queryPagePairs.length,
+      },
       gscFetchedAt: gscData.fetchedAt,
       ga4FetchedAt: ga4Data.fetchedAt,
       dataSource: {

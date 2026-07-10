@@ -25,6 +25,9 @@ const mockPrisma = vi.hoisted(() => ({
   auditLog: {
     create: vi.fn(),
   },
+  keywordResearchResult: {
+    findMany: vi.fn(),
+  },
   marketKeyword: {
     findFirst: vi.fn(),
     findMany: vi.fn(),
@@ -94,6 +97,7 @@ describe("SEO Pilot route regressions", () => {
     mockPrisma.articleRecord.findMany.mockResolvedValue([]);
     mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
     mockPrisma.auditLog.create.mockResolvedValue({});
+    mockPrisma.keywordResearchResult.findMany.mockResolvedValue([]);
     mockPrisma.marketKeyword.findFirst.mockResolvedValue(null);
     mockPrisma.marketKeyword.create.mockResolvedValue({});
     mockPrisma.marketKeyword.update.mockResolvedValue({});
@@ -443,6 +447,71 @@ describe("SEO Pilot route regressions", () => {
       data: expect.objectContaining({
         proposalType: "seo-fix",
         articleHandle: "black-rice-benefits",
+      }),
+    });
+  });
+
+  it("retains landing-page attribution when the matching pair is beyond the display limit", async () => {
+    const filler = Array.from({ length: 50 }, (_, index) => ({
+      query: `filler ${index}`,
+      page: `https://agrikoph.com/blogs/news/filler-${index}`,
+      clicks: 0,
+      impressions: 1000 - index,
+      position: "8.0",
+    }));
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [{ query: "target query", clicks: 0, impressions: 200, ctr: "0%", position: "8.0" }],
+      pages: [],
+      queryPagePairs: [...filler, {
+        query: "target query",
+        page: "https://agrikoph.com/blogs/news/target-article",
+        clicks: 0,
+        impressions: 200,
+        position: "8.0",
+      }],
+      fetchedAt: new Date("2026-06-01T00:00:00Z"),
+      source: "normalized",
+      window: null,
+    });
+    const { GET } = await import("@/app/api/seo/route");
+
+    const res = await GET(new Request("http://test.local/api/seo") as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.opportunities.find((row: { query: string }) => row.query === "target query"))
+      .toEqual(expect.objectContaining({
+        page: "https://agrikoph.com/blogs/news/target-article",
+      }));
+    expect(body.limits).toEqual({
+      queryPagePairsTotal: 51,
+      queryPagePairsReturned: 50,
+      queryPagePairsTruncated: true,
+    });
+  });
+
+  it("promotes mapped striking-distance work as an expandable content refresh", async () => {
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "target-article", title: "Target Article", wordCount: 760 }]);
+    mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-5", title: "Expand thin content: Target Article" });
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+
+    const res = await POST(jsonRequest("/api/seo/gaps/promote", {
+      gaps: [{
+        query: "target query",
+        impressions: 300,
+        position: 12,
+        suggestedTitle: "Target Article",
+        type: "striking_distance",
+        page: "https://agrikoph.com/blogs/news/target-article",
+      }],
+    }));
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        proposalType: "content-refresh",
+        articleHandle: "target-article",
+        proposedState: expect.objectContaining({ action: "expand" }),
       }),
     });
   });
