@@ -473,9 +473,10 @@ export default function SeoPillarReportPage() {
                     <OverviewPanel
                       brief={brief}
                       cur={cur}
-                      prev={prev}
-                      gscFetchedAt={data?.gscFetchedAt}
-                      ga4FetchedAt={data?.ga4FetchedAt}
+                       prev={prev}
+                       gscFetchedAt={data?.gscFetchedAt}
+                       gscFreshness={data?.gscFreshness}
+                       ga4FetchedAt={data?.ga4FetchedAt}
                       ga4Freshness={data?.ga4Freshness}
                       previousFetchedAt={t?.previousFetchedAt}
                       trend={trend}

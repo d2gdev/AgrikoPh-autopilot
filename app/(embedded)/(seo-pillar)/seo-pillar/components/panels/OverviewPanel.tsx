@@ -2,7 +2,7 @@ import { Card, Text, InlineStack, BlockStack, Layout } from "@shopify/polaris";
 import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { ReactNode } from "react";
 import { timeAgo } from "@/lib/format";
-import type { Totals, SnapshotTrendPoint, GscPage, QueryPagePair } from "../types";
+import type { Totals, SnapshotTrendPoint, GscPage, QueryPagePair, GscFreshness } from "../types";
 import { BriefRenderer } from "../brief";
 import { Delta, Sparkline } from "../widgets";
 
@@ -13,6 +13,7 @@ export function OverviewPanel({
   cur,
   prev,
   gscFetchedAt,
+  gscFreshness,
   ga4FetchedAt,
   ga4Freshness,
   previousFetchedAt,
@@ -29,6 +30,7 @@ export function OverviewPanel({
   cur: Totals | undefined;
   prev: Totals | null | undefined;
   gscFetchedAt: string | null | undefined;
+  gscFreshness?: GscFreshness;
   ga4FetchedAt?: string | null;
   ga4Freshness?: { selectedSource: string; fallbackReason?: string | null };
   previousFetchedAt: string | null | undefined;
@@ -69,7 +71,11 @@ export function OverviewPanel({
       </InlineStack>
       {gscFetchedAt && (
         <Text as="p" tone="subdued" variant="bodySm">
-          GSC updated {timeAgo(gscFetchedAt)}{previousFetchedAt ? ` · compared to ${timeAgo(previousFetchedAt)}` : " · no prior period to compare yet"}
+          GSC updated {timeAgo(gscFetchedAt)}
+          {gscFreshness?.selectedSource === "rawSnapshot"
+            ? ` · fallback snapshot (${gscFreshness.fallbackReason === "raw_newer_than_normalized" ? "raw data is newer" : "normalized data unavailable"})`
+            : ""}
+          {previousFetchedAt ? ` · compared to ${timeAgo(previousFetchedAt)}` : " · no prior period to compare yet"}
         </Text>
       )}
 

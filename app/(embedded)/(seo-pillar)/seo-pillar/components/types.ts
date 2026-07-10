@@ -10,12 +10,26 @@ export interface SnapshotTrendPoint { date: string; clicks: number; impressions:
 export interface PageHealthRow { url: string; rawUrl: string; impressions: number; clicks: number; position: number; sessions: number | null; bounceRate: number | null; conversionRate: number | null; flag: "high-impressions-high-bounce" | "high-impressions-low-conversion" | null; severity: number }
 export interface GscPage { page: string; clicks: number; impressions: number; ctr: string; position: string }
 export interface QueryPagePair { query: string; page: string; clicks: number; impressions: number; position: string }
+export interface GscFreshness {
+  selectedSource: "normalized" | "rawSnapshot" | "none";
+  selectedCapturedAt: string | null;
+  selectedDateRangeStart: string | null;
+  selectedDateRangeEnd: string | null;
+  normalizedCapturedAt: string | null;
+  normalizedDateRangeStart: string | null;
+  normalizedDateRangeEnd: string | null;
+  rawCapturedAt: string | null;
+  rawDateRangeStart: string | null;
+  rawDateRangeEnd: string | null;
+  fallbackReason: "normalized_missing" | "raw_newer_than_normalized" | null;
+}
 export interface SeoData {
   topQueries: Query[]; topPages: PageRow[]; gscFetchedAt: string | null; ga4FetchedAt: string | null;
   trends: Trends | null; opportunities: Opportunity[];
   gscPages: GscPage[]; queryPagePairs: QueryPagePair[];
   pageHealth?: PageHealthRow[];
   clusters?: OpportunityCluster[];
+  gscFreshness?: GscFreshness;
   ga4Freshness?: { selectedSource: "normalized" | "rawSnapshot" | "none"; selectedCapturedAt: string | null; normalizedCapturedAt: string | null; rawCapturedAt: string | null; fallbackReason: "normalized_missing" | "normalized_empty" | "raw_newer_than_normalized" | null };
 }
 export interface ContentGap {

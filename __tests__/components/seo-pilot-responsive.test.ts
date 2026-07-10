@@ -71,4 +71,13 @@ describe("SEO Pilot responsive layout contract", () => {
     const source = read("app/(embedded)/(seo-pillar)/seo-pillar/components/widgets.tsx");
     expect(source).toContain('maxWidth: "100%"');
   });
+
+  it("discloses raw GSC fallback provenance beside its freshness timestamp", () => {
+    const page = read(pagePath);
+    const overview = read("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/OverviewPanel.tsx");
+
+    expect(page).toContain("gscFreshness={data?.gscFreshness}");
+    expect(overview).toContain('gscFreshness?.selectedSource === "rawSnapshot"');
+    expect(overview).toContain("fallback snapshot");
+  });
 });

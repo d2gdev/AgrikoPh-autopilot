@@ -539,6 +539,50 @@ describe("SEO Pilot route regressions", () => {
     });
   });
 
+  it("returns complete GSC freshness in summary and full SEO responses", async () => {
+    const freshness = {
+      selectedSource: "rawSnapshot",
+      selectedCapturedAt: new Date("2026-07-10T03:00:00.000Z"),
+      selectedDateRangeStart: new Date("2026-06-10T00:00:00.000Z"),
+      selectedDateRangeEnd: new Date("2026-07-08T00:00:00.000Z"),
+      normalizedCapturedAt: new Date("2026-07-08T03:00:00.000Z"),
+      normalizedDateRangeStart: new Date("2026-06-08T00:00:00.000Z"),
+      normalizedDateRangeEnd: new Date("2026-07-06T00:00:00.000Z"),
+      rawCapturedAt: new Date("2026-07-10T03:00:00.000Z"),
+      rawDateRangeStart: new Date("2026-06-10T00:00:00.000Z"),
+      rawDateRangeEnd: new Date("2026-07-08T00:00:00.000Z"),
+      fallbackReason: "raw_newer_than_normalized",
+    };
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: freshness.selectedCapturedAt,
+      source: "rawSnapshot",
+      window: null,
+      freshness,
+    });
+    mockSeoData.getLatestGa4Data.mockResolvedValue({
+      pages: [],
+      fetchedAt: null,
+      source: "none",
+      freshness: {
+        selectedSource: "none",
+        selectedCapturedAt: null,
+        normalizedCapturedAt: null,
+        rawCapturedAt: null,
+        fallbackReason: null,
+      },
+    });
+    const { GET } = await import("@/app/api/seo/route");
+
+    const summary = await GET(new Request("http://test.local/api/seo?view=summary&refresh=1") as NextRequest);
+    const full = await GET(new Request("http://test.local/api/seo") as NextRequest);
+
+    expect((await summary.json()).gscFreshness).toEqual(JSON.parse(JSON.stringify(freshness)));
+    expect((await full.json()).gscFreshness).toEqual(JSON.parse(JSON.stringify(freshness)));
+  });
+
   it("promotes mapped striking-distance work as an expandable content refresh", async () => {
     mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "target-article", title: "Target Article", wordCount: 760 }]);
     mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-5", title: "Expand thin content: Target Article" });
