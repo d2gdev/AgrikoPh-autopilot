@@ -30,7 +30,13 @@ describe("assertNonProductionDatabaseUrl", () => {
     "postgresql://test:test@localhost:5432/autopilot_test_prod.foo",
     "postgresql://test:test@localhost:5432/autopilot_test_production%2Efoo",
     "postgresql://test:test@localhost:5432/autopilot_test_prod%2Efoo",
-  ])("rejects production-named test database %s", (url) => {
+    "postgresql://test:test@localhost:5432/autopilot_productionX_test",
+    "postgresql://test:test@localhost:5432/autopilot_prodX_test",
+    "postgresql://test:test@localhost:5432/autopilot_test_backup",
+    "postgresql://test:test@localhost:5432/autopilot_test2",
+    "postgresql://test:test@localhost:5432/autopilot_test%2Fbackup",
+    "postgresql://test:test@localhost:5432/autopilot%5Ftest_backup",
+  ])("rejects a database path other than autopilot_test %s", (url) => {
     expect(() => assertNonProductionDatabaseUrl(url)).toThrow(/non-production/i);
   });
 });

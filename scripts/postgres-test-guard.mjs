@@ -1,13 +1,5 @@
 #!/usr/bin/env node
 
-function isAllowedTestDatabaseName(databaseName) {
-  return /(^|[_-])test([_-]|$)/i.test(databaseName);
-}
-
-function isProductionDatabaseName(databaseName) {
-  return /(^|[^a-z0-9])prod(?:uction)?(?=$|[^a-z0-9])/i.test(databaseName);
-}
-
 export function assertNonProductionDatabaseUrl(url, {
   ci = process.env.CI,
   allowCiPostgres = process.env.ALLOW_CI_POSTGRES,
@@ -33,13 +25,9 @@ export function assertNonProductionDatabaseUrl(url, {
     throw new Error("DATABASE_URL_TEST must point to a non-production local database.");
   }
 
-  const databaseName = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
-  if (isProductionDatabaseName(databaseName)) {
-    throw new Error("DATABASE_URL_TEST must use a non-production test database name.");
-  }
-
-  if (!isAllowedTestDatabaseName(databaseName)) {
-    throw new Error("DATABASE_URL_TEST must use a non-production test database name.");
+  const databaseName = decodeURIComponent(parsed.pathname.slice(1));
+  if (databaseName !== "autopilot_test") {
+    throw new Error("DATABASE_URL_TEST must use the exact non-production autopilot_test database.");
   }
 }
 
