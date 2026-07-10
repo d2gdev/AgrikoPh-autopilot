@@ -4,16 +4,13 @@ import { NextResponse } from "next/server";
 import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { CONTENT_PROPOSAL_ACTIVE_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
+import { parseQueueQuery } from "@/lib/content-pilot/queue-query";
 
 export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
 
-  const { searchParams } = new URL(req.url);
-  const status = searchParams.get("status");
-  const rawLimit = Number(searchParams.get("limit") ?? "100");
-  const limit = Number.isFinite(rawLimit) ? Math.min(100, Math.max(1, Math.floor(rawLimit))) : 100;
-  const cursorParam = searchParams.get("cursor");
+  const { status, limit, cursor: cursorParam } = parseQueueQuery(req.url);
   let cursor: { priority: string; createdAt: string; id: string } | undefined;
   if (cursorParam) {
     try {
@@ -29,7 +26,7 @@ export async function GET(req: Request) {
   // written. Reject anything else so an arbitrary query param can't be passed
   // straight into the Prisma where clause.
   const VALID_STATUSES = [...CONTENT_PROPOSAL_ACTIVE_STATUSES, "rejected"];
-  if (status !== null && !VALID_STATUSES.includes(status)) {
+  if (status != null && !VALID_STATUSES.includes(status)) {
     return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
   }
 
