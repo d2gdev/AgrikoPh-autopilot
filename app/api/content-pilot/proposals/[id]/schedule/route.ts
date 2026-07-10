@@ -3,6 +3,10 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import {
+  canEditContentProposal,
+  CONTENT_PROPOSAL_PUBLISHABLE_STATUSES,
+} from "@/lib/content-pilot/proposal-state";
 
 export async function PATCH(
   req: Request,
@@ -36,17 +40,25 @@ export async function PATCH(
   try {
     const proposal = await prisma.contentProposal.findUnique({ where: { id } });
     if (!proposal) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    if (proposal.draftStatus !== "ready") {
+    if (!canEditContentProposal(proposal)) {
+      const error = proposal.draftStatus !== "ready"
+        ? `Cannot schedule — draft status is "${proposal.draftStatus ?? "none"}"`
+        : `Cannot schedule a proposal with status "${proposal.status}"`;
       return NextResponse.json(
-        { error: `Cannot schedule — draft status is "${proposal.draftStatus ?? "none"}"` },
+        { error },
         { status: 409 }
       );
     }
 
-    // Optimistic lock on draftStatus: if another request changed the draft state
-    // between our read and write, the update matches no row (P2025 → 409).
+    // Optimistic lock on the publishable proposal and draft states: if another
+    // request changed either between our read and write, the update matches no
+    // row (P2025 → 409).
     const updated = await prisma.contentProposal.update({
-      where: { id, draftStatus: "ready" },
+      where: {
+        id,
+        status: { in: [...CONTENT_PROPOSAL_PUBLISHABLE_STATUSES] },
+        draftStatus: "ready",
+      },
       data: { scheduledPublishAt: scheduledDate },
     });
 

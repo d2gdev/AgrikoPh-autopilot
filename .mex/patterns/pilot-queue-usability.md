@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-10T20:52:00Z
+last_updated: 2026-07-10T21:00:00Z
 ---
 
 # Pilot Queue Usability
@@ -30,7 +30,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 6. Terminal states need explicit badges; do not fall through to unlabeled fallback UI.
 7. Publish failures that cannot succeed on retry without operator intervention must move to a visible failed state with the original error retained.
 8. Content Pilot proposals must remain rejectable until publishing starts. The Reject action should be available for approved, ready, scheduled, failed, and other pre-publish states, and hidden only once a proposal is already rejected, publishing, or published.
-9. Rejection must atomically make the proposal non-publishable: set both proposal and draft state to rejected and clear `scheduledPublishAt`. Manual and scheduled publish locks must independently require approved/override-approved status as well as `draftStatus: "ready"`.
+9. Rejection must atomically make the proposal non-publishable: set both proposal and draft state to rejected and clear `scheduledPublishAt`. Manual publish, scheduled publish, and scheduling mutations must independently require approved/override-approved status as well as `draftStatus: "ready"`; repeat those conditions in their optimistic write predicates.
 10. Scheduled publishing must use a route-level job lock in addition to its per-proposal optimistic lock.
 11. Keep helper logic pure when possible so tests can lock the wording and evidence extraction without a browser.
 12. Put `requirePermission(req, PERMISSIONS.CONTENT_REVIEW)` first in every Content Pilot or SEO mutation that creates, changes, regenerates, rejects, reopens, clones, or edits a proposal. Keep reads on `requireAppAuth` and publishing on `CONTENT_PUBLISH`.
