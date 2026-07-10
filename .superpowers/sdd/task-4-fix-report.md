@@ -94,3 +94,35 @@ tsc --noEmit passed
 ```
 
 No Task 5 file was modified and no stash was applied.
+
+---
+
+## Quality-review concurrency corrections (2026-07-10)
+
+### Red evidence
+
+Added regressions for a nullable `draftStatus` claim, `ready` plus receipt preservation, and citation finalization ownership. Before the implementation:
+
+```text
+npm test -- --run __tests__/lib/content-pilot/generation-service.test.ts __tests__/api/content-pilot-draft-citations.test.ts
+1 test file failed; 4 assertions failed
+```
+
+The failures showed the claim predicate only used `notIn`, receipt preservation skipped `generating` for a ready draft, and citations were absent from the token-guarded finalization.
+
+### Correction and verification
+
+- Claims now use an explicit `draftStatus: null` branch while still excluding `generating` and `publishing`.
+- Only an actual `published` draft preserves its visible receipt status; ready drafts become `generating`.
+- Citation collection remains warning-only on failure; successful citations are written in the conditional token finalization, never in a later ID-only update.
+
+```text
+npm test -- --run __tests__/lib/content-pilot/generation-service.test.ts __tests__/api/content-pilot-draft-citations.test.ts __tests__/api/embedded-fallback-auth-routes.test.ts __tests__/api/content-pilot-reject-route.test.ts
+4 test files passed, 28 tests passed
+
+npm run typecheck
+tsc --noEmit passed
+
+git diff --check
+passed
+```

@@ -107,10 +107,8 @@ describe("generate-draft citations isolation", () => {
     ]);
   });
 
-  it("persists draft content even when citations persistence fails", async () => {
-    mockPrisma.contentProposal.update
-      .mockResolvedValueOnce({ draftStatus: "ready", draftContent: { bodyHtml: draftBody, title: "Test Draft" } }) // citation-only finalization
-      .mockRejectedValueOnce(new Error('column "citations" does not exist'));
+  it("persists draft content when citation collection fails", async () => {
+    mockDraftGen.collectDraftCitations.mockRejectedValueOnce(new Error("citation service unavailable"));
 
     const { POST } = await import("@/app/api/content-pilot/proposals/[id]/generate-draft/route");
 
@@ -132,11 +130,8 @@ describe("generate-draft citations isolation", () => {
       }),
     );
 
-    // The standalone citations update should be attempted and failure-swallowed.
-    expect(mockPrisma.contentProposal.update).toHaveBeenCalledWith({
-      where: { id: "proposal-1" },
-      data: { citations: expect.anything() },
-    });
+    // Citations must not be written later by an unguarded update after ownership clears.
+    expect(mockPrisma.contentProposal.update).not.toHaveBeenCalled();
   });
 
   it("does not compute citations when pre-publish validation fails", async () => {

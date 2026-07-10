@@ -8,7 +8,7 @@ triggers:
   - "duplicate proposals"
   - "clear queue"
   - "start from scratch"
-last_updated: 2026-07-10T22:44:10+08:00
+last_updated: 2026-07-10T22:52:00+08:00
 ---
 
 # Generation Dedupe
@@ -40,6 +40,8 @@ Autopilot has multiple idea generators: skill recommendations, insight-derived a
 - Store task upserts should not set terminal rows back to pending unless the operator explicitly reopens them.
 - A generation token is durable ownership, not just a lock. Every conditional validation/failure write must inspect `updateMany.count`; a zero count means ownership was lost and must return a discarded/conflict result, never overwrite the current proposal as failed.
 - Receipt-preserving generation still excludes `draftStatus: "publishing"` from its claim predicate. It persists ownership only through the token/start timestamp so the visible published status and receipt remain stable while AI runs.
+- A Prisma `notIn` predicate does not claim SQL `NULL`; pair the active-status exclusion with an explicit `draftStatus: null` branch. Preserve the visible status only when it is actually `published`; otherwise a new generation must visibly enter `generating`.
+- Do not make a best-effort side write after clearing an ownership token. Collect optional data before finalization and persist it in the token-guarded transaction, or use an equivalent version guard.
 
 ## Verify
 - Add regression coverage for at least one terminal status (`rejected`, `executed`, `published`, `dismissed`, or `completed`) blocking regeneration.

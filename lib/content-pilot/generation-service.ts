@@ -108,17 +108,26 @@ async function claimDraftSlot(input: GenerationServiceInput, proposal: DraftPers
     where: {
       id: proposal.id,
       status: { in: [...CONTENT_PROPOSAL_PUBLISHABLE_STATUSES] as string[] },
-      draftStatus: {
-        notIn: ["generating", "publishing"],
-      },
-      OR: [{ draftGenerationToken: null }, { draftGenerationToken: "" }],
+      AND: [
+        {
+          OR: [
+            { draftStatus: null },
+            { draftStatus: { notIn: ["generating", "publishing"] } },
+          ],
+        },
+        { OR: [{ draftGenerationToken: null }, { draftGenerationToken: "" }] },
+      ],
     },
-  data: {
-    ...(input.preservePublishedReceipt ? {} : { draftStatus: "generating" }),
-    draftGenerationToken: token,
-    draftGenerationStartedAt: new Date(),
-  },
-});
+    data: {
+      ...(
+        input.preservePublishedReceipt && proposal.draftStatus === "published"
+          ? {}
+          : { draftStatus: "generating" }
+      ),
+      draftGenerationToken: token,
+      draftGenerationStartedAt: new Date(),
+    },
+  });
 
   if (claim.count === 0) {
     return null;
@@ -238,6 +247,13 @@ export async function generateProposalDraft(input: GenerationServiceInput): Prom
       return { kind: "failed", error: validationError };
     }
 
+    let citations: DraftJsonValue | undefined;
+    try {
+      citations = asDraftContent(await collectDraftCitationsImpl(proposalForDraft));
+    } catch (err) {
+      console.warn("[generate-draft] skipped citation collection:", err);
+    }
+
     const finalized = await prismaClient.$transaction(async (tx: GenerateDraftTransactionClient) => {
       const updated = await tx.contentProposal.updateMany({
       where: {
@@ -252,6 +268,7 @@ export async function generateProposalDraft(input: GenerationServiceInput): Prom
           draftError: null,
           draftGenerationToken: null,
           draftGenerationStartedAt: null,
+          ...(citations === undefined ? {} : { citations }),
         },
       });
 
@@ -281,16 +298,6 @@ export async function generateProposalDraft(input: GenerationServiceInput): Prom
 
     if (finalized.kind === "discarded") {
       return finalized;
-    }
-
-    try {
-      const citations = await collectDraftCitationsImpl(proposalForDraft);
-      await prismaClient.contentProposal.update({
-        where: { id: proposal.id },
-        data: { citations: asDraftContent(citations) },
-      });
-    } catch (err) {
-      console.warn("[generate-draft] skipped citation persistence:", err);
     }
 
     return {

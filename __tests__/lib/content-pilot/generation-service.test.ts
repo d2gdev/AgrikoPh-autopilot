@@ -117,7 +117,16 @@ describe("generateProposalDraft", () => {
     expect(claim?.where).toMatchObject({
       id: "proposal-1",
       status: { in: ["approved", "override_approved"] },
-      draftStatus: { notIn: ["generating", "publishing"] },
+    });
+    expect(claim?.where).toMatchObject({
+      AND: expect.arrayContaining([
+        {
+          OR: expect.arrayContaining([
+            { draftStatus: null },
+            { draftStatus: { notIn: ["generating", "publishing"] } },
+          ]),
+        },
+      ]),
     });
     expect((claim?.data as Record<string, unknown>).draftStatus).toBe("generating");
     expect(mockTx.contentProposalDraftHistory.create).toHaveBeenCalledWith({
@@ -148,7 +157,7 @@ describe("generateProposalDraft", () => {
     expect(result).toEqual({ kind: "discarded", reason: "Proposal changed while generating" });
     expect(mockTx.contentProposalDraftHistory.create).not.toHaveBeenCalled();
     expect(mockPrisma.contentProposal.update).not.toHaveBeenCalled();
-    expect(mockCollectDraftCitations).not.toHaveBeenCalled();
+    expect(mockCollectDraftCitations).toHaveBeenCalledOnce();
   });
 
   it("rolls back ready state when draft-history creation fails", async () => {
@@ -197,6 +206,35 @@ describe("generateProposalDraft", () => {
     expect(mockGenerateDraft).not.toHaveBeenCalled();
   });
 
+  it("claims a proposal whose draft status is null", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({ draftStatus: null }));
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockTx.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result.kind).toBe("ready");
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        AND: expect.arrayContaining([
+          {
+            OR: expect.arrayContaining([
+              { draftStatus: null },
+              { draftStatus: { notIn: ["generating", "publishing"] } },
+            ]),
+          },
+        ]),
+      }),
+    }));
+  });
+
   it("never claims generation ownership while publishing, including when preserving a receipt", async () => {
     mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({ draftStatus: "publishing" }));
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 0 });
@@ -214,7 +252,14 @@ describe("generateProposalDraft", () => {
     expect(result.kind).toBe("conflict");
     expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        draftStatus: { notIn: ["generating", "publishing"] },
+        AND: expect.arrayContaining([
+          {
+            OR: expect.arrayContaining([
+              { draftStatus: null },
+              { draftStatus: { notIn: ["generating", "publishing"] } },
+            ]),
+          },
+        ]),
       }),
     }));
     expect(mockGenerateDraft).not.toHaveBeenCalled();
@@ -332,9 +377,14 @@ describe("generateProposalDraft", () => {
 
     const claim = mockPrisma.contentProposal.updateMany.mock.calls[0]?.[0];
     expect(claim?.where).toMatchObject({
-      draftStatus: {
-        notIn: ["generating", "publishing"],
-      },
+      AND: expect.arrayContaining([
+        {
+          OR: expect.arrayContaining([
+            { draftStatus: null },
+            { draftStatus: { notIn: ["generating", "publishing"] } },
+          ]),
+        },
+      ]),
     });
     expect(claim?.data).toMatchObject({
       draftGenerationToken: expect.any(String),
@@ -351,5 +401,49 @@ describe("generateProposalDraft", () => {
 
     releaseDraft?.({ bodyHtml: "<h2>Seed</h2> ".repeat(200), title: "Updated season guide" });
     expect((await generation).kind).toBe("ready");
+  });
+
+  it("marks a ready draft generating when receipt preservation is requested", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({ draftStatus: "ready" }));
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockTx.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      preservePublishedReceipt: true,
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result.kind).toBe("ready");
+    expect(mockPrisma.contentProposal.updateMany.mock.calls[0]?.[0]?.data).toMatchObject({
+      draftStatus: "generating",
+    });
+  });
+
+  it("persists citations inside the token-guarded finalization", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal());
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockTx.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+    mockCollectDraftCitations.mockResolvedValueOnce([{ sourceType: "article", title: "Ginger 101", score: 0.9 }]);
+
+    const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result.kind).toBe("ready");
+    expect(mockTx.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ draftGenerationToken: expect.any(String) }),
+      data: expect.objectContaining({ citations: expect.anything() }),
+    }));
+    expect(mockPrisma.contentProposal.update).not.toHaveBeenCalled();
   });
 });
