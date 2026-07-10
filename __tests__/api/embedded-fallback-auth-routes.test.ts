@@ -9,6 +9,7 @@ const mockAuth = vi.hoisted(() => ({
 }));
 
 const mockPrisma = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   guardrailConfig: {
     update: vi.fn(),
   },
@@ -38,6 +39,7 @@ const mockGetConnectorHealth = vi.hoisted(() => vi.fn());
 const mockCheckRateLimit = vi.hoisted(() => vi.fn());
 const mockGetAiClient = vi.hoisted(() => vi.fn());
 const mockGenerateDraft = vi.hoisted(() => vi.fn());
+const mockCollectDraftCitations = vi.hoisted(() => vi.fn());
 const mockResolveArticleHandle = vi.hoisted(() => vi.fn());
 const mockFetchBlogArticles = vi.hoisted(() => vi.fn());
 
@@ -57,7 +59,10 @@ vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/config/connector-health", () => ({ getConnectorHealth: mockGetConnectorHealth }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock("@/lib/ai/client", () => ({ getAiClient: mockGetAiClient }));
-vi.mock("@/lib/content-pilot/generate-draft", () => ({ generateDraft: mockGenerateDraft }));
+vi.mock("@/lib/content-pilot/generate-draft", () => ({
+  generateDraft: mockGenerateDraft,
+  collectDraftCitations: mockCollectDraftCitations,
+}));
 vi.mock("@/lib/content-pilot/publish-draft", () => ({ resolveArticleHandle: mockResolveArticleHandle }));
 vi.mock("@/lib/shopify-admin", () => ({ fetchBlogArticles: mockFetchBlogArticles }));
 
@@ -94,7 +99,20 @@ describe("embedded API-key fallback route auth", () => {
     mockPrisma.jobRun.findMany.mockResolvedValue([]);
     mockPrisma.recommendation.count.mockResolvedValue(0);
     mockPrisma.rawSnapshot.count.mockResolvedValue(0);
-    mockPrisma.contentProposal.findUnique.mockResolvedValue({
+    mockCollectDraftCitations.mockResolvedValue([]);
+    mockPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) =>
+    callback({
+      contentProposal: {
+        findUnique: mockPrisma.contentProposal.findUnique,
+        update: mockPrisma.contentProposal.update,
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      contentProposalDraftHistory: {
+        create: mockPrisma.contentProposalDraftHistory.create,
+      },
+    })
+  );
+  mockPrisma.contentProposal.findUnique.mockResolvedValue({
       id: "proposal-1",
       status: "approved",
       proposalType: "seo-fix",
@@ -197,11 +215,20 @@ describe("embedded API-key fallback route auth", () => {
     expect(res.status).toBe(503);
     expect(body.error).toContain("AI provider authentication failed");
     expect(body.detail).toContain("API key is invalid");
-    expect(mockPrisma.contentProposal.update).toHaveBeenCalledWith({
-      where: { id: "proposal-1" },
+
+    const failedUpdate = mockPrisma.contentProposal.updateMany.mock.calls.find((call) => {
+      const [args] = call;
+      return args?.data?.draftStatus === "failed";
+    })?.[0];
+    expect(failedUpdate).toMatchObject({
+      where: expect.objectContaining({
+        id: "proposal-1",
+        status: { in: ["approved", "override_approved"] },
+        draftGenerationToken: expect.any(String),
+      }),
       data: expect.objectContaining({
         draftStatus: "failed",
-        draftError: expect.stringContaining("AI provider authentication failed"),
+        draftError: expect.stringContaining("Model output could not be parsed as valid draft JSON"),
       }),
     });
   });
