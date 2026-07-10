@@ -2,10 +2,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 import { NextResponse } from "next/server";
+import { ContentProposalConflictError } from "@/lib/content-pilot/proposal-transitions";
 import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { markContentProposalOpportunityDismissed } from "@/lib/opportunities/content-proposal-outcomes";
-import { canRejectContentProposal, CONTENT_PROPOSAL_NON_REJECTABLE_DRAFT_STATUSES } from "@/lib/content-pilot/proposal-state";
+import { rejectProposal } from "@/lib/content-pilot/proposal-transitions";
 
 export async function POST(
   req: Request,
@@ -21,69 +21,25 @@ export async function POST(
   const reviewedBy = (await getSessionUser(req)) ?? "operator";
 
   try {
-    const proposal = await prisma.contentProposal.findUnique({ where: { id } });
-    if (!proposal) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    if (!canRejectContentProposal(proposal)) {
-      return NextResponse.json(
-        { error: `Cannot reject a proposal with status "${proposal.status}" and draft status "${proposal.draftStatus ?? "none"}"` },
-        { status: 409 }
-      );
-    }
-
-    const updatedCount = await prisma.contentProposal.updateMany({
-      where: {
+    const { proposal } = await prisma.$transaction((tx) =>
+      rejectProposal(tx, {
         id,
-        status: { not: "rejected" },
-        OR: [
-          { draftStatus: null },
-          { draftStatus: { notIn: [...CONTENT_PROPOSAL_NON_REJECTABLE_DRAFT_STATUSES] } },
-        ],
-      },
-      data: {
-        status: "rejected",
-        draftStatus: "rejected",
-        scheduledPublishAt: null,
         reviewedBy,
-        reviewedAt: new Date(),
         reviewNote: reviewNote ?? null,
-      },
-    });
-    if (updatedCount.count === 0) {
-      return NextResponse.json(
-        { error: "Proposal was modified by another request — please refresh" },
-        { status: 409 }
-      );
-    }
+      }),
+    );
 
-    const updated = await prisma.contentProposal.findUnique({ where: { id } });
-    if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-    await markContentProposalOpportunityDismissed(prisma, {
-      proposalId: id,
-      sourceData: proposal.sourceData,
-    });
-
-    await prisma.auditLog.create({
-      data: {
-        entityType: "ContentProposal",
-        entityId: id,
-        action: "rejected",
-        actor: reviewedBy,
-        before: { status: proposal.status, draftStatus: proposal.draftStatus },
-        after: {
-          status: "rejected",
-          draftStatus: "rejected",
-          scheduledPublishAt: null,
-          reviewNote: reviewNote ?? null,
-        },
-      },
-    });
-
-    // Standardized shape: all single-proposal routes return { proposal }.
-    return NextResponse.json({ proposal: updated });
+    return NextResponse.json({ proposal });
   } catch (err) {
-    // P2025: the optimistic-locked update found no matching row — another request
-    // changed the status between our read and write. Report it as a conflict.
+    if (err instanceof ContentProposalConflictError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    if (typeof err === "object" && err !== null && (err as Error).message.startsWith("Cannot reject")) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 409 });
+    }
+    if (typeof err === "object" && err !== null && (err as Error).message.startsWith("Proposal not found:")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2025") {
       return NextResponse.json(
         { error: "Proposal was modified by another request — please refresh" },

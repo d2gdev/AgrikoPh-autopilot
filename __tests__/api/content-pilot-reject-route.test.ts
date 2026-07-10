@@ -7,11 +7,15 @@ const mockAuth = vi.hoisted(() => ({
 }));
 
 const mockPrisma = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   auditLog: {
     create: vi.fn(),
   },
   contentProposal: {
     findUnique: vi.fn(),
+    updateMany: vi.fn(),
+  },
+  opportunity: {
     updateMany: vi.fn(),
   },
 }));
@@ -57,6 +61,8 @@ describe("Content Pilot reject route", () => {
     mockAuth.getSessionUser.mockResolvedValue("operator");
     mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal());
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.opportunity.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.auditLog.create.mockResolvedValue({});
     mockMarkDismissed.mockResolvedValue({});
   });
@@ -94,10 +100,13 @@ describe("Content Pilot reject route", () => {
         reviewNote: "changed my mind",
       }),
     });
-    expect(mockMarkDismissed).toHaveBeenCalledWith(mockPrisma, {
-      proposalId: "proposal-1",
-      sourceData: existing.sourceData,
-    });
+    expect(mockMarkDismissed).toHaveBeenCalledWith(
+      { opportunity: mockPrisma.opportunity },
+      {
+        proposalId: "proposal-1",
+        sourceData: existing.sourceData,
+      },
+    );
   });
 
   it("cancels a scheduled draft when it is rejected", async () => {

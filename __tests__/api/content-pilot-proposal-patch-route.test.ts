@@ -6,8 +6,12 @@ const mockAuth = vi.hoisted(() => ({
   requirePermission: vi.fn(),
 }));
 const mockPrisma = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   auditLog: { create: vi.fn() },
-  contentProposal: { findUnique: vi.fn(), update: vi.fn() },
+  contentProposal: {
+    findUnique: vi.fn(),
+    updateMany: vi.fn(),
+  },
   contentProposalDraftHistory: { create: vi.fn() },
 }));
 
@@ -35,6 +39,8 @@ describe("PATCH /api/content-pilot/proposals/[id]", () => {
     mockAuth.requireAppAuth.mockResolvedValue(null);
     mockAuth.requirePermission.mockResolvedValue(null);
     mockAuth.getSessionUser.mockResolvedValue("operator-1");
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.contentProposal.findUnique.mockResolvedValue({
       id: "proposal-1",
       status: "approved",
@@ -45,13 +51,13 @@ describe("PATCH /api/content-pilot/proposals/[id]", () => {
   });
 
   it("returns conflict without audit or history writes when approval is revoked after the editable read", async () => {
-    mockPrisma.contentProposal.update.mockRejectedValue({ code: "P2025" });
+    mockPrisma.contentProposal.updateMany.mockRejectedValue({ code: "P2025" });
 
     const { PATCH } = await import("@/app/api/content-pilot/proposals/[id]/route");
     const response = await PATCH(request(), { params: Promise.resolve({ id: "proposal-1" }) });
 
     expect(response.status).toBe(409);
-    expect(mockPrisma.contentProposal.update).toHaveBeenCalledWith({
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith({
       where: {
         id: "proposal-1",
         status: { in: ["approved", "override_approved"] },

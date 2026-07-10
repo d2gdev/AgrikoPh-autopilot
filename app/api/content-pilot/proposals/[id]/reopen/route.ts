@@ -1,9 +1,9 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
+import { ContentProposalConflictError } from "@/lib/content-pilot/proposal-transitions";
 import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { markContentProposalOpportunityRouted } from "@/lib/opportunities/content-proposal-outcomes";
-import { reopenedContentProposalState } from "@/lib/content-pilot/proposal-state";
+import { reopenProposal } from "@/lib/content-pilot/proposal-transitions";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const appAuthError = await requireAppAuth(req);
@@ -12,63 +12,33 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (permissionError) return permissionError;
   const { id } = await params;
   const actor = (await getSessionUser(req)) ?? "operator";
-  const proposal = await prisma.contentProposal.findUnique({ where: { id } });
-  if (!proposal) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (proposal.status !== "rejected") return NextResponse.json({ error: "Only rejected proposals can be re-opened" }, { status: 400 });
 
-  // Optimistic lock: re-assert status === "rejected" in the WHERE so a concurrent
-  // change between read and write surfaces as a conflict (P2025 → 409), mirroring
-  // approve/reject.
-  let updated;
   try {
-    const reopened = reopenedContentProposalState();
-    updated = await prisma.contentProposal.update({
-      where: { id, status: "rejected" },
-      // Task 3 owns persistence of the operation fields included in the pure
-      // state builder; its migration has not added those columns yet.
-      data: {
-        status: reopened.status,
-        reviewedBy: reopened.reviewedBy,
-        reviewedAt: reopened.reviewedAt,
-        reviewNote: reopened.reviewNote,
-        draftStatus: reopened.draftStatus,
-        draftContent: reopened.draftContent,
-        draftError: reopened.draftError,
-        draftGeneratedAt: reopened.draftGeneratedAt,
-        citations: reopened.citations,
-        scheduledPublishAt: reopened.scheduledPublishAt,
-      },
-    });
-    await markContentProposalOpportunityRouted(prisma, {
-      proposalId: id,
-      sourceData: proposal.sourceData,
-    });
+    const { proposal: updated } = await prisma.$transaction((tx) =>
+      reopenProposal(tx, {
+        id,
+        actor,
+      }),
+    );
+
+    return NextResponse.json({ proposal: updated });
   } catch (err) {
+    if (err instanceof ContentProposalConflictError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    if (typeof err === "object" && err !== null && (err as Error).message.startsWith("Cannot reopen")) {
+      return NextResponse.json({ error: "Only rejected proposals can be re-opened" }, { status: 400 });
+    }
+    if (typeof err === "object" && err !== null && (err as Error).message.startsWith("Proposal not found:")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2025") {
       return NextResponse.json(
         { error: "Proposal was modified by another request — please refresh" },
         { status: 409 }
       );
     }
-    throw err;
+    console.error("[content-pilot/proposals/reopen] error:", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-
-  // Best-effort audit log, mirroring approve/reject routes. Never fail the
-  // reopen if the audit write errors.
-  try {
-    await prisma.auditLog.create({
-      data: {
-        entityType: "ContentProposal",
-        entityId: id,
-        action: "proposal_reopened",
-        actor,
-        before: { status: "rejected" },
-        after: { status: "pending" },
-      },
-    });
-  } catch (err) {
-    console.error("[content-pilot/proposals/reopen] audit log failed:", err);
-  }
-
-  return NextResponse.json({ proposal: updated });
 }

@@ -1,17 +1,17 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
+import { ContentProposalConflictError } from "@/lib/content-pilot/proposal-transitions";
+import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import {
-  canEditContentProposal,
-  CONTENT_PROPOSAL_PUBLISHABLE_STATUSES,
-} from "@/lib/content-pilot/proposal-state";
+import { scheduleProposal } from "@/lib/content-pilot/proposal-transitions";
 
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const authError = await requirePermission(req, PERMISSIONS.CONTENT_PUBLISH);
   if (authError) return authError;
   const { id } = await params;
@@ -35,46 +35,28 @@ export async function PATCH(
     scheduledDate = parsed;
   }
 
-  const reviewedBy = (await getSessionUser(req)) ?? "operator";
+  const actor = (await getSessionUser(req)) ?? "operator";
 
   try {
-    const proposal = await prisma.contentProposal.findUnique({ where: { id } });
-    if (!proposal) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    if (!canEditContentProposal(proposal)) {
-      const error = proposal.draftStatus !== "ready"
-        ? `Cannot schedule — draft status is "${proposal.draftStatus ?? "none"}"`
-        : `Cannot schedule a proposal with status "${proposal.status}"`;
-      return NextResponse.json(
-        { error },
-        { status: 409 }
-      );
-    }
-
-    // Optimistic lock on the publishable proposal and draft states: if another
-    // request changed either between our read and write, the update matches no
-    // row (P2025 → 409).
-    const updated = await prisma.contentProposal.update({
-      where: {
+    const { proposal } = await prisma.$transaction((tx) =>
+      scheduleProposal(tx, {
         id,
-        status: { in: [...CONTENT_PROPOSAL_PUBLISHABLE_STATUSES] },
-        draftStatus: "ready",
-      },
-      data: { scheduledPublishAt: scheduledDate },
-    });
+        actor,
+        scheduledPublishAt: scheduledDate,
+      }),
+    );
 
-    await prisma.auditLog.create({
-      data: {
-        entityType: "ContentProposal",
-        entityId: id,
-        action: "scheduled",
-        actor: reviewedBy,
-        before: { scheduledPublishAt: proposal.scheduledPublishAt?.toISOString() ?? null },
-        after: { scheduledPublishAt: scheduledDate?.toISOString() ?? null },
-      },
-    });
-
-    return NextResponse.json({ proposal: updated });
+    return NextResponse.json({ proposal });
   } catch (err) {
+    if (err instanceof ContentProposalConflictError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    if (typeof err === "object" && err !== null && (err as Error).message.startsWith("Proposal not found:")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (typeof err === "object" && err !== null && (err as Error).message.startsWith("Cannot schedule")) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 409 });
+    }
     if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2025") {
       return NextResponse.json(
         { error: "Proposal was modified by another request — please refresh" },

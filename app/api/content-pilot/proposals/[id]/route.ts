@@ -1,10 +1,11 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { ContentProposalConflictError } from "@/lib/content-pilot/proposal-transitions";
 import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getDraftSchema } from "@/lib/content-pilot/generate-draft";
-import { canEditContentProposal } from "@/lib/content-pilot/proposal-state";
+import { editProposalDraft } from "@/lib/content-pilot/proposal-transitions";
 
 export async function GET(
   req: Request,
@@ -47,12 +48,6 @@ export async function PATCH(
     if (!proposal) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    if (!canEditContentProposal(proposal)) {
-      return NextResponse.json(
-        { error: `Cannot edit — draft status is "${proposal.draftStatus ?? "none"}"` },
-        { status: 409 }
-      );
-    }
 
     const body = await req.json().catch(() => ({}));
     const schema = getDraftSchema(proposal.proposalType);
@@ -64,47 +59,28 @@ export async function PATCH(
       );
     }
 
-    // Optimistic guard: repeat the publishable-status plus ready-draft predicate
-    // from canEditContentProposal() so a concurrent rejection, approval revocation,
-    // or publish transition cannot silently overwrite the draft. P2025 → 409 below.
-    const updated = await prisma.contentProposal.update({
-      where: {
+    const { proposal: updated } = await prisma.$transaction((tx) =>
+      editProposalDraft(tx, {
         id,
-        status: { in: ["approved", "override_approved"] },
-        draftStatus: "ready",
-      },
-      data: { draftContent: parsed.data },
-    });
-
-    await prisma.auditLog.create({
-      data: {
-        entityType: "ContentProposal",
-        entityId: id,
-        action: "draft_edited",
         actor,
-        before: { draftContent: proposal.draftContent ?? undefined },
-        after: { draftContent: parsed.data },
-      },
-    });
-
-    await prisma.contentProposalDraftHistory.create({
-      data: {
-        proposalId: id,
-        savedBy: actor,
-        draftContent: parsed.data as object,
-        reason: "edited",
-      },
-    });
+        draftContent: parsed.data,
+      }),
+    );
 
     return NextResponse.json({ proposal: updated });
   } catch (err) {
-    // P2025: the optimistic-locked update matched no row — the draft is no
-    // longer "ready" (e.g. a concurrent publish flipped it). Report a conflict.
     if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2025") {
-      return NextResponse.json(
-        { error: "Draft is no longer editable" },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: "Draft is no longer editable" }, { status: 409 });
+    }
+    const message = typeof err === "object" && err !== null ? (err as Error).message : "";
+    if (err instanceof ContentProposalConflictError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    if (message.startsWith("Proposal not found:")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (message.startsWith("Cannot edit")) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 409 });
     }
     console.error("[content-pilot/proposals/patch] error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
