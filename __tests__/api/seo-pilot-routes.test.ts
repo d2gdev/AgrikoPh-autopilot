@@ -631,6 +631,59 @@ describe("SEO Pilot route regressions", () => {
     });
   });
 
+  it("does not expose raw provider failures from SEO brief generation", async () => {
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [{ query: "black rice", clicks: 3, impressions: 200, ctr: "1.5%", position: "7.0" }],
+      pages: [], queryPagePairs: [], fetchedAt: new Date("2026-06-01T00:00:00Z"), source: "normalized", window: null,
+    });
+    mockSeoData.getLatestGa4Data.mockResolvedValue({ pages: [], fetchedAt: null, source: "none", window: null });
+    mockChatCompletion.mockRejectedValue(new Error("provider response: Bearer secret-value"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { POST } = await import("@/app/api/seo/brief/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(body).toEqual({ status: 503, error: "Brief generation temporarily unavailable", detail: "Check the AI provider status and retry SEO brief generation." });
+    expect(JSON.stringify(body)).not.toContain("secret-value");
+    expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("secret-value");
+    errorSpy.mockRestore();
+  });
+
+  it("blocks a user without CONTENT_REVIEW before SEO keyword persistence", async () => {
+    mockAuth.requirePermission.mockResolvedValue(new Response("Forbidden", { status: 403 }));
+    const { POST } = await import("@/app/api/seo/keywords/route");
+
+    const res = await POST(jsonRequest("/api/seo/keywords", { keyword: "black rice" }));
+
+    expect(res.status).toBe(403);
+    expect(mockPrisma.marketKeyword.create).not.toHaveBeenCalled();
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("blocks a user without CONTENT_REVIEW before queueing an SEO refresh", async () => {
+    mockAuth.requirePermission.mockResolvedValue(new Response("Forbidden", { status: 403 }));
+    const { POST } = await import("@/app/api/seo/refresh/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/refresh", { method: "POST" }) as NextRequest);
+
+    expect(res.status).toBe(403);
+    expect(mockEnqueueJob).not.toHaveBeenCalled();
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("blocks a user without CONTENT_REVIEW before SEO brief data or AI work", async () => {
+    mockAuth.requirePermission.mockResolvedValue(new Response("Forbidden", { status: 403 }));
+    const { POST } = await import("@/app/api/seo/brief/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
+
+    expect(res.status).toBe(403);
+    expect(mockSeoData.getLatestGscData).not.toHaveBeenCalled();
+    expect(mockChatCompletion).not.toHaveBeenCalled();
+  });
+
 
   it("skips existing non-blog page opportunities instead of creating new articles", async () => {
     const { POST } = await import("@/app/api/seo/gaps/promote/route");

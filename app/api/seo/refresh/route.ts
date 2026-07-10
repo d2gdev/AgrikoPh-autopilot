@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 import { NextRequest, NextResponse } from "next/server";
-import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { enqueueJob } from "@/lib/jobs/orchestrator";
 import { materializeJobsStatusSnapshot } from "@/lib/dashboard/jobs-status";
@@ -9,6 +9,8 @@ import { materializeJobsStatusSnapshot } from "@/lib/dashboard/jobs-status";
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
   if (!checkRateLimit(`seo-refresh:${actor}`, 3, 60_000)) {

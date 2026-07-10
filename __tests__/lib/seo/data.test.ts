@@ -16,20 +16,22 @@ const mockNormalized = vi.hoisted(() => ({
   getPreviousGscWindow: vi.fn(),
 }));
 
-vi.mock("@/lib/db", () => ({
-  prisma: {
-    pageAnalytics: {
-      findFirst: vi.fn(),
-      findMany: vi.fn(),
-    },
+const mockDb = vi.hoisted(() => ({
+  pageAnalytics: {
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
   },
+}));
+
+vi.mock("@/lib/db", () => ({
+  prisma: mockDb,
 }));
 
 vi.mock("@/lib/seo/snapshot", () => mockSnapshots);
 vi.mock("@/lib/seo/gsc-normalized", () => mockNormalized);
 vi.mock("@/lib/seo/history", () => ({ computeSnapshotTrend: vi.fn(() => []) }));
 
-const { getLatestGscData, getPreviousGscData } = await import("@/lib/seo/data");
+const { getLatestGa4Data, getLatestGscData, getPreviousGscData } = await import("@/lib/seo/data");
 
 function rawSnapshot(source: string, fetchedAt: string, start: string, end: string, payload: object) {
   return {
@@ -271,5 +273,34 @@ describe("getLatestGscData freshness selection", () => {
     const result = await getPreviousGscData({ source: "normalized", window: currentWindow, queries: [], pages: [], queryPagePairs: [], fetchedAt: currentWindow.capturedAt, freshness: {} as never });
     expect(result).toMatchObject({ source: "normalized", fetchedAt: previousWindow.capturedAt, dateRangeStart: previousWindow.dateRangeStart, dateRangeEnd: previousWindow.dateRangeEnd });
     expect(result?.queries).toHaveLength(1);
+  });
+});
+
+describe("getLatestGa4Data freshness selection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSnapshots.getLatestSnapshot.mockResolvedValue(null);
+    mockSnapshots.getPages.mockReturnValue([]);
+    mockDb.pageAnalytics.findFirst.mockResolvedValue(null);
+    mockDb.pageAnalytics.findMany.mockResolvedValue([]);
+  });
+
+  it("labels raw fallback as normalized_empty when the current normalized window has no usable rows", async () => {
+    mockDb.pageAnalytics.findFirst.mockResolvedValue({
+      dateRangeStart: new Date("2026-06-01T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-29T00:00:00.000Z"),
+      capturedAt: new Date("2026-07-09T04:00:00.000Z"),
+    });
+    mockDb.pageAnalytics.findMany.mockResolvedValue([]);
+    mockSnapshots.getLatestSnapshot.mockResolvedValue(rawSnapshot("ga4", "2026-07-09T04:30:00.000Z", "2026-06-08T00:00:00.000Z", "2026-07-06T00:00:00.000Z", {}));
+    mockSnapshots.getPages.mockReturnValue([{ page: "/blogs/black-rice", sessions: 42 }]);
+
+    const result = await getLatestGa4Data();
+
+    expect(result).toMatchObject({
+      source: "rawSnapshot",
+      pages: [{ page: "/blogs/black-rice", sessions: 42 }],
+      freshness: { selectedSource: "rawSnapshot", fallbackReason: "normalized_empty" },
+    });
   });
 });

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { chatCompletionWithFailover } from "@/lib/ai/client";
 import { getLatestGscData, getLatestGa4Data } from "@/lib/seo/data";
@@ -26,12 +26,18 @@ function classifyBriefError(err: unknown): { status: number; error: string; deta
   if (lower.includes("no ai provider configured") || lower.includes("provider not configured")) {
     return { status: 503, error: "AI provider is not configured", detail: "Set a valid DeepSeek or OpenRouter API key, then retry SEO brief generation." };
   }
-  return { status: 503, error: "Brief generation temporarily unavailable", detail: raw.slice(0, 500) };
+  return {
+    status: 503,
+    error: "Brief generation temporarily unavailable",
+    detail: "Check the AI provider status and retry SEO brief generation.",
+  };
 }
 
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
   const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
   if (!checkRateLimit(`seo-brief:${actor}`, 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
@@ -94,7 +100,7 @@ export async function POST(req: NextRequest) {
       console.error("[seo/brief] AI completion timed out after 25s");
       return NextResponse.json({ error: "Brief generation timed out — please try again" }, { status: 504 });
     }
-    console.error("[seo/brief]", err);
+    console.error("[seo/brief] AI completion failed");
     const classified = classifyBriefError(err);
     return NextResponse.json(classified, { status: classified.status });
   }
