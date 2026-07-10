@@ -13,6 +13,11 @@ const runId = surface.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g
 let state = loadState(root, runId) ?? { runId, surface, mode: deploy ? "deploy" : fix ? "fix" : "audit", phase: "audit", evidence: {} };
 state = transition(state, state.phase, { expectedCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim() });
 saveState(root, runId, state);
+if (deploy && state.phase !== "deploying" && state.phase !== "verifying") {
+  state = transition(state, "deploying");
+  saveState(root, runId, state);
+  execFileSync("node", ["scripts/git-deploy.mjs"], { cwd: root, stdio: "inherit" });
+}
 if (deploy && state.phase === "deploying") {
   const deadline = Date.now() + 90_000;
   let last = null;
@@ -33,5 +38,12 @@ if (deploy && state.phase === "deploying") {
     saveState(root, runId, state);
     throw new Error("Deployment polling timed out");
   }
+}
+if (deploy && state.phase === "verifying") {
+  const health = execFileSync("curl", ["-fsS", "https://autopilot.agrikoph.com/api/health"], { encoding: "utf8" });
+  const parsedHealth = JSON.parse(health);
+  if (parsedHealth.status !== "ok") throw new Error("Deployment health did not report ok");
+  state = transition(state, "deployed", { healthStatus: "ok" });
+  saveState(root, runId, state);
 }
 console.log(JSON.stringify(state));
