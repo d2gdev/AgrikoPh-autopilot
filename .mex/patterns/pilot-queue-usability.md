@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-10T21:00:00Z
+last_updated: 2026-07-10T21:11:50Z
 ---
 
 # Pilot Queue Usability
@@ -33,7 +33,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 9. Rejection must atomically make the proposal non-publishable: set both proposal and draft state to rejected and clear `scheduledPublishAt`. Manual publish, scheduled publish, and scheduling mutations must independently require approved/override-approved status as well as `draftStatus: "ready"`; repeat those conditions in their optimistic write predicates.
 10. Scheduled publishing must use a route-level job lock in addition to its per-proposal optimistic lock.
 11. Keep helper logic pure when possible so tests can lock the wording and evidence extraction without a browser.
-12. Put `requirePermission(req, PERMISSIONS.CONTENT_REVIEW)` first in every Content Pilot or SEO mutation that creates, changes, regenerates, rejects, reopens, clones, or edits a proposal. Keep reads on `requireAppAuth` and publishing on `CONTENT_PUBLISH`.
+12. Use this Task 2 permission matrix exactly: put `requirePermission(req, PERMISSIONS.CONTENT_REVIEW)` first only in `POST /api/content-pilot/proposals/[id]/{reject,reopen,clone,generate-draft}`, `PATCH /api/content-pilot/proposals/[id]`, `POST /api/content-pilot/proposals/{generate,manual,refresh-all}`, `POST /api/seo/promote`, `POST /api/seo/gaps/promote`, and `POST /api/seo/recommendations/decompose`. Reads stay on `requireAppAuth`. This is not a publication matrix: `POST /api/content-pilot/regenerate-filipino` is mandatory Task 6 remediation and must use `CONTENT_PUBLISH`; Task 2 neither fixes nor defers it.
 
 ## Gotchas
 - A successful "skipped/already handled" backend response still feels broken if the UI leaves the same row visible or says to fetch data first.
