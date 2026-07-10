@@ -34,6 +34,12 @@ After meaningful work, run GROW:
 - Orient: create or update a `.mex/patterns/` runbook if this can recur
 - Write: bump `last_updated` on changed scaffold files and run `mex log` when rationale matters
 
+## Surface-Fix Execution Contract
+- For an authorized `$surface-fix --fix` or `--deploy` run, do not return routine progress, plans, or “next step” messages. Return only a start acknowledgement, a blocker requiring new authority, or the final verified result.
+- Never report `merged`, `deployed`, or `complete` unless the persisted Surface-Fix state records every required gate as passed.
+- `deployed` additionally requires matching server commit, newer active build artifact, newer PM2 process, and healthy public endpoint evidence.
+- Record rejected audit findings with evidence; do not reintroduce them as defects.
+
 ## Navigation
 At the start of every session, read `.mex/ROUTER.md` before doing anything else.
 For full project context, patterns, and task guidance — everything is there.
