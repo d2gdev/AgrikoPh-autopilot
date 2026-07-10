@@ -3,7 +3,6 @@ import {
   shouldRouteOpportunityToStoreTask,
   upsertStoreTasksFromOpportunities,
 } from "@/lib/store-tasks/route-opportunities";
-import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 
 type OpportunityRouterClient = Pick<
@@ -142,33 +141,6 @@ export function contentProposalFromOpportunity(
   };
 }
 
-async function findExistingContentProposal(
-  prismaClient: OpportunityRouterClient,
-  data: Prisma.ContentProposalUncheckedCreateInput,
-) {
-  if (data.articleHandle) {
-    return prismaClient.contentProposal.findFirst({
-      where: {
-        articleHandle: data.articleHandle,
-        proposalType: data.proposalType,
-        status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES },
-      },
-      orderBy: { updatedAt: "desc" },
-      select: { id: true },
-    });
-  }
-
-  return prismaClient.contentProposal.findFirst({
-    where: {
-      title: { equals: data.title, mode: "insensitive" },
-      proposalType: data.proposalType,
-      status: { in: CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES },
-    },
-    orderBy: { updatedAt: "desc" },
-    select: { id: true },
-  });
-}
-
 export async function routeOpportunityToContentProposal(
   prismaClient: OpportunityRouterClient,
   opportunity: OpportunityForRoute,
@@ -178,8 +150,7 @@ export async function routeOpportunityToContentProposal(
     return { opportunityId: opportunity.id, routed: false, reason: "not_content_opportunity" };
   }
 
-  const existing = await findExistingContentProposal(prismaClient, data);
-  const proposal = existing ?? (await createContentProposalOnce(prismaClient, data as never)).proposal;
+  const proposal = (await createContentProposalOnce(prismaClient, data as never)).proposal;
 
   await prismaClient.opportunity.update({
     where: { id: opportunity.id },

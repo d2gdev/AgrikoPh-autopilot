@@ -87,10 +87,6 @@ export async function POST(req: NextRequest) {
       }),
     ]);
 
-    const existingTitleSet = new Set<string>([
-      ...existingProposals.map((p) => p.title.toLowerCase()),
-      ...existingArticles.map((a) => a.title.toLowerCase()),
-    ]);
     const articleByHandle = new Map(existingArticles.map((a) => [a.handle.toLowerCase(), a]));
     const articleByTitle = new Map(existingArticles.map((a) => [a.title.toLowerCase(), a]));
 
@@ -128,11 +124,10 @@ export async function POST(req: NextRequest) {
           : proposalType === "content-refresh"
             ? `Expand thin content: ${title}`
             : title;
-      const titleKey = proposalTitle.toLowerCase();
-      const rowKey = `${proposalType}:${normalizeHandle(articleHandle) ?? ""}:${titleKey}`;
+      const rowKey = `${proposalType}:${normalizeHandle(articleHandle) ?? ""}:${title.toLowerCase()}`;
 
       // Dedup against existing rows and within this same batch (case-insensitive).
-      if (existingTitleSet.has(titleKey) || seenInBatch.has(rowKey)) {
+      if (seenInBatch.has(rowKey)) {
         skipped++;
         skippedReasons.duplicate++;
         continue;

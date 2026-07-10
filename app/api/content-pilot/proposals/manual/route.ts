@@ -27,7 +27,6 @@ export async function POST(req: NextRequest) {
   const title = `New article: ${topic}`;
   // Dedup: don't recreate a proposal the operator already handled.
   const result = await createContentProposalOnce(prisma, {
-    data: {
       proposalType: "new-content",
       changeType: "create",
       priority: "P2",
@@ -41,7 +40,6 @@ export async function POST(req: NextRequest) {
         blogHandle: blogHandle ?? null,
       },
       sourceData: { trigger: "manual", topic },
-    },
   } as never);
   return NextResponse.json({ proposal: result.proposal, existed: !result.created });
 }
