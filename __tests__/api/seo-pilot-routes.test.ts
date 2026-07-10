@@ -110,6 +110,7 @@ describe("SEO Pilot route regressions", () => {
       source: "none",
       window: null,
     });
+    mockSeoData.getPreviousGscQueries.mockResolvedValue([{ query: "previous", clicks: 1, impressions: 2, ctr: "50%", position: "5" }]);
     mockSeoData.getLatestGa4Data.mockResolvedValue({
       pages: [],
       fetchedAt: null,
@@ -476,6 +477,7 @@ describe("SEO Pilot route regressions", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
+    expect(body.trends.previousFetchedAt).toBe("2026-06-01T00:00:00.000Z");
     expect(body.opportunities.find((row: { query: string }) => row.query === "target query"))
       .toEqual(expect.objectContaining({
         page: "https://agrikoph.com/blogs/news/target-article",
