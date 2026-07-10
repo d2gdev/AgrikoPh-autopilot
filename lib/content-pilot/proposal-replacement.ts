@@ -4,6 +4,7 @@ import { opportunityFromProposal, upsertOpportunities } from "@/lib/opportunitie
 
 type Client = any;
 
+/** Replace the pending proposal set as one atomic unit, including its routed opportunities. */
 export async function replacePendingContentProposals(client: Client, inputs: ContentProposalCreateData[]) {
   const deduped = [...new Map(inputs.map((input) => {
     const keyed = withContentProposalDedupeKey(input);

@@ -124,7 +124,8 @@ export async function POST(req: Request) {
           results.push({ id: proposal.id, status: published.kind === "published" || published.kind === "published_with_warnings" ? "ok" : "failed", republished: true });
         } else results.push({ id: proposal.id, status: "ok", republished: false });
       } catch (err) {
-        results.push({ id: proposal.id, title: proposal.title, status: "error", error: String(err), beforeText });
+        console.error(`[content-pilot] Filipino regeneration failed for ${proposal.id}`, err);
+        results.push({ id: proposal.id, title: proposal.title, status: "error", error: "Regeneration failed. Please retry.", beforeText });
       }
     }
 
