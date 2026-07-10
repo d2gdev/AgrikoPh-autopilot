@@ -4,6 +4,10 @@ function isAllowedTestDatabaseName(databaseName) {
   return /(^|[_-])test([_-]|$)/i.test(databaseName);
 }
 
+function isProductionDatabaseName(databaseName) {
+  return /(^|[_-])prod(?:uction)?([_-]|$)/i.test(databaseName);
+}
+
 export function assertNonProductionDatabaseUrl(url, {
   ci = process.env.CI,
   allowCiPostgres = process.env.ALLOW_CI_POSTGRES,
@@ -30,6 +34,10 @@ export function assertNonProductionDatabaseUrl(url, {
   }
 
   const databaseName = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
+  if (isProductionDatabaseName(databaseName)) {
+    throw new Error("DATABASE_URL_TEST must use a non-production test database name.");
+  }
+
   if (!isAllowedTestDatabaseName(databaseName)) {
     throw new Error("DATABASE_URL_TEST must use a non-production test database name.");
   }

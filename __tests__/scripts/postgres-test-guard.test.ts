@@ -15,4 +15,11 @@ describe("assertNonProductionDatabaseUrl", () => {
   ])("accepts local test database %s", (url) => {
     expect(() => assertNonProductionDatabaseUrl(url)).not.toThrow();
   });
+
+  it.each([
+    "postgresql://test:test@localhost:5432/autopilot_production_test",
+    "postgresql://test:test@localhost:5432/autopilot_prod_test",
+  ])("rejects production-named test database %s", (url) => {
+    expect(() => assertNonProductionDatabaseUrl(url)).toThrow(/non-production/i);
+  });
 });

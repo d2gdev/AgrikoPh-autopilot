@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-10T11:52:26Z
+last_updated: 2026-07-10T17:00:00Z
 ---
 
 # Session Bootstrap
