@@ -16,6 +16,7 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [deploy.md#task-deploy-code-changes](deploy.md#task-deploy-code-changes) | Deploying code to the Linode VPS production server |
 | [deploy.md#task-run-database-migrations-in-production](deploy.md#task-run-database-migrations-in-production) | Running Prisma migrations on the production database |
 | [deploy.md#task-update-environment-variables-in-production](deploy.md#task-update-environment-variables-in-production) | Changing env vars on the production server |
+| [prisma-postgres-test-gates.md](prisma-postgres-test-gates.md) | Changing Prisma dependencies/schema, CI verification ordering, or PostgreSQL integration tests |
 | [generation-dedupe.md](generation-dedupe.md) | Generated recommendations/proposals/opportunities/tasks are recreating old or already finished ideas |
 | [pilot-queue-usability.md](pilot-queue-usability.md) | Pilot queues are technically deduped but still feel stale, opaque, or misleading to operators |
 | [seo-pilot-proposal-actions.md](seo-pilot-proposal-actions.md) | SEO Pilot actions create proposals that do not generate or publish correctly in Content Pilot |
