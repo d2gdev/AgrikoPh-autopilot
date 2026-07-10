@@ -293,6 +293,17 @@ export function QueueTab({
     finally { setReconcilingIds((prev) => { const next = new Set(prev); next.delete(id); return next; }); }
   };
 
+  const retryBookkeeping = async (id: string) => {
+    setReconcilingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await authFetch(`/api/content-pilot/proposals/${id}/retry-bookkeeping`, { method: "POST" });
+      const d = await safeJson(res);
+      if (!res.ok) { setError((d.error as string) ?? "Bookkeeping retry failed"); return; }
+      await loadProposals({ silent: true });
+    } catch (error) { setError(String(error)); }
+    finally { setReconcilingIds((prev) => { const next = new Set(prev); next.delete(id); return next; }); }
+  };
+
   const toggleExpand = async (id: string) => {
     if (expandedId === id) { setExpandedId(null); return; }
     setExpandedId(id);
@@ -732,6 +743,7 @@ export function QueueTab({
               onGenerateDraft={generateDraft}
               onPublishDraft={publishDraft}
               onReconcile={reconcilePublish}
+              onRetryBookkeeping={retryBookkeeping}
               onReopen={reopen}
               isRejectFormOpen={pendingRejectId === p.id}
               onToggleRejectForm={handleToggleRejectForm}

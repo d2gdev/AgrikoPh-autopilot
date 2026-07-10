@@ -54,4 +54,5 @@ export interface ContentProposal {
   followUpScoredAt?: string | null;
   publishWarning?: string | null;
   publishOperationId?: string | null;
+  publishFinalizedAt?: string | null;
 }

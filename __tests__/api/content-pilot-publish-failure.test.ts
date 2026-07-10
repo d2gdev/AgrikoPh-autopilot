@@ -203,4 +203,23 @@ describe("Content Pilot publish failure recovery", () => {
 
     expect(mockFetchBlogContentHandler).toHaveBeenCalledTimes(1);
   });
+
+  it("durably warns every successfully published row when scheduled batch reindexing fails", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValue([{ id: "proposal-1" }, { id: "proposal-2" }]);
+    mockPublishDraft.mockResolvedValue({ shopifyId: "gid://shopify/Article/1", handle: "edited" });
+    mockFetchBlogContentHandler.mockRejectedValueOnce(new Error("index offline"));
+    const { GET } = await import("@/app/api/cron/publish-scheduled/route");
+
+    const res = await GET(new Request("http://test.local/api/cron/publish-scheduled") as never);
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "proposal-1", draftStatus: "published" },
+      data: { publishWarning: expect.stringContaining("index offline") },
+    }));
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "proposal-2", draftStatus: "published" },
+      data: { publishWarning: expect.stringContaining("index offline") },
+    }));
+  });
 });

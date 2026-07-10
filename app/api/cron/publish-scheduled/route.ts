@@ -31,6 +31,14 @@ export async function GET(req: NextRequest) {
     const truthfulResults = reindexWarning
       ? results.map((result) => result.kind === "published" ? { ...result, kind: "published_with_warnings", error: reindexWarning } : result)
       : results;
+    if (reindexWarning) {
+      await Promise.all(results
+        .filter((result) => result.kind === "published" || result.kind === "published_with_warnings")
+        .map((result) => prisma.contentProposal.updateMany({
+          where: { id: result.id, draftStatus: "published" },
+          data: { publishWarning: reindexWarning },
+        })));
+    }
     return NextResponse.json({ published, results: truthfulResults, bookkeeping, ...(reindexWarning ? { reindexWarning } : {}) });
   } finally { await releaseJobLock("publish-scheduled"); }
 }

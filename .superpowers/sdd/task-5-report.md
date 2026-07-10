@@ -38,3 +38,18 @@ Implemented and committed after fresh red-green service tests.
 - Queue and draft review expose a `CONTENT_PUBLISH`-protected Reconcile action for `publishing` and `publish-error` states.
 - Final focused run: `npm test -- --run __tests__/lib/content-pilot/publish-service.test.ts __tests__/lib/content-pilot/publish-reconciliation.test.ts __tests__/api/content-pilot-publish-failure.test.ts __tests__/lib/content-pilot/publish-draft.test.ts __tests__/components/pilot-usability-helpers.test.ts` — 36 passed.
 - `npm run typecheck` — passed; `npm run typecheck:test` — passed; `git diff --check` — passed.
+
+## Final specification completion — 2026-07-10
+
+### Red evidence
+
+- The new receipt-order test failed with the receipt update after the local SEO enrichment call (`2` was not less than `1`), proving a Shopify-success exception could precede durable receipt storage.
+
+### Green evidence
+
+- Receipt persistence now occurs immediately after `publishDraft`; all SEO/blog context enrichment follows it and turns failures into a published warning.
+- The receipt preserves the resolved existing article handle for baseline and 14-day follow-up-score eligibility.
+- Manual and scheduled paths have receipt parity and truthful trigger-specific audit metadata; stale scheduled rows still reach `publishDraft` only through the claimed fresh read.
+- Opportunity, audit, and reindex failure matrix keeps published state; scheduled reindex failure additionally writes the warning to every successfully published row.
+- A `CONTENT_PUBLISH`-protected `retry-bookkeeping` route and queue/draft action call only the idempotent finalizer. Two retries create exactly one audit.
+- Final focused run: 43 passing tests across Task 5 service/reconciliation/publish-failure/publish-draft/UI helper suites; `npm run typecheck`, `npm run typecheck:test`, and `git diff --check` pass.

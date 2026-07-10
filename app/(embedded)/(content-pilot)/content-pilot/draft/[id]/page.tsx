@@ -74,6 +74,8 @@ interface ContentProposal {
   publishedAt: string | null;
   scheduledPublishAt: string | null;
   publishWarning?: string | null;
+  publishOperationId?: string | null;
+  publishFinalizedAt?: string | null;
   citations?: unknown;
 }
 
@@ -615,6 +617,18 @@ export default function DraftReviewPage() {
     finally { setReconciling(false); }
   };
 
+  const retryBookkeeping = async () => {
+    setReconciling(true);
+    setError(null);
+    try {
+      const res = await authFetch(`/api/content-pilot/proposals/${id}/retry-bookkeeping`, { method: "POST" });
+      const d = await safeJson(res);
+      if (!res.ok) { setError((d.error as string) ?? "Bookkeeping retry failed"); return; }
+      await load();
+    } catch (e) { setError(String(e)); }
+    finally { setReconciling(false); }
+  };
+
   const reject = async () => {
     setRejecting(true);
     setError(null);
@@ -693,7 +707,12 @@ export default function DraftReviewPage() {
           </Layout.Section>
         )}
         {proposal.publishWarning && (
-          <Banner tone="warning" title="Published with warning"><p>{proposal.publishWarning}</p></Banner>
+          <Banner tone="warning" title="Published with warning">
+            <p>{proposal.publishWarning}</p>
+            {isPublished && proposal.publishFinalizedAt == null && proposal.publishOperationId && (
+              <Button size="slim" loading={reconciling} onClick={retryBookkeeping}>Retry bookkeeping</Button>
+            )}
+          </Banner>
         )}
         {(proposal.draftStatus === "publishing" || proposal.draftStatus === "publish-error") && (
           <Banner tone="critical" title="Publication requires reconciliation">

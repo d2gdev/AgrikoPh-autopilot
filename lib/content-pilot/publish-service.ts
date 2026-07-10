@@ -52,6 +52,25 @@ export async function retryIncompletePublishFinalizations(client: Client, limit 
   return { attempted: pending.length, finalized };
 }
 
+/** Retries only local finalization for a known published receipt; never calls Shopify. */
+export async function retryPublishedProposalBookkeeping(client: Client, proposalId: string) {
+  const proposal = await client.contentProposal.findUnique({ where: { id: proposalId } });
+  if (!proposal || proposal.draftStatus !== "published" || !proposal.publishOperationId || proposal.publishFinalizedAt) {
+    return { kind: "conflict" as const };
+  }
+  try {
+    const result = await finalizePublishedProposal(client, proposal.publishOperationId);
+    return { kind: result.finalized ? "finalized" as const : "already_finalized" as const };
+  } catch (error) {
+    const warning = `Post-publish bookkeeping failed: ${String(error).slice(0, 1800)}`;
+    await client.contentProposal.updateMany({
+      where: { id: proposalId, publishOperationId: proposal.publishOperationId, draftStatus: "published" },
+      data: { publishWarning: warning },
+    }).catch(() => {});
+    return { kind: "warning" as const, warning };
+  }
+}
+
 export async function publishContentProposal(input: { prismaClient: Client; proposalId: string; actor: string; trigger: "manual" | "scheduled" | "maintenance"; dueBefore?: Date; reindex?: boolean }) : Promise<PublishResult> {
   const { prismaClient: client, proposalId, actor, trigger, dueBefore, reindex = true } = input;
   const operationId = randomUUID();
@@ -64,6 +83,9 @@ export async function publishContentProposal(input: { prismaClient: Client; prop
   if (!claimed.count) return { kind: "conflict", message: "Proposal is no longer ready and publishable" };
   const fresh = await client.contentProposal.findUnique({ where: { id: proposalId, publishOperationId: operationId } });
   if (!fresh) return { kind: "conflict", message: "Publish ownership was lost" };
+  // This is pure proposal data resolution, intentionally done before Shopify so
+  // the success receipt needs no lookups before it becomes durable.
+  const resolvedArticleHandle = resolveArticleHandle(fresh);
 
   let external: { shopifyId: string; handle: string | null };
   try { external = await publishDraft(fresh); }
@@ -73,24 +95,34 @@ export async function publishContentProposal(input: { prismaClient: Client; prop
     return { kind: "failed_before_external_write", message };
   }
 
-  let seoData: { score?: number; blogHandle?: string } | null = null;
-  let contextWarning: string | null = null;
-  try {
-    const articleHandle = resolveArticleHandle(fresh);
-    const indexed = articleHandle ? await client.articleRecord.findFirst({ where: { handle: articleHandle }, select: { seoData: true }, orderBy: { indexedAt: "desc" } }) : null;
-    seoData = indexed?.seoData as { score?: number; blogHandle?: string } | null;
-  } catch (error) {
-    contextWarning = `Post-publish local context failed: ${String(error)}`;
-  }
-  const proposedState = seoData?.blogHandle ? { ...(fresh.proposedState as Record<string, unknown>), blogHandle: seoData.blogHandle } : fresh.proposedState;
   try {
     const receipt = await client.contentProposal.updateMany({
       where: { id: proposalId, publishOperationId: operationId, draftStatus: "publishing" },
-      data: { draftStatus: "published", publishedAt: new Date(), shopifyArticleId: external.shopifyId, publishedHandle: external.handle, scheduledPublishAt: null, proposedState, ...(seoData?.score != null ? { baselineSeoScore: seoData.score } : {}) },
+      data: {
+        draftStatus: "published", publishedAt: new Date(), shopifyArticleId: external.shopifyId,
+        publishedHandle: external.handle, scheduledPublishAt: null,
+        // Keep resolved existing targets queryable for the 14-day follow-up job.
+        ...(resolvedArticleHandle ? { articleHandle: resolvedArticleHandle } : {}),
+      },
     });
     if (!receipt.count) return { kind: "reconciliation_required", message: "Shopify confirmed publication but its receipt could not be recorded. Reconcile before retrying." };
   } catch (error) {
     return { kind: "reconciliation_required", message: `Shopify confirmed publication but receipt storage failed: ${String(error)}` };
+  }
+  let seoData: { score?: number; blogHandle?: string } | null = null;
+  let contextWarning: string | null = null;
+  try {
+    const indexed = resolvedArticleHandle ? await client.articleRecord.findFirst({ where: { handle: resolvedArticleHandle }, select: { seoData: true }, orderBy: { indexedAt: "desc" } }) : null;
+    seoData = indexed?.seoData as { score?: number; blogHandle?: string } | null;
+    if (seoData?.score != null || seoData?.blogHandle) {
+      const proposedState = seoData.blogHandle ? { ...(fresh.proposedState as Record<string, unknown>), blogHandle: seoData.blogHandle } : fresh.proposedState;
+      await client.contentProposal.updateMany({
+        where: { id: proposalId, publishOperationId: operationId, draftStatus: "published" },
+        data: { proposedState, ...(seoData.score != null ? { baselineSeoScore: seoData.score } : {}) },
+      });
+    }
+  } catch (error) {
+    contextWarning = `Post-publish local context failed: ${String(error)}`;
   }
   try {
     await finalizePublishedProposal(client, operationId);

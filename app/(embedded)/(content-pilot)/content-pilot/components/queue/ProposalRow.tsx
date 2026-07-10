@@ -47,6 +47,7 @@ export function ProposalRow({
   onGenerateDraft,
   onPublishDraft,
   onReconcile,
+  onRetryBookkeeping,
   onReopen,
 
   isRejectFormOpen,
@@ -95,6 +96,7 @@ export function ProposalRow({
   onGenerateDraft: (id: string) => void;
   onPublishDraft: (id: string) => void;
   onReconcile: (id: string) => void;
+  onRetryBookkeeping: (id: string) => void;
   onReopen: (id: string) => void;
 
   isRejectFormOpen: boolean;
@@ -263,6 +265,9 @@ export function ProposalRow({
             <Text as="p" tone="subdued" variant="bodySm">SEO score tracked — check back in 14 days.</Text>
           )}
           {p.publishWarning && <Banner tone="warning" title="Published with warning"><p>{p.publishWarning}</p></Banner>}
+          {p.publishFinalizedAt == null && p.publishOperationId && (
+            <Button size="slim" loading={isReconciling} onClick={() => onRetryBookkeeping(p.id)}>Retry bookkeeping</Button>
+          )}
         </BlockStack>
       );
     }
