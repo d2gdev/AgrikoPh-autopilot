@@ -5,6 +5,7 @@ import { type MetaAdLibraryAd } from "@/lib/connectors/meta-ad-library";
 import { isApifyMetaEnabled, fetchApifyMetaAdsByPages } from "@/lib/connectors/apify-meta-ads";
 import { fetchShoppingProducts } from "@/lib/connectors/dataforseo-shopping";
 import { fetchRankedKeywords, fetchDomainIntersection, resolveLabsLimit } from "@/lib/connectors/dataforseo-labs";
+import { fetchGoogleAdsKeywordIdeas } from "@/lib/connectors/google-ads";
 import { fetchSerperShoppingProducts, type SerperShoppingProduct } from "@/lib/connectors/serper-shopping";
 import { fetchCatalogProducts, type CatalogProduct } from "@/lib/shopify-admin";
 import { fillCaptureTranslations } from "@/lib/market-intel/translate-captures";
@@ -796,6 +797,7 @@ export async function fetchMarketIntelHandler(
     const ownDomain = bareDomain(process.env.MARKET_INTEL_OWN_DOMAIN) ?? "agrikoph.com";
     const labsLimit = resolveLabsLimit(undefined);
     const { start: labsDayStart } = captureDayRange(capturedAt);
+    let useGoogleAdsKeywordGapFallback = false;
 
     try {
       const ranked = await fetchRankedKeywords(ownDomain, labsLimit);
@@ -826,10 +828,131 @@ export async function fetchMarketIntelHandler(
         });
       }
     } catch (err) {
-      errors.push(`dataforseo_ranked: ${String(err)}`);
+      if (/DataForSEO error 402\b/.test(String(err))) {
+        useGoogleAdsKeywordGapFallback = true;
+        console.warn("[fetch-market-intel] dataforseo_labs: account unavailable; using Google Ads URL ideas for keyword gaps");
+      } else {
+        errors.push(`dataforseo_ranked: ${String(err)}`);
+      }
     }
 
-    try {
+    if (useGoogleAdsKeywordGapFallback) {
+      try {
+        const competitorCandidates = await prisma.competitor.findMany({
+          where: { active: true, domain: { not: null } },
+          orderBy: { name: "asc" },
+          take: 10,
+        });
+        const competitors = competitorCandidates
+          .map((competitor) => ({ competitor, competitorDomain: bareDomain(competitor.domain) }))
+          .filter((entry): entry is { competitor: (typeof competitorCandidates)[number]; competitorDomain: string } => entry.competitorDomain != null)
+          .slice(0, 3);
+        const ownIdeas = await fetchGoogleAdsKeywordIdeas({
+          seedKeywords: [],
+          pageUrl: `https://${ownDomain}`,
+          limit: labsLimit,
+        });
+
+        if (ownIdeas.disabled) {
+          disabledSources.add("google_ads");
+        } else {
+          const ownKeywords = new Set(ownIdeas.results.map((item) => item.keyword.toLowerCase()));
+          const gapsByCompetitor: Array<{ competitorId: string; competitorName: string; domain: string; items: Array<{ keyword: string; searchVolume: number | null; cpc: number | null }> }> = [];
+
+          for (const { competitor, competitorDomain } of competitors) {
+            const ideas = await fetchGoogleAdsKeywordIdeas({
+              seedKeywords: [],
+              pageUrl: `https://${competitorDomain}`,
+              limit: labsLimit,
+            });
+            if (ideas.disabled) {
+              disabledSources.add("google_ads");
+              break;
+            }
+            const items = ideas.results
+              .filter((item) => !ownKeywords.has(item.keyword.toLowerCase()))
+              .map((item) => ({
+                keyword: item.keyword,
+                searchVolume: item.avgMonthlySearches ?? null,
+                cpc: item.highTopOfPageBidMicros == null ? null : Number(item.highTopOfPageBidMicros) / 1_000_000,
+              }))
+              .slice(0, labsLimit);
+            if (items.length > 0) {
+              gapsByCompetitor.push({
+                competitorId: competitor.id,
+                competitorName: competitor.name,
+                domain: competitorDomain,
+                items,
+              });
+            }
+          }
+
+          if (gapsByCompetitor.length > 0) {
+            await prisma.rawSnapshot.upsert({
+              where: {
+                source_dateRangeStart_dateRangeEnd: {
+                  source: "google_ads_keyword_gap",
+                  dateRangeStart: labsDayStart,
+                  dateRangeEnd: labsDayStart,
+                },
+              },
+              create: {
+                source: "google_ads_keyword_gap",
+                dateRangeStart: labsDayStart,
+                dateRangeEnd: labsDayStart,
+                payload: json({ ownDomain, competitors: gapsByCompetitor }),
+                jobRunId: runId,
+              },
+              update: {
+                payload: json({ ownDomain, competitors: gapsByCompetitor }),
+                jobRunId: runId,
+                fetchedAt: new Date(),
+              },
+            });
+
+            outerGoogleAdsGap:
+            for (const group of gapsByCompetitor) {
+              for (const item of group.items) {
+                if (summary.keywordGapInsights >= 10) break outerGoogleAdsGap;
+                if (item.searchVolume == null || item.searchVolume < 100) continue;
+                summary.keywordGapCandidates++;
+                const existingOpen = await prisma.marketInsight.findFirst({
+                  where: {
+                    type: "keyword_gap",
+                    status: "open",
+                    evidence: { path: ["keyword"], equals: item.keyword },
+                  },
+                  select: { id: true },
+                });
+                if (existingOpen) continue;
+                await prisma.marketInsight.create({
+                  data: {
+                    type: "keyword_gap",
+                    severity: "info",
+                    title: `${group.competitorName} covers "${item.keyword}" — Agriko opportunity`,
+                    summary: `Google Ads Keyword Planner found "${item.keyword}" from ${group.competitorName}'s site (${group.domain}, ~${item.searchVolume}/mo) but not from ${ownDomain}'s site.`,
+                    evidence: json({
+                      source: "google_ads_url_seed",
+                      keyword: item.keyword,
+                      competitorDomain: group.domain,
+                      searchVolume: item.searchVolume,
+                      cpc: item.cpc,
+                      ownDomain,
+                    }),
+                    competitorId: group.competitorId,
+                    dedupeKey: `keyword_gap|google_ads_url_seed|${group.competitorId}|${slugPart(item.keyword)}|${capturedAt.toISOString()}`,
+                  },
+                });
+                summary.insightsCreated++;
+                summary.keywordGapInsights++;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        errors.push(`google_ads_keyword_gap: ${String(err)}`);
+      }
+    } else try {
       // Fetch a wider candidate set, then filter to competitors whose domain
       // survives bareDomain() normalization — a non-null-but-unusable value
       // (whitespace, protocol-only, etc.) must not waste one of the 3 metered

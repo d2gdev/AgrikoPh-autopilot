@@ -56,6 +56,9 @@ vi.mock("@/lib/connectors/dataforseo-labs", () => ({
   fetchDomainIntersection: vi.fn(),
   resolveLabsLimit: vi.fn().mockReturnValue(20),
 }));
+vi.mock("@/lib/connectors/google-ads", () => ({
+  fetchGoogleAdsKeywordIdeas: vi.fn(),
+}));
 vi.mock("@/lib/connectors/serper-shopping", () => ({
   fetchSerperShoppingProducts: vi.fn(),
 }));
@@ -83,6 +86,7 @@ import { resolveRunLimits } from "@/lib/market-intel/profiles";
 import { fetchSerperShoppingProducts } from "@/lib/connectors/serper-shopping";
 import { fetchCatalogProducts } from "@/lib/shopify-admin";
 import { fetchRankedKeywords, fetchDomainIntersection } from "@/lib/connectors/dataforseo-labs";
+import { fetchGoogleAdsKeywordIdeas } from "@/lib/connectors/google-ads";
 import { fetchMarketIntelHandler } from "@/jobs/fetch-market-intel";
 
 const mockJobRun = prisma.jobRun as unknown as {
@@ -117,6 +121,7 @@ const mockFetchSerper = fetchSerperShoppingProducts as unknown as ReturnType<typ
 const mockFetchCatalog = fetchCatalogProducts as unknown as ReturnType<typeof vi.fn>;
 const mockFetchRankedKeywords = fetchRankedKeywords as unknown as ReturnType<typeof vi.fn>;
 const mockFetchDomainIntersection = fetchDomainIntersection as unknown as ReturnType<typeof vi.fn>;
+const mockFetchGoogleAdsKeywordIdeas = fetchGoogleAdsKeywordIdeas as unknown as ReturnType<typeof vi.fn>;
 
 function competitorRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -175,6 +180,7 @@ beforeEach(() => {
 
   mockFetchRankedKeywords.mockResolvedValue({ items: [] });
   mockFetchDomainIntersection.mockResolvedValue({ items: [] });
+  mockFetchGoogleAdsKeywordIdeas.mockResolvedValue({ results: [] });
 
   delete process.env.DATAFORSEO_LABS_ENABLED;
   delete process.env.MARKET_INTEL_OWN_DOMAIN;
@@ -244,6 +250,31 @@ describe("DataForSEO Labs step — enabled", () => {
     const result = await fetchMarketIntelHandler({ profile: "shopping" });
 
     expect(result.errors.some((e) => e.includes("dataforseo_ranked"))).toBe(true);
+  });
+
+  it("uses Google Ads URL ideas when DataForSEO returns 402", async () => {
+    mockCompetitor.findMany.mockResolvedValue([competitorRow()]);
+    mockFetchRankedKeywords.mockRejectedValue(new Error("DataForSEO error 402: Ok."));
+    mockFetchGoogleAdsKeywordIdeas
+      .mockResolvedValueOnce({
+        results: [{ keyword: "organic turmeric", avgMonthlySearches: 500, competition: "LOW", competitionIndex: 10, lowTopOfPageBidMicros: null, highTopOfPageBidMicros: null, monthlySearchVolumes: [], rawPayload: {} }],
+      })
+      .mockResolvedValueOnce({
+        results: [{ keyword: "turmeric capsules", avgMonthlySearches: 500, competition: "LOW", competitionIndex: 10, lowTopOfPageBidMicros: null, highTopOfPageBidMicros: null, monthlySearchVolumes: [], rawPayload: {} }],
+      });
+
+    const result = await fetchMarketIntelHandler({ profile: "shopping" });
+
+    expect(mockFetchGoogleAdsKeywordIdeas).toHaveBeenCalledWith(expect.objectContaining({ pageUrl: "https://agrikoph.com" }));
+    expect(mockFetchGoogleAdsKeywordIdeas).toHaveBeenCalledWith(expect.objectContaining({ pageUrl: "https://rival.example" }));
+    expect(mockFetchDomainIntersection).not.toHaveBeenCalled();
+    expect(result.errors.some((e) => e.includes("DataForSEO error 402"))).toBe(false);
+    expect(mockMarketInsight.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        type: "keyword_gap",
+        evidence: expect.objectContaining({ source: "google_ads_url_seed", keyword: "turmeric capsules" }),
+      }),
+    }));
   });
 
   it("fetches a wider candidate set (take 10) of active competitors with a non-null domain", async () => {
