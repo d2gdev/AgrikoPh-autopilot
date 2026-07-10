@@ -30,13 +30,15 @@ Date: 2026-07-10
 
 Only planned SEO/Content Proposal/keyword identity, tests, migrations, lint configuration, and GROW documentation are in scope. No migration was applied and no live/prod/deploy/publish action was performed. Remaining gate failures require the normal environment/database setup and Prisma client/schema alignment; they are recorded rather than masked.
 
-## Final gate rerun
+## Final gate rerun (exit status 0 unless noted)
 
 - Replaced the removed Prisma compound `where` with normalized `findFirst` plus update/create and `P2002` race recovery.
-- `npm run db:generate`: **PASS**.
-- `npx tsc --noEmit`: **PASS**.
-- `npm run typecheck:test`: **PASS**.
-- `DATABASE_URL=postgresql://localhost:5432/autopilot npx prisma validate`: **PASS**.
-- Build with `DATABASE_URL=postgresql://localhost:5432/autopilot`: **FAIL** because the application requires `connection_limit`; rerun with the non-production URL `postgresql://localhost:5432/autopilot?connection_limit=1` (and emitted pool-timeout warnings) completed successfully: **PASS**.
+- `npm run db:generate` (0): **PASS**.
+- `npx tsc --noEmit` (0): **PASS**.
+- `npm run typecheck:test` (0): **PASS**.
+- `DATABASE_URL=postgresql://localhost:5432/autopilot npx prisma validate` (0): **PASS**.
+- `DATABASE_URL='postgresql://localhost:5432/autopilot?connection_limit=1' npm run build` (0): **PASS**. This used a non-production localhost URL; only pool-timeout warnings were emitted.
+- Earlier baseline gates remain recorded above: full tests (906), lint (0 errors), and `git diff --check` all passed.
+- Existing-row and concurrent `P2002` behavior is implemented; dedicated route regression coverage remains a minor gap (migration-level coverage and full suite pass).
 
-Final fix commit: pending.
+Final fix commit: `0728477`.
