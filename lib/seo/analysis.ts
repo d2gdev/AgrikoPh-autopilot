@@ -85,7 +85,6 @@ export function buildProgrammaticSeoGaps(input: {
   articles: SeoAnalysisArticle[];
   queryLimit?: number;
 }): ProgrammaticSeoGap[] {
-  const queries = input.queries.slice(0, input.queryLimit ?? 30);
   const articleHandles = new Set(input.articles.map((article) => article.handle.toLowerCase()));
   const coveredQueries = new Set<string>();
   for (const pair of input.queryPagePairs) {
@@ -93,20 +92,31 @@ export function buildProgrammaticSeoGaps(input: {
     if (handle && articleHandles.has(handle)) coveredQueries.add(pair.query.toLowerCase());
   }
 
+  const queries = input.queries
+    .filter((query) => {
+      const position = parseFloat(query.position);
+      return position >= 5 && position <= 20 &&
+        !coveredQueries.has(query.query.toLowerCase()) &&
+        !input.articles.some((article) => titleCoversQuery(article.title, query.query));
+    })
+    .sort((a, b) =>
+      b.impressions - a.impressions ||
+      a.clicks - b.clicks ||
+      parseFloat(a.position) - parseFloat(b.position) ||
+      a.query.localeCompare(b.query)
+    )
+    .slice(0, input.queryLimit ?? 30);
+
   const gaps: ProgrammaticSeoGap[] = [];
   for (const query of queries) {
     const position = parseFloat(query.position);
-    const isCovered = coveredQueries.has(query.query.toLowerCase())
-      || input.articles.some((article) => titleCoversQuery(article.title, query.query));
-    if (position >= 5 && position <= 20 && !isCovered) {
-      const title = query.query.charAt(0).toUpperCase() + query.query.slice(1);
-      gaps.push({
-        query: query.query,
-        impressions: query.impressions,
-        position,
-        suggestedTitle: `${title}: Benefits, Uses & Complete Guide`,
-      });
-    }
+    const title = query.query.charAt(0).toUpperCase() + query.query.slice(1);
+    gaps.push({
+      query: query.query,
+      impressions: query.impressions,
+      position,
+      suggestedTitle: `${title}: Benefits, Uses & Complete Guide`,
+    });
   }
 
   for (const article of input.articles.filter((item) => (item.wordCount ?? 0) < 300).slice(0, 5)) {

@@ -33,4 +33,37 @@ describe("buildProgrammaticSeoGaps", () => {
       expect.objectContaining({ articleHandle: "black-rice", issue: "missing-meta" }),
     ]));
   });
+
+  it("selects high-impression eligible gaps before applying the query limit", () => {
+    const clickSortedIneligible = Array.from({ length: 30 }, (_, index) => ({
+      query: `ranking query ${index}`,
+      clicks: 1,
+      impressions: 10,
+      ctr: "10%",
+      position: "1",
+    }));
+
+    const gaps = buildProgrammaticSeoGaps({
+      queries: [
+        ...clickSortedIneligible,
+        {
+          query: "organic black rice philippines",
+          clicks: 0,
+          impressions: 10_000,
+          ctr: "0%",
+          position: "8",
+        },
+      ],
+      queryPagePairs: [],
+      articles: [],
+    });
+
+    expect(gaps).toEqual([
+      expect.objectContaining({
+        query: "organic black rice philippines",
+        impressions: 10_000,
+        position: 8,
+      }),
+    ]);
+  });
 });
