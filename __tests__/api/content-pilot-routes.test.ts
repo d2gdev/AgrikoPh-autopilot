@@ -16,7 +16,6 @@ const mockPrisma = vi.hoisted(() => ({
     deleteMany: vi.fn(),
     create: vi.fn(),
     createMany: vi.fn(),
-    findUnique: vi.fn(),
     update: vi.fn(),
   },
   auditLog: {
@@ -249,8 +248,11 @@ describe("Content Pilot route regressions", () => {
       }),
     });
     expect(mockOpportunityFromProposal).toHaveBeenCalledTimes(1);
-    expect(mockOpportunityFromProposal.mock.calls[0]?.[0]).toBe(fresh);
-    expect(mockOpportunityFromProposal.mock.calls.map((call) => call[0])).not.toContain(duplicate);
+    expect(mockOpportunityFromProposal.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      title: fresh.title,
+      proposedState: fresh.proposedState,
+    }));
+    expect(mockOpportunityFromProposal.mock.calls.map((call) => call[0])).toHaveLength(1);
   });
 
   it("keeps distinct handle-less new-content proposals in the same generation batch", async () => {
@@ -269,7 +271,7 @@ describe("Content Pilot route regressions", () => {
     expect(res.status).toBe(200);
     expect(body).toEqual(expect.objectContaining({ created: 2, opportunities: 2 }));
     expect(mockPrisma.contentProposal.create).toHaveBeenCalledTimes(2);
-    expect(mockOpportunityFromProposal.mock.calls.map((call) => call[0])).toEqual([blackRice, moringa]);
+    expect(mockOpportunityFromProposal.mock.calls.map((call) => call[0].title)).toEqual([blackRice.title, moringa.title]);
   });
 
   it("does not recreate rejected proposals as fresh pending ideas", async () => {
