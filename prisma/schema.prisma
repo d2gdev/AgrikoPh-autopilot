@@ -355,6 +355,7 @@ model ContentProposal {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   articleHandle    String?
+  dedupeKey        String    @unique @default(cuid())
   proposalType     String
   changeType       String
   priority         String

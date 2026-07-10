@@ -142,4 +142,21 @@ describe("content proposal dedupe", () => {
 
     expect(reworded).toBe(original);
   });
+
+  it("uses the target keyword instead of title wording for handle-less proposals", () => {
+    const original = contentProposalDedupeKey({
+      articleHandle: null,
+      proposalType: "new-content",
+      title: "A guide to black rice benefits",
+      proposedState: { targetKeyword: "black rice benefits" },
+    });
+    const reworded = contentProposalDedupeKey({
+      articleHandle: null,
+      proposalType: "new-content",
+      title: "Why black rice is a nutritious pantry staple",
+      proposedState: { targetKeyword: " Black   Rice Benefits " },
+    });
+
+    expect(reworded).toBe(original);
+  });
 });

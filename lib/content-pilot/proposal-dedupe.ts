@@ -18,7 +18,7 @@ export const CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES = [
 ];
 
 export type ContentProposalDedupeInput = {
-  articleHandle: string | null;
+  articleHandle?: string | null;
   proposalType: string;
   title: string;
   proposedState?: unknown;

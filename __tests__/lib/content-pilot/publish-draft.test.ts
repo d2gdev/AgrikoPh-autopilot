@@ -62,6 +62,7 @@ function proposal(overrides: Partial<ContentProposal>): ContentProposal {
     createdAt: now,
     updatedAt: now,
     articleHandle: null,
+    dedupeKey: "content-refresh:handleless:refresh article",
     proposalType: "content-refresh",
     changeType: "update",
     priority: "P2",
