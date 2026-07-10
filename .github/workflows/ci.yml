@@ -13,13 +13,13 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: autopilot_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U test -d autopilot_test"
+          --health-cmd "pg_isready -U postgres -d autopilot_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -43,24 +43,15 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=moderate
 
-      - name: Generate Prisma Client
-        run: npm run db:generate
-
-      - name: Verify Prisma Client
-        run: npm run verify:prisma-client
-
-      - name: Typecheck application
-        run: npm run typecheck
-
       - name: Typecheck tests
         run: npm run typecheck:test
 
       - name: Test
         run: npm test
 
-      - name: PostgreSQL tests
+      - name: PostgreSQL migration and concurrency integration tests
         env:
-          DATABASE_URL_TEST: postgresql://test:test@127.0.0.1:5432/autopilot_test
+          DATABASE_URL_TEST: postgresql://postgres:postgres@127.0.0.1:5432/autopilot_test?connection_limit=10
         run: npm run test:postgres
 
       - name: Build

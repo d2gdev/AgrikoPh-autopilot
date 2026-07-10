@@ -468,8 +468,6 @@ model MarketKeyword {
   insights        MarketInsight[]
 
   @@index([active])
-  // Null-safe normalized identity is enforced by the expression unique index
-  // MarketKeyword_normalized_identity_key in the migration.
   @@index([keyword, locationName, languageCode])
 }
 
