@@ -37,6 +37,6 @@ describe("Vitest PostgreSQL test isolation", () => {
     );
 
     const postgresTestConfig = postgresConfig?.config as VitestConfigShape | undefined;
-    expect(postgresTestConfig?.test?.include).toEqual(["__tests__/postgres/**/*.test.ts"]);
+    expect(postgresTestConfig?.test?.include).toEqual(["__tests__/integration/**/*.test.ts"]);
   });
 });

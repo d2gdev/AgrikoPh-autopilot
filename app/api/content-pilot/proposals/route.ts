@@ -11,7 +11,13 @@ export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
 
-  const { status, limit, cursor: cursorParam } = parseQueueQuery(req.url);
+  let query;
+  try {
+    query = parseQueueQuery(req.url);
+  } catch {
+    return NextResponse.json({ error: "Invalid queue query" }, { status: 400 });
+  }
+  const { status, limit, cursor: cursorParam } = query;
   let cursor: { priority: string; createdAt: string; id: string } | undefined;
   if (cursorParam) {
     try {
@@ -34,9 +40,22 @@ export async function GET(req: Request) {
   try {
     // Omit draftContent (full article HTML) from the list — it's only needed on
     // the draft detail page, and shipping it for every row bloats the payload.
-    const baseWhere: any = status ? { status } : {};
+    const baseWhere: any = {
+      ...(status ? { status } : {}),
+      ...(query.type ? { proposalType: query.type } : {}),
+      ...(query.priority ? { priority: query.priority } : {}),
+      ...(query.q ? { OR: [{ title: { contains: query.q, mode: "insensitive" } }, { description: { contains: query.q, mode: "insensitive" } }] } : {}),
+    };
+    if (query.stage) {
+      Object.assign(baseWhere, query.stage === "rejected" ? { status: "rejected" } : query.stage === "pending" ? { status: "pending" } : { draftStatus: query.stage === "approved" ? null : query.stage });
+    }
+    const filteredWhere = { ...baseWhere };
     // The ordering and tie-breaker are deliberately stable across pages.
-    if (cursor) baseWhere.OR = [{ priority: { gt: cursor.priority } }, { priority: cursor.priority, createdAt: { lt: new Date(cursor.createdAt) } }, { priority: cursor.priority, createdAt: new Date(cursor.createdAt), id: { lt: cursor.id } }];
+    if (cursor) {
+      const cursorWhere = [{ priority: { gt: cursor.priority } }, { priority: cursor.priority, createdAt: { lt: new Date(cursor.createdAt) } }, { priority: cursor.priority, createdAt: new Date(cursor.createdAt), id: { lt: cursor.id } }];
+      baseWhere.AND = [...(baseWhere.OR ? [{ OR: baseWhere.OR }] : []), { OR: cursorWhere }];
+      delete baseWhere.OR;
+    }
     const proposals = await prisma.contentProposal.findMany({
       where: baseWhere,
       orderBy: [{ priority: "asc" }, { createdAt: "desc" }, { id: "desc" }],
@@ -74,8 +93,15 @@ export async function GET(req: Request) {
     const last = page[page.length - 1] as any;
     const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({ priority: last.priority, createdAt: last.createdAt, id: last.id })).toString("base64url") : null;
     const countFn = (prisma.contentProposal as any).count;
-    const total = typeof countFn === "function" ? await countFn({ where: status ? { status } : undefined }) : page.length;
-    return NextResponse.json({ proposals: page, total, hasMore, nextCursor });
+    const total = typeof countFn === "function" ? await countFn({ where: filteredWhere }) : page.length;
+    const groupBy = (prisma.contentProposal as any).groupBy;
+    const grouped = typeof groupBy === "function" ? await groupBy({ by: ["status", "draftStatus"], _count: { _all: true } }) : [];
+    const stageCounts = grouped.reduce((counts: Record<string, number>, row: any) => {
+      const stage = row.status === "rejected" ? "rejected" : row.status === "pending" ? "pending" : row.draftStatus ?? "approved";
+      counts[stage] = (counts[stage] ?? 0) + row._count._all;
+      return counts;
+    }, {});
+    return NextResponse.json({ proposals: page, total, stageCounts, pageInfo: { hasNextPage: hasMore, nextCursor }, filters: query, hasMore, nextCursor });
   } catch (err) {
     console.error("[content-pilot/proposals] list error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

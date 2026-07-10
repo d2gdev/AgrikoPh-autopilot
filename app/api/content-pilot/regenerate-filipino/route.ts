@@ -68,7 +68,7 @@ export async function GET(req: Request) {
   } catch (error) {
     console.error("[content-pilot] regenerate-filipino scan failed", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Scan failed" },
+      { error: "Unable to scan drafts right now. Please retry." },
       { status: 500 },
     );
   }
@@ -110,7 +110,7 @@ export async function POST(req: Request) {
           continue;
         }
         const verdict = detectFilipino(extractDraftText(proposal.draftContent));
-        if (!verdict.isFilipino) { results.push({ id: proposal.id, status: "still_filipino" }); continue; }
+        if (!verdict.isFilipino) { results.push({ id: proposal.id, status: "skipped" }); continue; }
         const generated = await generateProposalDraft({ prismaClient: prisma as any, proposalId: proposal.id, actor, preservePublishedReceipt: Boolean(proposal.publishedAt) });
         if (generated.kind !== "ready") { results.push({ id: proposal.id, status: generated.kind === "conflict" ? "conflict" : "failed" }); continue; }
         const generatedText = extractDraftText(generated.proposal.draftContent);

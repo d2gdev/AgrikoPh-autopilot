@@ -9,8 +9,8 @@ process.env.DATABASE_URL = databaseUrl;
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["__tests__/postgres/**/*.test.ts"],
-    passWithNoTests: true,
+    include: ["__tests__/integration/**/*.test.ts"],
+    passWithNoTests: false,
   },
   resolve: {
     alias: {

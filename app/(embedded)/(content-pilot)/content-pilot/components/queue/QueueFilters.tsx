@@ -47,7 +47,7 @@ export function QueueFilters({
   return (
     <>
       {/* Stage filter pills */}
-      <InlineStack gap="200">
+      <InlineStack gap="200" wrap>
         {stagePills.filter((s) => s.count > 0 || s.key === "all").map(({ key, label, count }) => (
           <Button
             key={key}
