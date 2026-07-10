@@ -1,6 +1,6 @@
 # SEO Pilot Functional Remediation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Fix all ten confirmed SEO Pilot functional audit findings while preserving operator approval, Content Pilot publishing safety, and existing working SEO behavior.
 
@@ -57,7 +57,7 @@ export function classifySeoPromotion(input: {
 
 - Later tasks use `articleHandleFromBlogPage()` and `classifySeoPromotion()` instead of duplicating page parsing and proposal-type branches.
 
-- [ ] **Step 1: Write pure classification regressions**
+- [x] **Step 1: Write pure classification regressions**
 
 Create `__tests__/lib/seo/promotion.test.ts` with cases equivalent to:
 
@@ -150,7 +150,7 @@ it("attributes a query using a mapping beyond the first 50 pairs", () => {
 });
 ```
 
-- [ ] **Step 2: Run the pure test and verify it fails**
+- [x] **Step 2: Run the pure test and verify it fails**
 
 Run:
 
@@ -160,7 +160,7 @@ npm test -- --run __tests__/lib/seo/promotion.test.ts
 
 Expected: FAIL because `@/lib/seo/promotion` does not exist.
 
-- [ ] **Step 3: Implement the pure classifier**
+- [x] **Step 3: Implement the pure classifier**
 
 Create `lib/seo/promotion.ts` with these decision rules:
 
@@ -210,7 +210,7 @@ export function classifySeoPromotion(input: {
 }
 ```
 
-- [ ] **Step 4: Add the >50-pair route regression**
+- [x] **Step 4: Add the >50-pair route regression**
 
 In `__tests__/api/seo-pilot-routes.test.ts`, mock 51 query-page pairs where the target query is pair 51 and assert that the returned opportunity still contains its page:
 
@@ -231,7 +231,7 @@ expect.objectContaining({
 })
 ```
 
-- [ ] **Step 5: Run the route tests and verify the old code fails**
+- [x] **Step 5: Run the route tests and verify the old code fails**
 
 Run:
 
@@ -241,7 +241,7 @@ npm test -- --run __tests__/api/seo-pilot-routes.test.ts
 
 Expected: FAIL on pair 51 attribution and striking-distance classification.
 
-- [ ] **Step 6: Use complete mappings for calculation and shared classification for promotion**
+- [x] **Step 6: Use complete mappings for calculation and shared classification for promotion**
 
 In `app/api/seo/route.ts`, replace the pre-calculation slice with separate calculation and display variables:
 
@@ -268,7 +268,7 @@ limits: {
 
 In `app/api/seo/gaps/promote/route.ts`, delete the local page parser and proposal-type ternary. Call `classifySeoPromotion()`, increment the typed skip counter when `kind === "skip"`, and build `content-refresh` state with `action: "expand"` for striking-distance work.
 
-- [ ] **Step 7: Run Task 1 tests**
+- [x] **Step 7: Run Task 1 tests**
 
 Run:
 
@@ -278,7 +278,7 @@ npm test -- --run __tests__/lib/seo/promotion.test.ts __tests__/lib/seo/opportun
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Task 1**
+- [x] **Step 8: Commit Task 1**
 
 ```bash
 git add lib/seo/promotion.ts app/api/seo/route.ts app/api/seo/gaps/promote/route.ts __tests__/lib/seo/promotion.test.ts __tests__/api/seo-pilot-routes.test.ts
@@ -342,7 +342,7 @@ export function buildProgrammaticSeoGaps(input: {
 
 - `aggregateOnPageHealth()` continues returning totals/offenders and adds `limits` supplied by the route.
 
-- [ ] **Step 1: Write failing analysis regressions**
+- [x] **Step 1: Write failing analysis regressions**
 
 Create `__tests__/lib/seo/analysis.test.ts` with:
 
@@ -380,7 +380,7 @@ it("does not suppress a meta finding because another title shares its prefix", (
 });
 ```
 
-- [ ] **Step 2: Write failing H1 regressions**
+- [x] **Step 2: Write failing H1 regressions**
 
 Create `__tests__/lib/seo/health.test.ts` with:
 
@@ -413,7 +413,7 @@ it("does not report missing H1 when h1Count is positive", () => {
 });
 ```
 
-- [ ] **Step 3: Run both tests and verify they fail**
+- [x] **Step 3: Run both tests and verify they fail**
 
 ```bash
 npm test -- --run __tests__/lib/seo/analysis.test.ts __tests__/lib/seo/health.test.ts
@@ -421,7 +421,7 @@ npm test -- --run __tests__/lib/seo/analysis.test.ts __tests__/lib/seo/health.te
 
 Expected: FAIL because `analysis.ts` is missing and health uses total heading count.
 
-- [ ] **Step 4: Extract programmatic gap construction**
+- [x] **Step 4: Extract programmatic gap construction**
 
 Move the pure gap-building logic from `app/api/seo/analyze/route.ts` into `lib/seo/analysis.ts`. Deduplicate using structured keys:
 
@@ -434,7 +434,7 @@ const gapKey = (gap: ProgrammaticSeoGap) =>
 
 Do not use `suggestedTitle.startsWith()`. Add thin-content and missing-meta loops independently, then call a `uniqueBy(gapKey)` pass that preserves both issue types.
 
-- [ ] **Step 5: Correct H1 derivation**
+- [x] **Step 5: Correct H1 derivation**
 
 Extend the local SEO-data shape in `lib/seo/health.ts`:
 
@@ -458,7 +458,7 @@ function isMissingH1(seoData: unknown, headingCount: number): boolean {
 
 Use `isMissingH1(a.seoData, a.headingCount)` instead of `a.headingCount < 1`.
 
-- [ ] **Step 6: Add disclosed corpus limits**
+- [x] **Step 6: Add disclosed corpus limits**
 
 In `app/api/seo/analyze/route.ts`, fetch 201 articles, analyze the first 200, and return:
 
@@ -481,7 +481,7 @@ const limits: SeoAnalysisLimits = {
 
 In `app/api/seo/health/route.ts`, use the same `limit + 1` pattern with `ARTICLE_LIMIT = 500`, slice before aggregation, and return `limits` alongside totals/offenders. In both affected panels, show a caution banner/text when `articlesTruncated` is true; never say the corpus is completely clean when only a subset was inspected.
 
-- [ ] **Step 7: Run Task 2 tests**
+- [x] **Step 7: Run Task 2 tests**
 
 ```bash
 npm test -- --run __tests__/lib/seo/analysis.test.ts __tests__/lib/seo/health.test.ts __tests__/api/seo-pilot-routes.test.ts
@@ -489,7 +489,7 @@ npm test -- --run __tests__/lib/seo/analysis.test.ts __tests__/lib/seo/health.te
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Task 2**
+- [x] **Step 8: Commit Task 2**
 
 ```bash
 git add lib/seo/analysis.ts lib/seo/health.ts app/api/seo/analyze/route.ts app/api/seo/health/route.ts 'app/(embedded)/(seo-pillar)/seo-pillar/components/types.ts' 'app/(embedded)/(seo-pillar)/seo-pillar/components/panels/ContentGapsPanel.tsx' 'app/(embedded)/(seo-pillar)/seo-pillar/components/panels/OnPageHealthPanel.tsx' __tests__/lib/seo/analysis.test.ts __tests__/lib/seo/health.test.ts __tests__/api/seo-pilot-routes.test.ts
@@ -539,7 +539,7 @@ export async function createContentProposalOnce<TProposal>(
 - `createContentProposalOnce()` creates with a canonical non-null key and catches only Prisma `P2002`; on conflict it returns `findUnique({ where: { dedupeKey } })`.
 - Change `ContentProposalDedupeInput.articleHandle` to `articleHandle?: string | null` so handle-less create inputs can be keyed without unsafe casts; existing callers that pass an explicit value remain compatible.
 
-- [ ] **Step 1: Add failing helper and concurrency tests**
+- [x] **Step 1: Add failing helper and concurrency tests**
 
 In `__tests__/lib/content-pilot/create-proposal.test.ts`, model a winner/loser race:
 
@@ -563,7 +563,7 @@ it("returns the existing proposal when a concurrent canonical-key insert wins", 
 
 Also assert non-`P2002` errors rethrow and a `P2002` with no matching row rethrows rather than returning `null`.
 
-- [ ] **Step 2: Add migration source tests**
+- [x] **Step 2: Add migration source tests**
 
 Create `__tests__/prisma/content-proposal-dedupe-migration.test.ts` and assert the migration:
 
@@ -582,7 +582,7 @@ Add pure-key tests proving:
 - internal-link destinations differ;
 - handle-less proposals use normalized target keyword rather than title wording.
 
-- [ ] **Step 3: Run Task 3 tests and verify failure**
+- [x] **Step 3: Run Task 3 tests and verify failure**
 
 ```bash
 npm test -- --run __tests__/lib/content-pilot/proposal-dedupe.test.ts __tests__/lib/content-pilot/create-proposal.test.ts __tests__/prisma/content-proposal-dedupe-migration.test.ts
@@ -590,7 +590,7 @@ npm test -- --run __tests__/lib/content-pilot/proposal-dedupe.test.ts __tests__/
 
 Expected: FAIL because the persisted key, helper, and migration are absent.
 
-- [ ] **Step 4: Add the Prisma field**
+- [x] **Step 4: Add the Prisma field**
 
 Add to `ContentProposal`:
 
@@ -600,7 +600,7 @@ dedupeKey String @unique @default(cuid())
 
 The default keeps intentional one-off paths such as Clone unique until they are explicitly assigned a semantic key. Automated generation paths are migrated in Task 4 and must never rely on the random default.
 
-- [ ] **Step 5: Write the deterministic backfill migration**
+- [x] **Step 5: Write the deterministic backfill migration**
 
 The migration must:
 
@@ -683,7 +683,7 @@ CREATE UNIQUE INDEX "ContentProposal_dedupeKey_key" ON "ContentProposal"("dedupe
 
 The `seo-fix` SQL deliberately uses `COALESCE(issue, action)` before appending `targetQuery`; this matches the TypeScript precedence and produces exactly one colon-separated action string.
 
-- [ ] **Step 6: Implement the create-once helper**
+- [x] **Step 6: Implement the create-once helper**
 
 In `lib/content-pilot/create-proposal.ts`:
 
@@ -714,7 +714,7 @@ export async function createContentProposalOnce<TProposal>(
 }
 ```
 
-- [ ] **Step 7: Generate Prisma Client and run tests**
+- [x] **Step 7: Generate Prisma Client and run tests**
 
 ```bash
 npm run db:generate
@@ -724,7 +724,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Task 3**
+- [x] **Step 8: Commit Task 3**
 
 ```bash
 git add prisma/schema.prisma prisma/migrations/20260710160000_add_content_proposal_dedupe_key/migration.sql lib/content-pilot/proposal-dedupe.ts lib/content-pilot/create-proposal.ts __tests__/lib/content-pilot/proposal-dedupe.test.ts __tests__/lib/content-pilot/create-proposal.test.ts __tests__/prisma/content-proposal-dedupe-migration.test.ts
@@ -752,7 +752,7 @@ git commit -m "fix: enforce canonical content proposal idempotency"
 - Consumes: `createContentProposalOnce()` and `withContentProposalDedupeKey()` from Task 3.
 - Produces: consistent `{ created, skipped/existed, proposal }` behavior from every SEO/manual path.
 
-- [ ] **Step 1: Write cross-route logical-key regressions**
+- [x] **Step 1: Write cross-route logical-key regressions**
 
 Add tests showing that all of these represent the same metadata action:
 
@@ -776,7 +776,7 @@ At the route level, mock `create()` to reject `P2002`, mock `findUnique({ where:
 
 Add a manual Strategy regression proving `New article: Black Rice Benefits` and a gap-generated title with `targetKeyword: "black rice benefits"` return the same existing row.
 
-- [ ] **Step 2: Run route tests and verify failure**
+- [x] **Step 2: Run route tests and verify failure**
 
 ```bash
 npm test -- --run __tests__/api/seo-pilot-routes.test.ts __tests__/api/content-pilot-routes.test.ts __tests__/lib/opportunities/route.test.ts
@@ -784,7 +784,7 @@ npm test -- --run __tests__/api/seo-pilot-routes.test.ts __tests__/api/content-p
 
 Expected: FAIL because several paths still check titles and call `create()` directly.
 
-- [ ] **Step 3: Replace SEO route check-then-create flows**
+- [x] **Step 3: Replace SEO route check-then-create flows**
 
 For `/api/seo/promote`, `/api/seo/gaps/promote`, and `/api/seo/recommendations/decompose`:
 
@@ -812,13 +812,13 @@ for (const data of rows) {
 }
 ```
 
-- [ ] **Step 4: Replace manual and generated creation paths**
+- [x] **Step 4: Replace manual and generated creation paths**
 
 Update the manual route to key new content by normalized `targetKeyword`. Update proposal generate/refresh/daily paths to attach `withContentProposalDedupeKey(p)` to every create after their existing historical filtering. Update opportunity routing to call `createContentProposalOnce()` instead of a non-atomic `existing ?? create` sequence.
 
 Do not change Clone semantics: its Prisma default produces a new unique instance key. Do not change Social Ad semantics in this task because it is not an SEO automated generator and retains the safe random default.
 
-- [ ] **Step 5: Verify recreation blocking and distinct actions**
+- [x] **Step 5: Verify recreation blocking and distinct actions**
 
 Add/retain tests for:
 
@@ -829,7 +829,7 @@ Add/retain tests for:
 - duplicate batch inputs count as skipped;
 - a `P2002` conflict never returns 500.
 
-- [ ] **Step 6: Run Task 4 tests**
+- [x] **Step 6: Run Task 4 tests**
 
 ```bash
 npm test -- --run __tests__/api/seo-pilot-routes.test.ts __tests__/api/content-pilot-routes.test.ts __tests__/lib/content-pilot/proposal-dedupe.test.ts __tests__/lib/opportunities/route.test.ts
@@ -838,7 +838,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 4**
+- [x] **Step 7: Commit Task 4**
 
 ```bash
 git add app/api/seo/promote/route.ts app/api/seo/gaps/promote/route.ts app/api/seo/recommendations/decompose/route.ts app/api/content-pilot/proposals/manual/route.ts app/api/content-pilot/proposals/generate/route.ts app/api/content-pilot/proposals/refresh-all/route.ts app/api/cron/daily/route.ts lib/opportunities/route.ts __tests__/api/seo-pilot-routes.test.ts __tests__/api/content-pilot-routes.test.ts __tests__/lib/opportunities/route.test.ts
@@ -873,7 +873,7 @@ export function parseJsonArray<T>(text: string, schema: z.ZodType<T>): AiStructu
 
 - SEO analysis responses add `aiStatus: "complete" | "partial"` and optional safe `aiError`.
 
-- [ ] **Step 1: Write structured-output parser tests**
+- [x] **Step 1: Write structured-output parser tests**
 
 Cover plain JSON, fenced JSON, reasoning-only content passed in as text, empty text, malformed JSON, and schema-invalid JSON:
 
@@ -882,7 +882,7 @@ expect(parseJsonObject("", schema)).toEqual({ ok: false, reason: "empty" });
 expect(parseJsonObject('{"quickWins":42}', schema)).toEqual({ ok: false, reason: "invalid-schema" });
 ```
 
-- [ ] **Step 2: Write route reliability regressions**
+- [x] **Step 2: Write route reliability regressions**
 
 In `__tests__/api/seo-pilot-routes.test.ts`, mock `chatCompletionWithFailover()` and assert:
 
@@ -895,7 +895,7 @@ In `__tests__/api/seo-pilot-routes.test.ts`, mock `chatCompletionWithFailover()`
 - timeout returns 504;
 - the route imports/calls the failover helper rather than `getAiClient()`.
 
-- [ ] **Step 3: Run tests and verify failure**
+- [x] **Step 3: Run tests and verify failure**
 
 ```bash
 npm test -- --run __tests__/lib/seo/ai-output.test.ts __tests__/api/seo-pilot-routes.test.ts
@@ -903,11 +903,11 @@ npm test -- --run __tests__/lib/seo/ai-output.test.ts __tests__/api/seo-pilot-ro
 
 Expected: FAIL because both routes still call one client directly and silently accept parse failures.
 
-- [ ] **Step 4: Implement shared structured parsing**
+- [x] **Step 4: Implement shared structured parsing**
 
 `parseJsonObject()` extracts the first balanced object candidate already accepted by the route; `parseJsonArray()` extracts the array candidate. Both return typed failure reasons and never throw for model text.
 
-- [ ] **Step 5: Migrate analysis to failover and explicit partial state**
+- [x] **Step 5: Migrate analysis to failover and explicit partial state**
 
 Replace direct client creation with:
 
@@ -924,11 +924,11 @@ const { content } = await chatCompletionWithFailover({
 
 When parsing fails, retain deterministic `contentGaps`, set quick wins/recommendations empty, set `aiStatus: "partial"`, and return a safe reason such as `AI returned invalid structured output`. Persist the status with the analysis snapshot so a reload does not lose the warning.
 
-- [ ] **Step 6: Migrate decomposition to failover and typed failure responses**
+- [x] **Step 6: Migrate decomposition to failover and typed failure responses**
 
 Use the same helper. Treat validated `[]` as a successful no-op. Map parse failures to 502, provider configuration/authentication to 503, and timeout to 504. Keep handles validated against canonical articles before row construction.
 
-- [ ] **Step 7: Surface partial analysis in the UI**
+- [x] **Step 7: Surface partial analysis in the UI**
 
 Extend `Analysis` with:
 
@@ -940,7 +940,7 @@ limits?: SeoAnalysisLimits;
 
 When `aiStatus === "partial"`, show a caution banner that programmatic findings are available but AI strategy text failed and can be retried. Do not discard or hide content gaps.
 
-- [ ] **Step 8: Run Task 5 tests**
+- [x] **Step 8: Run Task 5 tests**
 
 ```bash
 npm test -- --run __tests__/lib/seo/ai-output.test.ts __tests__/api/seo-pilot-routes.test.ts __tests__/api/seo-brief-grounding.test.ts
@@ -949,7 +949,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit Task 5**
+- [x] **Step 9: Commit Task 5**
 
 ```bash
 git add lib/seo/ai-output.ts app/api/seo/analyze/route.ts app/api/seo/recommendations/decompose/route.ts 'app/(embedded)/(seo-pillar)/seo-pillar/components/types.ts' 'app/(embedded)/(seo-pillar)/seo-pillar/page.tsx' __tests__/lib/seo/ai-output.test.ts __tests__/api/seo-pilot-routes.test.ts
@@ -993,7 +993,7 @@ export async function loadSeoCoreRequest(
 
 - Keep `getPreviousGscQueries()` as a compatibility wrapper for Dashboard movers and keyword reporting.
 
-- [ ] **Step 1: Write previous-period metadata tests**
+- [x] **Step 1: Write previous-period metadata tests**
 
 In `__tests__/lib/seo/data.test.ts`, assert normalized and raw paths return query rows plus the actual previous capture/window timestamp. In the SEO route test, mock `getPreviousGscData()` and assert:
 
@@ -1002,7 +1002,7 @@ expect(body.trends.previousFetchedAt).toBe("2026-06-01T00:00:00.000Z");
 expect(body.trends.previous).not.toBeNull();
 ```
 
-- [ ] **Step 2: Write hook failure/cache tests**
+- [x] **Step 2: Write hook failure/cache tests**
 
 Create `__tests__/components/use-seo-data.test.ts` without adding a DOM-testing dependency. Test the exported `loadSeoCoreRequest()` helper by making `/api/seo` return 500 and asserting:
 
@@ -1012,7 +1012,7 @@ Create `__tests__/components/use-seo-data.test.ts` without adding a DOM-testing 
 
 Then mock a successful load and assert `commit(validSeoData)` runs exactly once. The hook passes one commit callback that performs `setCache()` and `setData()` only after `loadSeoCoreRequest()` validates the response.
 
-- [ ] **Step 3: Write tracked-keyword hydration regression**
+- [x] **Step 3: Write tracked-keyword hydration regression**
 
 Render the SEO page or extract/export a small pure helper:
 
@@ -1023,7 +1023,7 @@ export const trackedKeywordSet = (keywords: KeywordRow[]) =>
 
 Assert persisted `black rice benefits` makes the Strategy action render `Tracked` after initial load rather than `Track`.
 
-- [ ] **Step 4: Run Task 6 tests and verify failure**
+- [x] **Step 4: Run Task 6 tests and verify failure**
 
 ```bash
 npm test -- --run __tests__/lib/seo/data.test.ts __tests__/components/use-seo-data.test.ts __tests__/api/seo-pilot-routes.test.ts __tests__/components/pilot-usability-helpers.test.ts
@@ -1031,7 +1031,7 @@ npm test -- --run __tests__/lib/seo/data.test.ts __tests__/components/use-seo-da
 
 Expected: FAIL on missing previous metadata, silent core failure, and empty tracked state.
 
-- [ ] **Step 5: Add previous-data metadata without breaking existing callers**
+- [x] **Step 5: Add previous-data metadata without breaking existing callers**
 
 Implement `getPreviousGscData()` for normalized and raw snapshot sources. Refactor `getPreviousGscQueries()` to:
 
@@ -1043,7 +1043,7 @@ export async function getPreviousGscQueries(current: LatestGscData): Promise<Gsc
 
 Use `getPreviousGscData()` in `/api/seo` and pass `previous?.fetchedAt.toISOString() ?? null` to `computeTrends()`.
 
-- [ ] **Step 6: Make `loadCore()` reject failed responses before parsing/caching**
+- [x] **Step 6: Make `loadCore()` reject failed responses before parsing/caching**
 
 Use:
 
@@ -1071,7 +1071,7 @@ const loadCore = useCallback(async () => {
 
 Do not clear `data` on failure. The existing `loadAllSections()` tracker will add the section banner.
 
-- [ ] **Step 7: Hydrate tracked state from server rows**
+- [x] **Step 7: Hydrate tracked state from server rows**
 
 Import `useEffect` in the page and synchronize normalized persisted keywords:
 
@@ -1083,7 +1083,7 @@ useEffect(() => {
 
 Normalize keys in `trackKeyword()` before adding/removing them from state so fetched and just-created rows use identical identity.
 
-- [ ] **Step 8: Run Task 6 tests**
+- [x] **Step 8: Run Task 6 tests**
 
 ```bash
 npm test -- --run __tests__/lib/seo/data.test.ts __tests__/components/use-seo-data.test.ts __tests__/api/seo-pilot-routes.test.ts __tests__/components/pilot-usability-helpers.test.ts
@@ -1092,7 +1092,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit Task 6**
+- [x] **Step 9: Commit Task 6**
 
 ```bash
 git add lib/seo/data.ts app/api/seo/route.ts 'app/(embedded)/(seo-pillar)/seo-pillar/components/useSeoData.ts' 'app/(embedded)/(seo-pillar)/seo-pillar/page.tsx' 'app/(embedded)/(seo-pillar)/seo-pillar/components/types.ts' __tests__/lib/seo/data.test.ts __tests__/components/use-seo-data.test.ts __tests__/api/seo-pilot-routes.test.ts __tests__/components/pilot-usability-helpers.test.ts
@@ -1114,7 +1114,7 @@ git commit -m "fix: preserve SEO data and hydrate comparison state"
 - Consumes: normalized keyword input and Prisma `P2002` handling.
 - Produces: atomic create-or-reactivate behavior for `(normalized keyword, normalized nullable location, normalized language)`.
 
-- [ ] **Step 1: Write the concurrent-insert regression**
+- [x] **Step 1: Write the concurrent-insert regression**
 
 In `__tests__/api/seo-pilot-routes.test.ts`, mock the initial create with `P2002`, then mock `findFirst()` and `update()` for the winning row:
 
@@ -1131,7 +1131,7 @@ expect(mockPrisma.marketKeyword.update).toHaveBeenCalledWith({
 });
 ```
 
-- [ ] **Step 2: Write migration source tests**
+- [x] **Step 2: Write migration source tests**
 
 Assert the migration reassigns all four foreign-key consumers before deleting duplicates:
 
@@ -1144,7 +1144,7 @@ expect(sql).toContain("COALESCE");
 expect(sql).toContain("CREATE UNIQUE INDEX");
 ```
 
-- [ ] **Step 3: Run tests and verify failure**
+- [x] **Step 3: Run tests and verify failure**
 
 ```bash
 npm test -- --run __tests__/api/seo-pilot-routes.test.ts __tests__/prisma/market-keyword-null-safe-migration.test.ts
@@ -1152,7 +1152,7 @@ npm test -- --run __tests__/api/seo-pilot-routes.test.ts __tests__/prisma/market
 
 Expected: FAIL because the route uses find-then-create and the existing index treats nulls as distinct.
 
-- [ ] **Step 4: Write the null-safe migration**
+- [x] **Step 4: Write the null-safe migration**
 
 The migration will:
 
@@ -1204,7 +1204,7 @@ ON "MarketKeyword" (
 
 In `schema.prisma`, remove the misleading `@@unique([keyword, locationName, languageCode])` and retain a normal lookup index with a comment noting the expression unique index owned by the migration.
 
-- [ ] **Step 5: Change POST to create-first with `P2002` recovery**
+- [x] **Step 5: Change POST to create-first with `P2002` recovery**
 
 Normalize the keyword, attempt `create()`, and on `P2002` locate the case-insensitive existing null-location English row and reactivate it. Rethrow every non-unique database error.
 
@@ -1231,7 +1231,7 @@ try {
 }
 ```
 
-- [ ] **Step 6: Run Task 7 tests and typecheck**
+- [x] **Step 6: Run Task 7 tests and typecheck**
 
 ```bash
 npm test -- --run __tests__/api/seo-pilot-routes.test.ts __tests__/prisma/market-keyword-null-safe-migration.test.ts
@@ -1240,7 +1240,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 7**
+- [x] **Step 7: Commit Task 7**
 
 ```bash
 git add prisma/schema.prisma prisma/migrations/20260710161000_market_keyword_null_safe_unique/migration.sql app/api/seo/keywords/route.ts __tests__/api/seo-pilot-routes.test.ts __tests__/prisma/market-keyword-null-safe-migration.test.ts
@@ -1260,7 +1260,7 @@ git commit -m "fix: enforce null-safe SEO keyword identity"
 - Produces: `npm run lint` executing `eslint .` without prompts.
 - Uses official Next.js flat config exports `eslint-config-next/core-web-vitals` and `eslint-config-next/typescript`.
 
-- [ ] **Step 1: Record the current failing lint behavior**
+- [x] **Step 1: Record the current failing lint behavior**
 
 Run:
 
@@ -1270,7 +1270,7 @@ npm run lint
 
 Expected: interactive “How would you like to configure ESLint?” prompt; terminate without choosing an option.
 
-- [ ] **Step 2: Install compatible lint dependencies**
+- [x] **Step 2: Install compatible lint dependencies**
 
 Run:
 
@@ -1280,7 +1280,7 @@ npm install --save-dev eslint@^9 eslint-config-next@15.5.19
 
 Expected: `package.json` and `package-lock.json` add ESLint and the Next.js config without changing runtime dependencies.
 
-- [ ] **Step 3: Add the official flat configuration**
+- [x] **Step 3: Add the official flat configuration**
 
 Create `eslint.config.mjs`:
 
@@ -1311,7 +1311,7 @@ Change the script to:
 "lint": "eslint ."
 ```
 
-- [ ] **Step 4: Run lint and resolve configuration-level failures**
+- [x] **Step 4: Run lint and resolve configuration-level failures**
 
 ```bash
 npm run lint
@@ -1319,7 +1319,7 @@ npm run lint
 
 Expected: the command runs without a prompt. Any application-source error must be returned to the earlier task that owns that file, fixed with a focused regression where behavior changes, and committed with that task. Task 8 itself owns only lint configuration and dependency files. Warnings may remain visible but must not hide errors.
 
-- [ ] **Step 5: Verify the command fails on invalid input**
+- [x] **Step 5: Verify the command fails on invalid input**
 
 Run:
 
@@ -1329,7 +1329,7 @@ echo 'const broken =' | npx eslint --stdin --stdin-filename lint-probe.ts
 
 Expected: exit code 1 with a parsing error. Then rerun `npm run lint` and expect exit code 0.
 
-- [ ] **Step 6: Run typecheck and focused tests after any lint-driven edits**
+- [x] **Step 6: Run typecheck and focused tests after any lint-driven edits**
 
 ```bash
 npx tsc --noEmit
@@ -1338,7 +1338,7 @@ npm test -- --run __tests__/api/seo-pilot-routes.test.ts __tests__/components/us
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit Task 8**
+- [x] **Step 7: Commit Task 8**
 
 ```bash
 git add eslint.config.mjs package.json package-lock.json

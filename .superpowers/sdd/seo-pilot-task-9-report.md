@@ -40,5 +40,6 @@ Only planned SEO/Content Proposal/keyword identity, tests, migrations, lint conf
 - `DATABASE_URL='postgresql://localhost:5432/autopilot?connection_limit=1' npm run build` (0): **PASS**. This used a non-production localhost URL; only pool-timeout warnings were emitted.
 - Earlier baseline gates remain recorded above: full tests (906), lint (0 errors), and `git diff --check` all passed.
 - Existing-row and concurrent `P2002` behavior is implemented; dedicated route regression coverage remains a minor gap (migration-level coverage and full suite pass).
+- After `0728477`, focused market-keyword route and migration tests pass (2 files, 4 tests).
 
-Final fix commit: `0728477`.
+Final fix commit: `0728477`; final report update: `7ce0f12`.
