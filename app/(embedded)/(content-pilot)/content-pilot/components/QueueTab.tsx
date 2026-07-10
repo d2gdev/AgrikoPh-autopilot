@@ -343,7 +343,6 @@ export function QueueTab({
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
     await loadProposals();
-    if (ids.length > 0) setError(`Processed ${ids.length} selected proposal${ids.length === 1 ? "" : "s"}. Failed items remain in the queue with error details.`);
     setBulkActing(false);
   };
 
