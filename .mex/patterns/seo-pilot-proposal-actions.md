@@ -66,6 +66,13 @@ last_updated: 2026-07-11
 15. On-page health must keep every offender from the route's bounded corpus reachable.
    - Meta title/description length findings use the existing SEO-fix action.
    - Findings without a safe existing proposal type are labelled for manual review instead of rendering a blank action cell.
+16. Keep UI state truthful across partial or split request outcomes.
+   - Analysis completion copy must inspect `aiStatus`; deterministic fallback results are partial, not complete.
+   - Use the snapshot's persisted server timestamp rather than inventing a client completion time.
+   - After a successful keyword write, optimistically retain the normalized tracked row if the follow-up report reload fails.
+   - Scope browser caches by Shopify host/shop context so embedded tenants cannot share cached SEO summaries.
+   - Compact sort controls must be controlled by the same state that orders desktop rows.
+17. History endpoints used by SEO Pilot must allowlist SEO-owned sources; never expose arbitrary `RawSnapshot` source names through a caller-supplied query parameter.
 
 ## Regression Tests
 Add or update route tests when changing these paths:
@@ -84,5 +91,8 @@ Add or update route tests when changing these paths:
 - SEO history snapshot falls back to raw GSC without mutating normalized data.
 - Draft generation provider-auth failures return actionable `503` errors and persist a safe `draftError`.
 - SEO brief generation accepts `reasoning_content` fallback and returns actionable provider errors.
+- Partial analysis responses return the persisted timestamp and partial-specific UI copy.
+- Successful keyword writes survive a failed follow-up reload in local UI state.
+- SEO cache keys differ across Shopify contexts, unsupported history sources return `400`, and compact sort controls mirror page state.
 
 Current coverage: `__tests__/api/seo-pilot-routes.test.ts`, `__tests__/jobs/seo-refresh-jobs.test.ts`, and `__tests__/api/embedded-fallback-auth-routes.test.ts`.

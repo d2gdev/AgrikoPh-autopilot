@@ -13,6 +13,7 @@ export function OpportunitiesPanel({
   setOppType,
   oppTypeOptions,
   oppRows,
+  oppSort,
   setOppSort,
 }: {
   oppCount: number;
@@ -22,6 +23,7 @@ export function OpportunitiesPanel({
   setOppType: Dispatch<SetStateAction<string>>;
   oppTypeOptions: { label: string; value: string }[];
   oppRows: Row[];
+  oppSort: OppSort;
   setOppSort: Dispatch<SetStateAction<OppSort>>;
 }) {
   return (
@@ -51,6 +53,8 @@ export function OpportunitiesPanel({
           headings={["Query", "Type", "Landing page", "Impr.", "CTR", "Position", "Volume", "Difficulty", "Potential", "Action"]}
           rows={oppRows}
           sortable={[false, false, false, true, false, false, true, false, true, false]}
+          compactSortIndex={oppSort?.index ?? -1}
+          compactSortDirection={oppSort?.dir ?? "ascending"}
           onSort={(index, direction) => {
             if (direction === "none") setOppSort(null);
             else setOppSort({ index, dir: direction });

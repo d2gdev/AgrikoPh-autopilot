@@ -14,7 +14,7 @@ import type {
   PageHealthRow, GscPage, QueryPagePair,
   ContentGap, HealthTotals, HealthOffender,
 } from "./components/types";
-import { gapKey, opportunityKey, fmtPct } from "./components/types";
+import { analysisCompletionToast, gapKey, mergeTrackedKeywordPlaceholder, opportunityKey, fmtPct } from "./components/types";
 import { trackedKeywordSet } from "./components/types";
 import { useSeoData } from "./components/useSeoData";
 import { OverviewPanel } from "./components/panels/OverviewPanel";
@@ -106,10 +106,9 @@ export default function SeoPillarReportPage() {
       const d = await res.json();
       if (res.ok) {
         setAnalysis(d.analysis);
-        setAnalysisAt(new Date().toISOString());
+        setAnalysisAt(d.generatedAt ?? null);
         setTab(2);
-        const gapCount = d.analysis?.contentGaps?.length ?? 0;
-        setToast(gapCount > 0 ? `Analysis complete — ${gapCount} content gap${gapCount === 1 ? "" : "s"} found.` : "Analysis complete — no content gaps found with current data.");
+        setToast(analysisCompletionToast(d.analysis));
       } else setAnalysisError(d.error ?? "AI analysis failed.");
     } catch { setAnalysisError("AI analysis failed. Please try again."); }
     finally { setAnalyzing(false); }
@@ -288,9 +287,16 @@ export default function SeoPillarReportPage() {
     try {
       const res = await authFetch("/api/seo/keywords", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keyword: kw }) });
       if (res.ok) {
-        const r = await authFetch("/api/seo/keywords");
-        setKeywords((await r.json()).keywords ?? []);
+        setKeywords((current) => mergeTrackedKeywordPlaceholder(current, kw));
         setToast(`Now tracking “${kw}”.`);
+        try {
+          const r = await authFetch("/api/seo/keywords");
+          if (!r.ok) throw new Error("Keyword refresh failed");
+          const refreshed = await r.json();
+          setKeywords(mergeTrackedKeywordPlaceholder(refreshed.keywords ?? [], kw));
+        } catch {
+          setToast(`Now tracking “${kw}”. Latest position data will load on the next refresh.`);
+        }
       } else setToast("Could not add keyword.");
     } catch { setToast("Could not add keyword."); }
   }, [authFetch, newKeyword]);
@@ -492,6 +498,7 @@ export default function SeoPillarReportPage() {
                       setOppType={setOppType}
                       oppTypeOptions={oppTypeOptions}
                       oppRows={oppRows}
+                      oppSort={oppSort}
                       setOppSort={setOppSort}
                     />
                   )}

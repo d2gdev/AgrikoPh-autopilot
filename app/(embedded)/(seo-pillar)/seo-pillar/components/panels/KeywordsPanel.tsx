@@ -43,6 +43,8 @@ export function KeywordsPanel({
           columnContentTypes={["text", "numeric", "text", "numeric", "numeric", "text"]}
           headings={["Keyword", "Position", "Δ Pos", "Clicks", "Impr.", "Status"]}
           sortable={[true, true, true, true, true, false]}
+          compactSortIndex={kwSort?.index ?? -1}
+          compactSortDirection={kwSort?.dir ?? "ascending"}
           onSort={(index, direction) => {
             if (direction === "none") setKwSort(null);
             else setKwSort({ index, dir: direction });

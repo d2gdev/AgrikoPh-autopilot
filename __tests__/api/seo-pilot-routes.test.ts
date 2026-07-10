@@ -45,6 +45,7 @@ const mockSeoData = vi.hoisted(() => ({
   getLatestGa4Data: vi.fn(),
   getPreviousGscQueries: vi.fn(),
   getPreviousGscData: vi.fn(),
+  getSeoHistoryTrend: vi.fn(),
 }));
 const mockGetAiClient = vi.hoisted(() => vi.fn());
 const mockChatCompletion = vi.hoisted(() => vi.fn());
@@ -118,6 +119,7 @@ describe("SEO Pilot route regressions", () => {
       source: "none",
       window: null,
     });
+    mockSeoData.getSeoHistoryTrend.mockResolvedValue([]);
     mockSeoData.getPreviousGscQueries.mockResolvedValue([{ query: "previous", clicks: 1, impressions: 2, ctr: "50%", position: "5" }]);
     mockSeoData.getLatestGa4Data.mockResolvedValue({
       pages: [],
@@ -155,6 +157,13 @@ describe("SEO Pilot route regressions", () => {
       status: "queued",
     });
     mockMaterializeJobsStatusSnapshot.mockResolvedValue(undefined);
+  });
+
+  it("rejects arbitrary non-SEO history sources", async () => {
+    const { GET } = await import("@/app/api/seo/history/route");
+    const res = await GET(new Request("http://test.local/api/seo/history?source=meta_ads") as NextRequest);
+    expect(res.status).toBe(400);
+    expect(mockSeoData.getSeoHistoryTrend).not.toHaveBeenCalled();
   });
 
   it("promotes missing meta as a publishable seo-fix proposal", async () => {
@@ -388,6 +397,7 @@ describe("SEO Pilot route regressions", () => {
 
     expect(res.status).toBe(200);
     expect(body.analysis.aiStatus).toBe("partial");
+    expect(body.generatedAt).toEqual(expect.any(String));
     expect(body.analysis.quickWins).toEqual(expect.arrayContaining([
       expect.stringMatching(/missing meta/i),
       expect.stringMatching(/thin content/i),
@@ -395,7 +405,8 @@ describe("SEO Pilot route regressions", () => {
     ]));
     expect(body.analysis.quickWinEvidence).toHaveLength(body.analysis.quickWins.length);
     expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      update: expect.objectContaining({ payload: expect.objectContaining({ aiStatus: "partial" }) }),
+      update: expect.objectContaining({ payload: expect.objectContaining({ aiStatus: "partial" }), fetchedAt: new Date(body.generatedAt) }),
+      create: expect.objectContaining({ fetchedAt: new Date(body.generatedAt) }),
     }));
   });
 

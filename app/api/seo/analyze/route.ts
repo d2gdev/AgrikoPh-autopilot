@@ -18,6 +18,8 @@ const SeoAnalysisSchema = z.object({
   recommendations: z.array(z.string().trim().min(1).max(500)).max(8).default([]),
 });
 
+class AnalysisPersistenceError extends Error {}
+
 function textIncludesNormalized(haystack: string, needle: string): boolean {
   const h = haystack.toLowerCase().replace(/\s+/g, " ");
   const n = needle.toLowerCase().replace(/\s+/g, " ");
@@ -155,11 +157,20 @@ export async function POST(req: NextRequest) {
     recommendations: [], recommendationEvidence: [],
     contentGaps: programmaticGaps, limits, aiStatus: "partial" as const, aiError,
   });
-  const persistAnalysis = async (analysis: object) => prisma.rawSnapshot.upsert({
+  const persistAnalysis = async (analysis: object, generatedAt: Date) => prisma.rawSnapshot.upsert({
     where: { source_dateRangeStart_dateRangeEnd: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0) } },
-    update: { payload: analysis, fetchedAt: new Date() },
-    create: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0), payload: analysis },
+    update: { payload: analysis, fetchedAt: generatedAt },
+    create: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0), payload: analysis, fetchedAt: generatedAt },
   });
+  const persistAndRespond = async (analysis: object) => {
+    const generatedAt = new Date();
+    try {
+      await persistAnalysis(analysis, generatedAt);
+    } catch {
+      throw new AnalysisPersistenceError("Analysis snapshot could not be saved");
+    }
+    return NextResponse.json({ analysis, generatedAt: generatedAt.toISOString(), gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source });
+  };
 
   const aiTimeout = AbortSignal.timeout(25_000);
   try {
@@ -225,25 +236,23 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
       ...(parsed.ok ? {} : { aiError: "AI returned invalid structured output" }),
     };
 
-    await persistAnalysis(analysis);
-
-    return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source });
+    return await persistAndRespond(analysis);
   } catch (err) {
+    if (err instanceof AnalysisPersistenceError) {
+      return NextResponse.json({ error: err.message }, { status: 500 });
+    }
     if (aiTimeout.aborted) {
       const analysis = partialAnalysis("AI provider timeout");
-      try { await persistAnalysis(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
-      return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source }, { status: 200 });
+      try { return await persistAndRespond(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
     }
     const status = (err as { status?: number })?.status;
     if (status === 401 || status === 403 || status === 429 || status === 503 || (err instanceof Error && /(provider|api key|configured|authentication|unauthorized)/i.test(err.message))) {
       console.error("[seo/analyze] AI provider unavailable");
       const analysis = partialAnalysis("AI provider unavailable");
-      try { await persistAnalysis(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
-      return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source }, { status: 200 });
+      try { return await persistAndRespond(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
     }
     console.error("[seo/analyze] AI request failed");
     const analysis = partialAnalysis("AI provider unavailable");
-    try { await persistAnalysis(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
-    return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source }, { status: 200 });
+    try { return await persistAndRespond(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
   }
 }

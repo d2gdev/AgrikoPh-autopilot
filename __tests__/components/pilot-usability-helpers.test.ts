@@ -3,9 +3,28 @@ import { describe, expect, it } from "vitest";
 import { proposalEvidenceLines } from "@/app/(embedded)/(content-pilot)/content-pilot/components/proposal-evidence";
 import { contentGapReason } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/content-gap-reason";
 import { onPageHealthActions } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/on-page-health-actions";
-import { trackedKeywordSet } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/types";
+import { analysisCompletionToast, mergeTrackedKeywordPlaceholder, trackedKeywordSet } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/types";
 
 describe("pilot usability helper regressions", () => {
+  it("does not call a partial analysis complete", () => {
+    expect(analysisCompletionToast({ aiStatus: "partial", contentGaps: [{ query: "rice", impressions: 1, position: 8, suggestedTitle: "Rice guide" }] })).toMatch(/partial/i);
+    expect(analysisCompletionToast({ aiStatus: "complete", contentGaps: [] })).toBe("Analysis complete — no content gaps found with current data.");
+  });
+
+  it("keeps a successfully added keyword visible when report reload fails", () => {
+    expect(mergeTrackedKeywordPlaceholder([], " Black Rice ")).toEqual([{ keyword: "black rice", position: null, clicks: 0, impressions: 0, positionDelta: null, status: "tracked", alert: false }]);
+    expect(mergeTrackedKeywordPlaceholder([{ keyword: "black rice", position: 2, clicks: 1, impressions: 4, positionDelta: null, status: "tracked", alert: false }], "black rice")).toHaveLength(1);
+  });
+
+  it("keeps compact Opportunities and Keywords sorting controlled by page state", () => {
+    const pageSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/page.tsx", "utf8");
+    const opportunitiesSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/OpportunitiesPanel.tsx", "utf8");
+    const keywordsSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/KeywordsPanel.tsx", "utf8");
+    expect(pageSource).toContain("oppSort={oppSort}");
+    expect(opportunitiesSource).toContain("compactSortIndex={oppSort?.index ?? -1}");
+    expect(keywordsSource).toContain("compactSortIndex={kwSort?.index ?? -1}");
+  });
+
   it("classifies supported fixes and diagnostic-only on-page health findings", () => {
     expect(onPageHealthActions(["Title length off", "Description length off"])).toEqual({ meta: true, h1: false, thin: false, manual: false });
     expect(onPageHealthActions(["No internal links", "Few headings", "Orphan (no inbound links)"])).toEqual({ meta: false, h1: false, thin: false, manual: true });

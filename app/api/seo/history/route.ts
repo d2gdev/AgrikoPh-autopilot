@@ -10,6 +10,9 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const source = searchParams.get("source") ?? "seo_history";
+    if (source !== "seo_history") {
+      return NextResponse.json({ error: "Unsupported SEO history source" }, { status: 400 });
+    }
 
     const trend = await getSeoHistoryTrend(source);
 

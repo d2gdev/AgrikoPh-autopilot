@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useAuthFetch } from "@/hooks/use-auth-fetch";
+import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import type { SeoData, Analysis, Health, KeywordRow, Cluster, SnapshotTrendPoint } from "./types";
 
@@ -16,15 +16,20 @@ export async function loadSeoCoreRequest(
   commit(next);
 }
 
+export function seoCoreCacheKey(contextualize: (href: string) => string = withShopifyContextUrl): string {
+  return contextualize("/api/seo");
+}
+
 // ── SEO Pilot data-loading hook ─────────────────────────────────────────────
 // Verbatim body relocated from app/(embedded)/(seo-pillar)/seo-pillar/page.tsx
 // (Phase 8c, Task 4), following the Phase 8b `useDashboardData` precedent.
 
 export function useSeoData() {
   const authFetch = useAuthFetch();
+  const cacheKey = seoCoreCacheKey();
 
-  const [data, setData] = useState<SeoData | null>(() => getCache<SeoData>("/api/seo"));
-  const [loading, setLoading] = useState(() => !getCache("/api/seo"));
+  const [data, setData] = useState<SeoData | null>(() => getCache<SeoData>(cacheKey));
+  const [loading, setLoading] = useState(() => !getCache(cacheKey));
 
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [analysisAt, setAnalysisAt] = useState<string | null>(null);
@@ -41,8 +46,8 @@ export function useSeoData() {
   const [toast, setToast] = useState<string | null>(null);
 
   const loadCore = useCallback(async () => {
-    await loadSeoCoreRequest(authFetch, (d) => { setCache("/api/seo", d); setData(d); });
-  }, [authFetch]);
+    await loadSeoCoreRequest(authFetch, (d) => { setCache(cacheKey, d); setData(d); });
+  }, [authFetch, cacheKey]);
 
   // Shared by the initial mount load and a manual refresh, so a refresh
   // re-pulls every tab's data — not just the Overview/Opportunities `data`

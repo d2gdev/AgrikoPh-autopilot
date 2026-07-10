@@ -45,6 +45,22 @@ export interface HealthLimits { articlesTotalLowerBound: number; articlesAnalyze
 export interface Health { totals: HealthTotals; worstOffenders: HealthOffender[]; limits?: HealthLimits }
 export interface KeywordRow { keyword: string; position: number | null; clicks: number; impressions: number; positionDelta: number | null; status: string; alert: boolean }
 export const trackedKeywordSet = (keywords: KeywordRow[]) => new Set(keywords.map((row) => row.keyword.trim().toLowerCase()));
+export function mergeTrackedKeywordPlaceholder(keywords: KeywordRow[], keyword: string): KeywordRow[] {
+  const normalized = keyword.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!normalized || keywords.some((row) => row.keyword.trim().toLowerCase().replace(/\s+/g, " ") === normalized)) return keywords;
+  return [...keywords, { keyword: normalized, position: null, clicks: 0, impressions: 0, positionDelta: null, status: "tracked", alert: false }];
+}
+export function analysisCompletionToast(analysis: Pick<Analysis, "aiStatus" | "contentGaps">): string {
+  const gapCount = analysis.contentGaps?.length ?? 0;
+  if (analysis.aiStatus === "partial") {
+    return gapCount > 0
+      ? `Partial analysis — ${gapCount} deterministic content gap${gapCount === 1 ? "" : "s"} found; AI strategy is incomplete.`
+      : "Partial analysis — deterministic checks completed, but AI strategy is incomplete.";
+  }
+  return gapCount > 0
+    ? `Analysis complete — ${gapCount} content gap${gapCount === 1 ? "" : "s"} found.`
+    : "Analysis complete — no content gaps found with current data.";
+}
 export interface Cluster { topic: string; articleCount: number; keywordCount: number; gapScore: number }
 
 export const gapKey = (g: { query: string; suggestedTitle: string }) => `${g.query}::${g.suggestedTitle}`;

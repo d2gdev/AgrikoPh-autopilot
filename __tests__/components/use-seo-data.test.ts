@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { loadSeoCoreRequest } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/useSeoData";
+import { loadSeoCoreRequest, seoCoreCacheKey } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/useSeoData";
 
 const valid = { topQueries: [], topPages: [], gscFetchedAt: null, ga4FetchedAt: null, trends: null, opportunities: [], gscPages: [], queryPagePairs: [] };
 
 describe("loadSeoCoreRequest", () => {
+  it("scopes the SEO cache key to Shopify context", () => {
+    expect(seoCoreCacheKey((href) => `${href}?shop=one.myshopify.com`)).not.toBe(seoCoreCacheKey((href) => `${href}?shop=two.myshopify.com`));
+  });
+
   it("rejects failed responses without committing", async () => {
     const commit = vi.fn();
     const authFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "upstream unavailable" }), { status: 500 }));

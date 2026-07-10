@@ -7,23 +7,27 @@ import { useState, type ReactNode } from "react";
 type Cell = string | number | ReactNode;
 
 /** Renders labelled rows on compact screens, avoiding horizontal table scrolling. */
-export function ResponsiveDataTable({ headings, rows, columnContentTypes, sortable, onSort }: {
+export function ResponsiveDataTable({ headings, rows, columnContentTypes, sortable, onSort, compactSortIndex, compactSortDirection }: {
   headings: ReactNode[];
   rows: Cell[][];
   columnContentTypes: ("text" | "numeric")[];
   sortable?: boolean[];
   onSort?: (headingIndex: number, direction: SortDirection) => void;
+  compactSortIndex?: number;
+  compactSortDirection?: SortDirection;
 }) {
   const { mdUp } = useBreakpoints({ defaults: { mdUp: true } });
-  const [sortIndex, setSortIndex] = useState(() => sortable?.findIndex(Boolean) ?? -1);
-  const [sortDirection, setSortDirection] = useState<SortDirection>("ascending");
+  const [localSortIndex, setLocalSortIndex] = useState(-1);
+  const [localSortDirection, setLocalSortDirection] = useState<SortDirection>("ascending");
+  const sortIndex = compactSortIndex ?? localSortIndex;
+  const sortDirection = compactSortDirection ?? localSortDirection;
   if (mdUp) return <DataTable headings={headings} rows={rows} columnContentTypes={columnContentTypes} sortable={sortable} onSort={onSort} />;
   return (
     <BlockStack gap="200">
       {onSort && sortable?.some(Boolean) && (
         <InlineStack gap="200" wrap>
-          <Select label="Sort rows" labelHidden value={String(sortIndex)} options={headings.map((heading, index) => ({ label: String(heading), value: String(index), disabled: !sortable[index] }))} onChange={(value) => { const index = Number(value); setSortIndex(index); onSort(index, sortDirection); }} />
-          <Button size="slim" onClick={() => { const next = sortDirection === "ascending" ? "descending" : "ascending"; setSortDirection(next); if (sortIndex >= 0) onSort(sortIndex, next); }}>{sortDirection === "ascending" ? "Ascending" : "Descending"}</Button>
+          <Select label="Sort rows" labelHidden value={String(sortIndex)} options={[{ label: "Current order", value: "-1" }, ...headings.map((heading, index) => ({ label: String(heading), value: String(index), disabled: !sortable[index] }))]} onChange={(value) => { const index = Number(value); setLocalSortIndex(index); if (index < 0) onSort(sortable.findIndex(Boolean), "none"); else onSort(index, sortDirection); }} />
+          <Button size="slim" disabled={sortIndex < 0} onClick={() => { const next = sortDirection === "ascending" ? "descending" : "ascending"; setLocalSortDirection(next); if (sortIndex >= 0) onSort(sortIndex, next); }}>{sortDirection === "ascending" ? "Ascending" : "Descending"}</Button>
         </InlineStack>
       )}
       {rows.map((row, rowIndex) => (
