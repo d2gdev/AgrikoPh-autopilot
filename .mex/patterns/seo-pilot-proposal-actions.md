@@ -73,6 +73,12 @@ last_updated: 2026-07-11
    - Scope browser caches by Shopify host/shop context so embedded tenants cannot share cached SEO summaries.
    - Compact sort controls must be controlled by the same state that orders desktop rows.
 17. History endpoints used by SEO Pilot must allowlist SEO-owned sources; never expose arbitrary `RawSnapshot` source names through a caller-supplied query parameter.
+18. SEO Pilot must not require horizontal scrolling to reach navigation, data, filters, or actions.
+   - Below the extra-large breakpoint, replace the nine-tab strip with the labelled SEO Pilot view selector.
+   - Use labelled stacked records below that breakpoint; use a fixed-layout semantic table above it so long cells wrap instead of widening the page.
+   - Give labels, values, controls, links, badges, InlineStacks, and button text `min-width: 0`, bounded widths, and safe wrapping.
+   - Fixed-aspect visualizations such as sparklines must shrink to their card width.
+   - Preserve controlled sorting for Opportunities and Keywords across both presentations.
 
 ## Regression Tests
 Add or update route tests when changing these paths:
@@ -94,5 +100,6 @@ Add or update route tests when changing these paths:
 - Partial analysis responses return the persisted timestamp and partial-specific UI copy.
 - Successful keyword writes survive a failed follow-up reload in local UI state.
 - SEO cache keys differ across Shopify contexts, unsupported history sources return `400`, and compact sort controls mirror page state.
+- Navigation, every panel data grid, long/custom cells, control rows, action rows, badges, and sparklines satisfy the no-horizontal-scroll source contract.
 
 Current coverage: `__tests__/api/seo-pilot-routes.test.ts`, `__tests__/jobs/seo-refresh-jobs.test.ts`, and `__tests__/api/embedded-fallback-auth-routes.test.ts`.

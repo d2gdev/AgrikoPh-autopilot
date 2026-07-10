@@ -9,7 +9,7 @@
 .actionRow {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
+  align-items: flex-end;
   gap: var(--p-space-200);
   min-width: 0;
   max-width: 100%;
