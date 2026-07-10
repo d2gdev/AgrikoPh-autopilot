@@ -200,15 +200,18 @@ export async function generateProposalDraft(input: GenerationServiceInput): Prom
     const resolvedArticleHandle = resolveArticleHandleImpl(proposal);
     if (proposal.proposalType !== "new-content" && !resolvedArticleHandle) {
       const missingIdentityError = `Proposal type "${proposal.proposalType}" requires an articleHandle or a Shopify article URL in proposal data`;
-      await prismaClient.contentProposal.updateMany({
-        where: clearActiveGenerationTokenIfAllowed({ id: proposal.id, token }),
-        data: {
-          draftStatus: "failed",
-          draftError: missingIdentityError,
-          draftGenerationToken: null,
-          draftGenerationStartedAt: null,
-        },
+      const failed = await failGeneration({
+        prismaClient,
+        proposalId: proposal.id,
+        token,
+        error: missingIdentityError,
       });
+      if (failed.count === 0) {
+        return {
+          kind: "discarded",
+          reason: "Proposal changed before missing identity failure persistence could complete",
+        };
+      }
       return { kind: "failed", error: missingIdentityError };
     }
 

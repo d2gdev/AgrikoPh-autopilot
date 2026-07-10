@@ -8,7 +8,7 @@ triggers:
   - "duplicate proposals"
   - "clear queue"
   - "start from scratch"
-last_updated: 2026-07-10T16:45:00Z
+last_updated: 2026-07-10T22:31:59+08:00
 ---
 
 # Generation Dedupe
@@ -38,6 +38,7 @@ Autopilot has multiple idea generators: skill recommendations, insight-derived a
 - Bulk/manual bypass routes such as Content Pilot `refresh-all` and SEO recommendation decomposition must also use the shared logical key (`contentProposalDedupeKey`) or recreate-blocking statuses. Title-only checks are not enough because AI can reword the same article action.
 - Opportunity routing is another bypass path; rejected content ideas can return through it if it checks only active proposals.
 - Store task upserts should not set terminal rows back to pending unless the operator explicitly reopens them.
+- A generation token is durable ownership, not just a lock. Every conditional validation/failure write must inspect `updateMany.count`; a zero count means ownership was lost and must return a discarded/conflict result, never overwrite the current proposal as failed.
 
 ## Verify
 - Add regression coverage for at least one terminal status (`rejected`, `executed`, `published`, `dismissed`, or `completed`) blocking regeneration.

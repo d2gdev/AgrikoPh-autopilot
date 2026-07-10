@@ -243,17 +243,59 @@ describe("generateProposalDraft", () => {
     });
   });
 
-  it("allows concurrent publishing when preservePublishedReceipt is true", async () => {
-    const withPublishedReceipt = proposal({
-      draftStatus: "publishing",
-      draftGenerationToken: null,
-      draftGenerationStartedAt: null,
-    });
-    mockPrisma.contentProposal.findUnique.mockResolvedValue(withPublishedReceipt);
-    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
-    mockTx.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+  it("discards missing-identity failure when the generation token was cleared", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({
+      proposalType: "refresh",
+      articleHandle: null,
+    }));
+    mockPrisma.contentProposal.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
 
     const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      resolveArticleHandleImpl: () => null,
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result).toEqual({
+      kind: "discarded",
+      reason: "Proposal changed before missing identity failure persistence could complete",
+    });
+    expect(mockGenerateDraft).not.toHaveBeenCalled();
+  });
+
+  it("preserves published receipt fields while a receipt-preserving generation is claimed and AI runs", async () => {
+    const publishedAt = new Date("2026-07-10T00:00:00.000Z");
+    const publishedReceipt = proposal({
+      draftStatus: "published",
+      draftGenerationToken: null,
+      draftGenerationStartedAt: null,
+      publishedAt,
+      shopifyArticleId: "gid://shopify/Article/42",
+      publishedHandle: "live-season-guide",
+      draftContent: { title: "Live season guide", bodyHtml: "<p>Live content</p>" },
+    });
+    let releaseDraft: ((draft: { bodyHtml: string; title: string }) => void) | undefined;
+    const draftStarted = new Promise<void>((resolve) => {
+      mockGenerateDraft.mockImplementationOnce(() => new Promise((release) => {
+        releaseDraft = release;
+        resolve();
+      }));
+    });
+
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(publishedReceipt);
+    mockPrisma.contentProposal.updateMany.mockImplementationOnce(async ({ data }) => {
+      Object.assign(publishedReceipt, data);
+      return { count: 1 };
+    });
+    mockTx.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const generation = generateProposalDraft({
       prismaClient: mockPrisma,
       proposalId: "proposal-1",
       actor: "operator",
@@ -263,12 +305,23 @@ describe("generateProposalDraft", () => {
       collectDraftCitationsImpl: mockCollectDraftCitations,
     });
 
-    expect(result.kind).toBe("ready");
+    await draftStarted;
+
     const claim = mockPrisma.contentProposal.updateMany.mock.calls[0]?.[0];
     expect(claim?.where).toMatchObject({
       draftStatus: {
         notIn: ["generating"],
       },
     });
+    expect(publishedReceipt).toMatchObject({
+      draftStatus: "generating",
+      publishedAt,
+      shopifyArticleId: "gid://shopify/Article/42",
+      publishedHandle: "live-season-guide",
+      draftContent: { title: "Live season guide", bodyHtml: "<p>Live content</p>" },
+    });
+
+    releaseDraft?.({ bodyHtml: "<h2>Seed</h2> ".repeat(200), title: "Updated season guide" });
+    expect((await generation).kind).toBe("ready");
   });
 });
