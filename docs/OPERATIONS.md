@@ -448,3 +448,6 @@ ALERT_ACTIVE_JOB_LOCK_STALE_MINUTES=30
 ```
 
 Payload includes type, timestamp, app URL, affected job/stream/lock metadata, and a sanitized error excerpt where relevant. It does not include secrets or raw external API payloads.
+# Filipino content regeneration
+
+Use the read-only scan first, then apply only an explicit bounded selection with `POST /api/content-pilot/regenerate-filipino`. The JSON body must contain `proposalIds` (1–25 unique IDs), `confirmation: "REGENERATE_FILIPINO"`, and `republishPublished` (boolean). The caller needs the `CONTENT_PUBLISH` permission; requests are rate limited. The server re-detects Filipino text and never widens an omitted selection. A `200` means all selected work completed; `207` is mixed (inspect per-item statuses and counts); `4xx` indicates the request was rejected before AI or Shopify work.
