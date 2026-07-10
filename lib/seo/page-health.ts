@@ -84,17 +84,18 @@ export function computePageHealth(
     const bounceRate = ga4 ? parseNullablePercent(ga4.bounceRate) : null;
     const conversionRate = ga4 ? parseNullablePercent(ga4.conversionRate) : null;
 
-    let flag: PageHealthFlag | null = null;
+    const flags: PageHealthFlag[] = [];
     let severity = 0;
 
     if (impressions >= HIGH_IMPRESSIONS && ga4) {
       if (bounceRate !== null && bounceRate >= HIGH_BOUNCE) {
-        flag = "high-impressions-high-bounce";
+        flags.push("high-impressions-high-bounce");
         // Severity weighted by impressions and bounce excess.
-        severity = impressions * (bounceRate - HIGH_BOUNCE + 0.01);
-      } else if (conversionRate !== null && conversionRate < LOW_CONVERSION) {
-        flag = "high-impressions-low-conversion";
-        severity = impressions * (LOW_CONVERSION - conversionRate + 0.01);
+        severity += impressions * (bounceRate - HIGH_BOUNCE + 0.01);
+      }
+      if (conversionRate !== null && conversionRate < LOW_CONVERSION) {
+        flags.push("high-impressions-low-conversion");
+        severity += impressions * (LOW_CONVERSION - conversionRate + 0.01);
       }
     }
 
@@ -107,7 +108,8 @@ export function computePageHealth(
       sessions,
       bounceRate,
       conversionRate,
-      flag,
+      flag: flags[0] ?? null,
+      flags,
       severity,
     });
   }

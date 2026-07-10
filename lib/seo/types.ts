@@ -122,6 +122,7 @@ export interface PageHealthRow {
   conversionRate: number | null; // numeric fraction 0–1
   // Derived
   flag: PageHealthFlag | null;
+  flags: PageHealthFlag[];
   severity: number; // higher = worse; 0 when no flag
 }
 

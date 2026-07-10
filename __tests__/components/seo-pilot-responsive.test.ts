@@ -80,4 +80,11 @@ describe("SEO Pilot responsive layout contract", () => {
     expect(overview).toContain('gscFreshness?.selectedSource === "rawSnapshot"');
     expect(overview).toContain("fallback snapshot");
   });
+
+  it("renders every Page Health finding for a row", () => {
+    const pageHealth = read("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/PageHealthPanel.tsx");
+
+    expect(pageHealth).toContain("p.flags.map");
+    expect(pageHealth).toContain("pageHealthFlag[flag]");
+  });
 });

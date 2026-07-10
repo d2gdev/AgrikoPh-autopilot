@@ -1,4 +1,4 @@
-import { Text, BlockStack, Badge, Button } from "@shopify/polaris";
+import { Text, BlockStack, Badge, Button, InlineStack } from "@shopify/polaris";
 import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { PageHealthRow } from "../types";
 import { fmtPct } from "../types";
@@ -31,8 +31,8 @@ export function PageHealthPanel({
             p.impressions.toLocaleString(),
             fmtPct(p.bounceRate),
             fmtPct(p.conversionRate),
-            p.flag
-              ? <Badge key={`phf-${p.rawUrl}-${i}`} tone={pageHealthFlag[p.flag]?.tone}>{pageHealthFlag[p.flag]?.label ?? p.flag}</Badge>
+            p.flags.length
+              ? <InlineStack key={`phf-${p.rawUrl}-${i}`} gap="100" wrap>{p.flags.map((flag) => <Badge key={flag} tone={pageHealthFlag[flag]?.tone}>{pageHealthFlag[flag]?.label ?? flag}</Badge>)}</InlineStack>
               : <Text key={`phf-${p.rawUrl}-${i}`} as="span" tone="subdued">—</Text>,
           ])}
         />

@@ -363,7 +363,7 @@ export default function SeoPillarReportPage() {
 
   // page health — already sorted by severity desc; flagged rows lead
   const pageHealth = data?.pageHealth ?? [];
-  const flaggedPageHealth = pageHealth.filter((p) => p.flag !== null);
+  const flaggedPageHealth = pageHealth.filter((p) => p.flags.length > 0);
 
   const gaps = (analysis?.contentGaps ?? []).filter((g) => !promoted.has(gapKey(g)));
 

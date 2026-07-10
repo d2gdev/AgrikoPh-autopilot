@@ -7,7 +7,7 @@ export interface Trends { current: Totals; previous: Totals | null; currentFetch
 export interface Opportunity { query: string; impressions: number; clicks: number; ctr: number; position: number; type: string; potentialClicks: number; reason: string; page?: string | null; pageClicks?: number | null; pageImpressions?: number | null; score?: number; volume?: number | null; difficulty?: number | null }
 export interface OpportunityCluster { id: string; label: string; page: string | null; opportunities: Opportunity[]; totalPotentialClicks: number; topScore: number }
 export interface SnapshotTrendPoint { date: string; clicks: number; impressions: number; avgPosition: number; ctr: number }
-export interface PageHealthRow { url: string; rawUrl: string; impressions: number; clicks: number; position: number; sessions: number | null; bounceRate: number | null; conversionRate: number | null; flag: "high-impressions-high-bounce" | "high-impressions-low-conversion" | null; severity: number }
+export interface PageHealthRow { url: string; rawUrl: string; impressions: number; clicks: number; position: number; sessions: number | null; bounceRate: number | null; conversionRate: number | null; flag: "high-impressions-high-bounce" | "high-impressions-low-conversion" | null; flags: Array<"high-impressions-high-bounce" | "high-impressions-low-conversion">; severity: number }
 export interface GscPage { page: string; clicks: number; impressions: number; ctr: string; position: string }
 export interface QueryPagePair { query: string; page: string; clicks: number; impressions: number; position: string }
 export interface GscFreshness {
