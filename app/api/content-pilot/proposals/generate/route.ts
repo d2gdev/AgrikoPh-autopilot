@@ -14,6 +14,7 @@ import {
   filterBlockedContentProposalInputs,
 } from "@/lib/content-pilot/proposal-dedupe";
 import { createContentProposalOnce, withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
+import { replacePendingContentProposals } from "@/lib/content-pilot/proposal-replacement";
 
 export async function POST(req: Request) {
   const appAuthError = await requireAppAuth(req);
@@ -74,19 +75,7 @@ export async function POST(req: Request) {
     // Delete existing pending proposals and create the fresh set atomically, so a
     // failure can never leave the table with the old pending rows wiped and no
     // replacements written.
-    const pendingToDelete = await prisma.contentProposal.findMany({
-      where: { status: "pending" },
-      select: { id: true, status: true, draftStatus: true, sourceData: true },
-    });
-    if (pendingToDelete.length > 0) {
-      await markContentProposalOpportunitiesTerminal(prisma, pendingToDelete);
-    }
-    const createdRows = await prisma.$transaction(async (tx) => {
-      await tx.contentProposal.deleteMany({ where: { status: "pending" } });
-      const rows = [];
-      for (const p of fresh) {
-        const result = await createContentProposalOnce(tx, {
-            ...withContentProposalDedupeKey({ articleHandle: p.articleHandle,
+    const replacement = await replacePendingContentProposals(prisma, fresh.map((p) => ({ articleHandle: p.articleHandle,
             proposalType: p.proposalType,
             changeType: p.changeType,
             priority: p.priority,
@@ -95,21 +84,12 @@ export async function POST(req: Request) {
             title: p.title,
             description: p.description,
             proposedState: p.proposedState as object,
-            sourceData: p.sourceData as object }),
-        });
-        if (result.created) rows.push(result.proposal);
-      }
-      return rows;
-    });
-    const opportunityResult = await upsertOpportunities(
-      prisma,
-      fresh.map(opportunityFromProposal),
-    );
+            sourceData: p.sourceData as object })));
     return NextResponse.json({
-      created: createdRows.length,
-      proposals: createdRows,
+      created: replacement.created,
+      proposals: replacement.proposals,
       deduplicated: toDelete.length,
-      opportunities: opportunityResult.upserted,
+      opportunities: replacement.opportunities,
     });
   } catch (err) {
     console.error("[content-pilot/proposals/generate] error:", err);

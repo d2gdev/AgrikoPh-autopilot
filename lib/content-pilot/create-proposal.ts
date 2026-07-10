@@ -15,14 +15,16 @@ export type ContentProposalCreateData =
 
 export interface ContentProposalCreateClient<TProposal> {
   contentProposal: {
-    create(args: { data: ContentProposalCreateData }): Promise<TProposal>;
+    createMany(args: { data: ContentProposalCreateData[]; skipDuplicates?: boolean }): Promise<{ count: number }>;
     findUnique(args: { where: { dedupeKey: string } }): Promise<TProposal | null>;
   };
 }
 
-function isUniqueError(error: unknown): boolean {
-  return typeof error === "object" && error !== null &&
-    (error as { code?: string }).code === "P2002";
+export class ContentProposalConcurrencyError extends Error {
+  constructor(public readonly dedupeKey: string) {
+    super(`Content proposal winner missing for ${dedupeKey}`);
+    this.name = "ContentProposalConcurrencyError";
+  }
 }
 
 export async function createContentProposalOnce<TProposal>(
@@ -30,17 +32,11 @@ export async function createContentProposalOnce<TProposal>(
   data: ContentProposalCreateData,
 ): Promise<{ proposal: TProposal; created: boolean }> {
   const keyed = withContentProposalDedupeKey(data);
-  try {
-    return {
-      proposal: await client.contentProposal.create({ data: keyed }),
-      created: true,
-    };
-  } catch (error) {
-    if (!isUniqueError(error)) throw error;
-    const existing = await client.contentProposal.findUnique({
-      where: { dedupeKey: keyed.dedupeKey },
-    });
-    if (!existing) throw error;
-    return { proposal: existing, created: false };
+  const insert = await client.contentProposal.createMany({ data: [keyed], skipDuplicates: true });
+  let proposal = await client.contentProposal.findUnique({ where: { dedupeKey: keyed.dedupeKey } });
+  if (!proposal && insert.count === 0) {
+    proposal = await client.contentProposal.findUnique({ where: { dedupeKey: keyed.dedupeKey } });
   }
+  if (!proposal) throw new ContentProposalConcurrencyError(keyed.dedupeKey);
+  return { proposal, created: insert.count === 1 };
 }
