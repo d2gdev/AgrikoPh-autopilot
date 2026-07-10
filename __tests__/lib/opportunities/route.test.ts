@@ -36,6 +36,8 @@ const mockPrisma = {
   contentProposal: {
     findFirst: vi.fn(),
     create: vi.fn(),
+    createMany: vi.fn(),
+    findUnique: vi.fn(),
   },
   opportunity: {
     update: vi.fn(),
@@ -46,6 +48,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.contentProposal.findFirst.mockResolvedValue(null);
   mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-1" });
+  mockPrisma.contentProposal.createMany.mockResolvedValue({ count: 1 });
+  mockPrisma.contentProposal.createMany.mockImplementation(async ({ data }) => { const p = await mockPrisma.contentProposal.create({ data: data[0] }); mockPrisma.contentProposal.findUnique.mockResolvedValue(p); return { count: 1 }; });
+  mockPrisma.contentProposal.findUnique.mockResolvedValue({ id: "proposal-1" });
   mockPrisma.opportunity.update.mockResolvedValue({});
 });
 

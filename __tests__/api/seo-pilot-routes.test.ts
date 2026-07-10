@@ -19,6 +19,8 @@ const mockPrisma = vi.hoisted(() => ({
     findFirst: vi.fn(),
     findMany: vi.fn(),
     create: vi.fn(),
+    createMany: vi.fn(),
+    findUnique: vi.fn(),
   },
   rawSnapshot: {
     upsert: vi.fn(),
@@ -99,6 +101,8 @@ describe("SEO Pilot route regressions", () => {
     mockCheckRateLimit.mockReturnValue(true);
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
     mockPrisma.contentProposal.findMany.mockResolvedValue([]);
+    mockPrisma.contentProposal.createMany.mockImplementation(async ({ data }) => { const p = await mockPrisma.contentProposal.create({ data: data[0] }); mockPrisma.contentProposal.findUnique.mockResolvedValue(p); return { count: 1 }; });
+    mockPrisma.contentProposal.findUnique.mockResolvedValue({ id: "proposal-1" });
     mockPrisma.articleRecord.findMany.mockResolvedValue([]);
     mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
     mockPrisma.auditLog.create.mockResolvedValue({});

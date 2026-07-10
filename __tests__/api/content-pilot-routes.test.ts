@@ -15,6 +15,8 @@ const mockPrisma = vi.hoisted(() => ({
     findMany: vi.fn(),
     deleteMany: vi.fn(),
     create: vi.fn(),
+    createMany: vi.fn(),
+    findUnique: vi.fn(),
     update: vi.fn(),
   },
   auditLog: {
@@ -100,6 +102,7 @@ describe("Content Pilot route regressions", () => {
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.contentProposal.deleteMany.mockResolvedValue({ count: 0 });
     mockPrisma.contentProposal.create.mockImplementation(async ({ data }) => ({ id: `proposal-${data.title}`, ...data }));
+    mockPrisma.contentProposal.createMany.mockImplementation(async ({ data }) => { const p = await mockPrisma.contentProposal.create({ data: data[0] }); mockPrisma.contentProposal.findUnique.mockResolvedValue(p); return { count: 1 }; });
     mockOpportunityFromProposal.mockImplementation((input) => ({ dedupeKey: input.title, title: input.title }));
     mockUpsertOpportunities.mockImplementation(async (_client, opportunities) => ({ upserted: opportunities.length }));
     mockGetDraftSchema.mockReturnValue({
