@@ -1072,7 +1072,7 @@ git commit -m "test: prove Content Pilot migrations and races on PostgreSQL"
 - Produces a completed F01–F18 evidence matrix with commit, test, and review references.
 - Produces one merge-ready branch; deployment remains separate.
 
-- [ ] **Step 1: Build the final traceability ledger**
+- [x] **Step 1: Build the final traceability ledger**
 
 For every F01–F18 row, record:
 
@@ -1085,7 +1085,7 @@ For every F01–F18 row, record:
 
 Any blank cell blocks completion.
 
-- [ ] **Step 2: Run focused cross-pilot suites**
+- [x] **Step 2: Run focused cross-pilot suites**
 
 ~~~bash
 npm test -- --run \
@@ -1102,7 +1102,7 @@ npm test -- --run \
 
 Expected: all selected files pass with zero failures.
 
-- [ ] **Step 3: Run PostgreSQL final gate**
+- [x] **Step 3: Run PostgreSQL final gate**
 
 ~~~bash
 DATABASE_URL_TEST='postgresql://test:test@127.0.0.1:5432/autopilot_test' npm run test:postgres
@@ -1110,7 +1110,7 @@ DATABASE_URL_TEST='postgresql://test:test@127.0.0.1:5432/autopilot_test' npm run
 
 Expected: all migration, race, and transaction integration tests pass.
 
-- [ ] **Step 4: Run repository gates separately and record exit status**
+- [x] **Step 4: Run repository gates separately and record exit status**
 
 ~~~bash
 npm run db:generate
@@ -1127,7 +1127,7 @@ git diff --check main...HEAD
 
 Expected: every command exits 0. Do not infer one gate from another.
 
-- [ ] **Step 5: Run security and invariant searches**
+- [x] **Step 5: Run security and invariant searches**
 
 ~~~bash
 ! git grep -nE 'BEGIN (RSA |EC |OPENSSH |)?PRIVATE KEY|sk-or-v1-|ghp_[A-Za-z0-9_]{20,}|Bearer [A-Za-z0-9._-]{40,}' -- ':!package-lock.json' ':!.github/workflows/ci.yml'
@@ -1138,7 +1138,7 @@ rg -n 'pause_ad' lib/guardrails.ts
 
 Expected: no secret/direct-client/public-key hits; pause_ad remains outside CONVERSION_SENSITIVE_ACTIONS.
 
-- [ ] **Step 6: Complete the project Verify Checklist explicitly**
+- [x] **Step 6: Complete the project Verify Checklist explicitly**
 
 Record PASS/FAIL for:
 
@@ -1153,7 +1153,7 @@ Record PASS/FAIL for:
 9. No feature was disabled or removed.
 10. No production/live action was executed.
 
-- [ ] **Step 7: Run GROW**
+- [x] **Step 7: Run GROW**
 
 Ground the exact behavior and commands. Update ROUTER and only relevant context/pattern files, bump last_updated, and run:
 
@@ -1163,14 +1163,14 @@ mex log --type decision "SEO and Content Pilot remediation now uses permission-c
 
 If mex is unavailable, record that fact without fabricating an event entry.
 
-- [ ] **Step 8: Commit final documentation**
+- [x] **Step 8: Commit final documentation**
 
 ~~~bash
 git add docs/superpowers/plans/2026-07-10-seo-content-pilot-complete-remediation.md docs/superpowers/specs/2026-07-10-seo-content-pilot-complete-remediation-design.md .mex
 git commit -m "docs: finalize complete pilot remediation"
 ~~~
 
-- [ ] **Step 9: Dispatch whole-branch specification and code-quality reviews**
+- [x] **Step 9: Dispatch whole-branch specification and code-quality reviews**
 
 Review main...HEAD against the approved design and this plan. Resolve every finding with another red-green cycle and focused commit. Repeat both reviews until each explicitly approves with no unresolved item.
 
@@ -1178,7 +1178,7 @@ Review main...HEAD against the approved design and this plan. Resolve every find
 
 Repeat Steps 2–6 from the final commit. Earlier output is not sufficient.
 
-- [ ] **Step 11: Verify final repository state**
+- [x] **Step 11: Verify final repository state**
 
 ~~~bash
 git status --short
