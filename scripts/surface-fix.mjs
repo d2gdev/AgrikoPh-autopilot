@@ -11,6 +11,7 @@ const fix = deploy || flags.includes("--fix");
 if (flags.some((flag) => flag !== "--fix" && flag !== "--deploy")) throw new Error("Unknown surface-fix flag");
 const runId = surface.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 let state = loadState(root, runId) ?? { runId, surface, mode: deploy ? "deploy" : fix ? "fix" : "audit", phase: "audit", evidence: {} };
+if (!fix) state = { runId, surface, mode: "audit", phase: "audit", evidence: {} };
 state = transition(state, state.phase, { expectedCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim() });
 saveState(root, runId, state);
 if (deploy && state.phase !== "deploying" && state.phase !== "verifying") {
