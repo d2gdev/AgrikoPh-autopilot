@@ -218,17 +218,18 @@ export function QueueTab({
     finally { setGenerating(false); }
   };
 
-  const approve = async (id: string, { generate: gen = true }: { generate?: boolean } = {}) => {
+  const approve = async (id: string, { generate: gen = true }: { generate?: boolean } = {}): Promise<boolean> => {
     setApprovingIds((prev) => new Set(prev).add(id));
     setError(null);
     try {
       const res = await authFetch(`/api/content-pilot/proposals/${id}/approve`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
       });
-      if (!res.ok) { const d = await safeJson(res); setError((d.error as string) ?? "Approve failed"); return; }
+      if (!res.ok) { const d = await safeJson(res); setError((d.error as string) ?? "Approve failed"); return false; }
       setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, status: "approved", ...(gen ? { draftStatus: "generating" } : {}) } : p));
       if (gen) void generateDraft(id, { navigate: false });
-    } catch (e) { setError(String(e)); }
+      return true;
+    } catch (e) { setError(String(e)); return false; }
     finally { setApprovingIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
   };
 
@@ -248,7 +249,7 @@ export function QueueTab({
     finally { setRejectingIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
   };
 
-  const generateDraft = async (id: string, { navigate = false, reload = true }: { navigate?: boolean; reload?: boolean } = {}) => {
+  const generateDraft = async (id: string, { navigate = false, reload = true }: { navigate?: boolean; reload?: boolean } = {}): Promise<boolean> => {
     setGeneratingDraftIds((prev) => new Set(prev).add(id));
     // Optimistic: show "Generating…" badge immediately
     setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "generating" } : p));
@@ -259,13 +260,14 @@ export function QueueTab({
       if (!res.ok) {
         const message = draftFailureMessage(d);
         setError(message);
-        setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed", draftError: message } : p));
+        setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed", draftError: message } : p)); return false;
       } else if (navigate) { router.push(withShopifyContextUrl(`/content-pilot/draft/${id}`)); }
       else if (reload) { await loadProposals(); }
+      return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
-      setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed", draftError: message } : p));
+      setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed", draftError: message } : p)); return false;
     }
     finally { setGeneratingDraftIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
   };
@@ -310,12 +312,14 @@ export function QueueTab({
       while (cursor < ids.length) {
         const id = ids[cursor++];
         if (id === undefined) break;
-        await approve(id, { generate: false });
+        const ok = await approve(id, { generate: false });
+        if (!ok) continue;
         await generateDraft(id, { navigate: false, reload: false });
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
     await loadProposals();
+    if (ids.length > 0) setError(`Processed ${ids.length} selected proposal${ids.length === 1 ? "" : "s"}. Failed items remain in the queue with error details.`);
     setBulkActing(false);
   };
 
