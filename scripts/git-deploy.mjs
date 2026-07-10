@@ -86,6 +86,17 @@ function run(command, args, options = {}) {
   return result.stdout?.trim() ?? "";
 }
 
+function parseDeployCompletion(output, expectedCommit) {
+  const line = output.split(/\r?\n/).find((value) => value.startsWith("DEPLOY_COMPLETE "));
+  if (!line) throw new Error("Remote deploy finished without DEPLOY_COMPLETE evidence");
+  let marker;
+  try { marker = JSON.parse(line.slice("DEPLOY_COMPLETE ".length)); } catch { throw new Error("Remote deploy emitted invalid completion evidence"); }
+  if (marker.commit !== expectedCommit || marker.healthStatus !== "ok" || !marker.buildIdMtime || !marker.pm2StartedAt) {
+    throw new Error("Remote deploy completion evidence did not match the expected release");
+  }
+  return marker;
+}
+
 function withGitCredentials(githubToken, callback) {
   const tempDir = mkdtempSync(resolve(tmpdir(), "agriko-git-askpass-"));
   const askPassPath = resolve(tempDir, "askpass.sh");
@@ -316,15 +327,17 @@ printf 'DEPLOY_COMPLETE {"commit":"%s","buildIdMtime":"%s","pm2StartedAt":"%s","
 
 assertRemoteStepOrder(remoteScript);
 
-run("ssh", [
+const remoteOutput = run("ssh", [
   ...sshOpts,
   `root@${IP}`,
   remoteScript,
 ], {
   cwd: ROOT,
-  stdio: ["pipe", "inherit", "inherit"],
+  stdio: ["pipe", "pipe", "inherit"],
   input: `${githubToken}\n`,
 });
+const completion = parseDeployCompletion(remoteOutput, run("git", ["rev-parse", "HEAD"], { stdio: "pipe" }));
+console.log(`==> Remote completion confirmed: ${completion.commit}`);
 
 console.log("\n==> Verifying health...");
 run("curl", ["-fsS", "https://autopilot.agrikoph.com/api/health"], { cwd: ROOT });

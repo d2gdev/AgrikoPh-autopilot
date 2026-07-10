@@ -13,6 +13,8 @@ describe("git deploy policy", () => {
     expect(source).toContain("DEPLOY_COMPLETE");
     expect(source).toContain("buildIdMtime");
     expect(source).toContain("pm2StartedAt");
+    expect(source).toContain("parseDeployCompletion");
+    expect(source).toContain("Remote deploy finished without DEPLOY_COMPLETE evidence");
   });
   it("defaults production deploys to main", () => {
     expect(resolveDeployBranch({ requestedBranch: null, allowNonMain: false })).toBe("main");
@@ -52,7 +54,7 @@ describe("git deploy policy", () => {
     expect(source).not.toContain("GITHUB_AUTH_HEADER");
     expect(source).toContain("GIT_ASKPASS");
     expect(source).toContain("unset GITHUB_TOKEN GIT_ASKPASS GIT_TERMINAL_PROMPT");
-    expect(source).toContain('stdio: ["pipe", "inherit", "inherit"]');
+    expect(source).toContain('stdio: ["pipe", "pipe", "inherit"]');
     expect(source.indexOf("npm run build:remote")).toBeLessThan(source.indexOf("npm run db:migrate"));
     expect(source).toContain("mv .next.old .next");
     expect(source.indexOf('curl -fsS "$HEALTH_URL"')).toBeLessThan(
