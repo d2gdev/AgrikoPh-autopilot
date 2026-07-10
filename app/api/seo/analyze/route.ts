@@ -207,6 +207,18 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
       console.error("[seo/analyze] AI completion timed out after 25s");
       return NextResponse.json({ error: "Analysis timed out — please try again" }, { status: 504 });
     }
+    const status = (err as { status?: number })?.status;
+    if (status === 401 || status === 403 || status === 429 || status === 503 || (err instanceof Error && /(provider|api key|configured|authentication|unauthorized)/i.test(err.message))) {
+      console.error("[seo/analyze] AI provider unavailable");
+      return NextResponse.json({
+        error: "AI provider unavailable",
+        analysis: {
+          summary: `${articleRecords.length} articles indexed. ${missingMeta.length} missing meta, ${thinContent.length} thin content, ${noInternalLinks.length} with no internal links.`,
+          quickWins: [], recommendations: [], contentGaps: programmaticGaps,
+          limits, aiStatus: "partial", aiError: "AI provider unavailable",
+        },
+      }, { status: 503 });
+    }
     console.error("[seo/analyze]", err);
     return NextResponse.json({ error: "Analysis failed" }, { status: 500 });
   }
