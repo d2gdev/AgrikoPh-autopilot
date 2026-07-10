@@ -14,7 +14,7 @@ edges:
     condition: before changing auth helpers or embedded API routes
   - target: patterns/deploy.md
     condition: when deploying an auth fix to production
-last_updated: 2026-07-10
+last_updated: 2026-07-10T01:50:00Z
 ---
 
 # Debug Shopify App Bridge Auth
@@ -70,6 +70,8 @@ Browser code must never read `AUTOPILOT_API_KEY` through a `NEXT_PUBLIC_*` varia
 - `host` present does not prove `idToken()` will resolve.
 - `window.shopify` present does not prove App Bridge auth is usable.
 - A bearer token can still be rejected by the server; inspect the JWT audience/shop and server logs instead of adding a browser fallback.
+- A valid-looking bearer token with `signature verification failed` usually means the app credentials are mismatched: the JWT `aud`/App Bridge client ID must match the server-side session-token secret. If the Admin API token-refresh app is intentionally different, set `SHOPIFY_SESSION_API_KEY`, `SHOPIFY_SESSION_API_SECRET`, and `NEXT_PUBLIC_SHOPIFY_SESSION_API_KEY`.
+- Never log the raw bearer JWT while debugging verification failures; log only decoded public metadata such as `aud`, `dest`, `iss`, and `exp`.
 - Do not use local shell interpolation when checking remote env vars; it can send an empty header and produce a false 401.
 - The full deploy script rsyncs the whole working tree. If unrelated dirty files exist, deploy only scoped files or commit intentionally before using it.
 

@@ -35,7 +35,7 @@ External cron scheduler → `POST /api/cron/*` (Bearer `CRON_SECRET`) → `acqui
 **Operator review + execution path:**
 Shopify admin iframe → Next.js App Router page (`app/(embedded)/`) → App Bridge session token → embedded API route (`app/api/`) → Prisma query → operator approves recommendation → `execute-approved` cron (only when `EXECUTE_APPROVED_LIVE_ENABLED=true`) → `lib/guardrails.ts` re-checks → live write to Meta Ads API or Shopify Admin API.
 
-**Browser auth:** Embedded browser requests use Shopify App Bridge JWT bearer tokens; browser code must never receive or send `AUTOPILOT_API_KEY`. Embedded app routes call `requireAppAuth(req)` to validate the JWT. Trusted direct/scripted calls may use the server-only `X-Autopilot-Api-Key` header.
+**Browser auth:** Embedded browser requests use Shopify App Bridge JWT bearer tokens; browser code must never receive or send `AUTOPILOT_API_KEY`. Embedded app routes call `requireAppAuth(req)` to validate the JWT. When the embedded app and Admin API token-refresh app differ, session verification uses `SHOPIFY_SESSION_API_KEY` / `SHOPIFY_SESSION_API_SECRET` while the Admin connector retains `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET`. Trusted direct/scripted calls may use the server-only `X-Autopilot-Api-Key` header.
 
 ## Key Components
 

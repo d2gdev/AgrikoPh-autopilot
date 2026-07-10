@@ -3,7 +3,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const apiKey = process.env.NEXT_PUBLIC_SHOPIFY_API_KEY ?? "";
+  const apiKey = process.env.NEXT_PUBLIC_SHOPIFY_SESSION_API_KEY ?? process.env.NEXT_PUBLIC_SHOPIFY_API_KEY ?? "";
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
