@@ -12,6 +12,8 @@ export function OverviewPanel({
   cur,
   prev,
   gscFetchedAt,
+  ga4FetchedAt,
+  ga4Freshness,
   previousFetchedAt,
   trend,
   trendFirst,
@@ -26,6 +28,8 @@ export function OverviewPanel({
   cur: Totals | undefined;
   prev: Totals | null | undefined;
   gscFetchedAt: string | null | undefined;
+  ga4FetchedAt?: string | null;
+  ga4Freshness?: { selectedSource: string; fallbackReason?: string | null };
   previousFetchedAt: string | null | undefined;
   trend: SnapshotTrendPoint[];
   trendFirst: SnapshotTrendPoint | undefined;
@@ -117,7 +121,8 @@ export function OverviewPanel({
           <Card>
             <BlockStack gap="300">
               <Text variant="headingMd" as="h2">Top Pages (GA4)</Text>
-              {pageRows.length === 0 ? <Text as="p" tone="subdued">No GA4 data yet.</Text> : (
+              {ga4FetchedAt && <Text as="p" tone="subdued" variant="bodySm">GA4 updated {timeAgo(ga4FetchedAt)}{ga4Freshness?.selectedSource === "rawSnapshot" ? " · fallback snapshot" : ""}</Text>}
+              {pageRows.length === 0 ? <Text as="p" tone="subdued">No GA4 page data available yet.</Text> : (
                 <DataTable columnContentTypes={["text", "numeric"]} headings={["Page", "Sessions"]} rows={pageRows} />
               )}
             </BlockStack>

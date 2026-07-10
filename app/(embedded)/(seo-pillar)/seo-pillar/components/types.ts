@@ -16,6 +16,7 @@ export interface SeoData {
   gscPages: GscPage[]; queryPagePairs: QueryPagePair[];
   pageHealth?: PageHealthRow[];
   clusters?: OpportunityCluster[];
+  ga4Freshness?: { selectedSource: "normalized" | "rawSnapshot" | "none"; selectedCapturedAt: string | null; normalizedCapturedAt: string | null; rawCapturedAt: string | null; fallbackReason: "normalized_missing" | "raw_newer_than_normalized" | null };
 }
 export interface ContentGap {
   query: string;

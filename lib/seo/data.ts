@@ -54,6 +54,13 @@ export interface LatestGa4Data {
   pages: Ga4PageRow[];
   fetchedAt: Date | null;
   source: Ga4DataSource;
+  freshness: {
+    selectedSource: Ga4DataSource;
+    selectedCapturedAt: Date | null;
+    normalizedCapturedAt: Date | null;
+    rawCapturedAt: Date | null;
+    fallbackReason: "normalized_missing" | "raw_newer_than_normalized" | null;
+  };
 }
 export interface PreviousGscData {
   queries: GscQueryRow[];
@@ -209,7 +216,10 @@ export async function getLatestGa4Data(): Promise<LatestGa4Data> {
     select: { dateRangeStart: true, dateRangeEnd: true, capturedAt: true },
   });
 
-  if (latestWindow) {
+  const ga4Snap = await getLatestSnapshot("ga4");
+  const rawPages = getPages(ga4Snap);
+  const rawNewer = !!(ga4Snap?.fetchedAt && latestWindow?.capturedAt && ga4Snap.fetchedAt.getTime() - latestWindow.capturedAt.getTime() > 24 * 60 * 60 * 1000);
+  if (latestWindow && !rawNewer) {
     const rows = await prisma.pageAnalytics.findMany({
       where: {
         dateRangeStart: latestWindow.dateRangeStart,
@@ -232,15 +242,15 @@ export async function getLatestGa4Data(): Promise<LatestGa4Data> {
       })),
       fetchedAt: latestWindow.capturedAt,
       source: rows.length ? "normalized" : "none",
+      freshness: { selectedSource: rows.length ? "normalized" : "none", selectedCapturedAt: rows.length ? latestWindow.capturedAt : null, normalizedCapturedAt: latestWindow.capturedAt, rawCapturedAt: ga4Snap?.fetchedAt ?? null, fallbackReason: rows.length ? null : "normalized_missing" },
     };
   }
-
-  const ga4Snap = await getLatestSnapshot("ga4");
-  const pages = getPages(ga4Snap);
+  const pages = rawPages;
   return {
     pages,
     fetchedAt: ga4Snap?.fetchedAt ?? null,
     source: pages.length ? "rawSnapshot" : "none",
+    freshness: { selectedSource: pages.length ? "rawSnapshot" : "none", selectedCapturedAt: pages.length ? ga4Snap?.fetchedAt ?? null : null, normalizedCapturedAt: latestWindow?.capturedAt ?? null, rawCapturedAt: ga4Snap?.fetchedAt ?? null, fallbackReason: rawNewer ? "raw_newer_than_normalized" : latestWindow ? "normalized_missing" : null },
   };
 }
 
