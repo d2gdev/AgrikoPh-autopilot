@@ -6,8 +6,6 @@ import { getSessionShop, PERMISSIONS, requireAppAuth, requirePermission } from "
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { generateProposals } from "@/lib/content-pilot/generate-proposals";
-import { opportunityFromProposal, upsertOpportunities } from "@/lib/opportunities/generate";
-import { markContentProposalOpportunitiesTerminal } from "@/lib/opportunities/content-proposal-outcomes";
 import {
   CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
   contentProposalDedupeKey,
@@ -53,10 +51,6 @@ export async function POST(req: Request) {
         seen.add(key);
       }
     }
-    if (toDelete.length > 0) {
-      await markContentProposalOpportunitiesTerminal(prisma, toDelete);
-      await prisma.contentProposal.deleteMany({ where: { id: { in: toDelete.map((p) => p.id) } } });
-    }
 
     if (proposals.length === 0) {
       return NextResponse.json({ created: 0, proposals: [], deduplicated: toDelete.length, opportunities: 0 });
@@ -84,7 +78,7 @@ export async function POST(req: Request) {
             title: p.title,
             description: p.description,
             proposedState: p.proposedState as object,
-            sourceData: p.sourceData as object })));
+            sourceData: p.sourceData as object })), toDelete.map((p) => p.id));
     return NextResponse.json({
       created: replacement.created,
       proposals: replacement.proposals,

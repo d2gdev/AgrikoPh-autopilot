@@ -5,7 +5,7 @@ import { opportunityFromProposal, upsertOpportunities } from "@/lib/opportunitie
 type Client = any;
 
 /** Replace the pending proposal set as one atomic unit, including its routed opportunities. */
-export async function replacePendingContentProposals(client: Client, inputs: ContentProposalCreateData[]) {
+export async function replacePendingContentProposals(client: Client, inputs: ContentProposalCreateData[], duplicateIds: string[] = []) {
   const deduped = [...new Map(inputs.map((input) => {
     const keyed = withContentProposalDedupeKey(input);
     return [keyed.dedupeKey, keyed];
@@ -13,6 +13,11 @@ export async function replacePendingContentProposals(client: Client, inputs: Con
   return client.$transaction(async (tx: Client) => {
     const pending = await tx.contentProposal.findMany({ where: { status: "pending" }, select: { id: true, status: true, draftStatus: true, sourceData: true } });
     const terminal = await markContentProposalOpportunitiesTerminal(tx, pending);
+    if (duplicateIds.length > 0) {
+      const duplicates = await tx.contentProposal.findMany({ where: { id: { in: duplicateIds } }, select: { id: true, status: true, draftStatus: true, sourceData: true } });
+      await markContentProposalOpportunitiesTerminal(tx, duplicates);
+      await tx.contentProposal.deleteMany({ where: { id: { in: duplicateIds } } });
+    }
     const removed = await tx.contentProposal.deleteMany({ where: { status: "pending" } });
     const proposals: any[] = [];
     let created = 0;
