@@ -321,15 +321,7 @@ describe("SEO Pilot route regressions", () => {
         seoData: { seoTitle: "", seoDescription: "" },
       },
     ]);
-    mockGetAiClient.mockResolvedValue({
-      model: "test-model",
-      client: {
-        chat: {
-          completions: {
-            create: vi.fn().mockResolvedValue({
-              choices: [{
-                message: {
-                  content: JSON.stringify({
+    mockChatCompletion.mockResolvedValue({ content: JSON.stringify({
                     summary: "Black Rice Benefits needs basic SEO cleanup.",
                     quickWins: [
                       "Expand Black Rice Benefits and fix its missing meta description.",
@@ -339,14 +331,7 @@ describe("SEO Pilot route regressions", () => {
                       "Target the black rice benefits query with a better SERP snippet.",
                       "Build an unrelated backlink campaign for luxury watches.",
                     ],
-                  }),
-                },
-              }],
-            }),
-          },
-        },
-      },
-    });
+                  }), provider: "deepseek", model: "test-model" });
     const { POST } = await import("@/app/api/seo/analyze/route");
 
     const res = await POST(new Request("http://test.local/api/seo/analyze", { method: "POST" }) as NextRequest);
@@ -731,29 +716,14 @@ describe("SEO Pilot route regressions", () => {
         seoData: { seoTitle: "", seoDescription: "" },
       },
     ]);
-    mockGetAiClient.mockResolvedValue({
-      model: "test-model",
-      client: {
-        chat: {
-          completions: {
-            create: vi.fn().mockResolvedValue({
-              choices: [{
-                message: {
-                  content: JSON.stringify([
+    mockChatCompletion.mockResolvedValue({ content: JSON.stringify([
                     {
                       type: "seo-fix",
                       title: "Improve the Black Rice Benefits SERP snippet",
                       articleHandle: "black-rice-benefits",
                       targetQuery: "black rice benefits",
                     },
-                  ]),
-                },
-              }],
-            }),
-          },
-        },
-      },
-    });
+                  ]), provider: "deepseek", model: "test-model" });
     mockPrisma.contentProposal.findMany.mockResolvedValue([
       {
         articleHandle: "black-rice-benefits",
