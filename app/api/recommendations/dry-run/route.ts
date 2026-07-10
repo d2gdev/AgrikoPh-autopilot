@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    await executeApprovedHandler({ dryRun: true, triggeredBy: actor });
+    await executeApprovedHandler({ triggeredBy: actor });
     const summary = await getExecutionQueueSummary();
     return NextResponse.json({ ok: true, dryRun: true, summary });
   } catch (err) {

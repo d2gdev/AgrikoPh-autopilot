@@ -22,7 +22,7 @@ edges:
     condition: when adding a new route to the system
   - target: patterns/add-cron-job.md
     condition: when adding a new job handler to the pipeline
-last_updated: 2026-06-25
+last_updated: 2026-07-10
 ---
 
 # Architecture
@@ -35,7 +35,7 @@ External cron scheduler → `POST /api/cron/*` (Bearer `CRON_SECRET`) → `acqui
 **Operator review + execution path:**
 Shopify admin iframe → Next.js App Router page (`app/(embedded)/`) → App Bridge session token → embedded API route (`app/api/`) → Prisma query → operator approves recommendation → `execute-approved` cron (only when `EXECUTE_APPROVED_LIVE_ENABLED=true`) → `lib/guardrails.ts` re-checks → live write to Meta Ads API or Shopify Admin API.
 
-**Browser auth:** All embedded app routes call `requireAppAuth(req)` which validates the Shopify App Bridge JWT. Direct/scripted calls use `X-Autopilot-Api-Key` header.
+**Browser auth:** Embedded browser requests use Shopify App Bridge JWT bearer tokens; browser code must never receive or send `AUTOPILOT_API_KEY`. Embedded app routes call `requireAppAuth(req)` to validate the JWT. Trusted direct/scripted calls may use the server-only `X-Autopilot-Api-Key` header.
 
 ## Key Components
 

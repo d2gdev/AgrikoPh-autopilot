@@ -14,7 +14,8 @@
  */
 
 import { spawnSync } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import {
@@ -76,12 +77,37 @@ function run(command, args, options = {}) {
     stdio: options.stdio ?? "inherit",
     encoding: "utf8",
     env: options.env ?? process.env,
+    input: options.input,
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(`${command} ${maskedArgs(args).join(" ")} failed with status ${result.status}`);
   }
   return result.stdout?.trim() ?? "";
+}
+
+function withGitCredentials(githubToken, callback) {
+  const tempDir = mkdtempSync(resolve(tmpdir(), "agriko-git-askpass-"));
+  const askPassPath = resolve(tempDir, "askpass.sh");
+  writeFileSync(askPassPath, `#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\\n' 'x-access-token' ;;
+  *Password*) printf '%s\\n' "$GITHUB_TOKEN" ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o700 });
+  chmodSync(askPassPath, 0o700);
+
+  try {
+    return callback({
+      ...process.env,
+      GITHUB_TOKEN: githubToken,
+      GIT_ASKPASS: askPassPath,
+      GIT_TERMINAL_PROMPT: "0",
+    });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 function readLocalEnv() {
@@ -130,7 +156,10 @@ if (!githubToken) {
   console.error("GITHUB_TOKEN is required in the environment or local .env.");
   process.exit(1);
 }
-const githubAuthHeader = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${githubToken}`).toString("base64")}`;
+if (githubToken.includes("\n") || githubToken.includes("\r")) {
+  console.error("GITHUB_TOKEN must not contain newline characters.");
+  process.exit(1);
+}
 
 const sshKey = resolveSshKey();
 const sshOpts = sshKey ? ["-i", sshKey] : [];
@@ -139,23 +168,40 @@ console.log(sshKey ? `Using SSH key ${sshKey}` : "Using default SSH agent/config
 console.log(`Deploying branch ${branch} to ${IP} through git...\n`);
 
 console.log("==> Pushing branch to origin...");
-run("git", [
-  "-c",
-  `http.extraHeader=${githubAuthHeader}`,
+withGitCredentials(githubToken, (env) => run("git", [
   "push",
   "-u",
   "origin",
   `${branch}:${branch}`,
-]);
+], { env }));
 
 console.log("\n==> Pulling and building on server...");
 const remoteScript = `
 set -euo pipefail
 
+IFS= read -r GITHUB_TOKEN
+if [ -z "$GITHUB_TOKEN" ]; then
+  echo "Missing GitHub deploy credential on stdin" >&2
+  exit 1
+fi
+
+ASKPASS_DIR=$(mktemp -d /tmp/agriko-git-askpass.XXXXXX)
+ASKPASS="$ASKPASS_DIR/askpass.sh"
+trap 'rm -rf "$ASKPASS_DIR"' EXIT
+cat > "$ASKPASS" <<'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\\n' 'x-access-token' ;;
+  *Password*) printf '%s\\n' "$GITHUB_TOKEN" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod 700 "$ASKPASS_DIR" "$ASKPASS"
+export GITHUB_TOKEN GIT_ASKPASS="$ASKPASS" GIT_TERMINAL_PROMPT=0
+
 APP=/opt/autopilot
 BRANCH=${shellQuote(branch)}
 REPO_URL=${shellQuote(originUrl)}
-GITHUB_AUTH_HEADER=${shellQuote(githubAuthHeader)}
 
 cd "$APP" || exit 1
 
@@ -183,7 +229,9 @@ tsconfig.tsbuildinfo
 tsconfig.test.tsbuildinfo
 EOF
 
-git -c "http.extraHeader=$GITHUB_AUTH_HEADER" fetch origin "$BRANCH"
+git fetch origin "$BRANCH"
+unset GITHUB_TOKEN GIT_ASKPASS GIT_TERMINAL_PROMPT
+rm -rf "$ASKPASS_DIR"
 git reset --hard FETCH_HEAD
 git checkout -B "$BRANCH" FETCH_HEAD
 git clean -fd -e .env -e node_modules/ -e .next/ -e .next.build/ -e .next.old/ -e .npm-cache/ -e tmp/ -e .seo-cache/
@@ -222,18 +270,38 @@ rm -rf .next.old
 (mv .next .next.old 2>/dev/null || true)
 mv .next.build .next
 
+rollback_build() {
+  if [ -d .next.old ]; then
+    rm -rf .next.failed
+    mv .next .next.failed
+    mv .next.old .next
+    pm2 restart autopilot --update-env || true
+    rm -rf .next.failed .next.build
+  fi
+}
+
 if pm2 restart autopilot --update-env; then
   :
 elif pm2 start /opt/autopilot/ecosystem.config.js; then
   :
 else
-  rm -rf .next.failed
-  mv .next .next.failed
-  if [ -d .next.old ]; then
-    mv .next.old .next
-    pm2 restart autopilot --update-env || true
+  rollback_build
+  exit 1
+fi
+
+HEALTH_URL=https://autopilot.agrikoph.com/api/health
+healthy=false
+for attempt in $(seq 1 10); do
+  if curl -fsS "$HEALTH_URL" >/dev/null; then
+    healthy=true
+    break
   fi
-  rm -rf .next.failed .next.build
+  sleep 3
+done
+
+if [ "$healthy" != true ]; then
+  echo "Post-restart health check failed; restoring previous build" >&2
+  rollback_build
   exit 1
 fi
 
@@ -247,7 +315,11 @@ run("ssh", [
   ...sshOpts,
   `root@${IP}`,
   remoteScript,
-], { cwd: ROOT });
+], {
+  cwd: ROOT,
+  stdio: ["pipe", "inherit", "inherit"],
+  input: `${githubToken}\n`,
+});
 
 console.log("\n==> Verifying health...");
 run("curl", ["-fsS", "https://autopilot.agrikoph.com/api/health"], { cwd: ROOT });

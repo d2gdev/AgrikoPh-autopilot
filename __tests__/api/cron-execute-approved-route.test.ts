@@ -50,7 +50,7 @@ describe("execute-approved cron route", () => {
 
     expect(res.status).toBe(200);
     expect(mockExecuteApprovedHandler).toHaveBeenCalledWith({
-      dryRun: true,
+      liveRequested: false,
       triggeredBy: "cron-dry-run",
     });
     expect(res.headers.get("X-Execute-Approved-Mode")).toBe("dry-run");
@@ -60,7 +60,7 @@ describe("execute-approved cron route", () => {
     const res = await GET(request("/api/cron/execute-approved?live=true"));
 
     expect(mockExecuteApprovedHandler).toHaveBeenCalledWith({
-      dryRun: true,
+      liveRequested: true,
       triggeredBy: "cron-dry-run",
     });
     expect(res.headers.get("X-Execute-Approved-Live-Blocked")).toContain("EXECUTE_APPROVED_LIVE_ENABLED");
@@ -72,7 +72,7 @@ describe("execute-approved cron route", () => {
     const res = await GET(request("/api/cron/execute-approved?live=true"));
 
     expect(mockExecuteApprovedHandler).toHaveBeenCalledWith({
-      dryRun: false,
+      liveRequested: true,
       triggeredBy: "cron-live",
     });
     expect(res.headers.get("X-Execute-Approved-Mode")).toBe("live");

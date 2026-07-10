@@ -9,7 +9,7 @@ import { materializeJobsStatusSnapshot } from "@/lib/dashboard/jobs-status";
 import { sendOperatorAlert } from "@/lib/alerts";
 
 type ExecuteApprovedOptions = {
-  dryRun?: boolean;
+  liveRequested?: boolean;
   triggeredBy?: string;
 };
 
@@ -62,8 +62,13 @@ function intendedChange(rec: Recommendation) {
   };
 }
 
+export function resolveExecutionMode(liveRequested = false) {
+  const liveEnabled = process.env.EXECUTE_APPROVED_LIVE_ENABLED === "true";
+  return { liveEnabled, dryRun: !(liveRequested && liveEnabled) };
+}
+
 export async function executeApprovedHandler(options: ExecuteApprovedOptions = {}): Promise<JobResult<Prisma.InputJsonValue>> {
-  const dryRun = options.dryRun === true;
+  const { dryRun } = resolveExecutionMode(options.liveRequested);
   const run = await prisma.jobRun.create({
     data: {
       jobName: "execute-approved",

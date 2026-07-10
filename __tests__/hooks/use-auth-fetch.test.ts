@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AppProvider } from "@shopify/polaris";
@@ -219,7 +221,7 @@ describe("getAppBridgeIdToken", () => {
 });
 
 describe("useAuthFetch", () => {
-  it("attaches x-autopilot-api-key to same-origin browser API calls when fallback is configured", async () => {
+  it("uses App Bridge even when a legacy public API key is configured", async () => {
     vi.stubEnv("NEXT_PUBLIC_AUTOPILOT_API_KEY", "fallback-key");
     const token = jwtExpiresIn(120);
     const idToken = vi.fn().mockResolvedValue(token);
@@ -248,14 +250,12 @@ describe("useAuthFetch", () => {
       expect.any(Object),
     );
     const fetchInit = fetchMock.mock.calls[0]?.[1];
-    expect(idToken).not.toHaveBeenCalled();
-    expect(fetchInit?.headers).toMatchObject({
-      "x-autopilot-api-key": "fallback-key",
-    });
-    expect(fetchInit?.headers).not.toHaveProperty("Authorization");
+    expect(idToken).toHaveBeenCalledTimes(1);
+    expect(fetchInit?.headers).toMatchObject({ Authorization: `Bearer ${token}` });
+    expect(fetchInit?.headers).not.toHaveProperty("x-autopilot-api-key");
   });
 
-  it("does not retry when fallback key was already sent on the first request", async () => {
+  it("does not retry a 401 with a public API key", async () => {
     vi.stubEnv("NEXT_PUBLIC_AUTOPILOT_API_KEY", "fallback-key");
     const token = jwtExpiresIn(120);
     const idToken = vi.fn().mockResolvedValue(token);
@@ -282,16 +282,14 @@ describe("useAuthFetch", () => {
 
     expect(response?.status).toBe(401);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(idToken).not.toHaveBeenCalled();
-    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
-      "x-autopilot-api-key": "fallback-key",
-    });
-    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty("Authorization");
+    expect(idToken).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({ Authorization: `Bearer ${token}` });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty("x-autopilot-api-key");
   });
 
-  it("uses fallback after tab navigation loses host context and skips App Bridge idToken", async () => {
+  it("does not send an unauthenticated request when App Bridge token acquisition fails", async () => {
     vi.stubEnv("NEXT_PUBLIC_AUTOPILOT_API_KEY", "fallback-key");
-    const idToken = vi.fn(() => new Promise<string>(() => undefined));
+    const idToken = vi.fn().mockRejectedValue(new Error("token unavailable"));
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("window", {
       self: {},
@@ -310,14 +308,18 @@ describe("useAuthFetch", () => {
     }
     renderToStaticMarkup(React.createElement(Probe));
 
-    await authFetch?.("/api/content-pilot/proposals?status=pending");
+    await expect(
+      authFetch?.("/api/content-pilot/proposals?status=pending"),
+    ).rejects.toThrow("token unavailable");
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(idToken).not.toHaveBeenCalled();
-    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
-      "x-autopilot-api-key": "fallback-key",
-    });
-    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty("Authorization");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(idToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("contains no browser reference to the server API key", () => {
+    const source = readFileSync(resolve(process.cwd(), "hooks/use-auth-fetch.ts"), "utf8");
+    expect(source).not.toContain("NEXT_PUBLIC_AUTOPILOT_API_KEY");
+    expect(source).not.toContain("x-autopilot-api-key");
   });
 });
 

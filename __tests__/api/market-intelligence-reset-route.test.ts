@@ -65,12 +65,15 @@ async function loadRoute() {
   ({ POST: postResetRoute } = await import("@/app/api/market-intelligence/reset/route"));
 }
 
-function request(path = "/api/market-intelligence/reset") {
+function request(path = "/api/market-intelligence/reset", headers: Record<string, string> = {}) {
   return new Request(`http://localhost${path}`, {
     method: "POST",
     headers: {
       "x-forwarded-for": "203.0.113.10",
       "user-agent": "vitest-agent",
+      "x-maintenance-secret": "maintenance-secret",
+      "x-maintenance-confirm": "confirm-token",
+      ...headers,
     },
   });
 }
@@ -151,7 +154,7 @@ describe("market intelligence reset route", () => {
     mockVerifySessionToken.mockResolvedValue(null);
     await loadRoute();
 
-    const res = await postResetRoute(request("/api/market-intelligence/reset?maintenanceSecret=maintenance-secret&confirm=confirm-token"));
+    const res = await postResetRoute(request());
 
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "Unauthorized" });
@@ -161,7 +164,7 @@ describe("market intelligence reset route", () => {
 
   it("enforces maintenance secret and confirmation token", async () => {
     const resBadMaint = await postResetRoute(
-      request("/api/market-intelligence/reset?maintenanceSecret=wrong-secret&confirm=confirm-token"),
+      request("/api/market-intelligence/reset", { "x-maintenance-secret": "wrong-secret" }),
     );
     expect(resBadMaint.status).toBe(401);
     expect(await resBadMaint.json()).toEqual({ error: "Unauthorized" });
@@ -169,7 +172,7 @@ describe("market intelligence reset route", () => {
     mockCheckRateLimit.mockClear();
     await loadRoute();
     const resBadConfirm = await postResetRoute(
-      request("/api/market-intelligence/reset?maintenanceSecret=maintenance-secret&confirm=wrong-token"),
+      request("/api/market-intelligence/reset", { "x-maintenance-confirm": "wrong-token" }),
     );
 
     expect(resBadConfirm.status).toBe(400);
@@ -178,12 +181,22 @@ describe("market intelligence reset route", () => {
     expect(body.expected).toBe("a server-provided confirmation token");
   });
 
+  it("rejects reset credentials in the URL query string", async () => {
+    const res = await postResetRoute(
+      request("/api/market-intelligence/reset?maintenanceSecret=maintenance-secret&confirm=confirm-token"),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Reset credentials must be provided in headers." });
+    expect(mockPrisma.marketInsight.deleteMany).not.toHaveBeenCalled();
+  });
+
   it("rate limits repeated reset attempts", async () => {
     mockCheckRateLimit.mockReturnValue(false);
     await loadRoute();
 
     const res = await postResetRoute(
-      request("/api/market-intelligence/reset?maintenanceSecret=maintenance-secret&confirm=confirm-token"),
+      request(),
     );
 
     expect(res.status).toBe(429);
@@ -196,7 +209,7 @@ describe("market intelligence reset route", () => {
     await loadRoute();
 
     const res = await postResetRoute(
-      request("/api/market-intelligence/reset?maintenanceSecret=maintenance-secret&confirm=confirm-token"),
+      request(),
     );
 
     expect(res.status).toBe(429);
@@ -206,7 +219,7 @@ describe("market intelligence reset route", () => {
 
   it("performs a transactional reset with audit logging when authorized", async () => {
     const res = await postResetRoute(
-      request("/api/market-intelligence/reset?maintenanceSecret=maintenance-secret&confirm=confirm-token"),
+      request(),
     );
 
     expect(res.status).toBe(200);
@@ -243,7 +256,7 @@ describe("market intelligence reset route", () => {
     await loadRoute();
 
     const res = await postResetRoute(
-      request("/api/market-intelligence/reset?maintenanceSecret=maintenance-secret&confirm=confirm-token"),
+      request(),
     );
 
     expect(res.status).toBe(500);
@@ -263,4 +276,3 @@ function mockAuditAction(action: string): boolean {
     (call) => call[0]?.data?.action === action,
   );
 }
-

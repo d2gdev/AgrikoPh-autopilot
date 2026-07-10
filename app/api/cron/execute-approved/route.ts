@@ -25,7 +25,7 @@ export async function GET(req: Request) {
 
   try {
     const result = await executeApprovedHandler({
-      dryRun,
+      liveRequested,
       triggeredBy: dryRun ? "cron-dry-run" : "cron-live",
     });
     const response = jobResponse(result);

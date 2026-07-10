@@ -42,8 +42,16 @@ describe("git deploy policy", () => {
     const source = readFileSync(resolve(process.cwd(), "scripts/git-deploy.mjs"), "utf8");
 
     expect(source).not.toContain("StrictHostKeyChecking=no");
+    expect(source).not.toContain("http.extraHeader");
+    expect(source).not.toContain("GITHUB_AUTH_HEADER");
+    expect(source).toContain("GIT_ASKPASS");
+    expect(source).toContain("unset GITHUB_TOKEN GIT_ASKPASS GIT_TERMINAL_PROMPT");
+    expect(source).toContain('stdio: ["pipe", "inherit", "inherit"]');
     expect(source.indexOf("npm run build:remote")).toBeLessThan(source.indexOf("npm run db:migrate"));
     expect(source).toContain("mv .next.old .next");
+    expect(source.indexOf('curl -fsS "$HEALTH_URL"')).toBeLessThan(
+      source.indexOf("rm -rf /opt/autopilot/.next.old"),
+    );
     expect(source).toContain("--allow-non-main");
   });
 });

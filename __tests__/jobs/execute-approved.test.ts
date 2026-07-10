@@ -42,7 +42,7 @@ vi.mock("@/lib/connectors/meta", () => ({
 import { prisma } from "@/lib/db";
 import { checkGuardrails } from "@/lib/guardrails";
 import { executeRecommendation } from "@/lib/executor";
-import { executeApprovedHandler } from "@/jobs/execute-approved";
+import { executeApprovedHandler, resolveExecutionMode } from "@/jobs/execute-approved";
 import { MetaApiError } from "@/lib/connectors/meta-errors";
 
 const mockPrisma = prisma as unknown as {
@@ -62,6 +62,11 @@ const mockPrisma = prisma as unknown as {
 
 const mockCheckGuardrails = checkGuardrails as ReturnType<typeof vi.fn>;
 const mockExecuteRecommendation = executeRecommendation as ReturnType<typeof vi.fn>;
+
+function executeLive() {
+  process.env.EXECUTE_APPROVED_LIVE_ENABLED = "true";
+  return executeApprovedHandler({ liveRequested: true });
+}
 
 const baseRec = {
   id: "rec-1",
@@ -94,6 +99,7 @@ const metaSnapshot = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.EXECUTE_APPROVED_LIVE_ENABLED;
 
   // Default: no stale records, no approved records
   mockPrisma.recommendation.findMany.mockResolvedValue([]);
@@ -117,13 +123,39 @@ beforeEach(() => {
 });
 
 describe("executeApprovedHandler", () => {
+  it("requires both explicit live intent and the server gate", () => {
+    expect(resolveExecutionMode()).toEqual({ liveEnabled: false, dryRun: true });
+    expect(resolveExecutionMode(true)).toEqual({ liveEnabled: false, dryRun: true });
+
+    process.env.EXECUTE_APPROVED_LIVE_ENABLED = "true";
+    expect(resolveExecutionMode()).toEqual({ liveEnabled: true, dryRun: true });
+    expect(resolveExecutionMode(true)).toEqual({ liveEnabled: true, dryRun: false });
+  });
+
+  it("defaults to dry-run even when called directly", async () => {
+    await executeApprovedHandler();
+
+    expect(mockPrisma.jobRun.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ dryRun: true }),
+    });
+    expect(mockExecuteRecommendation).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit live request in dry-run when the server gate is disabled", async () => {
+    await executeApprovedHandler({ liveRequested: true });
+
+    expect(mockPrisma.jobRun.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ dryRun: true }),
+    });
+  });
+
   describe("happy path", () => {
     it("calls executeRecommendation and marks status as executed with audit log", async () => {
       mockPrisma.recommendation.findMany
         .mockResolvedValueOnce([]) // stale query returns empty
         .mockResolvedValueOnce([baseRec]); // approved query returns one rec
 
-      await executeApprovedHandler();
+      await executeLive();
 
       expect(mockExecuteRecommendation).toHaveBeenCalledWith(baseRec);
       // $transaction should have been called with the executed status update
@@ -143,7 +175,7 @@ describe("executeApprovedHandler", () => {
         .mockResolvedValueOnce([baseRec]); // approved
       mockPrisma.recommendation.updateMany.mockResolvedValue({ count: 0 }); // locked by another process
 
-      await executeApprovedHandler();
+      await executeLive();
 
       expect(mockExecuteRecommendation).not.toHaveBeenCalled();
       // No $transaction for execution — should not have set status to executed
@@ -160,7 +192,7 @@ describe("executeApprovedHandler", () => {
         .mockResolvedValueOnce([baseRec]); // approved
       mockCheckGuardrails.mockResolvedValue({ status: "hard_block", reason: "Conversion count too low" });
 
-      await executeApprovedHandler();
+      await executeLive();
 
       expect(mockExecuteRecommendation).not.toHaveBeenCalled();
       expect(mockPrisma.$transaction).toHaveBeenCalled();
@@ -177,7 +209,7 @@ describe("executeApprovedHandler", () => {
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([overrideRec]);
 
-      await executeApprovedHandler();
+      await executeLive();
 
       expect(mockCheckGuardrails).not.toHaveBeenCalled();
       expect(mockExecuteRecommendation).toHaveBeenCalledWith(overrideRec);
@@ -191,7 +223,7 @@ describe("executeApprovedHandler", () => {
         .mockResolvedValueOnce([baseRec]);
       mockExecuteRecommendation.mockRejectedValue(new Error("API timeout"));
 
-      await executeApprovedHandler();
+      await executeLive();
 
       expect(mockPrisma.$transaction).toHaveBeenCalled();
       const txCalls = mockPrisma.$transaction.mock.calls;
@@ -215,7 +247,7 @@ describe("executeApprovedHandler", () => {
         isTransient: false,
       }));
 
-      await executeApprovedHandler();
+      await executeLive();
 
       expect(mockExecuteRecommendation).toHaveBeenCalledTimes(1);
       expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -239,7 +271,7 @@ describe("executeApprovedHandler", () => {
         .mockResolvedValueOnce([staleRec]) // stale query returns one
         .mockResolvedValueOnce([]); // no approved to run
 
-      await executeApprovedHandler();
+      await executeLive();
 
       // $transaction called for stale recovery (updateMany + auditLog.create per stale rec)
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);

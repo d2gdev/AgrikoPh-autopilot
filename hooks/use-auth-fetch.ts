@@ -42,10 +42,6 @@ const FETCH_TOKEN_TIMEOUT_MS = 2_000;
 const FETCH_TOKEN_POLL_INTERVAL_MS = 50;
 const CONTEXT_STORAGE_KEY = "agriko.shopify.context";
 
-function getPublicAutopilotApiKey(): string {
-  return process.env.NEXT_PUBLIC_AUTOPILOT_API_KEY ?? "";
-}
-
 let cachedIdToken: { token: string; expiresAtMs: number } | null = null;
 let idTokenRequest: Promise<string> | null = null;
 let bootLogged = false;
@@ -147,30 +143,11 @@ function getWindow(): ShopifyWindow | null {
   return window as ShopifyWindow;
 }
 
-function getRequestLabel(input: RequestInfo | URL): string {
-  if (typeof input === "string") return input;
-  if (input instanceof URL) return `${input.pathname}${input.search}`;
-  return input.url;
-}
-
 function getFetchTransport(useNativeFetch: boolean): typeof fetch {
   const win = getWindow();
   if (useNativeFetch && win?.__agrikoNativeFetch) return win.__agrikoNativeFetch;
   if (win?.fetch) return win.fetch.bind(win);
   return fetch;
-}
-
-function isSameOriginRequest(input: RequestInfo | URL): boolean {
-  const win = getWindow();
-  if (!win) return false;
-
-  try {
-    const requestUrl = input instanceof Request ? input.url : String(input);
-    const url = new URL(requestUrl, win.location.href);
-    return url.origin === new URL(win.location.href).origin;
-  } catch {
-    return false;
-  }
 }
 
 function logAuth(level: LogLevel, message: string, details?: Record<string, unknown>) {
@@ -607,18 +584,6 @@ export function useAppBridgeAuth() {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   useEffect(() => {
-    if (getPublicAutopilotApiKey()) {
-      const context = getShopifyContext();
-      setAuthSnapshot({
-        status: "ready",
-        hasHost: context.hasHost,
-        appBridgeReady: Boolean(getWindow()?.shopify?.idToken),
-        initialized: true,
-        error: null,
-      });
-      return;
-    }
-
     getAppBridgeIdToken(Date.now(), {
       timeoutMs: DEFAULT_TOKEN_TIMEOUT_MS,
       retryDelaysMs: DEFAULT_RETRY_DELAYS_MS,
@@ -640,48 +605,17 @@ export function useAuthFetch() {
         ...normalized,
       };
 
-      let addedFallbackKey = hasHeader(baseHeaders, "x-autopilot-api-key");
-      const fallbackApiKey = getPublicAutopilotApiKey();
-      const sameOriginRequest = isSameOriginRequest(input);
-      if (fallbackApiKey && sameOriginRequest && !addedFallbackKey) {
-        baseHeaders["x-autopilot-api-key"] = fallbackApiKey;
-        addedFallbackKey = true;
-      }
-
-      if (!hasHeader(baseHeaders, "authorization") && !(fallbackApiKey && sameOriginRequest)) {
-        try {
-          const token = await getAppBridgeIdToken(Date.now(), {
-            timeoutMs: FETCH_TOKEN_TIMEOUT_MS,
-            retryDelaysMs: [0],
-            pollIntervalMs: FETCH_TOKEN_POLL_INTERVAL_MS,
-          });
-          baseHeaders.Authorization = `Bearer ${token}`;
-        } catch (err) {
-          logAuth("warn", `Falling back from App Bridge auth for ${getRequestLabel(input)}`, {
-            error: err instanceof Error ? err.message : String(err),
-            hasPublicFallback: Boolean(fallbackApiKey),
-          });
-          if (fallbackApiKey && !hasHeader(baseHeaders, "x-autopilot-api-key")) {
-            baseHeaders["x-autopilot-api-key"] = fallbackApiKey;
-            addedFallbackKey = true;
-          }
-        }
+      if (!hasHeader(baseHeaders, "authorization")) {
+        const token = await getAppBridgeIdToken(Date.now(), {
+          timeoutMs: FETCH_TOKEN_TIMEOUT_MS,
+          retryDelaysMs: [0],
+          pollIntervalMs: FETCH_TOKEN_POLL_INTERVAL_MS,
+        });
+        baseHeaders.Authorization = `Bearer ${token}`;
       }
 
       const transport = getFetchTransport(false);
-      const response = await transport(input, { ...init, headers: baseHeaders });
-      if (response.status !== 401 || addedFallbackKey || !fallbackApiKey) {
-        return response;
-      }
-
-      logAuth("warn", `Retrying ${getRequestLabel(input)} with fallback API key after 401`, {});
-      return transport(input, {
-        ...init,
-        headers: {
-          ...baseHeaders,
-          "x-autopilot-api-key": fallbackApiKey,
-        },
-      });
+      return transport(input, { ...init, headers: baseHeaders });
     },
     [],
   );

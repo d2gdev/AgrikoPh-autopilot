@@ -32,21 +32,17 @@ function secureEqual(a: string | null | undefined, b: string | null | undefined)
   return timingSafeEqual(expected, actual);
 }
 
-function resolveSecret(source: URLSearchParams, request: Request): string | null {
-  return (
-    source.get("maintenanceSecret") ??
-    request.headers.get("x-maintenance-secret") ??
-    null
-  );
+function resolveSecret(request: Request): string | null {
+  return request.headers.get("x-maintenance-secret");
 }
 
-function resolveConfirmation(source: URLSearchParams, request: Request): string | null {
-  return (
-    source.get("confirm") ??
-    source.get("token") ??
-    request.headers.get("x-maintenance-confirm") ??
-    null
-  );
+function resolveConfirmation(request: Request): string | null {
+  return request.headers.get("x-maintenance-confirm");
+}
+
+function hasResetCredentialsInQuery(request: Request): boolean {
+  const searchParams = new URL(request.url).searchParams;
+  return ["maintenanceSecret", "confirm", "token"].some((name) => searchParams.has(name));
 }
 
 function normalizeShopIdentifier(raw: string | null | undefined): string | null {
@@ -133,6 +129,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  if (hasResetCredentialsInQuery(req)) {
+    await logResetAttempt({
+      actor: "unknown",
+      request: req,
+      outcome: "rejected",
+      reason: "credentials_in_query",
+    });
+    return NextResponse.json(
+      { error: "Reset credentials must be provided in headers." },
+      { status: 400 },
+    );
+  }
+
   const shop = await verifySessionToken(req);
   if (!shop) {
     await logResetAttempt({
@@ -167,8 +176,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
-  const url = new URL(req.url);
-  const providedSecret = resolveSecret(url.searchParams, req);
+  const providedSecret = resolveSecret(req);
   if (!secureEqual(MAINTENANCE_SECRET, providedSecret)) {
     await logResetAttempt({
       actor,
@@ -190,7 +198,7 @@ export async function POST(req: Request) {
   const devFallbackConfirmation = process.env.NODE_ENV !== "production" ? "clear-captures" : null;
   const effectiveConfirmationSecret = RESET_CONFIRMATION_SECRET ?? devFallbackConfirmation;
 
-  const providedConfirmation = resolveConfirmation(url.searchParams, req);
+  const providedConfirmation = resolveConfirmation(req);
   if (!secureEqual(effectiveConfirmationSecret, providedConfirmation)) {
     const expected = RESET_CONFIRMATION_SECRET ? "a server-provided confirmation token" : devFallbackConfirmation;
     await logResetAttempt({

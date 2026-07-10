@@ -14,7 +14,7 @@ edges:
     condition: before changing auth helpers or embedded API routes
   - target: patterns/deploy.md
     condition: when deploying an auth fix to production
-last_updated: 2026-06-30
+last_updated: 2026-07-10
 ---
 
 # Debug Shopify App Bridge Auth
@@ -25,10 +25,7 @@ Embedded browser API calls normally use Shopify App Bridge session tokens throug
 
 In production, Shopify App Bridge can expose `window.shopify` and preserve `host`, but still fail to answer `shopify.idToken()`. Do not treat a longer timeout as a fix. The timeout is a symptom of a broken or unavailable parent-frame handshake.
 
-This project currently has a temporary same-origin fallback:
-- browser: `NEXT_PUBLIC_AUTOPILOT_API_KEY`
-- server: `AUTOPILOT_API_KEY`
-- header: `x-autopilot-api-key`
+Browser code must never read `AUTOPILOT_API_KEY` through a `NEXT_PUBLIC_*` variable or send `x-autopilot-api-key`. That key is server-only and remains available solely for trusted scripts and server-to-server diagnostics.
 
 ## Steps
 
@@ -43,22 +40,22 @@ This project currently has a temporary same-origin fallback:
 
 3. Do not increase token timeouts.
    - Keep short API-call token attempts.
-   - If fallback auth is configured, same-origin API calls should not invoke `idToken()` at all.
+   - A token acquisition failure must reject the request before `fetch()`; never continue unauthenticated.
 
 4. Check the auth helper first.
-   - `useAuthFetch()` must attach `x-autopilot-api-key` to same-origin API requests when `NEXT_PUBLIC_AUTOPILOT_API_KEY` exists.
-   - Once that fallback key is attached for a same-origin request, skip `getAppBridgeIdToken()` entirely.
-   - Keep a 401 retry with fallback only for paths that did not already send the fallback key.
+   - `useAuthFetch()` must acquire an App Bridge token and attach `Authorization: Bearer <token>` unless the caller already supplied an authorization header.
+   - A 401 response is returned to the caller without retrying with another credential.
+   - Source and bundle scans must find no `NEXT_PUBLIC_AUTOPILOT_API_KEY` or browser `x-autopilot-api-key` path.
 
 5. Check the auth gate.
-   - `useAppBridgeAuth()` should mark auth ready when the same-origin fallback key exists.
-   - Do not let a later failed `idToken()` attempt overwrite the gate into an error state when fallback auth is available.
+   - `useAppBridgeAuth()` becomes ready only after App Bridge initialization/token success.
+   - A failed `idToken()` attempt should surface the embedded-auth error state instead of silently bypassing authentication.
 
 6. Check server auth.
-   - `requireAppAuth()` must accept the matching private fallback key while this temporary fallback is active.
-   - After `requireAppAuth()` succeeds, do not immediately fail the route because `getSessionShop()` is null. API-key fallback auth is valid but does not create a Shopify session shop; use `getSessionUser()` or a stable fallback actor for rate limits and audit logs.
+   - `requireAppAuth()` validates App Bridge JWTs for embedded traffic. The API-key path exists only for trusted non-browser callers and must never be exposed to the client bundle.
+   - After trusted API-key auth succeeds, routes that intentionally support scripted access cannot assume `getSessionShop()` is present; use `getSessionUser()` or a stable fallback actor for rate limits and audit logs.
    - Routes that commonly regress here: Social analysis, image alt-text generation, settings/connector health, settings saves, cron/status-style embedded status endpoints.
-   - Verify with a remote-side env expansion:
+   - A server-side diagnostic can still use remote env expansion without printing the secret:
      ```bash
      ssh autopilot-prod 'cd /opt/autopilot && bash --norc --noprofile -c '\''set -a; source .env; set +a; curl -sS -o /tmp/jobs-status.json -w "%{http_code}" -H "x-autopilot-api-key: ${AUTOPILOT_API_KEY}" https://autopilot.agrikoph.com/api/jobs/status; echo'\'''
      ```
@@ -72,7 +69,7 @@ This project currently has a temporary same-origin fallback:
 
 - `host` present does not prove `idToken()` will resolve.
 - `window.shopify` present does not prove App Bridge auth is usable.
-- A bearer token can still be rejected by the server; fallback must be sent on the first same-origin request while the workaround is active.
+- A bearer token can still be rejected by the server; inspect the JWT audience/shop and server logs instead of adding a browser fallback.
 - Do not use local shell interpolation when checking remote env vars; it can send an empty header and produce a false 401.
 - The full deploy script rsyncs the whole working tree. If unrelated dirty files exist, deploy only scoped files or commit intentionally before using it.
 
@@ -98,11 +95,11 @@ This project currently has a temporary same-origin fallback:
 
 If it still fails:
 - Inspect Network request headers for the failing `/api/*` call.
-- If `x-autopilot-api-key` is missing, fix `useAuthFetch()` same-origin detection.
-- If `x-autopilot-api-key` is present and response is 401, compare server/public key hashes on the VPS without printing secrets.
-- If the page shows the App Bridge error banner but API calls succeed, fix `useAppBridgeAuth()` so fallback-ready state is not overwritten by token errors.
+- If `Authorization` is missing, fix App Bridge initialization or `useAuthFetch()` token acquisition.
+- If the bearer header is present and the response is 401, inspect JWT validation inputs and server logs without printing the token.
+- If any browser request carries `x-autopilot-api-key`, treat it as a credential exposure regression and remove the client path.
 
 ## Update Scaffold
-- [ ] Update `.mex/ROUTER.md` "Known issues" if the fallback is removed or App Bridge session auth is fully fixed
+- [ ] Update `.mex/ROUTER.md` if the embedded auth strategy changes
 - [ ] Update `context/architecture.md` if the browser auth strategy changes
-- [ ] Update this pattern if the temporary fallback is removed
+- [ ] Keep this pattern aligned with the no-browser-secret invariant
