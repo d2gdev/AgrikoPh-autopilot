@@ -55,6 +55,13 @@ export interface LatestGa4Data {
   fetchedAt: Date | null;
   source: Ga4DataSource;
 }
+export interface PreviousGscData {
+  queries: GscQueryRow[];
+  fetchedAt: Date;
+  dateRangeStart: Date;
+  dateRangeEnd: Date;
+  source: Exclude<GscDataSource, "none">;
+}
 
 function formatPercent(value: number | null | undefined, digits = 1): string {
   return value == null ? "—" : `${(value * 100).toFixed(digits)}%`;
@@ -181,14 +188,19 @@ export async function getLatestGscData(): Promise<LatestGscData> {
 }
 
 export async function getPreviousGscQueries(current: LatestGscData): Promise<GscQueryRow[] | null> {
+  return (await getPreviousGscData(current))?.queries ?? null;
+}
+
+export async function getPreviousGscData(current: LatestGscData): Promise<PreviousGscData | null> {
   if (current.source === "normalized" && current.window) {
     const previousWindow = await getPreviousGscWindow(current.window);
-    return previousWindow ? getGscQueriesForWindow(previousWindow) : null;
+    if (!previousWindow) return null;
+    return { queries: await getGscQueriesForWindow(previousWindow), fetchedAt: previousWindow.capturedAt, dateRangeStart: previousWindow.dateRangeStart, dateRangeEnd: previousWindow.dateRangeEnd, source: "normalized" };
   }
 
   const latest = await getLatestSnapshot("gsc");
   const previous = latest ? await getComparisonSnapshot("gsc", latest) : null;
-  return previous ? getQueries(previous) : null;
+  return previous?.fetchedAt && previous.dateRangeStart && previous.dateRangeEnd ? { queries: getQueries(previous), fetchedAt: previous.fetchedAt, dateRangeStart: previous.dateRangeStart, dateRangeEnd: previous.dateRangeEnd, source: "rawSnapshot" } : null;
 }
 
 export async function getLatestGa4Data(): Promise<LatestGa4Data> {

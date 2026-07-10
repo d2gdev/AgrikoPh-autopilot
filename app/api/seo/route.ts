@@ -6,7 +6,7 @@ import { computeCtrOpportunities } from "@/lib/seo/opportunities";
 import { computeOpportunityClusters } from "@/lib/seo/clusters";
 import { computePageHealth, normalizePagePath } from "@/lib/seo/page-health";
 import { parsePercent } from "@/lib/seo/types";
-import { getLatestGa4Data, getLatestGscData, getPreviousGscQueries } from "@/lib/seo/data";
+import { getLatestGa4Data, getLatestGscData, getPreviousGscData, getPreviousGscQueries } from "@/lib/seo/data";
 import { prisma } from "@/lib/db";
 
 type SeoSummaryPayload = {
@@ -95,12 +95,14 @@ export async function GET(req: Request) {
       return NextResponse.json(payload);
     }
 
-    const previousQueries = await getPreviousGscQueries(gscData);
+    const previous = getPreviousGscData
+      ? await getPreviousGscData(gscData)
+      : ((await getPreviousGscQueries(gscData)) ? { queries: await getPreviousGscQueries(gscData), fetchedAt: new Date(0) } : null);
     const trends = computeTrends(
       queries,
-      previousQueries,
+      previous?.queries ?? null,
       gscData.fetchedAt?.toISOString() ?? null,
-      null,
+      previous?.fetchedAt.toISOString() ?? null,
     );
     const gscPages = gscData.pages;
     const allQueryPagePairs = gscData.queryPagePairs;

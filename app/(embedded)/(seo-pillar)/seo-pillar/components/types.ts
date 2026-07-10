@@ -43,6 +43,7 @@ export interface HealthOffender { handle: string; title: string; wordCount: numb
 export interface HealthLimits { articlesTotalLowerBound: number; articlesAnalyzed: number; articlesTruncated: boolean }
 export interface Health { totals: HealthTotals; worstOffenders: HealthOffender[]; limits?: HealthLimits }
 export interface KeywordRow { keyword: string; position: number | null; clicks: number; impressions: number; positionDelta: number | null; status: string; alert: boolean }
+export const trackedKeywordSet = (keywords: KeywordRow[]) => new Set(keywords.map((row) => row.keyword.trim().toLowerCase()));
 export interface Cluster { topic: string; articleCount: number; keywordCount: number; gapScore: number }
 
 export const gapKey = (g: { query: string; suggestedTitle: string }) => `${g.query}::${g.suggestedTitle}`;

@@ -3,6 +3,19 @@ import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import type { SeoData, Analysis, Health, KeywordRow, Cluster, SnapshotTrendPoint } from "./types";
 
+export async function loadSeoCoreRequest(
+  authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  commit: (data: SeoData) => void,
+): Promise<void> {
+  const response = await authFetch("/api/seo");
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(typeof body.error === "string" ? body.error : "SEO data");
+  }
+  const next = await response.json() as SeoData;
+  commit(next);
+}
+
 // ── SEO Pilot data-loading hook ─────────────────────────────────────────────
 // Verbatim body relocated from app/(embedded)/(seo-pillar)/seo-pillar/page.tsx
 // (Phase 8c, Task 4), following the Phase 8b `useDashboardData` precedent.
@@ -28,10 +41,7 @@ export function useSeoData() {
   const [toast, setToast] = useState<string | null>(null);
 
   const loadCore = useCallback(async () => {
-    const r = await authFetch("/api/seo");
-    const d = await r.json() as SeoData;
-    setCache("/api/seo", d);
-    setData(d);
+    await loadSeoCoreRequest(authFetch, (d) => { setCache("/api/seo", d); setData(d); });
   }, [authFetch]);
 
   // Shared by the initial mount load and a manual refresh, so a refresh

@@ -4,7 +4,7 @@ import {
   Page, Layout, Card, Text, Badge, InlineStack, BlockStack, DataTable, Banner,
   Button, TextField, Tabs, Spinner, Tooltip, List, Select,
 } from "@shopify/polaris";
-import { useState, useCallback, type Dispatch, type SetStateAction } from "react";
+import { useState, useCallback, useEffect, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { KEYWORD_CLUSTERS, PRIMARY_TARGETS, SECONDARY_BANK, ROADMAP, ALL_PRIMARY_KEYWORDS, type PrimaryTarget } from "@/lib/seo/keyword-strategy";
@@ -15,6 +15,7 @@ import type {
   ContentGap, HealthTotals, HealthOffender,
 } from "./components/types";
 import { gapKey, opportunityKey, fmtPct } from "./components/types";
+import { trackedKeywordSet } from "./components/types";
 import { useSeoData } from "./components/useSeoData";
 import { OverviewPanel } from "./components/panels/OverviewPanel";
 import { OpportunitiesPanel } from "./components/panels/OpportunitiesPanel";
@@ -85,6 +86,7 @@ export default function SeoPillarReportPage() {
   const [planningKw, setPlanningKw] = useState<Set<string>>(new Set());
   const [plannedKw, setPlannedKw] = useState<Set<string>>(new Set());
   const [newKeyword, setNewKeyword] = useState("");
+  useEffect(() => { setTrackedKw(trackedKeywordSet(keywords)); }, [keywords]);
   // AI SEO brief (ported from the retired /seo page)
   const [brief, setBrief] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
@@ -230,19 +232,20 @@ export default function SeoPillarReportPage() {
 
   // ── Strategy tab actions ──
   const trackKeyword = useCallback(async (keyword: string): Promise<boolean> => {
-    setTrackingKw((s) => new Set([...s, keyword]));
+    const normalized = keyword.trim().toLowerCase();
+    setTrackingKw((s) => new Set([...s, normalized]));
     try {
       const res = await authFetch("/api/seo/keywords", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword }),
+        body: JSON.stringify({ keyword: normalized }),
       });
-      if (res.ok) { setTrackedKw((s) => new Set([...s, keyword])); return true; }
+      if (res.ok) { setTrackedKw((s) => new Set([...s, normalized])); return true; }
       const d = await res.json().catch(() => ({}));
       setToast(d.error ?? "Could not track keyword.");
       return false;
     } catch { setToast("Could not track keyword."); return false; }
-    finally { setTrackingKw((s) => { const n = new Set(s); n.delete(keyword); return n; }); }
+    finally { setTrackingKw((s) => { const n = new Set(s); n.delete(normalized); return n; }); }
   }, [authFetch]);
 
   const trackAllPrimary = useCallback(async () => {
@@ -251,7 +254,7 @@ export default function SeoPillarReportPage() {
     try {
       // Sequential to respect the 20/min keyword rate limit.
       for (const kw of ALL_PRIMARY_KEYWORDS) {
-        if (trackedKw.has(kw)) { ok++; continue; }
+        if (trackedKw.has(kw.trim().toLowerCase())) { ok++; continue; }
         if (await trackKeyword(kw)) ok++;
       }
       setToast(`Tracking ${ok}/${ALL_PRIMARY_KEYWORDS.length} primary keywords against GSC.`);
