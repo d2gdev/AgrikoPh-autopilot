@@ -1,4 +1,5 @@
-import { Text, Card, Badge, InlineStack, BlockStack, DataTable, Button } from "@shopify/polaris";
+import { Text, Card, Badge, InlineStack, BlockStack, Button } from "@shopify/polaris";
+import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import { KEYWORD_CLUSTERS, PRIMARY_TARGETS, SECONDARY_BANK, ROADMAP, ALL_PRIMARY_KEYWORDS, type PrimaryTarget } from "@/lib/seo/keyword-strategy";
 
 export function StrategyPanel({
@@ -61,7 +62,7 @@ export function StrategyPanel({
       {/* Primary targets */}
       <BlockStack gap="200">
         <Text variant="headingSm" as="h3">Primary targets</Text>
-        <DataTable
+        <ResponsiveDataTable
           columnContentTypes={["text", "text", "text", "text", "text", "text"]}
           headings={["Keyword", "Volume", "Difficulty", "Recommended page", "Priority", "Actions"]}
           rows={PRIMARY_TARGETS.map((t: PrimaryTarget) => {
@@ -88,7 +89,7 @@ export function StrategyPanel({
       {/* Six-month roadmap */}
       <BlockStack gap="200">
         <Text variant="headingSm" as="h3">Six-month roadmap</Text>
-        <DataTable
+        <ResponsiveDataTable
           columnContentTypes={["text", "text", "text", "text", "text"]}
           headings={["Month", "Title", "Target keyword", "Format", "Action"]}
           rows={ROADMAP.map((r) => {
@@ -110,7 +111,7 @@ export function StrategyPanel({
       {/* Secondary bank */}
       <BlockStack gap="200">
         <Text variant="headingSm" as="h3">{`Secondary bank (${SECONDARY_BANK.length})`}</Text>
-        <DataTable
+        <ResponsiveDataTable
           columnContentTypes={["text", "text", "text", "text", "text"]}
           headings={["Keyword", "Intent", "Volume", "Suggested page", "Action"]}
           rows={SECONDARY_BANK.map((s) => [

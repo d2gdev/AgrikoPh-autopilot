@@ -1,18 +1,21 @@
 "use client";
 
 import { BlockStack, DataTable, Divider, InlineStack, Text, useBreakpoints } from "@shopify/polaris";
+import type { SortDirection } from "@shopify/polaris";
 import type { ReactNode } from "react";
 
 type Cell = string | number | ReactNode;
 
 /** Renders labelled rows on compact screens, avoiding horizontal table scrolling. */
-export function ResponsiveDataTable({ headings, rows, columnContentTypes }: {
+export function ResponsiveDataTable({ headings, rows, columnContentTypes, sortable, onSort }: {
   headings: ReactNode[];
   rows: Cell[][];
   columnContentTypes: ("text" | "numeric")[];
+  sortable?: boolean[];
+  onSort?: (headingIndex: number, direction: SortDirection) => void;
 }) {
   const { mdUp } = useBreakpoints({ defaults: { mdUp: true } });
-  if (mdUp) return <DataTable headings={headings} rows={rows} columnContentTypes={columnContentTypes} />;
+  if (mdUp) return <DataTable headings={headings} rows={rows} columnContentTypes={columnContentTypes} sortable={sortable} onSort={onSort} />;
   return (
     <BlockStack gap="200">
       {rows.map((row, rowIndex) => (

@@ -1,4 +1,5 @@
-import { Text, InlineStack, BlockStack, TextField, Select, DataTable } from "@shopify/polaris";
+import { Text, InlineStack, BlockStack, TextField, Select } from "@shopify/polaris";
+import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 
 type Row = ReactNode[];
@@ -45,7 +46,7 @@ export function OpportunitiesPanel({
             : "No actionable opportunities are open. Refresh data or run SEO analysis when you need a new pass; handled and dismissed items stay out of this queue."}
         </Text>
       ) : (
-        <DataTable
+        <ResponsiveDataTable
           columnContentTypes={["text", "text", "text", "numeric", "numeric", "numeric", "numeric", "text", "numeric", "text"]}
           headings={["Query", "Type", "Landing page", "Impr.", "CTR", "Position", "Volume", "Difficulty", "Potential", "Action"]}
           rows={oppRows}

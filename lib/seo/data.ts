@@ -233,7 +233,7 @@ export async function getLatestGa4Data(): Promise<LatestGa4Data> {
         conversionRate: true,
       },
     });
-    return {
+    if (rows.length || !rawPages.length) return {
       pages: rows.map((row) => ({
         page: row.page,
         sessions: row.sessions,

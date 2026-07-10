@@ -1,4 +1,5 @@
-import { Button, Text, Badge, InlineStack, BlockStack, DataTable } from "@shopify/polaris";
+import { Button, Text, Badge, InlineStack, BlockStack } from "@shopify/polaris";
+import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import { timeAgo } from "@/lib/format";
 import { contentGapReason } from "../content-gap-reason";
 import { gapKey } from "../types";
@@ -79,7 +80,7 @@ export function ContentGapsPanel({
           {gaps.length > 0 && (
             <BlockStack gap="200">
               <Text variant="headingSm" as="h3">Content gaps → draft proposals</Text>
-              <DataTable
+              <ResponsiveDataTable
                 columnContentTypes={["text", "numeric", "numeric", "text", "text", "text"]}
                 headings={["Query", "Impr.", "Position", "Reason", "Suggested title", "Action"]}
                 rows={gaps.map((g, i) => [

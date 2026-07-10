@@ -4,7 +4,7 @@ export const maxDuration = 30;
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
+import { requireAppAuth, requirePermission, getSessionShop, getSessionUser, PERMISSIONS } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { chatCompletionWithFailover } from "@/lib/ai/client";
 import { parseJsonObject } from "@/lib/seo/ai-output";
@@ -91,6 +91,8 @@ function groundedStrategyItems(
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
   const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
   if (!checkRateLimit(`seo-analyze:${actor}`, 5, 60_000)) {
     return NextResponse.json({ error: "Rate limit: max 5 analyses per minute" }, { status: 429 });
@@ -129,6 +131,17 @@ export async function POST(req: NextRequest) {
     queries: gscData.queries,
     queryPagePairs: gscData.queryPagePairs,
     articles: articleRecords,
+  });
+
+  const partialAnalysis = (aiError: string) => ({
+    summary: `${articleRecords.length} articles indexed. ${missingMeta.length} missing meta, ${thinContent.length} thin content, ${noInternalLinks.length} with no internal links.`,
+    quickWins: [], quickWinEvidence: [], recommendations: [], recommendationEvidence: [],
+    contentGaps: programmaticGaps, limits, aiStatus: "partial" as const, aiError,
+  });
+  const persistAnalysis = async (analysis: object) => prisma.rawSnapshot.upsert({
+    where: { source_dateRangeStart_dateRangeEnd: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0) } },
+    update: { payload: analysis, fetchedAt: new Date() },
+    create: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0), payload: analysis },
   });
 
   const aiTimeout = AbortSignal.timeout(25_000);
@@ -195,29 +208,21 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
       ...(parsed.ok ? {} : { aiError: "AI returned invalid structured output" }),
     };
 
-    await prisma.rawSnapshot.upsert({
-      where: { source_dateRangeStart_dateRangeEnd: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0) } },
-      update: { payload: analysis as object, fetchedAt: new Date() },
-      create: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0), payload: analysis as object },
-    });
+    await persistAnalysis(analysis);
 
     return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source });
   } catch (err) {
     if (aiTimeout.aborted) {
-      console.error("[seo/analyze] AI completion timed out after 25s");
-      return NextResponse.json({ error: "Analysis timed out — please try again" }, { status: 504 });
+      const analysis = partialAnalysis("AI provider timeout");
+      try { await persistAnalysis(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
+      return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source }, { status: 200 });
     }
     const status = (err as { status?: number })?.status;
     if (status === 401 || status === 403 || status === 429 || status === 503 || (err instanceof Error && /(provider|api key|configured|authentication|unauthorized)/i.test(err.message))) {
       console.error("[seo/analyze] AI provider unavailable");
-      return NextResponse.json({
-        error: "AI provider unavailable",
-        analysis: {
-          summary: `${articleRecords.length} articles indexed. ${missingMeta.length} missing meta, ${thinContent.length} thin content, ${noInternalLinks.length} with no internal links.`,
-          quickWins: [], recommendations: [], contentGaps: programmaticGaps,
-          limits, aiStatus: "partial", aiError: "AI provider unavailable",
-        },
-      }, { status: 200 });
+      const analysis = partialAnalysis("AI provider unavailable");
+      try { await persistAnalysis(analysis); } catch { return NextResponse.json({ error: "Analysis snapshot could not be saved" }, { status: 500 }); }
+      return NextResponse.json({ analysis, gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source }, { status: 200 });
     }
     console.error("[seo/analyze]", err);
     return NextResponse.json({ error: "Analysis failed" }, { status: 500 });

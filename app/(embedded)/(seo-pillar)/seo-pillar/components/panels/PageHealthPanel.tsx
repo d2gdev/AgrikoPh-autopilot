@@ -1,4 +1,5 @@
-import { Text, BlockStack, DataTable, Badge, Button } from "@shopify/polaris";
+import { Text, BlockStack, Badge, Button } from "@shopify/polaris";
+import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { PageHealthRow } from "../types";
 import { fmtPct } from "../types";
 
@@ -22,7 +23,7 @@ export function PageHealthPanel({
             : "No flagged pages. All high-impression pages are engaging well."}
         </Text>
       ) : (
-        <DataTable
+        <ResponsiveDataTable
           columnContentTypes={["text", "numeric", "numeric", "numeric", "text"]}
           headings={["URL", "Impr.", "Bounce", "Conversion", "Flag"]}
           rows={flaggedPageHealth.map((p, i) => [

@@ -1,4 +1,5 @@
-import { Button, Card, Text, Badge, InlineStack, BlockStack, DataTable } from "@shopify/polaris";
+import { Button, Card, Text, Badge, InlineStack, BlockStack } from "@shopify/polaris";
+import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { Health } from "../types";
 
 type OffenderFlags = {
@@ -56,7 +57,7 @@ export function OnPageHealthPanel({
             <Card>
               <BlockStack gap="300">
                 <Text variant="headingSm" as="h3">Needs attention</Text>
-                <DataTable
+                <ResponsiveDataTable
                   columnContentTypes={["text", "numeric", "text", "text"]}
                   headings={["Article", "Words", "Issues", "Actions"]}
                   rows={health.worstOffenders.map((a) => {
