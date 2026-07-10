@@ -1,11 +1,12 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { requireAppAuth, getSessionUser } from "@/lib/auth";
+import { getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { markContentProposalOpportunityRouted } from "@/lib/opportunities/content-proposal-outcomes";
+import { reopenedContentProposalState } from "@/lib/content-pilot/proposal-state";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const authError = await requireAppAuth(req);
+  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
   if (authError) return authError;
   const { id } = await params;
   const actor = (await getSessionUser(req)) ?? "operator";
@@ -18,9 +19,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // approve/reject.
   let updated;
   try {
+    const reopened = reopenedContentProposalState();
     updated = await prisma.contentProposal.update({
       where: { id, status: "rejected" },
-      data: { status: "pending", reviewedBy: null, reviewedAt: null, reviewNote: null },
+      // Task 3 owns persistence of the operation fields included in the pure
+      // state builder; its migration has not added those columns yet.
+      data: {
+        status: reopened.status,
+        reviewedBy: reopened.reviewedBy,
+        reviewedAt: reopened.reviewedAt,
+        reviewNote: reopened.reviewNote,
+        draftStatus: reopened.draftStatus,
+        draftContent: reopened.draftContent,
+        draftError: reopened.draftError,
+        draftGeneratedAt: reopened.draftGeneratedAt,
+        citations: reopened.citations,
+        scheduledPublishAt: reopened.scheduledPublishAt,
+      },
     });
     await markContentProposalOpportunityRouted(prisma, {
       proposalId: id,

@@ -15,7 +15,7 @@ edges:
     condition: when adding a new API route or cron endpoint
   - target: context/skills-recommendations.md
     condition: when writing skill or recommendation handling code
-last_updated: 2026-06-25
+last_updated: 2026-07-10
 ---
 
 # Conventions
@@ -48,6 +48,18 @@ export async function GET(req: Request) {
   // ... handler logic
 }
 ```
+
+**Permission gate — operator mutations, always first:**
+```ts
+export async function POST(req: Request) {
+  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (authError) return authError;
+  // ... handler logic
+}
+```
+`requirePermission` authenticates the request before checking the named role. Keep
+read-only handlers on `requireAppAuth`; keep publish mutations on their separate
+`CONTENT_PUBLISH` permission instead of broadening `CONTENT_REVIEW`.
 
 **Auth gate — every cron route handler:**
 ```ts
@@ -92,7 +104,7 @@ const validated = result.data;
 
 Before presenting any code change:
 - [ ] New API route exports `export const dynamic = "force-dynamic"` at the top
-- [ ] Embedded app route calls `await requireAppAuth(req)` as the very first statement in every handler
+- [ ] Embedded read handler calls `await requireAppAuth(req)` as the very first statement; an operator mutation calls `await requirePermission(req, PERMISSIONS.<role>)` as its very first statement
 - [ ] Cron route calls `requireCronAuth(req)` (sync) then `acquireJobLock` with a matching `releaseJobLock` in `finally`
 - [ ] All database access imports `prisma` from `@/lib/db` — no `new PrismaClient()` anywhere
 - [ ] LLM outputs are validated with Zod `.safeParse()` before any `prisma.*.create()` or `prisma.*.update()`

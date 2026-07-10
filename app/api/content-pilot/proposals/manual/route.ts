@@ -1,12 +1,12 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
+import { getSessionShop, getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 
 export async function POST(req: NextRequest) {
-  const authError = await requireAppAuth(req);
+  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
   if (authError) return authError;
 
   const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";

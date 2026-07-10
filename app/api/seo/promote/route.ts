@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAppAuth, getSessionUser } from "@/lib/auth";
+import { getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -15,7 +15,7 @@ const PromoteBodySchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const authError = await requireAppAuth(req);
+  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
   if (authError) return authError;
 
   const actor = (await getSessionUser(req)) ?? "embedded-app";

@@ -10,6 +10,7 @@ import type { NextRequest } from "next/server";
 
 const mockAuth = vi.hoisted(() => ({
   requireAppAuth: vi.fn(),
+  requirePermission: vi.fn(),
   getSessionShop: vi.fn(),
   getSessionUser: vi.fn(),
 }));
@@ -38,7 +39,9 @@ const mockShopifyAdmin = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
+  PERMISSIONS: { CONTENT_REVIEW: "content:review" },
   requireAppAuth: mockAuth.requireAppAuth,
+  requirePermission: mockAuth.requirePermission,
   getSessionShop: mockAuth.getSessionShop,
   getSessionUser: mockAuth.getSessionUser,
 }));
@@ -71,6 +74,7 @@ describe("generate-draft citations isolation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockAuth.requirePermission.mockResolvedValue(null);
     mockAuth.getSessionShop.mockResolvedValue(null);
     mockAuth.getSessionUser.mockResolvedValue("operator");
     mockCheckRateLimit.mockReturnValue(true);

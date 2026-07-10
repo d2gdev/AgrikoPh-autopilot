@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 
 const mockAuth = vi.hoisted(() => ({
   requireAppAuth: vi.fn(),
+  requirePermission: vi.fn(),
   getSessionShop: vi.fn(),
   getSessionUser: vi.fn(),
 }));
@@ -56,7 +57,9 @@ const mockEnqueueJob = vi.hoisted(() => vi.fn());
 const mockMaterializeJobsStatusSnapshot = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
+  PERMISSIONS: { CONTENT_REVIEW: "content:review" },
   requireAppAuth: mockAuth.requireAppAuth,
+  requirePermission: mockAuth.requirePermission,
   getSessionShop: mockAuth.getSessionShop,
   getSessionUser: mockAuth.getSessionUser,
 }));
@@ -90,6 +93,7 @@ describe("SEO Pilot route regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockAuth.requirePermission.mockResolvedValue(null);
     mockAuth.getSessionShop.mockResolvedValue(null);
     mockAuth.getSessionUser.mockResolvedValue("api-key");
     mockCheckRateLimit.mockReturnValue(true);

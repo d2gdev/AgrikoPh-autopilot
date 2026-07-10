@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockAuth = vi.hoisted(() => ({
   getSessionUser: vi.fn(),
   requireAppAuth: vi.fn(),
+  requirePermission: vi.fn(),
 }));
 
 const mockPrisma = vi.hoisted(() => ({
@@ -18,8 +19,10 @@ const mockPrisma = vi.hoisted(() => ({
 const mockMarkDismissed = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
+  PERMISSIONS: { CONTENT_REVIEW: "content:review" },
   getSessionUser: mockAuth.getSessionUser,
   requireAppAuth: mockAuth.requireAppAuth,
+  requirePermission: mockAuth.requirePermission,
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
@@ -50,6 +53,7 @@ describe("Content Pilot reject route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockAuth.requirePermission.mockResolvedValue(null);
     mockAuth.getSessionUser.mockResolvedValue("operator");
     mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal());
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });

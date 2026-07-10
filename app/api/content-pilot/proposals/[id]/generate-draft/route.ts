@@ -4,12 +4,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
-import { requireAppAuth, getSessionUser, getSessionShop } from "@/lib/auth";
+import { getSessionUser, getSessionShop, PERMISSIONS, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { generateDraft, collectDraftCitations } from "@/lib/content-pilot/generate-draft";
 import { resolveArticleHandle } from "@/lib/content-pilot/publish-draft";
 import { fetchBlogArticles } from "@/lib/shopify-admin";
+import { canGenerateContentProposal } from "@/lib/content-pilot/proposal-state";
 
 // ── Pre-publish validation ────────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = await requireAppAuth(req);
+  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
   if (authError) return authError;
   const { id } = await params;
   const shop = await getSessionShop(req);
@@ -121,9 +122,9 @@ export async function POST(
   if (!proposal) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (proposal.status !== "approved") {
+  if (!canGenerateContentProposal(proposal)) {
     return NextResponse.json(
-      { error: "Only approved proposals can generate a draft" },
+      { error: "Only approved or override-approved proposals can generate a draft" },
       { status: 409 }
     );
   }

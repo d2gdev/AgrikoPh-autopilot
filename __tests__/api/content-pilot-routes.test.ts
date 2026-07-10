@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAuth = vi.hoisted(() => ({
   requireAppAuth: vi.fn(),
+  requirePermission: vi.fn(),
   getSessionShop: vi.fn(),
 }));
 
@@ -23,7 +24,9 @@ const mockMarkTerminal = vi.hoisted(() => vi.fn());
 const mockFetchBlogArticles = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
+  PERMISSIONS: { CONTENT_REVIEW: "content:review" },
   requireAppAuth: mockAuth.requireAppAuth,
+  requirePermission: mockAuth.requirePermission,
   getSessionShop: mockAuth.getSessionShop,
 }));
 
@@ -61,6 +64,7 @@ describe("Content Pilot route regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockAuth.requirePermission.mockResolvedValue(null);
     mockAuth.getSessionShop.mockResolvedValue("test-shop");
     mockCheckRateLimit.mockReturnValue(true);
     mockPrisma.$transaction.mockImplementation(async (ops) => Array.isArray(ops) ? Promise.all(ops) : ops(mockPrisma));

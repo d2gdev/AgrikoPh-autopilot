@@ -43,6 +43,7 @@ const mockFetchBlogArticles = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
   PERMISSIONS: {
+    CONTENT_REVIEW: "content:review",
     JOBS_RUN: "jobs:run",
     SETTINGS_ADMIN: "settings:admin",
   },

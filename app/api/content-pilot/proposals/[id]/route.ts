@@ -1,9 +1,10 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { requireAppAuth, getSessionUser } from "@/lib/auth";
+import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getDraftSchema } from "@/lib/content-pilot/generate-draft";
+import { canEditContentProposal } from "@/lib/content-pilot/proposal-state";
 
 export async function GET(
   req: Request,
@@ -34,7 +35,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = await requireAppAuth(req);
+  const authError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
   if (authError) return authError;
   const { id } = await params;
   const actor = (await getSessionUser(req)) ?? "operator";
@@ -44,7 +45,7 @@ export async function PATCH(
     if (!proposal) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    if (proposal.draftStatus !== "ready") {
+    if (!canEditContentProposal(proposal)) {
       return NextResponse.json(
         { error: `Cannot edit — draft status is "${proposal.draftStatus ?? "none"}"` },
         { status: 409 }

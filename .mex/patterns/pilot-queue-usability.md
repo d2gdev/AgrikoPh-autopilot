@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-10T00:28:13Z
+last_updated: 2026-07-10T20:52:00Z
 ---
 
 # Pilot Queue Usability
@@ -33,6 +33,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 9. Rejection must atomically make the proposal non-publishable: set both proposal and draft state to rejected and clear `scheduledPublishAt`. Manual and scheduled publish locks must independently require approved/override-approved status as well as `draftStatus: "ready"`.
 10. Scheduled publishing must use a route-level job lock in addition to its per-proposal optimistic lock.
 11. Keep helper logic pure when possible so tests can lock the wording and evidence extraction without a browser.
+12. Put `requirePermission(req, PERMISSIONS.CONTENT_REVIEW)` first in every Content Pilot or SEO mutation that creates, changes, regenerates, rejects, reopens, clones, or edits a proposal. Keep reads on `requireAppAuth` and publishing on `CONTENT_PUBLISH`.
 
 ## Gotchas
 - A successful "skipped/already handled" backend response still feels broken if the UI leaves the same row visible or says to fetch data first.
@@ -42,6 +43,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 - A missing target Shopify article is not a transient refresh failure. Mark it `draftStatus: "failed"` so it leaves the ready queue and tells the operator to recreate or reject it.
 - Do not gate Content Pilot rejection on `status === "pending"` only. Operators can change their mind after approval or draft generation, up until live publish begins.
 - Never let `draftStatus: "ready"` alone authorize a Shopify write. A rejected or concurrently modified proposal must fail the publish status predicate even if stale draft state remains.
+- `requirePermission` already verifies the embedded identity; adding `requireAppAuth` before it breaks the first-statement permission boundary and makes forbidden-request regressions less reliable.
 
 ## Verify
 - Add or update a route/API regression proving list responses include the evidence fields the row renders.
