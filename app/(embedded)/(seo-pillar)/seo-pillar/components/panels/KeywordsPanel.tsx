@@ -1,7 +1,8 @@
-import { Text, InlineStack, BlockStack, TextField, Button, Badge } from "@shopify/polaris";
+import { Text, BlockStack, TextField, Button, Badge } from "@shopify/polaris";
 import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { Dispatch, SetStateAction } from "react";
 import type { KeywordRow } from "../types";
+import styles from "../seo-pilot-responsive.module.css";
 
 type KwSort = { index: number; dir: "ascending" | "descending" } | null;
 
@@ -28,16 +29,16 @@ export function KeywordsPanel({
     <BlockStack gap="400">
       <Text variant="headingMd" as="h2">Tracked keyword positions</Text>
       <Text as="p" tone="subdued">Positions are derived from your GSC snapshots. Add target keywords to monitor rank movement and get drop alerts.</Text>
-      <InlineStack gap="200" blockAlign="end" wrap>
-        <div style={{ minWidth: 280 }}>
+      <div className={styles.controlRow}>
+        <div className={styles.control}>
           <TextField label="Add keyword" labelHidden autoComplete="off" value={newKeyword} onChange={setNewKeyword} placeholder="e.g. organic black rice philippines" />
         </div>
         <Button onClick={addKeyword}>Track</Button>
-        <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+        <div className={styles.control}>
           <TextField label="Search keywords" labelHidden placeholder="Search…" value={kwSearch} onChange={setKwSearch}
             autoComplete="off" clearButton onClearButtonClick={() => setKwSearch("")} />
         </div>
-      </InlineStack>
+      </div>
       {keywords.length === 0 ? <Text as="p" tone="subdued">No keywords tracked yet.</Text> : (
         <ResponsiveDataTable
           columnContentTypes={["text", "numeric", "text", "numeric", "numeric", "text"]}

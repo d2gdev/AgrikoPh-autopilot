@@ -1,0 +1,53 @@
+.navigation {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: var(--p-space-300) var(--p-space-400) 0;
+}
+
+.controlRow,
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--p-space-200);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.control {
+  flex: 1 1 14rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.controlCompact {
+  flex: 1 1 10rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.actionContent,
+.breakText {
+  flex: 1 1 14rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.actionContent :global(.Polaris-Button__Text),
+.breakText :global(.Polaris-Button__Text) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 30rem) {
+  .control,
+  .controlCompact,
+  .actionContent,
+  .actionRow > * {
+    flex-basis: 100%;
+    width: 100%;
+  }
+}

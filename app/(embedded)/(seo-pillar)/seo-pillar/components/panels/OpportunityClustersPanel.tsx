@@ -21,7 +21,7 @@ export function OpportunityClustersPanel({
             <BlockStack gap="200">
               <InlineStack align="space-between" blockAlign="center" wrap>
                 <Text variant="headingSm" as="h3">{c.label}</Text>
-                <InlineStack gap="200" blockAlign="center">
+                <InlineStack gap="200" blockAlign="center" wrap>
                   <Badge tone="info">{`${c.opportunities.length} quer${c.opportunities.length === 1 ? "y" : "ies"}`}</Badge>
                   <Badge tone="success">{`+${c.totalPotentialClicks} potential`}</Badge>
                 </InlineStack>

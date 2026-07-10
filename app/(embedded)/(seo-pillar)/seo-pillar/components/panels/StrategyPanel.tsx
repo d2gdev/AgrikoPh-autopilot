@@ -73,7 +73,7 @@ export function StrategyPanel({
               t.difficulty,
               t.pageType,
               <Badge key={`p-${t.keyword}`} tone={t.priority === "Very high" ? "success" : t.priority === "High" ? "info" : undefined}>{t.priority}</Badge>,
-              <InlineStack key={`a-${t.keyword}`} gap="200" wrap={false}>
+              <InlineStack key={`a-${t.keyword}`} gap="200" wrap>
                 {trackedKw.has(t.keyword)
                   ? <Badge tone="success">Tracking</Badge>
                   : <Button size="slim" loading={trackingKw.has(t.keyword)} onClick={() => trackKeyword(t.keyword)}>Track</Button>}

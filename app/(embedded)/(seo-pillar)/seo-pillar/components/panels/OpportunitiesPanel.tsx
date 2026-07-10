@@ -1,6 +1,7 @@
-import { Text, InlineStack, BlockStack, TextField, Select } from "@shopify/polaris";
+import { Text, BlockStack, TextField, Select } from "@shopify/polaris";
 import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
+import styles from "../seo-pilot-responsive.module.css";
 
 type Row = ReactNode[];
 type OppSort = { index: number; dir: "ascending" | "descending" } | null;
@@ -31,15 +32,15 @@ export function OpportunitiesPanel({
       <Text variant="headingMd" as="h2">CTR & ranking opportunities</Text>
       <Text as="p" tone="subdued">Queries where a title/meta rewrite or a small ranking push could win clicks you&apos;re already close to. &ldquo;Potential&rdquo; estimates extra monthly clicks at benchmark CTR.</Text>
       {oppCount > 0 && (
-        <InlineStack gap="200" blockAlign="end" wrap>
-          <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+        <div className={styles.controlRow}>
+          <div className={styles.control}>
             <TextField label="Search opportunities" labelHidden placeholder="Search query or page…" value={oppSearch} onChange={setOppSearch}
               autoComplete="off" clearButton onClearButtonClick={() => setOppSearch("")} />
           </div>
-          <div style={{ minWidth: 170 }}>
+          <div className={styles.controlCompact}>
             <Select label="Filter by type" labelHidden options={oppTypeOptions} value={oppType} onChange={setOppType} />
           </div>
-        </InlineStack>
+        </div>
       )}
       {oppRows.length === 0 ? (
         <Text as="p" tone="subdued">

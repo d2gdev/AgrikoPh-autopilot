@@ -4,6 +4,7 @@ import { timeAgo } from "@/lib/format";
 import { contentGapReason } from "../content-gap-reason";
 import { gapKey } from "../types";
 import type { Analysis, ContentGap } from "../types";
+import styles from "../seo-pilot-responsive.module.css";
 
 type Flag = { isPromoted: boolean; isPromoting: boolean };
 type PlanFlag = { isPlanned: boolean; isPlanning: boolean };
@@ -39,7 +40,7 @@ export function ContentGapsPanel({
 }) {
   return (
     <BlockStack gap="400">
-      <InlineStack align="space-between" blockAlign="center">
+      <InlineStack align="space-between" blockAlign="center" wrap>
         <Text variant="headingMd" as="h2">AI content-gap analysis</Text>
         {gaps.length > 0 && (
           <Button variant="primary" loading={anyPromoting} disabled={unpromotedCount === 0}
@@ -63,13 +64,13 @@ export function ContentGapsPanel({
             <BlockStack gap="100">
               <Text variant="headingSm" as="h3">Quick wins</Text>
               {analysis.quickWins!.map((w, i) => (
-                <InlineStack key={i} gap="200" align="space-between" blockAlign="start" wrap={false}>
-                  <BlockStack gap="050">
+                <InlineStack key={i} gap="200" align="space-between" blockAlign="start" wrap>
+                  <div className={styles.actionContent}><BlockStack gap="050">
                     <Text as="p">• {w}</Text>
                     {analysis.quickWinEvidence?.[i] && (
                       <Text as="p" tone="subdued" variant="bodySm">{analysis.quickWinEvidence[i]}</Text>
                     )}
-                  </BlockStack>
+                  </BlockStack></div>
                   {quickWinFlags[i]?.isPlanned
                     ? <Badge tone="success">Planned</Badge>
                     : <Button size="slim" loading={quickWinFlags[i]?.isPlanning} onClick={() => onPlanQuickWin(i, w)}>Plan it</Button>}
@@ -110,13 +111,13 @@ export function ContentGapsPanel({
             <BlockStack gap="100">
               <Text variant="headingSm" as="h3">Recommendations</Text>
               {analysis.recommendations!.map((r, i) => (
-                <InlineStack key={i} gap="200" align="space-between" blockAlign="start" wrap={false}>
-                  <BlockStack gap="050">
+                <InlineStack key={i} gap="200" align="space-between" blockAlign="start" wrap>
+                  <div className={styles.actionContent}><BlockStack gap="050">
                     <Text as="p">• {r}</Text>
                     {analysis.recommendationEvidence?.[i] && (
                       <Text as="p" tone="subdued" variant="bodySm">{analysis.recommendationEvidence[i]}</Text>
                     )}
-                  </BlockStack>
+                  </BlockStack></div>
                   {recFlags[i]?.isPlanned
                     ? <Badge tone="success">Planned</Badge>
                     : <Button size="slim" loading={recFlags[i]?.isPlanning} onClick={() => onPlanRecommendation(i, r)}>Plan it</Button>}

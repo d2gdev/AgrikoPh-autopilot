@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, DataTable, Banner,
-  Button, TextField, Tabs, Spinner, Tooltip, List, Select,
+  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, Banner,
+  Button, TextField, Spinner, Tooltip, List, Select,
 } from "@shopify/polaris";
 import { useState, useCallback, useEffect, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
@@ -26,6 +26,7 @@ import { PillarClustersPanel } from "./components/panels/PillarClustersPanel";
 import { PageHealthPanel } from "./components/panels/PageHealthPanel";
 import { OpportunityClustersPanel } from "./components/panels/OpportunityClustersPanel";
 import { StrategyPanel } from "./components/panels/StrategyPanel";
+import { SeoPilotNavigation } from "./components/SeoPilotNavigation";
 
 // render a page path/url as a subdued span (or link when it looks like a path/url)
 const pagePath = (p: string | null | undefined) => {
@@ -461,7 +462,7 @@ export default function SeoPillarReportPage() {
 
         <Layout.Section>
           <Card padding="0">
-            <Tabs tabs={tabs} selected={tab} onSelect={setTab} />
+            <SeoPilotNavigation tabs={tabs} selected={tab} onSelect={setTab} />
             <div style={{ padding: "var(--p-space-400)" }}>
               {loading ? (
                 <InlineStack gap="200" blockAlign="center"><Spinner size="small" /><Text as="span">Loading…</Text></InlineStack>
