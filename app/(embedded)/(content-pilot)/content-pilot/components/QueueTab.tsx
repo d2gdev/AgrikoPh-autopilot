@@ -137,7 +137,19 @@ export function QueueTab({
     const seq = ++loadSeqRef.current;
     if (!silent) setLoading(true);
     try {
-      const res = await authFetch("/api/content-pilot/proposals");
+      let nextCursor: string | null = null;
+      const pages: ContentProposal[] = [];
+      let res: Response | null = null;
+      for (let page = 0; page < 20; page++) {
+        const url = nextCursor ? `/api/content-pilot/proposals?cursor=${encodeURIComponent(nextCursor)}` : "/api/content-pilot/proposals";
+        res = await authFetch(url);
+        if (!res.ok) break;
+        const chunk = (await res.json()) as { proposals?: ContentProposal[]; nextCursor?: string | null; hasMore?: boolean };
+        pages.push(...(chunk.proposals ?? []));
+        nextCursor = chunk.nextCursor ?? null;
+        if (!chunk.hasMore || !nextCursor) break;
+      }
+      if (!res) throw new Error("No response");
       if (seq !== loadSeqRef.current) return; // a newer request superseded this one
       if (!res.ok) {
         // Read the body as text first so a non-JSON error page (e.g. an auth/SSO
@@ -156,16 +168,9 @@ export function QueueTab({
         setError(msg);
         return;
       }
-      let d: { proposals?: ContentProposal[] };
-      try {
-        d = (await res.json()) as { proposals?: ContentProposal[] };
-      } catch {
-        setError(`Loaded but could not parse the response (HTTP ${res.status}) — the server returned non-JSON. You may be signed out, or the API is unavailable.`);
-        return;
-      }
       if (seq !== loadSeqRef.current) return;
-      setCache("/api/content-pilot/proposals", d.proposals ?? []);
-      setAllProposals(d.proposals ?? []);
+      setCache("/api/content-pilot/proposals", pages);
+      setAllProposals(pages);
     } catch (err) {
       if (seq !== loadSeqRef.current) return;
       setError(`Failed to load: ${err instanceof Error ? err.message : String(err)}`);
