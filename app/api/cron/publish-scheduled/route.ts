@@ -17,10 +17,10 @@ export async function GET(req: NextRequest) {
     const now = new Date();
     const bookkeeping = await retryIncompletePublishFinalizations(prisma, 50);
     const due = await prisma.contentProposal.findMany({ where: { status: { in: [...CONTENT_PROPOSAL_PUBLISHABLE_STATUSES] }, draftStatus: "ready", scheduledPublishAt: { lte: now } }, select: { id: true } });
-    const results = [] as { id: string; kind: string; error?: string }[];
+    const results = [] as { id: string; kind: string; error?: string; warning?: string }[];
     for (const proposal of due) {
       const result = await publishContentProposal({ prismaClient: prisma, proposalId: proposal.id, actor: "cron", trigger: "scheduled", dueBefore: now, reindex: false });
-      results.push({ id: proposal.id, kind: result.kind, ...("message" in result ? { error: result.message } : {}) });
+      results.push({ id: proposal.id, kind: result.kind, ...("message" in result ? { error: result.message } : {}), ...("warning" in result ? { warning: result.warning } : {}) });
     }
     const published = results.filter((result) => result.kind === "published" || result.kind === "published_with_warnings").length;
     let reindexWarning: string | undefined;
@@ -28,15 +28,18 @@ export async function GET(req: NextRequest) {
       try { await fetchBlogContentHandler(); }
       catch (error) { reindexWarning = `Post-publish re-index failed: ${String(error)}`; }
     }
-    const truthfulResults = reindexWarning
-      ? results.map((result) => result.kind === "published" ? { ...result, kind: "published_with_warnings", error: reindexWarning } : result)
-      : results;
+    const withReindexWarning = (result: typeof results[number]) => {
+      if (result.kind !== "published" && result.kind !== "published_with_warnings") return result;
+      const warning = [result.warning, reindexWarning].filter((value): value is string => Boolean(value)).join(" ");
+      return { ...result, kind: "published_with_warnings", warning, error: warning };
+    };
+    const truthfulResults = reindexWarning ? results.map(withReindexWarning) : results;
     if (reindexWarning) {
       await Promise.all(results
         .filter((result) => result.kind === "published" || result.kind === "published_with_warnings")
         .map((result) => prisma.contentProposal.updateMany({
           where: { id: result.id, draftStatus: "published" },
-          data: { publishWarning: reindexWarning },
+          data: { publishWarning: withReindexWarning(result).warning },
         })));
     }
     return NextResponse.json({ published, results: truthfulResults, bookkeeping, ...(reindexWarning ? { reindexWarning } : {}) });

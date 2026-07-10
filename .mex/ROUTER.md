@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-10T23:35:00+08:00
+last_updated: 2026-07-10T23:40:17+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **Content Pilot Task 5 reconciliation/warning correction (2026-07-10)**: a `202` publish response with `reconciliationRequired` is now surfaced as a critical queue error and reloads the authoritative row instead of optimistically marking it published. Scheduled batch reindexing preserves each shared publisher warning, combines it with the batch warning in both cron results and `publishWarning`, and never reports a false clean success. Focused Task 5 suite (54), app/test typechecks, and diff check pass.
 - **Content Pilot Task 5 specification completion (2026-07-10)**: reconciliation now uses a proposal-type-specific, read-only Shopify inspector: exact new-content title/body, existing body replacement, SEO metafields, and internal-link operation marker. It returns `applied` only with matching Shopify evidence, resets to `ready` only for a proven `not_applied` existing-target result, and leaves missing/uncertain results ambiguous. Queue filters now surface `publishing` and `publish-error` so the existing Reconcile action is reachable; a `published_with_warnings` response shows the exact operator feedback “Published with warning” plus the stored warning. Covered by focused reconciliation and queue-feedback regressions, app/test typechecks, and diff check.
 - **Content Pilot Task 5 finalization completion (2026-07-10)**: The minimal durable Shopify receipt is now written before every post-success SEO/blog lookup; pure resolved existing-article handles are retained on the receipt so follow-up scoring stays eligible. `POST /api/content-pilot/proposals/[id]/retry-bookkeeping` is auth-first plus `CONTENT_PUBLISH` and invokes only the idempotent local finalizer; published rows with an incomplete finalizer show “Retry bookkeeping.” A failed scheduled batch reindex durably writes `publishWarning` on every successfully published row without changing published state. Focused Task 5 suite (43), app/test typechecks, and diff check pass.
 - **Content Pilot Task 5 specification recovery follow-up (2026-07-10)**: Shopify-success local SEO/blog-context errors now retain an immediate durable published receipt and return `published_with_warnings`; receipt-write uncertainty is reconciliation-required and is never reset to ready merely because a receipt is missing. Publish actor/trigger are persisted for truthful delayed audit metadata. Scheduled publication performs one batch reindex after per-ID shared publishing. Queue and draft views expose a CONTENT_PUBLISH Reconcile action for unknown/stale publish states. Focused Task 5 suite (36), app typecheck, test typecheck, and diff check pass. See `.superpowers/sdd/task-5-report.md` for red/green evidence.

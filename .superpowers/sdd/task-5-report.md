@@ -60,3 +60,16 @@ Implemented and committed after fresh red-green service tests.
 - Opportunity, audit, and reindex failure matrix keeps published state; scheduled reindex failure additionally writes the warning to every successfully published row.
 - A `CONTENT_PUBLISH`-protected `retry-bookkeeping` route and queue/draft action call only the idempotent finalizer. Two retries create exactly one audit.
 - Final focused run: 43 passing tests across Task 5 service/reconciliation/publish-failure/publish-draft/UI helper suites; `npm run typecheck`, `npm run typecheck:test`, and `git diff --check` pass.
+
+## Reconciliation/warning correction — 2026-07-10
+
+### Red evidence
+
+- A `202` reconciliation-required response passed the queue’s generic success path and optimistically showed `published`.
+- The scheduled cron route dropped a `PublishResult.warning` when decorating results after a failed batch reindex, and overwrote the durable row warning with only the batch error.
+
+### Green evidence
+
+- Queue publication now parses the response before its status branch; `202` or `reconciliationRequired` retains the non-success state, displays a critical reconciliation error, and reloads the authoritative row.
+- Cron result decoration retains each per-item warning and combines it with the batch reindex warning in the returned outcome and the durable `publishWarning`.
+- Final focused run: 54 tests across 8 Task 5 suites; `npm run typecheck`, `npm run typecheck:test`, and `git diff --check` pass.

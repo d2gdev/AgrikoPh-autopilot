@@ -22,7 +22,7 @@ import { ProposalRow } from "./queue/ProposalRow";
 import { QueueFilters } from "./queue/QueueFilters";
 import { QueueModals } from "./queue/QueueModals";
 import { contentProposalQueueStage } from "./queue-stage";
-import { publishFeedback } from "./publish-feedback";
+import { publishFeedback, publishReconciliationMessage } from "./publish-feedback";
 
 // Safely parse a Response as JSON. If the body is not JSON (e.g. an HTML error
 // page from a proxy or Next.js itself), returns { error: <raw text> } rather
@@ -264,8 +264,14 @@ export function QueueTab({
     setPublishingIds((prev) => new Set(prev).add(id));
     try {
       const res = await authFetch(`/api/content-pilot/proposals/${id}/publish`, { method: "POST" });
-      if (!res.ok) { const d = await safeJson(res); setError((d.error as string) ?? "Publish failed"); return false; }
       const result = await safeJson(res);
+      const reconciliationMessage = publishReconciliationMessage(result);
+      if (res.status === 202 || reconciliationMessage) {
+        setError(reconciliationMessage ?? "Publication outcome requires reconciliation. Inspect Shopify before retrying.");
+        void loadProposals({ silent: true });
+        return false;
+      }
+      if (!res.ok) { setError((result.error as string) ?? "Publish failed"); return false; }
       // Optimistic update then confirm from server
       const title = allProposals.find(p => p.id === id)?.title ?? "Article";
       setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "published" } : p));

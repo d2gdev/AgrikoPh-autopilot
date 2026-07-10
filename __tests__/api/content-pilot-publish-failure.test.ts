@@ -17,6 +17,10 @@ const mockPrisma = vi.hoisted(() => ({
     update: vi.fn(),
     updateMany: vi.fn(),
   },
+  articleRecord: {
+    findFirst: vi.fn(),
+  },
+  $transaction: vi.fn(),
 }));
 
 const mockPublishDraft = vi.hoisted(() => vi.fn());
@@ -76,6 +80,8 @@ describe("Content Pilot publish failure recovery", () => {
     mockPrisma.contentProposal.findUnique.mockResolvedValue(readyRefreshProposal());
     mockPrisma.contentProposal.update.mockResolvedValue({});
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue(null);
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockPrisma) => unknown) => fn(mockPrisma));
     mockResolveArticleHandle.mockReturnValue("creating-your-own-herbal-blends-a-practical-guide-for-everyday-use");
     mockFetchBlogContentHandler.mockResolvedValue({});
     mockMarkResolved.mockResolvedValue({});
@@ -220,6 +226,30 @@ describe("Content Pilot publish failure recovery", () => {
     expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: "proposal-2", draftStatus: "published" },
       data: { publishWarning: expect.stringContaining("index offline") },
+    }));
+  });
+
+  it("preserves each publish warning when a scheduled batch reindex also fails", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValue([{ id: "proposal-1" }]);
+    mockPublishDraft.mockResolvedValue({ shopifyId: "gid://shopify/Article/1", handle: "edited" });
+    mockPrisma.articleRecord.findFirst.mockRejectedValueOnce(new Error("local metadata unavailable"));
+    mockFetchBlogContentHandler.mockRejectedValueOnce(new Error("index offline"));
+    const { GET } = await import("@/app/api/cron/publish-scheduled/route");
+
+    const res = await GET(new Request("http://test.local/api/cron/publish-scheduled") as never);
+    const body = await res.json();
+
+    expect(body.results).toEqual([
+      expect.objectContaining({
+        id: "proposal-1",
+        kind: "published_with_warnings",
+        warning: expect.stringContaining("local metadata unavailable"),
+      }),
+    ]);
+    expect(body.results[0].warning).toContain("index offline");
+    expect(mockPrisma.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "proposal-1", draftStatus: "published" },
+      data: { publishWarning: expect.stringContaining("local metadata unavailable") },
     }));
   });
 });
