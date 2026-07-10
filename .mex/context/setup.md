@@ -15,7 +15,7 @@ edges:
     condition: when understanding how components connect during setup
   - target: context/decisions.md
     condition: when understanding why deployment is structured a particular way
-last_updated: 2026-07-10
+last_updated: 2026-07-10T20:09:00Z
 ---
 
 # Setup
@@ -85,6 +85,8 @@ last_updated: 2026-07-10
 - `DATABASE_URL_TEST='postgresql://test:test@127.0.0.1:5432/autopilot_test' npm run test:postgres`
   — run PostgreSQL integration tests only against a local test database. The guard rejects
   missing URLs, every non-local host, and database names that are not clearly test databases;
+  it also rejects `prod`/`production` database-name tokens with punctuation boundaries after
+  URL decoding.
   CI may use its `postgres` service host only with `CI=true` and `ALLOW_CI_POSTGRES=true`.
 - `npm run db:studio` — Prisma Studio browser UI for DB inspection
 - `npm run db:report` — PostgreSQL diagnostics report

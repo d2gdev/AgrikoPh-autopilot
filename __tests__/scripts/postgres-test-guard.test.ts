@@ -16,9 +16,20 @@ describe("assertNonProductionDatabaseUrl", () => {
     expect(() => assertNonProductionDatabaseUrl(url)).not.toThrow();
   });
 
+  it("accepts the explicitly opted-in CI postgres test database", () => {
+    expect(() => assertNonProductionDatabaseUrl(
+      "postgresql://test:test@postgres:5432/autopilot_test",
+      { ci: "true", allowCiPostgres: "true" },
+    )).not.toThrow();
+  });
+
   it.each([
     "postgresql://test:test@localhost:5432/autopilot_production_test",
     "postgresql://test:test@localhost:5432/autopilot_prod_test",
+    "postgresql://test:test@localhost:5432/autopilot_test_production.foo",
+    "postgresql://test:test@localhost:5432/autopilot_test_prod.foo",
+    "postgresql://test:test@localhost:5432/autopilot_test_production%2Efoo",
+    "postgresql://test:test@localhost:5432/autopilot_test_prod%2Efoo",
   ])("rejects production-named test database %s", (url) => {
     expect(() => assertNonProductionDatabaseUrl(url)).toThrow(/non-production/i);
   });

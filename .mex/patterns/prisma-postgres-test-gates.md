@@ -12,7 +12,7 @@ edges:
     condition: when running local verification commands
   - target: context/conventions.md
     condition: when database access is added to an integration test
-last_updated: 2026-07-10
+last_updated: 2026-07-10T20:09:00Z
 ---
 
 # Prisma and PostgreSQL Test Gates
@@ -32,7 +32,7 @@ last_updated: 2026-07-10
 ## Gotchas
 
 - `prisma generate` alone is not enough for this repository: it must update the freshness stamp through `npm run db:generate`.
-- The PostgreSQL guard rejects a missing URL, production-looking database names, and all non-local hosts. The `postgres` service hostname is allowed only when both `CI=true` and `ALLOW_CI_POSTGRES=true`.
+- The PostgreSQL guard rejects a missing URL, production-looking database names, and all non-local hosts. Production-name detection treats any non-alphanumeric character as a token boundary after URL decoding, so names such as `autopilot_test_production%2Efoo` are rejected. The `postgres` service hostname is allowed only when both `CI=true` and `ALLOW_CI_POSTGRES=true`.
 - Keep the generated-client verification before both typecheck steps, otherwise a reused dependency cache can hide stale Prisma types.
 
 ## Verify

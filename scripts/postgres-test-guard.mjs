@@ -5,7 +5,7 @@ function isAllowedTestDatabaseName(databaseName) {
 }
 
 function isProductionDatabaseName(databaseName) {
-  return /(^|[_-])prod(?:uction)?([_-]|$)/i.test(databaseName);
+  return /(^|[^a-z0-9])prod(?:uction)?(?=$|[^a-z0-9])/i.test(databaseName);
 }
 
 export function assertNonProductionDatabaseUrl(url, {
