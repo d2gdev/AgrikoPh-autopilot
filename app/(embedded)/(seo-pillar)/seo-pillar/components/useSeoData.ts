@@ -20,6 +20,41 @@ export function seoCoreCacheKey(contextualize: (href: string) => string = withSh
   return contextualize("/api/seo");
 }
 
+type AuthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type RefreshPollResult = { status: string; terminal: boolean };
+
+export async function waitForSeoRefresh(
+  authFetch: AuthFetch,
+  runId: string,
+  options: {
+    maxAttempts?: number;
+    intervalMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<RefreshPollResult> {
+  const maxAttempts = Math.max(1, options.maxAttempts ?? 30);
+  const intervalMs = Math.max(0, options.intervalMs ?? 3_000);
+  const sleep = options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const terminalStatuses = new Set(["success", "partial", "failed"]);
+  let lastStatus = "unknown";
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const response = await authFetch(`/api/jobs/status?runId=${encodeURIComponent(runId)}`);
+      if (response.ok) {
+        const body = await response.json().catch(() => ({}));
+        if (typeof body.status === "string") lastStatus = body.status;
+        if (terminalStatuses.has(lastStatus)) return { status: lastStatus, terminal: true };
+      }
+    } catch {
+      // A transient status-read failure should not abandon a run that may still complete.
+    }
+    if (attempt < maxAttempts - 1) await sleep(intervalMs);
+  }
+
+  return { status: lastStatus, terminal: false };
+}
+
 // ── SEO Pilot data-loading hook ─────────────────────────────────────────────
 // Verbatim body relocated from app/(embedded)/(seo-pillar)/seo-pillar/page.tsx
 // (Phase 8c, Task 4), following the Phase 8b `useDashboardData` precedent.
@@ -83,15 +118,23 @@ export function useSeoData() {
     try {
       const res = await authFetch("/api/seo/refresh", { method: "POST" });
       const d = await res.json().catch(() => ({}));
-      if (res.status === 409) {
-        setToast("A data fetch is already running — try again shortly.");
+      if ((res.ok || res.status === 409) && typeof d.runId === "string") {
+        setToast(res.status === 409 ? "Following the SEO refresh already in progress…" : "SEO refresh queued…");
+        const result = await waitForSeoRefresh(authFetch, d.runId);
+        if (result.terminal && (result.status === "success" || result.status === "partial")) {
+          await loadAllSections();
+          setToast(result.status === "success" ? "SEO data refreshed." : "SEO refresh completed with partial results. Review the data warnings.");
+        } else if (result.terminal && result.status === "failed") {
+          setToast("SEO refresh failed. Check job status for details.");
+        } else {
+          // Preserve bounded waiting: refresh what is available, then let the
+          // operator passively reload rather than enqueueing another run.
+          await loadAllSections();
+          setToast("SEO refresh is still running. Reload the page shortly to see the completed data.");
+        }
       } else if (res.ok && d.ok !== false) {
-        // /api/seo/refresh only enqueues a background job (drained by a
-        // per-minute cron) — it does not fetch GSC/GA4 data synchronously.
-        // Re-load in case a previously queued run already finished, but don't
-        // claim the refresh is done; it usually isn't yet.
         await loadAllSections();
-        setToast("Refresh queued — new SEO data will appear within a few minutes. Click Refresh data again shortly to check.");
+        setToast("SEO refresh was queued, but its status could not be followed. Reload the page shortly.");
       } else {
         setToast(d.error ?? "Refresh failed.");
       }

@@ -26,6 +26,17 @@ export function buildKeywordReport(
     const prev = findRow(previousQueries, keyword);
 
     if (!cur) {
+      if (prev) {
+        return {
+          keyword,
+          position: null,
+          clicks: 0,
+          impressions: 0,
+          positionDelta: null,
+          status: "declined" as const,
+          alert: true,
+        };
+      }
       return {
         keyword,
         position: null,

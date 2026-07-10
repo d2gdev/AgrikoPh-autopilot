@@ -118,9 +118,10 @@ export function computeCtrOpportunities(
       });
     }
 
-    if (candidates.length === 0) continue;
+    const actionableCandidates = candidates.filter((candidate) => candidate.potential > 0);
+    if (actionableCandidates.length === 0) continue;
 
-    const best = candidates.reduce((a, b) => (b.potential > a.potential ? b : a));
+    const best = actionableCandidates.reduce((a, b) => (b.potential > a.potential ? b : a));
     const type = best.type;
     const potentialClicks = best.potential;
 

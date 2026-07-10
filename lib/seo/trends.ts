@@ -35,17 +35,22 @@ export function computeTrends(
     const normalize = (q: unknown) => String(q).trim().toLowerCase();
     const prevMap = new Map<string, GscQueryRow>();
     for (const r of previous) prevMap.set(normalize(r.query), r);
+    const currentMap = new Map<string, GscQueryRow>();
+    for (const r of current) currentMap.set(normalize(r.query), r);
 
-    const all: QueryMover[] = current.map((cur) => {
-      const prev = prevMap.get(normalize(cur.query));
+    const all: QueryMover[] = [...new Set([...currentMap.keys(), ...prevMap.keys()])].map((key) => {
+      const cur = currentMap.get(key);
+      const prev = prevMap.get(key);
+      const currentClicks = cur?.clicks ?? 0;
+      const currentImpressions = cur?.impressions ?? 0;
       const prevClicks = prev ? prev.clicks : 0;
       const prevImpr = prev ? prev.impressions : 0;
-      const clicksDelta = cur.clicks - prevClicks;
-      const impressionsDelta = cur.impressions - prevImpr;
-      const positionDelta = prev ? parseNum(cur.position) - parseNum(prev.position) : 0;
+      const clicksDelta = currentClicks - prevClicks;
+      const impressionsDelta = currentImpressions - prevImpr;
+      const positionDelta = cur && prev ? parseNum(cur.position) - parseNum(prev.position) : 0;
       return {
-        query: cur.query,
-        clicks: cur.clicks,
+        query: cur?.query ?? prev?.query ?? key,
+        clicks: currentClicks,
         clicksDelta,
         impressionsDelta,
         positionDelta,
@@ -54,9 +59,11 @@ export function computeTrends(
     });
 
     const risers = [...all]
+      .filter((mover) => mover.clicksDelta > 0)
       .sort((a, b) => b.clicksDelta - a.clicksDelta)
       .slice(0, 8);
     const fallers = [...all]
+      .filter((mover) => mover.clicksDelta < 0)
       .sort((a, b) => a.clicksDelta - b.clicksDelta)
       .slice(0, 8);
     movers = [...risers, ...fallers];

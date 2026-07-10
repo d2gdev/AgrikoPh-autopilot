@@ -21,3 +21,9 @@ it("attributes a query using a mapping beyond the first 50 pairs", () => {
   );
   expect(opportunities[0]?.page).toBe("https://agrikoph.com/blogs/news/target-article");
 });
+
+it("omits striking-distance rows with no positive click upside", () => {
+  expect(computeCtrOpportunities([
+    { query: "already strong", clicks: 100, impressions: 1_000, ctr: "10%", position: "4" },
+  ])).toEqual([]);
+});

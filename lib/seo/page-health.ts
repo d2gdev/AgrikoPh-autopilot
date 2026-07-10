@@ -6,6 +6,12 @@ import type {
 } from "@/lib/seo/types";
 import { parseNum, parsePercent } from "@/lib/seo/types";
 
+function parseNullablePercent(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && !/\d/.test(value)) return null;
+  return parsePercent(value);
+}
+
 /**
  * Normalize a page identifier to a path for cross-source joining.
  * GSC stores absolute URLs ("https://host/path?q"); GA4 stores path-only
@@ -75,8 +81,8 @@ export function computePageHealth(
 
     const ga4 = ga4ByPath.get(url) ?? null;
     const sessions = ga4 ? parseNum(ga4.sessions) : null;
-    const bounceRate = ga4 ? parsePercent(ga4.bounceRate) : null;
-    const conversionRate = ga4 ? parsePercent(ga4.conversionRate) : null;
+    const bounceRate = ga4 ? parseNullablePercent(ga4.bounceRate) : null;
+    const conversionRate = ga4 ? parseNullablePercent(ga4.conversionRate) : null;
 
     let flag: PageHealthFlag | null = null;
     let severity = 0;

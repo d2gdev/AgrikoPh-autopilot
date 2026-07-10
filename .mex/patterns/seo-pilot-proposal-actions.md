@@ -79,6 +79,12 @@ last_updated: 2026-07-11
    - Give labels, values, controls, links, badges, InlineStacks, and button text `min-width: 0`, bounded widths, and safe wrapping.
    - Fixed-aspect visualizations such as sparklines must shrink to their card width.
    - Preserve controlled sorting for Opportunities and Keywords across both presentations.
+19. Preserve unknown, lost, and completed states instead of collapsing them into reassuring defaults.
+   - A tracked query present in the previous GSC window but absent now is a drop alert, not a never-observed keyword.
+   - Movers are calculated from the union of current and previous query keys; vanished queries remain visible and each mover appears once.
+   - Missing GA4 rates (`null`, blank, or `—`) stay `null`; only an explicit measured zero is 0%.
+   - Do not surface or promote an opportunity with zero estimated click upside.
+   - After queueing a dashboard refresh, follow its returned run ID through bounded `/api/jobs/status` polling and reload on terminal success/partial state. A passive reload, not another enqueue, is the timeout recovery.
 
 ## Regression Tests
 Add or update route tests when changing these paths:
@@ -101,5 +107,6 @@ Add or update route tests when changing these paths:
 - Successful keyword writes survive a failed follow-up reload in local UI state.
 - SEO cache keys differ across Shopify contexts, unsupported history sources return `400`, and compact sort controls mirror page state.
 - Navigation, every panel data grid, long/custom cells, control rows, action rows, badges, and sparklines satisfy the no-horizontal-scroll source contract.
+- Previously ranking keywords that disappear alert; movers include vanished queries exactly once; missing GA4 rates do not create flags; zero-upside opportunities are absent; refresh polling is bounded and run-ID-specific.
 
 Current coverage: `__tests__/api/seo-pilot-routes.test.ts`, `__tests__/jobs/seo-refresh-jobs.test.ts`, and `__tests__/api/embedded-fallback-auth-routes.test.ts`.
