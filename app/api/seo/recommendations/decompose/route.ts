@@ -140,7 +140,7 @@ ${articleRecords.slice(0, 120).map((a) => `${a.handle} — ${a.title} — ${a.wo
   } catch (err) {
     if (err instanceof Error && (err.name === "AbortError" || /timeout/i.test(err.message))) return NextResponse.json({ error: "AI decomposition timed out" }, { status: 504 });
     const status = (err as { status?: number })?.status;
-    if (status === 401 || status === 403 || status === 429 || status === 503) return NextResponse.json({ error: "AI provider unavailable" }, { status: 503 });
+    if (status === 401 || status === 403 || status === 429 || status === 503 || (err instanceof Error && /(provider|api key|configured|authentication|unauthorized)/i.test(err.message))) return NextResponse.json({ error: "AI provider unavailable" }, { status: 503 });
     return NextResponse.json({ error: "AI decomposition failed. Please try again." }, { status: 502 });
   }
 
