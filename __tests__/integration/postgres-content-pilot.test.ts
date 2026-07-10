@@ -1,5 +1,5 @@
-import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { prisma } from "@/lib/db";
 
 const url = process.env.DATABASE_URL_TEST;
 const parsed = url ? new URL(url) : null;
@@ -12,16 +12,13 @@ if (url && !safe) {
 }
 
 describe.skipIf(!url)("PostgreSQL 16 Content Pilot migrations and races", () => {
-  let prisma: PrismaClient;
-
   beforeAll(async () => {
     if (!safe) throw new Error("unsafe DATABASE_URL_TEST");
-    prisma = new PrismaClient({ datasources: { db: { url } } });
     await prisma.contentProposal.deleteMany({ where: { title: { startsWith: "postgres integration" } } });
     await prisma.marketKeyword.deleteMany({ where: { keyword: { startsWith: "postgres integration" } } });
   });
 
-  afterAll(async () => { await prisma?.$disconnect(); });
+  afterAll(async () => { await prisma.$disconnect(); });
 
   it("enforces canonical ContentProposal uniqueness under concurrent inserts", async () => {
     const data = {
