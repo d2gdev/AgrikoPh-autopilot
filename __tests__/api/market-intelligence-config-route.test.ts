@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPrisma = vi.hoisted(() => ({
   marketKeyword: {
-    upsert: vi.fn(),
+    findFirst: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
   },
   competitor: {
     upsert: vi.fn(),
@@ -27,7 +29,8 @@ describe("market intelligence config route", () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.stubEnv("MARKET_INTEL_DEFAULT_LOCATION", "Philippines");
-    mockPrisma.marketKeyword.upsert.mockResolvedValue({
+    mockPrisma.marketKeyword.findFirst.mockResolvedValue(null);
+    mockPrisma.marketKeyword.create.mockResolvedValue({
       id: "kw-1",
       keyword: "sample",
       category: null,

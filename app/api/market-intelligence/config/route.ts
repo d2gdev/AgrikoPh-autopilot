@@ -109,27 +109,38 @@ export async function POST(req: Request) {
     for (const keyword of parsed.data.keywords) {
       const locationName = keyword.locationName ?? process.env.MARKET_INTEL_DEFAULT_LOCATION ?? "Philippines";
       const languageCode = keyword.languageCode ?? "en";
-      await prisma.marketKeyword.upsert({
+      const identity = {
+        keyword: keyword.keyword.trim(),
+        locationName: locationName.trim() || null,
+        languageCode: languageCode.trim().toLowerCase(),
+      };
+      const existing = await prisma.marketKeyword.findFirst({
         where: {
-          keyword_locationName_languageCode: {
-            keyword: keyword.keyword,
-            locationName,
-            languageCode,
-          },
-        },
-        create: {
-          keyword: keyword.keyword,
-          category: keyword.category,
-          locationName,
-          languageCode,
-        },
-        update: {
-          category: keyword.category,
-          locationName,
-          languageCode,
-          active: true,
+          keyword: identity.keyword,
+          locationName: identity.locationName,
+          languageCode: identity.languageCode,
         },
       });
+      if (existing) {
+        await prisma.marketKeyword.update({
+          where: { id: existing.id },
+          data: { category: keyword.category, active: true },
+        });
+      } else {
+        try {
+          await prisma.marketKeyword.create({
+            data: { ...identity, category: keyword.category },
+          });
+        } catch (error: unknown) {
+          if ((error as { code?: string }).code !== "P2002") throw error;
+          const raced = await prisma.marketKeyword.findFirst({ where: identity });
+          if (!raced) throw error;
+          await prisma.marketKeyword.update({
+            where: { id: raced.id },
+            data: { category: keyword.category, active: true },
+          });
+        }
+      }
       created.keywords++;
     }
 
