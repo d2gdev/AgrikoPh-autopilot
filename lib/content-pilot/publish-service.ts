@@ -29,6 +29,7 @@ export async function finalizePublishedProposal(client: Client, operationId: str
         action: proposal.publishTrigger === "scheduled" ? "published_scheduled" : proposal.proposalType === "seo-fix" ? "seo_meta_applied" : "published",
         actor: proposal.publishActor ?? "system", before: { draftStatus: "ready" },
         after: { draftStatus: "published", publishOperationId: operationId },
+        meta: { trigger: proposal.publishTrigger ?? "maintenance", operationId },
       },
     });
     return { finalized: true };
@@ -51,14 +52,14 @@ export async function retryIncompletePublishFinalizations(client: Client, limit 
   return { attempted: pending.length, finalized };
 }
 
-export async function publishContentProposal(input: { prismaClient: Client; proposalId: string; actor: string; trigger: "manual" | "scheduled" | "maintenance"; dueBefore?: Date }) : Promise<PublishResult> {
-  const { prismaClient: client, proposalId, actor, trigger, dueBefore } = input;
+export async function publishContentProposal(input: { prismaClient: Client; proposalId: string; actor: string; trigger: "manual" | "scheduled" | "maintenance"; dueBefore?: Date; reindex?: boolean }) : Promise<PublishResult> {
+  const { prismaClient: client, proposalId, actor, trigger, dueBefore, reindex = true } = input;
   const operationId = randomUUID();
   const claimWhere: any = { id: proposalId, status: { in: [...CONTENT_PROPOSAL_PUBLISHABLE_STATUSES] }, draftStatus: "ready" };
   if (dueBefore) claimWhere.scheduledPublishAt = { lte: dueBefore };
   const claimed = await client.contentProposal.updateMany({
     where: claimWhere,
-    data: { draftStatus: "publishing", publishOperationId: operationId, publishStartedAt: new Date(), publishWarning: null },
+    data: { draftStatus: "publishing", publishOperationId: operationId, publishStartedAt: new Date(), publishWarning: null, publishActor: actor, publishTrigger: trigger },
   });
   if (!claimed.count) return { kind: "conflict", message: "Proposal is no longer ready and publishable" };
   const fresh = await client.contentProposal.findUnique({ where: { id: proposalId, publishOperationId: operationId } });
@@ -72,9 +73,15 @@ export async function publishContentProposal(input: { prismaClient: Client; prop
     return { kind: "failed_before_external_write", message };
   }
 
-  const articleHandle = resolveArticleHandle(fresh);
-  const indexed = articleHandle ? await client.articleRecord.findFirst({ where: { handle: articleHandle }, select: { seoData: true }, orderBy: { indexedAt: "desc" } }) : null;
-  const seoData = indexed?.seoData as { score?: number; blogHandle?: string } | null;
+  let seoData: { score?: number; blogHandle?: string } | null = null;
+  let contextWarning: string | null = null;
+  try {
+    const articleHandle = resolveArticleHandle(fresh);
+    const indexed = articleHandle ? await client.articleRecord.findFirst({ where: { handle: articleHandle }, select: { seoData: true }, orderBy: { indexedAt: "desc" } }) : null;
+    seoData = indexed?.seoData as { score?: number; blogHandle?: string } | null;
+  } catch (error) {
+    contextWarning = `Post-publish local context failed: ${String(error)}`;
+  }
   const proposedState = seoData?.blogHandle ? { ...(fresh.proposedState as Record<string, unknown>), blogHandle: seoData.blogHandle } : fresh.proposedState;
   try {
     const receipt = await client.contentProposal.updateMany({
@@ -87,8 +94,14 @@ export async function publishContentProposal(input: { prismaClient: Client; prop
   }
   try {
     await finalizePublishedProposal(client, operationId);
-    try { await fetchBlogContentHandler(); }
-    catch (error) { throw new Error(`Post-publish re-index failed: ${String(error)}`); }
+    if (contextWarning) {
+      await client.contentProposal.updateMany({ where: { id: proposalId, publishOperationId: operationId, draftStatus: "published" }, data: { publishWarning: contextWarning } }).catch(() => {});
+      return { kind: "published_with_warnings", ...external, warning: contextWarning };
+    }
+    if (reindex) {
+      try { await fetchBlogContentHandler(); }
+      catch (error) { throw new Error(`Post-publish re-index failed: ${String(error)}`); }
+    }
     return { kind: "published", ...external };
   } catch (error) {
     const warning = String(error).slice(0, 2000);

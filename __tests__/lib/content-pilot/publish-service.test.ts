@@ -12,6 +12,24 @@ const proposal = {
 };
 
 describe("publishContentProposal", () => {
+  it("records a durable receipt when local SEO context fails after Shopify succeeds", async () => {
+    const fresh = { ...proposal, draftContent: { bodyHtml: "<p>edited</p>" }, publishOperationId: "op-context" };
+    const prismaClient: any = {
+      contentProposal: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn().mockResolvedValue(fresh) },
+      articleRecord: { findFirst: vi.fn().mockRejectedValue(new Error("SEO index unavailable")) },
+      opportunity: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, auditLog: { create: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn(async (fn: any) => fn(prismaClient)),
+    };
+    publishDraft.mockResolvedValue({ shopifyId: "gid://shopify/Article/1", handle: "edited" });
+    const { publishContentProposal } = await import("@/lib/content-pilot/publish-service");
+
+    const result = await publishContentProposal({ prismaClient, proposalId: "p1", actor: "operator", trigger: "manual" });
+
+    expect(result.kind).toBe("published_with_warnings");
+    expect(prismaClient.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ draftStatus: "published", shopifyArticleId: "gid://shopify/Article/1" }),
+    }));
+  });
   it("publishes the fresh operation-owned row rather than the stale candidate", async () => {
     const fresh = { ...proposal, draftContent: { bodyHtml: "<p>edited</p>" }, publishOperationId: "op-1" };
     const prismaClient: any = {
@@ -54,6 +72,24 @@ describe("publishContentProposal", () => {
 
     expect(result.kind).toBe("published_with_warnings");
     expect(prismaClient.contentProposal.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ draftStatus: "published" }) }));
+    expect(prismaClient.contentProposal.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ draftStatus: "ready" }) }));
+  });
+
+  it("requires reconciliation when receipt storage fails after Shopify success", async () => {
+    const fresh = { ...proposal, draftContent: { bodyHtml: "<p>edited</p>" }, publishOperationId: "op-receipt" };
+    const prismaClient: any = {
+      contentProposal: {
+        updateMany: vi.fn().mockResolvedValueOnce({ count: 1 }).mockRejectedValueOnce(new Error("receipt unavailable")),
+        findUnique: vi.fn().mockResolvedValue(fresh),
+      },
+      articleRecord: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    publishDraft.mockResolvedValue({ shopifyId: "gid://shopify/Article/1", handle: "edited" });
+    const { publishContentProposal } = await import("@/lib/content-pilot/publish-service");
+
+    const result = await publishContentProposal({ prismaClient, proposalId: "p1", actor: "operator", trigger: "manual" });
+
+    expect(result.kind).toBe("reconciliation_required");
     expect(prismaClient.contentProposal.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ draftStatus: "ready" }) }));
   });
 });

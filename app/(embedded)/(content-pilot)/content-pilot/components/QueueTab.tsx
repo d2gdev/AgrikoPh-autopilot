@@ -48,6 +48,7 @@ export function QueueTab({
   const [rejectingIds, setRejectingIds] = useState<Set<string>>(new Set());
   const [generatingDraftIds, setGeneratingDraftIds] = useState<Set<string>>(new Set());
   const [publishingIds, setPublishingIds] = useState<Set<string>>(new Set());
+  const [reconcilingIds, setReconcilingIds] = useState<Set<string>>(new Set());
   // Accordion expand + draft content cache
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedFullIds, setExpandedFullIds] = useState<Set<string>>(new Set());
@@ -279,6 +280,17 @@ export function QueueTab({
       return true;
     } catch (e) { setError(String(e)); return false; }
     finally { setPublishingIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
+  };
+
+  const reconcilePublish = async (id: string) => {
+    setReconcilingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await authFetch(`/api/content-pilot/proposals/${id}/reconcile-publish`, { method: "POST" });
+      const d = await safeJson(res);
+      if (!res.ok) { setError((d.error as string) ?? "Reconciliation failed"); return; }
+      await loadProposals({ silent: true });
+    } catch (error) { setError(String(error)); }
+    finally { setReconcilingIds((prev) => { const next = new Set(prev); next.delete(id); return next; }); }
   };
 
   const toggleExpand = async (id: string) => {
@@ -715,9 +727,11 @@ export function QueueTab({
               isRejecting={rejectingIds.has(p.id)}
               isGeneratingDraft={generatingDraftIds.has(p.id)}
               isPublishing={publishingIds.has(p.id)}
+              isReconciling={reconcilingIds.has(p.id)}
               onApprove={approve}
               onGenerateDraft={generateDraft}
               onPublishDraft={publishDraft}
+              onReconcile={reconcilePublish}
               onReopen={reopen}
               isRejectFormOpen={pendingRejectId === p.id}
               onToggleRejectForm={handleToggleRejectForm}

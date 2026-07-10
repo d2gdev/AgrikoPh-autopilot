@@ -92,6 +92,8 @@ function proposal(overrides: Partial<ContentProposal>): ContentProposal {
     publishStartedAt: null,
     publishFinalizedAt: null,
     publishWarning: null,
+    publishActor: null,
+    publishTrigger: null,
     baselineSeoScore: null,
     followUpSeoScore: null,
     followUpScoredAt: null,

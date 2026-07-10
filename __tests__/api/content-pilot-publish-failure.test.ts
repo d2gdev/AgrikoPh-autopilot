@@ -193,4 +193,14 @@ describe("Content Pilot publish failure recovery", () => {
     expect(res.status).toBe(200);
     expect(mockLocks.releaseJobLock).toHaveBeenCalledWith("publish-scheduled");
   });
+
+  it("reindexes once after a scheduled batch rather than once per proposal", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValue([{ id: "proposal-1" }, { id: "proposal-2" }]);
+    mockPublishDraft.mockResolvedValue({ shopifyId: "gid://shopify/Article/1", handle: "edited" });
+    const { GET } = await import("@/app/api/cron/publish-scheduled/route");
+
+    await GET(new Request("http://test.local/api/cron/publish-scheduled") as never);
+
+    expect(mockFetchBlogContentHandler).toHaveBeenCalledTimes(1);
+  });
 });

@@ -14,10 +14,9 @@ export async function reconcilePublishOperation(input: { prismaClient: any; prop
     return { kind: "applied" as const };
   }
   if (proposal.draftStatus !== "publishing" && proposal.draftStatus !== "publish-error") return { kind: "conflict" as const };
-  if (!proposal.shopifyArticleId) {
-    await input.prismaClient.contentProposal.updateMany({ where: { id: proposal.id, draftStatus: { in: ["publishing", "publish-error"] } }, data: { draftStatus: "ready", publishOperationId: null, publishStartedAt: null, publishWarning: null } });
-    return { kind: "not_applied" as const };
-  }
+  // A missing local receipt is exactly why this path exists; it is never proof
+  // that Shopify did not apply the operation. Keep the operation blocked until
+  // a proposal-type-specific Shopify inspector can establish not-applied.
   await input.prismaClient.contentProposal.updateMany({ where: { id: proposal.id }, data: { draftStatus: "publish-error", publishWarning: "Publication outcome is ambiguous. Inspect Shopify before retrying." } });
   return { kind: "ambiguous" as const };
 }

@@ -387,6 +387,8 @@ model ContentProposal {
   publishStartedAt         DateTime?
   publishFinalizedAt       DateTime?
   publishWarning           String?
+  publishActor             String?
+  publishTrigger           String?
 
   draftHistory  ContentProposalDraftHistory[]
 

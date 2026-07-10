@@ -42,9 +42,11 @@ export function ProposalRow({
   isRejecting,
   isGeneratingDraft,
   isPublishing,
+  isReconciling,
   onApprove,
   onGenerateDraft,
   onPublishDraft,
+  onReconcile,
   onReopen,
 
   isRejectFormOpen,
@@ -88,9 +90,11 @@ export function ProposalRow({
   isRejecting: boolean;
   isGeneratingDraft: boolean;
   isPublishing: boolean;
+  isReconciling: boolean;
   onApprove: (id: string, opts?: { generate?: boolean }) => void;
   onGenerateDraft: (id: string) => void;
   onPublishDraft: (id: string) => void;
+  onReconcile: (id: string) => void;
   onReopen: (id: string) => void;
 
   isRejectFormOpen: boolean;
@@ -261,6 +265,9 @@ export function ProposalRow({
           {p.publishWarning && <Banner tone="warning" title="Published with warning"><p>{p.publishWarning}</p></Banner>}
         </BlockStack>
       );
+    }
+    if (p.draftStatus === "publishing" || p.draftStatus === "publish-error") {
+      return <Button size="slim" tone="critical" loading={isReconciling} onClick={() => onReconcile(p.id)}>Reconcile</Button>;
     }
     if (stage === "rejected") {
       return (

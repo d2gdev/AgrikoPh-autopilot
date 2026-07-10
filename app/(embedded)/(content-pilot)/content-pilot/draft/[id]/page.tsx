@@ -415,6 +415,7 @@ export default function DraftReviewPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [publishConfirm, setPublishConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -602,6 +603,18 @@ export default function DraftReviewPage() {
     }
   };
 
+  const reconcilePublish = async () => {
+    setReconciling(true);
+    setError(null);
+    try {
+      const res = await authFetch(`/api/content-pilot/proposals/${id}/reconcile-publish`, { method: "POST" });
+      const d = await safeJson(res);
+      if (!res.ok) { setError((d.error as string) ?? "Reconciliation failed"); return; }
+      await load();
+    } catch (e) { setError(String(e)); }
+    finally { setReconciling(false); }
+  };
+
   const reject = async () => {
     setRejecting(true);
     setError(null);
@@ -683,7 +696,10 @@ export default function DraftReviewPage() {
           <Banner tone="warning" title="Published with warning"><p>{proposal.publishWarning}</p></Banner>
         )}
         {(proposal.draftStatus === "publishing" || proposal.draftStatus === "publish-error") && (
-          <Banner tone="critical" title="Publication requires reconciliation"><p>Confirm the Shopify outcome before publishing again.</p></Banner>
+          <Banner tone="critical" title="Publication requires reconciliation">
+            <p>Confirm the Shopify outcome before publishing again.</p>
+            <Button size="slim" tone="critical" loading={reconciling} onClick={reconcilePublish}>Reconcile</Button>
+          </Banner>
         )}
 
         <Layout.Section variant="oneThird">
