@@ -16,11 +16,23 @@ describe("assertNonProductionDatabaseUrl", () => {
     expect(() => assertNonProductionDatabaseUrl(url)).not.toThrow();
   });
 
-  it("accepts the explicitly opted-in CI postgres test database", () => {
+  it("accepts the CI postgres test database only when both opt-ins are exactly true", () => {
     expect(() => assertNonProductionDatabaseUrl(
       "postgresql://test:test@postgres:5432/autopilot_test",
       { ci: "true", allowCiPostgres: "true" },
     )).not.toThrow();
+  });
+
+  it.each([
+    ["CI is missing", { allowCiPostgres: "true" }],
+    ["CI is incorrect", { ci: "TRUE", allowCiPostgres: "true" }],
+    ["ALLOW_CI_POSTGRES is missing", { ci: "true" }],
+    ["ALLOW_CI_POSTGRES is incorrect", { ci: "true", allowCiPostgres: "TRUE" }],
+  ])("rejects the CI postgres host when %s", (_condition, options) => {
+    expect(() => assertNonProductionDatabaseUrl(
+      "postgresql://test:test@postgres:5432/autopilot_test",
+      options,
+    )).toThrow(/non-production local database/i);
   });
 
   it.each([
