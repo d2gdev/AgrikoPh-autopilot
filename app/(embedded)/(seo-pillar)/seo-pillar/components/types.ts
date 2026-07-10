@@ -33,10 +33,13 @@ export interface Analysis {
   contentGaps?: ContentGap[];
   recommendations?: string[];
   recommendationEvidence?: string[];
+  limits?: SeoAnalysisLimits;
 }
+export interface SeoAnalysisLimits { queriesTotal: number; queriesAnalyzed: number; articlesTotalLowerBound: number; articlesAnalyzed: number; articlesTruncated: boolean }
 export interface HealthTotals { total: number; missingMeta: number; thinContent: number; noInternalLinks: number; lowHeadings: number; orphan: number; titleLengthOff?: number; descLengthOff?: number; missingDesc?: number; missingH1?: number; duplicateTitle?: number }
 export interface HealthOffender { handle: string; title: string; wordCount: number; issues: string[] }
-export interface Health { totals: HealthTotals; worstOffenders: HealthOffender[] }
+export interface HealthLimits { articlesTotalLowerBound: number; articlesAnalyzed: number; articlesTruncated: boolean }
+export interface Health { totals: HealthTotals; worstOffenders: HealthOffender[]; limits?: HealthLimits }
 export interface KeywordRow { keyword: string; position: number | null; clicks: number; impressions: number; positionDelta: number | null; status: string; alert: boolean }
 export interface Cluster { topic: string; articleCount: number; keywordCount: number; gapScore: number }
 

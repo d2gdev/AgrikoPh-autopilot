@@ -52,6 +52,11 @@ export function ContentGapsPanel({
       ) : (
         <>
           {analysisAt && <Text as="p" tone="subdued" variant="bodySm">Generated {timeAgo(analysisAt)}</Text>}
+          {analysis.limits?.articlesTruncated && (
+            <Text as="p" tone="caution">
+              This analysis inspected {analysis.limits.articlesAnalyzed} of at least {analysis.limits.articlesTotalLowerBound} articles. Results may not represent the full corpus.
+            </Text>
+          )}
           {analysis.summary && <Text as="p">{analysis.summary}</Text>}
           {(analysis.quickWins ?? []).length > 0 && (
             <BlockStack gap="100">
@@ -95,7 +100,9 @@ export function ContentGapsPanel({
           )}
           {gaps.length === 0 && (
             <Text as="p" tone="subdued">
-              No actionable content gaps remain. Existing, rejected, published, and already handled ideas are filtered out of this queue.
+              {analysis.limits?.articlesTruncated
+                ? "No actionable content gaps were found in the inspected subset. Existing, rejected, published, and already handled ideas are filtered out of this queue."
+                : "No actionable content gaps remain. Existing, rejected, published, and already handled ideas are filtered out of this queue."}
             </Text>
           )}
           {(analysis.recommendations ?? []).length > 0 && (

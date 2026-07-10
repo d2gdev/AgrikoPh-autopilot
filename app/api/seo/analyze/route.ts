@@ -8,6 +8,7 @@ import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
 import { getLatestGscData } from "@/lib/seo/data";
+import { buildProgrammaticSeoGaps, type SeoAnalysisLimits } from "@/lib/seo/analysis";
 import { hasMissingMeta } from "@/lib/seo/meta";
 
 const SeoAnalysisSchema = z.object({
@@ -15,59 +16,6 @@ const SeoAnalysisSchema = z.object({
   quickWins: z.array(z.string().trim().min(1).max(500)).max(8).default([]),
   recommendations: z.array(z.string().trim().min(1).max(500)).max(8).default([]),
 });
-
-const STOP_WORDS = new Set([
-  "the",
-  "and",
-  "for",
-  "with",
-  "from",
-  "that",
-  "this",
-  "are",
-  "was",
-  "how",
-  "why",
-  "what",
-  "which",
-  "where",
-  "when",
-  "does",
-  "can",
-  "its",
-]);
-
-function articleHandleFromBlogPage(page: string | undefined): string | null {
-  if (!page) return null;
-  let path = page;
-  try {
-    path = new URL(page).pathname;
-  } catch {
-    path = page.split(/[?#]/)[0] ?? page;
-  }
-  const parts = path.split("/").filter(Boolean);
-  const blogIndex = parts.findIndex((part) => part === "blogs");
-  const handle = blogIndex >= 0 ? parts[blogIndex + 2] : null;
-  return handle && /^[a-z0-9][a-z0-9_-]*$/i.test(handle) ? handle.toLowerCase() : null;
-}
-
-function meaningfulTerms(value: string): string[] {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .split(/[\s-]+/)
-    .filter((term) => term.length > 3 && !STOP_WORDS.has(term));
-}
-
-function titleCoversQuery(title: string, query: string): boolean {
-  const queryTerms = meaningfulTerms(query);
-  if (queryTerms.length === 0) return false;
-  const titleTerms = new Set(meaningfulTerms(title));
-  const matchCount = queryTerms.filter((term) => titleTerms.has(term)).length;
-  return queryTerms.length <= 2
-    ? matchCount >= queryTerms.length
-    : matchCount >= Math.ceil(queryTerms.length * 0.5) && matchCount >= 2;
-}
 
 function textIncludesNormalized(haystack: string, needle: string): boolean {
   const h = haystack.toLowerCase().replace(/\s+/g, " ");
@@ -147,87 +95,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Rate limit: max 5 analyses per minute" }, { status: 429 });
   }
 
-  const [gscData, articleRecords] = await Promise.all([
+  const ARTICLE_LIMIT = 200;
+  const [gscData, articleCandidates] = await Promise.all([
     getLatestGscData(),
-    prisma.articleRecord.findMany({ select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true }, take: 200 }),
+    prisma.articleRecord.findMany({
+      select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true },
+      orderBy: [{ indexedAt: "desc" }, { handle: "asc" }],
+      take: ARTICLE_LIMIT + 1,
+    }),
   ]);
 
   const topQueries = gscData.queries.slice(0, 30);
+  const articleRecords = articleCandidates.slice(0, ARTICLE_LIMIT);
+  const limits: SeoAnalysisLimits = {
+    queriesTotal: gscData.queries.length,
+    queriesAnalyzed: Math.min(gscData.queries.length, 30),
+    articlesTotalLowerBound: articleCandidates.length,
+    articlesAnalyzed: articleRecords.length,
+    articlesTruncated: articleCandidates.length > ARTICLE_LIMIT,
+  };
 
   const thinContent = articleRecords.filter((a) => (a.wordCount ?? 0) < 300);
   const noInternalLinks = articleRecords.filter((a) => (a.internalLinkCount ?? 0) === 0);
   const missingMeta = articleRecords.filter((a) => hasMissingMeta(a.seoData));
   const existingTitles = articleRecords.map((a) => a.title);
-  const articleHandles = new Set(articleRecords.map((a) => a.handle.toLowerCase()));
-  const coveredQueries = new Set<string>();
-
-  for (const pair of gscData.queryPagePairs) {
-    const handle = articleHandleFromBlogPage(pair.page);
-    if (handle && articleHandles.has(handle)) {
-      coveredQueries.add(pair.query.toLowerCase());
-    }
-  }
 
   if (topQueries.length === 0 && articleRecords.length === 0) {
     return NextResponse.json({ error: "No GSC data or articles available — run fetch-seo-data and fetch-blog-content crons first" }, { status: 400 });
   }
 
-  // Build content gaps programmatically so the AI can't dodge them
-  const programmaticGaps: Array<{
-    query: string;
-    impressions: number;
-    position: number;
-    suggestedTitle: string;
-    issue?: "missing-meta" | "thin-content";
-    articleHandle?: string;
-    wordCount?: number | null;
-  }> = [];
-
-  // 1. Striking-distance GSC queries (pos 5–20)
-  for (const q of topQueries) {
-    const pos = parseFloat(q.position);
-    const queryKey = q.query.toLowerCase();
-    const isCovered =
-      coveredQueries.has(queryKey) ||
-      existingTitles.some((title) => titleCoversQuery(title, q.query));
-    if (pos >= 5 && pos <= 20 && !isCovered) {
-      const cap = q.query.charAt(0).toUpperCase() + q.query.slice(1);
-      programmaticGaps.push({
-        query: q.query,
-        impressions: q.impressions,
-        position: pos,
-        suggestedTitle: `${cap}: Benefits, Uses & Complete Guide`,
-      });
-    }
-  }
-
-  // 2. Thin articles (likely need expansion)
-  for (const a of thinContent.slice(0, 5)) {
-    programmaticGaps.push({
-      query: a.title.toLowerCase(),
-      impressions: 0,
-      position: 0,
-      suggestedTitle: a.title,
-      issue: "thin-content",
-      articleHandle: a.handle,
-      wordCount: a.wordCount,
-    });
-  }
-
-  // 3. Missing-meta articles (highest priority fix)
-  for (const a of missingMeta.slice(0, 5)) {
-    if (!programmaticGaps.find(g => g.suggestedTitle.startsWith(a.title))) {
-      programmaticGaps.push({
-        query: a.title.toLowerCase(),
-        impressions: 0,
-        position: 0,
-        suggestedTitle: a.title,
-        issue: "missing-meta",
-        articleHandle: a.handle,
-        wordCount: a.wordCount,
-      });
-    }
-  }
+  const programmaticGaps = buildProgrammaticSeoGaps({
+    queries: gscData.queries,
+    queryPagePairs: gscData.queryPagePairs,
+    articles: articleRecords,
+  });
 
   const aiTimeout = AbortSignal.timeout(25_000);
   try {
@@ -296,6 +197,7 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
       contentGaps: programmaticGaps,
       recommendations: recommendations.items,
       recommendationEvidence: recommendations.evidence,
+      limits,
     };
 
     await prisma.rawSnapshot.upsert({

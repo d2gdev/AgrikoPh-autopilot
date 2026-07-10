@@ -9,8 +9,10 @@ export async function GET(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
 
-  const articles = await prisma.articleRecord.findMany({
-    take: 500,
+  const ARTICLE_LIMIT = 500;
+  const articleCandidates = await prisma.articleRecord.findMany({
+    take: ARTICLE_LIMIT + 1,
+    orderBy: [{ indexedAt: "desc" }, { handle: "asc" }],
     select: {
       handle: true,
       title: true,
@@ -22,6 +24,14 @@ export async function GET(req: NextRequest) {
     },
   });
 
+  const articles = articleCandidates.slice(0, ARTICLE_LIMIT);
   const result = aggregateOnPageHealth(articles as ArticleHealthInput[]);
-  return NextResponse.json(result);
+  return NextResponse.json({
+    ...result,
+    limits: {
+      articlesTotalLowerBound: articleCandidates.length,
+      articlesAnalyzed: articles.length,
+      articlesTruncated: articleCandidates.length > ARTICLE_LIMIT,
+    },
+  });
 }

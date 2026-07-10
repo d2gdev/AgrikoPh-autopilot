@@ -283,6 +283,13 @@ describe("SEO Pilot route regressions", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
+    expect(body.analysis.limits).toEqual({
+      queriesTotal: 2,
+      queriesAnalyzed: 2,
+      articlesTotalLowerBound: 1,
+      articlesAnalyzed: 1,
+      articlesTruncated: false,
+    });
     expect(body.analysis.contentGaps).toEqual([
       expect.objectContaining({
         query: "moringa tea recipe",

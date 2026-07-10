@@ -26,6 +26,11 @@ export function OnPageHealthPanel({
       <Text variant="headingMd" as="h2">On-page SEO health (blog articles)</Text>
       {!health ? <Text as="p" tone="subdued">No indexed articles yet. Run blog indexing in Content Pilot.</Text> : (
         <>
+          {health.limits?.articlesTruncated && (
+            <Text as="p" tone="caution">
+              Health checks inspected {health.limits.articlesAnalyzed} of at least {health.limits.articlesTotalLowerBound} articles. A clean subset does not confirm the full corpus is clean.
+            </Text>
+          )}
           <InlineStack gap="300" wrap>
             {[
               { label: "Articles", val: health.totals.total, tone: undefined as "critical" | "caution" | undefined },

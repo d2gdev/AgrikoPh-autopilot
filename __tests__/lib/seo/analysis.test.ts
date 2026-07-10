@@ -1,0 +1,36 @@
+import { describe, expect, it } from "vitest";
+import { buildProgrammaticSeoGaps } from "@/lib/seo/analysis";
+
+describe("buildProgrammaticSeoGaps", () => {
+  it("keeps thin-content and missing-meta findings for the same article", () => {
+    const gaps = buildProgrammaticSeoGaps({
+      queries: [],
+      queryPagePairs: [],
+      articles: [{
+        handle: "thin-and-meta",
+        title: "Thin and Meta",
+        wordCount: 120,
+        internalLinkCount: 0,
+        seoData: { issues: ["missing-meta-description"] },
+      }],
+    });
+    expect(gaps.map((gap) => gap.issue)).toEqual(["thin-content", "missing-meta"]);
+  });
+
+  it("does not suppress a meta finding because another title shares its prefix", () => {
+    const gaps = buildProgrammaticSeoGaps({
+      queries: [{ query: "black rice benefits", clicks: 0, impressions: 100, ctr: "0%", position: "8" }],
+      queryPagePairs: [],
+      articles: [{
+        handle: "black-rice",
+        title: "Black Rice",
+        wordCount: 700,
+        internalLinkCount: 2,
+        seoData: { titleLength: 0 },
+      }],
+    });
+    expect(gaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ articleHandle: "black-rice", issue: "missing-meta" }),
+    ]));
+  });
+});

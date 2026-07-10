@@ -34,12 +34,23 @@ export interface OnPageHealthResult {
 // Permissive view of what blog-seo's SeoAnalysis JSON may contain.
 interface SeoDataLike {
   issues?: unknown;
+  h1Count?: unknown;
   titleLength?: unknown;
   descLength?: unknown;
   seoTitle?: unknown;
   seoDescription?: unknown;
   metaTitle?: unknown;
   metaDescription?: unknown;
+}
+
+function isMissingH1(seoData: unknown, headingCount: number): boolean {
+  if (seoData && typeof seoData === "object") {
+    const data = seoData as SeoDataLike;
+    const issues = Array.isArray(data.issues) ? data.issues.map(String) : [];
+    if (issues.includes("missing-h1")) return true;
+    if (typeof data.h1Count === "number") return data.h1Count === 0;
+  }
+  return headingCount === 0;
 }
 
 interface MetaSignals {
@@ -107,8 +118,7 @@ function deriveIssues(a: ArticleHealthInput): string[] {
   if (a.headingCount < 2) issues.push("Few headings");
   if (a.inboundCount === 0) issues.push("Orphan (no inbound links)");
 
-  // B4 — missing H1: only a headingCount signal is exposed on the record.
-  if (a.headingCount < 1) issues.push("Missing H1");
+  if (isMissingH1(a.seoData, a.headingCount)) issues.push("Missing H1");
 
   const { missingTitle, missingDesc, titleLength, descLength } = deriveMetaIssues(a.seoData);
   if (missingTitle) issues.push("Missing meta title");
