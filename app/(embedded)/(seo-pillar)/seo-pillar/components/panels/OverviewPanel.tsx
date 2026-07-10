@@ -1,4 +1,5 @@
-import { Card, Text, InlineStack, BlockStack, DataTable, Layout } from "@shopify/polaris";
+import { Card, Text, InlineStack, BlockStack, Layout } from "@shopify/polaris";
+import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { ReactNode } from "react";
 import { timeAgo } from "@/lib/format";
 import type { Totals, SnapshotTrendPoint, GscPage, QueryPagePair } from "../types";
@@ -112,7 +113,7 @@ export function OverviewPanel({
               {moverRows.length === 0 ? (
                 <Text as="p" tone="subdued">No prior period to compare yet. Movers appear once two snapshots exist.</Text>
               ) : (
-                <DataTable columnContentTypes={["text", "text", "text", "numeric"]} headings={["Query", "Δ Clicks", "Δ Pos", "Clicks"]} rows={moverRows} />
+                <ResponsiveDataTable columnContentTypes={["text", "text", "text", "numeric"]} headings={["Query", "Δ Clicks", "Δ Pos", "Clicks"]} rows={moverRows} />
               )}
             </BlockStack>
           </Card>
@@ -123,7 +124,7 @@ export function OverviewPanel({
               <Text variant="headingMd" as="h2">Top Pages (GA4)</Text>
               {ga4FetchedAt && <Text as="p" tone="subdued" variant="bodySm">GA4 updated {timeAgo(ga4FetchedAt)}{ga4Freshness?.selectedSource === "rawSnapshot" ? " · fallback snapshot" : ""}</Text>}
               {pageRows.length === 0 ? <Text as="p" tone="subdued">No GA4 page data available yet.</Text> : (
-                <DataTable columnContentTypes={["text", "numeric"]} headings={["Page", "Sessions"]} rows={pageRows} />
+                <ResponsiveDataTable columnContentTypes={["text", "numeric"]} headings={["Page", "Sessions"]} rows={pageRows} />
               )}
             </BlockStack>
           </Card>
@@ -134,7 +135,7 @@ export function OverviewPanel({
         <BlockStack gap="300">
           <Text variant="headingMd" as="h2">Top Search Queries</Text>
           {queryRows.length === 0 ? <Text as="p" tone="subdued">No GSC data yet.</Text> : (
-            <DataTable columnContentTypes={["text", "numeric", "numeric", "numeric", "numeric"]} headings={["Query", "Clicks", "Impr.", "CTR", "Position"]} rows={queryRows} />
+            <ResponsiveDataTable columnContentTypes={["text", "numeric", "numeric", "numeric", "numeric"]} headings={["Query", "Clicks", "Impr.", "CTR", "Position"]} rows={queryRows} />
           )}
         </BlockStack>
       </Card>
@@ -147,7 +148,7 @@ export function OverviewPanel({
               {gscPages.length === 0 ? (
                 <Text as="p" tone="subdued">No GSC page data yet — appears after the next data fetch.</Text>
               ) : (
-                <DataTable
+                <ResponsiveDataTable
                   columnContentTypes={["text", "numeric", "numeric", "numeric"]}
                   headings={["Page", "Clicks", "Impr.", "Position"]}
                   rows={gscPages.slice(0, 15).map((p) => [p.page, String(p.clicks), String(p.impressions), p.position])}
@@ -163,7 +164,7 @@ export function OverviewPanel({
               {queryPagePairs.length === 0 ? (
                 <Text as="p" tone="subdued">No query×page data yet — appears after the next data fetch.</Text>
               ) : (
-                <DataTable
+                <ResponsiveDataTable
                   columnContentTypes={["text", "text", "numeric"]}
                   headings={["Query", "Page", "Clicks"]}
                   rows={queryPagePairs.slice(0, 15).map((qp) => [qp.query, qp.page, String(qp.clicks)])}
