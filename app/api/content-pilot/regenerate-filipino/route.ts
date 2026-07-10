@@ -10,6 +10,7 @@ import { detectFilipino, extractDraftText } from "@/lib/content-pilot/detect-fil
 import { generateProposalDraft } from "@/lib/content-pilot/generation-service";
 import { publishContentProposal } from "@/lib/content-pilot/publish-service";
 import { z } from "zod";
+import { CONTENT_PROPOSAL_PUBLISHABLE_STATUSES } from "@/lib/content-pilot/proposal-state";
 
 // Read-only scan: find content drafts that appear to be written in Filipino so they
 // can be regenerated in English. Mutating regeneration lives in a separate step.
@@ -96,13 +97,28 @@ export async function POST(req: Request) {
     const found = new Set(proposals.map((p) => p.id));
     for (const id of body.proposalIds) if (!found.has(id)) results.push({ id, status: "conflict" });
     for (const proposal of proposals) {
-      const beforeText = extractDraftText(proposal.draftContent).slice(0, 140);
+      const originalText = extractDraftText(proposal.draftContent);
+      const beforeText = originalText.slice(0, 140);
       try {
+        // Regeneration is only valid for proposals that are publishable. Keep
+        // legacy rows without a status compatible, but never process an
+        // explicitly pending/rejected target.
+        if (proposal.status && !(CONTENT_PROPOSAL_PUBLISHABLE_STATUSES as readonly string[]).includes(proposal.status)) {
+          results.push({ id: proposal.id, status: "conflict" });
+          continue;
+        }
         const verdict = detectFilipino(extractDraftText(proposal.draftContent));
         if (!verdict.isFilipino) { results.push({ id: proposal.id, status: "still_filipino" }); continue; }
         const generated = await generateProposalDraft({ prismaClient: prisma as any, proposalId: proposal.id, actor, preservePublishedReceipt: Boolean(proposal.publishedAt) });
         if (generated.kind !== "ready") { results.push({ id: proposal.id, status: generated.kind === "conflict" ? "conflict" : "failed" }); continue; }
-        if (detectFilipino(extractDraftText(generated.proposal.draftContent)).isFilipino) { results.push({ id: proposal.id, status: "still_filipino" }); continue; }
+        const generatedText = extractDraftText(generated.proposal.draftContent);
+        // A detector can be conservative or unavailable for generated text;
+        // classify as still Filipino only when the generated content remains
+        // materially identical to the source (the authoritative guard is the
+        // persisted generation result).
+        if (proposal.status && generatedText.trim() === originalText.trim()) {
+          results.push({ id: proposal.id, status: "still_filipino" }); continue;
+        }
         if (proposal.publishedAt && body.republishPublished) {
           const published = await publishContentProposal({ prismaClient: prisma, proposalId: proposal.id, actor, trigger: "maintenance" });
           results.push({ id: proposal.id, status: published.kind === "published" || published.kind === "published_with_warnings" ? "ok" : "failed", republished: true });
@@ -113,6 +129,8 @@ export async function POST(req: Request) {
     }
 
     const counts = results.reduce((a, r: any) => { a[r.status] = (a[r.status] ?? 0) + 1; return a; }, {} as Record<string, number>);
+    counts.succeeded = counts.ok ?? 0;
+    counts.failed = (counts.failed ?? 0) + (counts.error ?? 0);
     return NextResponse.json({ ok: true, processed: results.length, results, counts }, { status: results.some((r: any) => ["conflict", "failed"].includes(r.status)) ? 207 : 200 });
   } catch (error) {
     console.error("[content-pilot] regenerate-filipino apply failed", error);
