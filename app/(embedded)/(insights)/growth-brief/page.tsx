@@ -12,11 +12,12 @@ import {
   Spinner,
   Text,
 } from "@shopify/polaris";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import { timeAgo } from "@/lib/format";
+import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
 
 type BriefTone = "success" | "warning" | "critical" | "info";
 
@@ -170,27 +171,36 @@ export default function GrowthBriefPage() {
   const [loading, setLoading] = useState(() => !getCache(CACHE_KEY));
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestsRef = useRef(createLatestRequestCoordinator());
 
-  async function load(force = false) {
+  const load = useCallback(async (force = false) => {
+    const request = requestsRef.current.start({ background: false });
+    if (!request) return;
     force ? setRefreshing(true) : setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(CACHE_KEY);
+      const res = await authFetch(CACHE_KEY, { signal: request.signal });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error ?? "Growth Brief failed to load.");
+      if (!requestsRef.current.isCurrent(request)) return;
       setCache(CACHE_KEY, payload);
       setData(payload);
     } catch (err) {
+      if (!requestsRef.current.isCurrent(request) || request.signal.aborted) return;
       setError(err instanceof Error ? err.message : "Growth Brief failed to load.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      const ownsRequest = requestsRef.current.isCurrent(request);
+      requestsRef.current.finish(request);
+      if (ownsRequest) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }
+  }, [authFetch]);
 
   useEffect(() => {
     load();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [load]);
 
   const statusTone = data?.summary.status === "needs_attention" ? "warning" : "success";
 
