@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-10T23:40:17+08:00
+last_updated: 2026-07-11
 ---
 
 # Pilot Queue Usability
@@ -38,6 +38,12 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 14. A published receipt with `publishFinalizedAt: null` needs an explicit "Retry bookkeeping" action protected by `CONTENT_PUBLISH`; it may call only the idempotent local finalizer, never Shopify. Batch reindex failure must persist its warning on every affected published row.
 15. Reconciliation must inspect Shopify through proposal-specific read-only evidence before resetting any interrupted publish: exact article content for new/refresh work, exact metafields for SEO, and the operation marker for internal links. A missing or non-deterministic result is ambiguous, never retryable. Queue stages must expose `publishing`/`publish-error` so Reconcile is reachable, and successful warning responses must say “Published with warning.”
 16. Treat `202`/`reconciliationRequired` publish responses as critical uncertainty, never a published success: preserve the existing queue state, show the reconciliation error, and reload the authoritative row. When a scheduled batch reindex fails, retain every individual `PublishResult.warning` and combine it with the batch warning in both the returned per-item result and the durable `publishWarning`.
+17. Keep queue and detail recovery state consistent. List responses must include `publishWarning`, `publishOperationId`, and `publishFinalizedAt`; draft detail must apply the same `202` reconciliation rules as the queue.
+18. Scope browser queue caches by Shopify context. Load all cursor pages, use the first-page `total` as a consistency bound, reject malformed/repeated cursors, and never impose a hidden row cap.
+19. Coordinate overlapping UI loads. Background polls must skip while a load is active; foreground or post-mutation refreshes may supersede and abort older work; only the current request may commit or clear loading state. If generation and its authoritative reload both fail, restore the pre-generation row and retain the original generation error.
+20. Protect Run Indexer and Content Brief with `CONTENT_REVIEW`. Return safe operator errors rather than raw provider or Shopify details.
+21. Route every `fetchBlogContentHandler` production entry point through one owner-token lock wrapper. A denied lock means another index is active; only the owner that acquired the lock may release it.
+22. Overview counts must load the complete paginated article corpus, and overlapping refreshes must prevent older results from overwriting newer state.
 
 ## Gotchas
 - A successful "skipped/already handled" backend response still feels broken if the UI leaves the same row visible or says to fetch data first.
@@ -48,6 +54,9 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 - Do not gate Content Pilot rejection on `status === "pending"` only. Operators can change their mind after approval or draft generation, up until live publish begins.
 - Never let `draftStatus: "ready"` alone authorize a Shopify write. A rejected or concurrently modified proposal must fail the publish status predicate even if stale draft state remains.
 - `requirePermission` verifies the embedded identity again while checking roles, but the project-wide embedded-route contract is stricter: `requireAppAuth` remains the first handler statement and permission follows immediately. Test both the unauthenticated short-circuit and the authenticated-but-forbidden path.
+- A polling interval can continuously abort an unbounded pagination request and leave loading state stuck. Skip background polls while active and bound page traversal using the server's truthful total.
+- A local lock at only one route is not a job invariant. Cron aggregation, scheduled publishing, shared publish services, source refreshes, scripts, and dashboard refreshes must all use the same lock wrapper.
+- Do not replace a concrete mutation failure with a secondary reload failure. Preserve the primary message and roll back optimistic state if no authoritative state can be loaded.
 
 ## Verify
 - Add or update a route/API regression proving list responses include the evidence fields the row renders.
