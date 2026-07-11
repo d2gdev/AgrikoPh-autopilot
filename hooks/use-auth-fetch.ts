@@ -41,9 +41,11 @@ const DEFAULT_POLL_INTERVAL_MS = 100;
 const FETCH_TOKEN_TIMEOUT_MS = 2_000;
 const FETCH_TOKEN_POLL_INTERVAL_MS = 50;
 const CONTEXT_STORAGE_KEY = "agriko.shopify.context";
+const EXPIRED_TOKEN_RETRY_COOLDOWN_MS = 2_000;
 
 let cachedIdToken: { token: string; expiresAtMs: number } | null = null;
 let idTokenRequest: Promise<string> | null = null;
+let expiredTokenRetryUntil = 0;
 let bootLogged = false;
 
 let authSnapshot: AuthSnapshot = {
@@ -338,6 +340,7 @@ async function requestTokenWithRetry(
       const expiresAtMs = getJwtExpiresAtMs(token);
 
       if (expiresAtMs && expiresAtMs <= Date.now()) {
+        expiredTokenRetryUntil = Date.now() + EXPIRED_TOKEN_RETRY_COOLDOWN_MS;
         throw new Error("Shopify App Bridge returned an expired idToken");
       }
 
@@ -477,6 +480,7 @@ async function primeAppBridgeAuthState(
 export function __resetAuthFetchTokenCacheForTests() {
   cachedIdToken = null;
   idTokenRequest = null;
+  expiredTokenRetryUntil = 0;
   bootLogged = false;
   authSnapshot = {
     status: "idle",
@@ -501,6 +505,10 @@ export async function getAppBridgeIdToken(
     return cachedIdToken.token;
   }
   if (idTokenRequest) return idTokenRequest;
+
+  if (expiredTokenRetryUntil > nowMs) {
+    throw new Error("Shopify App Bridge returned an expired idToken; retrying shortly");
+  }
 
   const win = getWindow();
   if (!win) {
