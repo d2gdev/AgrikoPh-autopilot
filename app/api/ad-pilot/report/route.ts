@@ -50,6 +50,8 @@ export async function GET(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
 
+  try {
+
   // Pull recent snapshots: newest drives the detailed report, the rest feed the trend.
   const snapshots = await prisma.rawSnapshot.findMany({
     where: { source: "meta" },
@@ -121,5 +123,9 @@ export async function GET(req: NextRequest) {
       };
     });
 
-  return NextResponse.json({ report, trend, fetchedAt: latest.fetchedAt, period: period(latest), comparison });
+    return NextResponse.json({ report, trend, fetchedAt: latest.fetchedAt, period: period(latest), comparison });
+  } catch (error) {
+    console.error("[ad-pilot/report] error:", error);
+    return NextResponse.json({ error: "Failed to load unified report" }, { status: 500 });
+  }
 }
