@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { generateStolenAd } from "@/lib/market-intel/steal-ad";
 
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
   if (!checkRateLimit(`market-intel-steal-ad:${actor}`, 20, 60_000)) {

@@ -4,9 +4,15 @@ const mockEnqueueJob = vi.hoisted(() => vi.fn());
 const mockNotifyJobFailure = vi.hoisted(() => vi.fn());
 const mockFetchMarketIntelHandler = vi.hoisted(() => vi.fn());
 const mockFetchKeywordResearchHandler = vi.hoisted(() => vi.fn());
+const mockAuth = vi.hoisted(() => ({
+  requireAppAuth: vi.fn(),
+  requirePermission: vi.fn(),
+}));
 
 vi.mock("@/lib/auth", () => ({
-  requireAppAuth: vi.fn().mockResolvedValue(null),
+  PERMISSIONS: { CONTENT_REVIEW: "content:review" },
+  requireAppAuth: mockAuth.requireAppAuth,
+  requirePermission: mockAuth.requirePermission,
   requireCronAuth: vi.fn(() => null),
 }));
 
@@ -36,6 +42,8 @@ import { GET as cronKeywordGET } from "@/app/api/cron/fetch-keyword-research/rou
 describe("market intelligence queue routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockAuth.requirePermission.mockResolvedValue(null);
     mockEnqueueJob.mockResolvedValue({
       runId: "run-1",
       status: "queued",
@@ -88,6 +96,23 @@ describe("market intelligence queue routes", () => {
       triggeredBy: "user",
     });
     expect(mockFetchKeywordResearchHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects a forbidden user before manual queue work", async () => {
+    mockAuth.requirePermission.mockResolvedValue(new Response("Forbidden", { status: 403 }));
+
+    const triggerResponse = await triggerPOST(
+      new Request("http://test.local/api/market-intelligence/trigger", { method: "POST" }),
+    );
+    const keywordResponse = await keywordPOST(
+      new Request("http://test.local/api/market-intelligence/keyword-research", { method: "POST" }),
+    );
+
+    expect(triggerResponse.status).toBe(403);
+    expect(keywordResponse.status).toBe(403);
+    expect(mockEnqueueJob).not.toHaveBeenCalled();
+    expect(mockAuth.requirePermission).toHaveBeenCalledTimes(2);
+    expect(mockAuth.requirePermission).toHaveBeenNthCalledWith(1, expect.any(Request), "content:review");
   });
 
   it("queues cron capture runs", async () => {

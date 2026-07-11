@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
-import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { fillCaptureTranslations } from "@/lib/market-intel/translate-captures";
 
@@ -12,6 +12,8 @@ import { fillCaptureTranslations } from "@/lib/market-intel/translate-captures";
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
+  if (permissionError) return permissionError;
 
   const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
   if (!checkRateLimit(`market-intel-backfill-translations:${actor}`, 3, 60_000)) {

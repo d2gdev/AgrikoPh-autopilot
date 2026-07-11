@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 import { NextResponse } from "next/server";
-import { requireAppAuth } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { notifyJobFailure } from "@/lib/alerts";
 import { enqueueJob } from "@/lib/jobs/orchestrator";
 
@@ -11,6 +11,8 @@ const JOB_NAME = "fetch-keyword-research";
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   try {
     const queuedRun = await enqueueJob({

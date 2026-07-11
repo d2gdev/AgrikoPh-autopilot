@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAppAuth } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 const keywordSchema = z.object({
@@ -90,6 +90,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
+  if (permissionError) return permissionError;
 
   // Parse defensively: a malformed/empty body would otherwise throw here —
   // outside the try below — and surface as an empty-body 500 the client can't

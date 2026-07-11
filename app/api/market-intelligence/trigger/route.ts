@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 import { NextResponse } from "next/server";
-import { requireAppAuth } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { VALID_PROFILES, type RunProfile } from "@/lib/market-intel/profiles";
 import { enqueueJob } from "@/lib/jobs/orchestrator";
 import { notifyJobFailure } from "@/lib/alerts";
@@ -12,6 +12,8 @@ const JOB_NAME = "fetch-market-intel";
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   let profile: RunProfile = "smoke";
   try {

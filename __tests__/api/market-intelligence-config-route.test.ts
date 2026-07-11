@@ -13,9 +13,12 @@ const mockPrisma = vi.hoisted(() => ({
     upsert: vi.fn(),
   },
 }));
+const mockAuth = vi.hoisted(() => ({ requireAppAuth: vi.fn(), requirePermission: vi.fn() }));
 
 vi.mock("@/lib/auth", () => ({
-  requireAppAuth: vi.fn().mockResolvedValue(null),
+  PERMISSIONS: { SETTINGS_ADMIN: "settings:admin" },
+  requireAppAuth: mockAuth.requireAppAuth,
+  requirePermission: mockAuth.requirePermission,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -29,6 +32,8 @@ describe("market intelligence config route", () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.stubEnv("MARKET_INTEL_DEFAULT_LOCATION", "Philippines");
+    mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockAuth.requirePermission.mockResolvedValue(null);
     mockPrisma.marketKeyword.findFirst.mockResolvedValue(null);
     mockPrisma.marketKeyword.create.mockResolvedValue({
       id: "kw-1",
@@ -84,6 +89,20 @@ describe("market intelligence config route", () => {
     expect(res.status).toBe(400);
     const payload = await res.json();
     expect(payload.error).toBeDefined();
+  });
+
+  it("rejects a forbidden user before parsing or writing configuration", async () => {
+    mockAuth.requirePermission.mockResolvedValueOnce(new Response("Forbidden", { status: 403 }));
+
+    const res = await POST(new Request("http://test.local/api/market-intelligence/config", {
+      method: "POST",
+      body: JSON.stringify({ keywords: [{ keyword: "blocked" }] }),
+    }));
+
+    expect(res.status).toBe(403);
+    expect(mockPrisma.marketKeyword.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.marketKeyword.create).not.toHaveBeenCalled();
+    expect(mockAuth.requirePermission).toHaveBeenCalledWith(expect.any(Request), "settings:admin");
   });
 
   it("requires a pageId for meta and facebook pages", async () => {

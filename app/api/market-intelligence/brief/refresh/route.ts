@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/db";
 import { generateBrief } from "@/lib/market-intel/generate-brief";
@@ -11,6 +11,8 @@ const SENTINEL = new Date("2000-01-01T00:00:00.000Z");
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
   if (!checkRateLimit(`market-intel-brief-refresh:${actor}`, 5, 60_000)) {

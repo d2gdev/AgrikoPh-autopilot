@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAppAuth } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 interface SendBody {
@@ -14,6 +14,8 @@ interface SendBody {
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   try {
     const body = await req.json().catch(() => null) as SendBody | null;
