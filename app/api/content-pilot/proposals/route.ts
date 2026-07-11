@@ -47,7 +47,15 @@ export async function GET(req: Request) {
       ...(query.q ? { OR: [{ title: { contains: query.q, mode: "insensitive" } }, { description: { contains: query.q, mode: "insensitive" } }] } : {}),
     };
     if (query.stage) {
-      Object.assign(baseWhere, query.stage === "rejected" ? { status: "rejected" } : query.stage === "pending" ? { status: "pending" } : { draftStatus: query.stage === "approved" ? null : query.stage });
+      const publishable = { in: ["approved", "override_approved"] };
+      Object.assign(baseWhere,
+        query.stage === "rejected" ? { status: "rejected" } :
+        query.stage === "pending" ? { status: "pending" } :
+        query.stage === "approved" ? { status: publishable, draftStatus: null } :
+        query.stage === "scheduled" ? { status: publishable, draftStatus: "ready", scheduledPublishAt: { not: null } } :
+        query.stage === "ready" ? { status: publishable, draftStatus: "ready", scheduledPublishAt: null } :
+        { status: publishable, draftStatus: query.stage },
+      );
     }
     const filteredWhere = { ...baseWhere };
     // The ordering and tie-breaker are deliberately stable across pages.
@@ -85,6 +93,9 @@ export async function GET(req: Request) {
         baselineSeoScore: true,
         followUpSeoScore: true,
         followUpScoredAt: true,
+        publishWarning: true,
+        publishOperationId: true,
+        publishFinalizedAt: true,
         sourceData: true,
       },
     });
@@ -95,9 +106,9 @@ export async function GET(req: Request) {
     const countFn = (prisma.contentProposal as any).count;
     const total = typeof countFn === "function" ? await countFn({ where: filteredWhere }) : page.length;
     const groupBy = (prisma.contentProposal as any).groupBy;
-    const grouped = typeof groupBy === "function" ? await groupBy({ by: ["status", "draftStatus"], _count: { _all: true } }) : [];
+    const grouped = typeof groupBy === "function" ? await groupBy({ by: ["status", "draftStatus", "scheduledPublishAt"], _count: { _all: true } }) : [];
     const stageCounts = grouped.reduce((counts: Record<string, number>, row: any) => {
-      const stage = row.status === "rejected" ? "rejected" : row.status === "pending" ? "pending" : row.draftStatus ?? "approved";
+      const stage = row.status === "rejected" ? "rejected" : row.status === "pending" ? "pending" : row.draftStatus === "ready" && row.scheduledPublishAt ? "scheduled" : row.draftStatus ?? "approved";
       counts[stage] = (counts[stage] ?? 0) + row._count._all;
       return counts;
     }, {});

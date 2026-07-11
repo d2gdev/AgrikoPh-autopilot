@@ -40,6 +40,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ blogs });
   } catch (err) {
     console.error("[content-pilot/blogs] error:", err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json({ error: "Unable to load Shopify blogs" }, { status: 500 });
   }
 }

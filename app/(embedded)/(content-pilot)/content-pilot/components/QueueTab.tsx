@@ -23,6 +23,12 @@ import { QueueFilters } from "./queue/QueueFilters";
 import { QueueModals } from "./queue/QueueModals";
 import { contentProposalQueueStage } from "./queue-stage";
 import { publishFeedback, publishReconciliationMessage } from "./publish-feedback";
+import {
+  contentPilotQueueCacheKey,
+  loadAllProposalPages,
+  loadProposalDraft,
+} from "@/lib/content-pilot/queue-loading";
+import { bulkApprovalGenerationFeedback } from "@/lib/content-pilot/operator-feedback";
 
 // Safely parse a Response as JSON. If the body is not JSON (e.g. an HTML error
 // page from a proxy or Next.js itself), returns { error: <raw text> } rather
@@ -41,10 +47,11 @@ export function QueueTab({
   active: boolean;
 }) {
   const router = useRouter();
-  const [allProposals, setAllProposals] = useState<ContentProposal[]>(() => getCache<ContentProposal[]>("/api/content-pilot/proposals") ?? []);
+  const cacheKey = contentPilotQueueCacheKey(withShopifyContextUrl);
+  const [allProposals, setAllProposals] = useState<ContentProposal[]>(() => getCache<ContentProposal[]>(cacheKey) ?? []);
   const [generating, setGenerating] = useState(false);
   const [confirmGenerate, setConfirmGenerate] = useState(false);
-  const [loading, setLoading] = useState(() => !getCache("/api/content-pilot/proposals"));
+  const [loading, setLoading] = useState(() => !getCache(cacheKey));
   const [error, setError] = useState<string | null>(null);
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
   const [rejectingIds, setRejectingIds] = useState<Set<string>>(new Set());
@@ -65,6 +72,7 @@ export function QueueTab({
   // Bulk
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkActing, setBulkActing] = useState(false);
+  const [bulkFeedback, setBulkFeedback] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   const [confirmPublishAll, setConfirmPublishAll] = useState(false);
   const [confirmGenerateAll, setConfirmGenerateAll] = useState(false);
   // Reject
@@ -132,39 +140,18 @@ export function QueueTab({
     const seq = ++loadSeqRef.current;
     if (!silent) setLoading(true);
     try {
-      let nextCursor: string | null = null;
-      const pages: ContentProposal[] = [];
-      let res: Response | null = null;
-      for (let page = 0; page < 20; page++) {
-        const url = nextCursor ? `/api/content-pilot/proposals?cursor=${encodeURIComponent(nextCursor)}` : "/api/content-pilot/proposals";
-        res = await authFetch(url);
-        if (!res.ok) break;
-        const chunk = (await res.json()) as { proposals?: ContentProposal[]; nextCursor?: string | null; hasMore?: boolean };
-        pages.push(...(chunk.proposals ?? []));
-        nextCursor = chunk.nextCursor ?? null;
-        if (!chunk.hasMore || !nextCursor) break;
-      }
-      if (!res) throw new Error("No response");
+      const pages = await loadAllProposalPages<ContentProposal>(async (cursor) => {
+        const params = new URLSearchParams({ limit: "100" });
+        if (cursor) params.set("cursor", cursor);
+        const res = await authFetch(`/api/content-pilot/proposals?${params.toString()}`);
+        const body = await safeJson(res);
+        if (!res.ok) {
+          throw new Error(typeof body.error === "string" ? body.error : `Failed to load proposals (HTTP ${res.status})`);
+        }
+        return body as { proposals?: ContentProposal[]; nextCursor?: string | null; hasMore?: boolean };
+      });
       if (seq !== loadSeqRef.current) return; // a newer request superseded this one
-      if (!res.ok) {
-        // Read the body as text first so a non-JSON error page (e.g. an auth/SSO
-        // redirect or a hosting error page) yields a useful message instead of a
-        // cryptic "Unexpected token '<'" JSON-parse error.
-        let msg = `Failed to load proposals (HTTP ${res.status})`;
-        try {
-          const body = await res.text();
-          try {
-            const parsed = JSON.parse(body) as { error?: string };
-            if (parsed?.error) msg = parsed.error;
-          } catch {
-            msg = `Failed to load proposals (HTTP ${res.status}) — the server returned a non-JSON response. You may be signed out, or the API is unavailable.`;
-          }
-        } catch { /* body unreadable — keep status-only message */ }
-        setError(msg);
-        return;
-      }
-      if (seq !== loadSeqRef.current) return;
-      setCache("/api/content-pilot/proposals", pages);
+      setCache(cacheKey, pages);
       setAllProposals(pages);
     } catch (err) {
       if (seq !== loadSeqRef.current) return;
@@ -172,7 +159,7 @@ export function QueueTab({
     } finally {
       if (!silent && seq === loadSeqRef.current) setLoading(false);
     }
-  }, [authFetch]);
+  }, [authFetch, cacheKey]);
 
   const hasLoadedRef = useRef(false);
   useEffect(() => {
@@ -255,14 +242,16 @@ export function QueueTab({
       if (!res.ok) {
         const message = draftFailureMessage(d);
         setError(message);
-        setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed", draftError: message } : p)); return false;
+        await loadProposals({ silent: true });
+        return false;
       } else if (navigate) { router.push(withShopifyContextUrl(`/content-pilot/draft/${id}`)); }
       else if (reload) { await loadProposals(); }
       return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
-      setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed", draftError: message } : p)); return false;
+      await loadProposals({ silent: true });
+      return false;
     }
     finally { setGeneratingDraftIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
   };
@@ -318,10 +307,11 @@ export function QueueTab({
     if (draftCache[id] !== undefined) return;
     setLoadingDraftId(id);
     try {
-      const res = await authFetch(`/api/content-pilot/proposals/${id}`);
-      const d = await safeJson(res);
-      setDraftCache((prev) => ({ ...prev, [id]: ((d.proposal as Record<string,unknown>)?.draftContent ?? null) as Record<string, unknown> | null }));
-    } catch { setDraftCache((prev) => ({ ...prev, [id]: null })); }
+      const draft = await loadProposalDraft(authFetch, id);
+      setDraftCache((prev) => ({ ...prev, [id]: draft }));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
     finally { setLoadingDraftId(null); }
   };
 
@@ -332,17 +322,23 @@ export function QueueTab({
     setSelectedIds(new Set());
     const CONCURRENCY = 3;
     let cursor = 0;
+    let approved = 0;
+    let generated = 0;
+    let failed = 0;
     const worker = async () => {
       while (cursor < ids.length) {
         const id = ids[cursor++];
         if (id === undefined) break;
         const ok = await approve(id, { generate: false });
-        if (!ok) continue;
-        await generateDraft(id, { navigate: false, reload: false });
+        if (!ok) { failed++; continue; }
+        approved++;
+        if (await generateDraft(id, { navigate: false, reload: false })) generated++;
+        else failed++;
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
     await loadProposals();
+    setBulkFeedback(bulkApprovalGenerationFeedback({ approved, generated, failed }));
     setBulkActing(false);
   };
 
@@ -597,6 +593,11 @@ export function QueueTab({
       {lastPublishFeedback && (
         <Banner tone={lastPublishFeedback.tone} onDismiss={() => setLastPublishFeedback(null)}>
           {lastPublishFeedback.message}
+        </Banner>
+      )}
+      {bulkFeedback && (
+        <Banner tone={bulkFeedback.tone} onDismiss={() => setBulkFeedback(null)}>
+          {bulkFeedback.message}
         </Banner>
       )}
       {lastGeneratedCount !== null && (

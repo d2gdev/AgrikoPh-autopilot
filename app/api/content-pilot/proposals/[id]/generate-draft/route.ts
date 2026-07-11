@@ -12,8 +12,6 @@ type GenerateDraftBody = { preservePublishedReceipt?: boolean };
 
 function classifyDraftGenerationError(raw: string): { status: number; error: string; detail: string } {
   const lower = raw.toLowerCase();
-  const message = raw.trim();
-
   if (lower.includes("draft too short") || lower.includes("draft is missing")) {
     return {
       status: 422,
@@ -49,7 +47,7 @@ function classifyDraftGenerationError(raw: string): { status: number; error: str
   return {
     status: 500,
     error: "Draft generation failed",
-    detail: raw.slice(0, 500),
+    detail: "The draft could not be generated. Retry once, or contact an administrator if the problem continues.",
   };
 }
 
@@ -130,7 +128,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     const classified = classifyDraftGenerationError(result.error);
-    return NextResponse.json(classified, { status: classified.status });
+    const { status, ...payload } = classified;
+    return NextResponse.json(payload, { status });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === `Proposal not found: ${id}`) {
@@ -138,7 +137,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     console.error("[content-pilot/generate-draft] unhandled error:", err);
     return NextResponse.json(
-      { error: "Internal server error", detail: msg.slice(0, 500) },
+      { error: "Internal server error", detail: "Draft generation failed unexpectedly. Retry once, or contact an administrator if the problem continues." },
       { status: 500 },
     );
   }

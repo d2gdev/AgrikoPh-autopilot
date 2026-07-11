@@ -54,6 +54,7 @@ import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
 import { canRejectContentProposal } from "@/lib/content-pilot/proposal-state";
 import { GroundingCitations } from "@/components/content-pilot/grounding-citations";
 import type { DraftCitation } from "@/lib/content-pilot/generate-draft";
+import { publishReconciliationMessage } from "../../components/publish-feedback";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -595,6 +596,13 @@ export default function DraftReviewPage() {
         method: "POST",
       });
       const d = await safeJson(res);
+      const reconciliationMessage = publishReconciliationMessage(d);
+      if (res.status === 202 || reconciliationMessage) {
+        setError(reconciliationMessage ?? "Publication outcome requires reconciliation. Inspect Shopify before retrying.");
+        setPublishConfirm(false);
+        await load();
+        return;
+      }
       if (!res.ok) { setError((d.error as string) ?? "Publish failed"); return; }
       setPublishConfirm(false);
       router.push(withShopifyContextUrl("/content-pilot?tab=1"));
@@ -709,9 +717,12 @@ export default function DraftReviewPage() {
         {proposal.publishWarning && (
           <Banner tone="warning" title="Published with warning">
             <p>{proposal.publishWarning}</p>
-            {isPublished && proposal.publishFinalizedAt == null && proposal.publishOperationId && (
-              <Button size="slim" loading={reconciling} onClick={retryBookkeeping}>Retry bookkeeping</Button>
-            )}
+          </Banner>
+        )}
+        {isPublished && proposal.publishFinalizedAt == null && proposal.publishOperationId && (
+          <Banner tone="warning" title="Bookkeeping incomplete">
+            <p>The Shopify write is complete, but local opportunity and audit bookkeeping still needs to finish.</p>
+            <Button size="slim" loading={reconciling} onClick={retryBookkeeping}>Retry bookkeeping</Button>
           </Banner>
         )}
         {(proposal.draftStatus === "publishing" || proposal.draftStatus === "publish-error") && (

@@ -4,7 +4,7 @@ export const maxDuration = 30;
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
 
@@ -26,12 +26,18 @@ function classifyBriefError(err: unknown): { status: number; error: string; deta
   if (lower.includes("no ai provider configured") || lower.includes("provider not configured")) {
     return { status: 503, error: "AI provider is not configured", detail: "Set a valid DeepSeek or OpenRouter API key, then retry brief generation." };
   }
-  return { status: 500, error: "Brief generation failed", detail: raw.slice(0, 500) };
+  return {
+    status: 500,
+    error: "Brief generation failed",
+    detail: "The AI provider failed unexpectedly. Retry brief generation, or contact an administrator if the problem continues.",
+  };
 }
 
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
   const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
   if (!checkRateLimit(`brief:${actor}`, 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded: max 10 briefs per minute" }, { status: 429 });
@@ -95,6 +101,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[content-pilot/brief] error:", err);
     const classified = classifyBriefError(err);
-    return NextResponse.json(classified, { status: classified.status });
+    const { status, ...payload } = classified;
+    return NextResponse.json(payload, { status });
   }
 }

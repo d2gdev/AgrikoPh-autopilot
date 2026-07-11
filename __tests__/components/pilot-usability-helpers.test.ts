@@ -95,4 +95,14 @@ describe("pilot usability helper regressions", () => {
     expect(draftSource).toContain("Reject proposal");
     expect(draftSource).toContain("Confirm Reject");
   });
+
+  it("shows blog-loading failures and incomplete published bookkeeping", () => {
+    const briefSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/BriefTab.tsx", "utf8");
+    const draftSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/draft/[id]/page.tsx", "utf8");
+
+    expect(briefSource).toContain("blogsError");
+    expect(briefSource).toContain("Shopify blogs could not be loaded");
+    expect(draftSource).toContain('title="Bookkeeping incomplete"');
+    expect(draftSource).toContain("Retry bookkeeping");
+  });
 });
