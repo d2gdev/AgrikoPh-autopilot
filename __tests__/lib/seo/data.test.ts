@@ -366,4 +366,24 @@ describe("getLatestGa4Data freshness selection", () => {
       freshness: { selectedSource: "rawSnapshot", fallbackReason: "normalized_empty" },
     });
   });
+
+  it("reports an existing normalized window with no usable rows as empty when raw GA4 is also empty", async () => {
+    mockDb.pageAnalytics.findFirst.mockResolvedValue({
+      dateRangeStart: new Date("2026-06-01T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-29T00:00:00.000Z"),
+      capturedAt: new Date("2026-07-09T04:00:00.000Z"),
+    });
+    mockDb.pageAnalytics.findMany.mockResolvedValue([
+      { page: "/blogs/empty", sessions: 0, bounceRate: null, conversionRate: null },
+    ]);
+    mockSnapshots.getLatestSnapshot.mockResolvedValue(rawSnapshot("ga4", "2026-07-09T04:30:00.000Z", "2026-06-08T00:00:00.000Z", "2026-07-06T00:00:00.000Z", {}));
+    mockSnapshots.getPages.mockReturnValue([]);
+
+    const result = await getLatestGa4Data();
+
+    expect(result).toMatchObject({
+      source: "none",
+      freshness: { selectedSource: "none", fallbackReason: "normalized_empty" },
+    });
+  });
 });

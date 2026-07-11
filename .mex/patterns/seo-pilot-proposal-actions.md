@@ -101,6 +101,12 @@ last_updated: 2026-07-11
 24. Page Health retains every applicable finding.
    - Return `flags[]` for simultaneous high-bounce and low-conversion conditions and render every badge.
    - Keep the primary `flag` only as a compatibility field; severity accounts for all findings.
+25. Preserve truthful empty and prior-period source state.
+   - A successful empty GA4 capture replaces rows for its reporting window; never retain stale normalized pages.
+   - An existing normalized GA4 window with zero usable rows is `normalized_empty`, not `normalized_missing`.
+   - Apply bounds to distinct normalized GSC reporting windows, never raw query rows.
+   - Page Health must describe missing GA4 engagement signals as unknown, not healthy.
+   - Article-backed promotion targets derive word count from canonical `ArticleRecord` data only.
 
 ## Regression Tests
 Add or update route tests when changing these paths:

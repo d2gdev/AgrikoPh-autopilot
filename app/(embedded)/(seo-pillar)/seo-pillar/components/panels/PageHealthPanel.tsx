@@ -12,6 +12,10 @@ export function PageHealthPanel({
   flaggedPageHealth: PageHealthRow[];
   pageHealthFlag: Record<string, { tone: "warning" | "critical"; label: string }>;
 }) {
+  const pagesWithUnknownAnalytics = pageHealth.filter(
+    (page) => page.bounceRate === null || page.conversionRate === null,
+  ).length;
+
   return (
     <BlockStack gap="400">
       <Text variant="headingMd" as="h2">Page health (GSC × GA4)</Text>
@@ -20,7 +24,9 @@ export function PageHealthPanel({
         <Text as="p" tone="subdued">
           {pageHealth.length === 0
             ? "No page health data yet — appears after the next GSC + GA4 data fetch."
-            : "No flagged pages. All high-impression pages are engaging well."}
+            : pagesWithUnknownAnalytics > 0
+              ? `${pagesWithUnknownAnalytics} page${pagesWithUnknownAnalytics === 1 ? " has" : "s have"} incomplete GA4 engagement data, so this view cannot confirm a clean result.`
+              : "No flagged pages. All high-impression pages are engaging well."}
         </Text>
       ) : (
         <ResponsiveDataTable

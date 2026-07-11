@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "handle, title, and issue are required" }, { status: 400 });
   }
-  const { handle, issue, wordCount } = parsed.data;
+  const { handle, issue } = parsed.data;
 
   const article = await prisma.articleRecord.findUnique({
     where: { handle },
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   }
 
   const title = article.title;
-  const currentWordCount = wordCount ?? article.wordCount ?? 0;
+  const currentWordCount = article.wordCount ?? 0;
 
   const proposalType =
     issue === "thin-content" ? "content-refresh" :

@@ -159,6 +159,22 @@ describe("SEO refresh job regressions", () => {
     expect(firstGscCall!.start.toISOString()).toBe("2026-05-31T12:00:00.000Z");
   });
 
+  it("replaces normalized GA4 rows when a successful fetch has no pages", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T12:00:00Z"));
+    mockSeoConnectors.fetchGa4Data.mockResolvedValue({ topPages: [] });
+    const { fetchSeoDataHandler } = await vi.importActual<typeof import("@/jobs/fetch-seo-data")>("@/jobs/fetch-seo-data");
+
+    try {
+      await fetchSeoDataHandler();
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(mockPrisma.pageAnalytics.deleteMany).toHaveBeenCalled();
+    expect(mockPrisma.pageAnalytics.createMany).toHaveBeenCalledWith({ data: [] });
+  });
+
   it("falls back to raw GSC queries without mutating normalized GSC data", async () => {
     const latest = { queries: [], pages: [], queryPagePairs: [] };
     mockSnapshotSources.getLatestGscData.mockResolvedValue(latest);

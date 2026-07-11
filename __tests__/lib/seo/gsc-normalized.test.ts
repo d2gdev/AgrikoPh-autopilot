@@ -53,6 +53,7 @@ describe("normalized GSC windows", () => {
       where: { dateRangeEnd: { lt: latestWindow.dateRangeStart } },
       select: { dateRangeStart: true, dateRangeEnd: true, capturedAt: true },
       orderBy: [{ dateRangeEnd: "desc" }, { capturedAt: "desc" }],
+      distinct: ["dateRangeStart", "dateRangeEnd", "capturedAt"],
       take: 30,
     });
   });

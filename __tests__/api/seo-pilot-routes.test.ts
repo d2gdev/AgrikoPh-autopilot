@@ -215,6 +215,7 @@ describe("SEO Pilot route regressions", () => {
     const res = await POST(jsonRequest("/api/seo/promote", {
       handle: "moringa",
       title: "Moringa Benefits",
+      wordCount: 9_999,
       issue: "missing-h1",
     }));
 
@@ -227,6 +228,7 @@ describe("SEO Pilot route regressions", () => {
         proposedState: expect.objectContaining({
           action: "add_h1",
           issue: "missing-h1",
+          currentWordCount: 420,
           targetWordCount: 500,
         }),
       }),

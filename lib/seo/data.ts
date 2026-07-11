@@ -250,7 +250,7 @@ export async function getLatestGa4Data(): Promise<LatestGa4Data> {
       })),
       fetchedAt: latestWindow.capturedAt,
       source: rows.length ? "normalized" : "none",
-      freshness: { selectedSource: rows.length ? "normalized" : "none", selectedCapturedAt: rows.length ? latestWindow.capturedAt : null, normalizedCapturedAt: latestWindow.capturedAt, rawCapturedAt: ga4Snap?.fetchedAt ?? null, fallbackReason: rows.length ? null : "normalized_missing" },
+      freshness: { selectedSource: rows.length ? "normalized" : "none", selectedCapturedAt: rows.length ? latestWindow.capturedAt : null, normalizedCapturedAt: latestWindow.capturedAt, rawCapturedAt: ga4Snap?.fetchedAt ?? null, fallbackReason: rows.length ? null : "normalized_empty" },
     };
   }
   const pages = rawPages;

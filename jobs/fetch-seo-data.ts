@@ -55,8 +55,6 @@ export async function fetchSeoDataHandler(): Promise<JobResult<FetchSeoSummary>>
         .map(toPageAnalyticsInput)
         .filter((row): row is NonNullable<typeof row> => row !== null);
 
-      if (rows.length === 0) return;
-
       await prisma.$transaction([
         prisma.pageAnalytics.deleteMany({
           where: { dateRangeStart: start, dateRangeEnd: end },

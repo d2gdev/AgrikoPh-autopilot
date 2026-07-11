@@ -101,6 +101,7 @@ export async function getPreviousGscWindow(
     },
     select: { dateRangeStart: true, dateRangeEnd: true, capturedAt: true },
     orderBy: [{ dateRangeEnd: "desc" }, { capturedAt: "desc" }],
+    distinct: ["dateRangeStart", "dateRangeEnd", "capturedAt"],
     take: 30,
   });
   const durationMs = latest.dateRangeEnd.getTime() - latest.dateRangeStart.getTime();

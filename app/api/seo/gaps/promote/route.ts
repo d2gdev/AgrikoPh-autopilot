@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       const proposalType = decision.proposalType;
       const articleHandle = matchedArticle?.handle ?? requestedHandle ?? null;
       const title = matchedArticle?.title ?? inputTitle;
-      const wordCount = matchedArticle?.wordCount ?? gap.wordCount ?? 0;
+      const wordCount = matchedArticle?.wordCount ?? 0;
       const proposalTitle =
         proposalType === "seo-fix"
           ? `Improve SERP snippet: ${title}`
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
       : proposalType === "seo-fix"
         ? "low"
         : "medium";
-    const target = Math.max(500, Math.round(Math.max(wordCount || gap.wordCount || 200, 200) * 2));
+    const target = Math.max(500, Math.round(Math.max(wordCount || 200, 200) * 2));
 
     rows.push({
       proposalType,
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
         proposalType === "seo-fix"
           ? `Rewrite meta title and description for "${title}" targeting "${gap.query}" (${impressions ?? 0} impressions, avg position ${position ?? "—"}).`
           : proposalType === "content-refresh"
-            ? `Expand "${title}" from ${gap.wordCount ?? "few"} words to ${target}+ words to improve SEO.`
+            ? `Expand "${title}" from ${wordCount || "few"} words to ${target}+ words to improve SEO.`
             : `Net-new article targeting the search query "${gap.query}" (${impressions ?? 0} impressions, avg position ${position ?? "—"}).`,
       proposedState:
         proposalType === "seo-fix"
