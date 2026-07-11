@@ -226,6 +226,28 @@ export async function getLatestGa4Data(): Promise<LatestGa4Data> {
   const usablePages = <T extends { page?: string; sessions?: number | string }>(pages: T[]): T[] =>
     pages.filter((row) => Boolean(row.page?.trim()) && Number(row.sessions ?? 0) > 0);
   const rawPages = usablePages(getPages(ga4Snap));
+  const rawWindowIsNewerThanNormalized = Boolean(
+    ga4Snap?.dateRangeEnd &&
+    (!latestWindow || ga4Snap.dateRangeEnd.getTime() > latestWindow.dateRangeEnd.getTime()),
+  );
+  const rawCaptureExplicitlyEmpty = Array.isArray(ga4Snap?.payload?.topPages) && ga4Snap.payload.topPages.length === 0;
+
+  // A completed newer capture with no usable pages is current evidence of an
+  // empty/unknown GA4 window. Do not silently show a prior normalized period.
+  if (rawWindowIsNewerThanNormalized && rawCaptureExplicitlyEmpty) {
+    return {
+      pages: [],
+      fetchedAt: ga4Snap?.fetchedAt ?? null,
+      source: "none",
+      freshness: {
+        selectedSource: "none",
+        selectedCapturedAt: ga4Snap?.fetchedAt ?? null,
+        normalizedCapturedAt: latestWindow?.capturedAt ?? null,
+        rawCapturedAt: ga4Snap?.fetchedAt ?? null,
+        fallbackReason: "normalized_missing",
+      },
+    };
+  }
   const rawNewer = rawPages.length > 0 && !!(ga4Snap?.fetchedAt && latestWindow?.capturedAt && ga4Snap.fetchedAt.getTime() - latestWindow.capturedAt.getTime() > 24 * 60 * 60 * 1000);
   if (latestWindow && !rawNewer) {
     const rows = usablePages(await prisma.pageAnalytics.findMany({

@@ -103,6 +103,7 @@ last_updated: 2026-07-11
    - Keep the primary `flag` only as a compatibility field; severity accounts for all findings.
 25. Preserve truthful empty and prior-period source state.
    - A successful empty GA4 capture replaces rows for its reporting window; never retain stale normalized pages.
+   - A newer raw GA4 window suppresses older normalized data only when its payload explicitly records `topPages: []`; ambiguous empty payloads are not authoritative.
    - An existing normalized GA4 window with zero usable rows is `normalized_empty`, not `normalized_missing`.
    - Apply bounds to distinct normalized GSC reporting windows, never raw query rows.
    - Page Health must describe missing GA4 engagement signals as unknown, not healthy.
