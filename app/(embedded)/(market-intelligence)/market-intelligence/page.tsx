@@ -127,12 +127,14 @@ export default function MarketIntelligencePage() {
   const [notice, setNotice] = useState<string | null>(null);
   const runningPollRef = useRef(false);
   const keywordPollRef = useRef(false);
+  const loadRequestIdRef = useRef(0);
   // Stops the poll loop's setState calls and its next 2.5s wait iteration once
   // the page unmounts (e.g. operator navigates away mid-capture) — the loop
   // otherwise keeps firing /api/jobs/status and setting state on an unmounted
   // component for up to its full 10-minute timeout.
   const isMountedRef = useRef(true);
   useEffect(() => {
+    isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
 
@@ -227,17 +229,20 @@ export default function MarketIntelligencePage() {
   const [ourProductsLoading, setOurProductsLoading] = useState(() => !getCache("/api/market-intelligence/our-products"));
 
   const load = useCallback(async (forceRefresh = false) => {
+    const requestId = ++loadRequestIdRef.current;
     setError(null);
     try {
       const res = await authFetch(forceRefresh ? `${MARKET_INTELLIGENCE_CACHE_KEY}?refresh=1` : MARKET_INTELLIGENCE_CACHE_KEY);
       const payload = await readJson(res, "Market Intelligence request failed");
       if (!res.ok) throw new Error((payload.error as string) ?? "Market Intelligence request failed");
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) return;
       setCache(MARKET_INTELLIGENCE_CACHE_KEY, payload);
       setData(payload as unknown as MarketData);
     } catch (err) {
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) return;
       setError(String(err));
     } finally {
-      setLoading(false);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) setLoading(false);
     }
   }, [authFetch]);
 

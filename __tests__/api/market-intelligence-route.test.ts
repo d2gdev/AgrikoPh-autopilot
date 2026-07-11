@@ -29,10 +29,19 @@ const mockPrisma = vi.hoisted(() => ({
     findFirst: vi.fn(),
   },
 }));
+const mockAuth = vi.hoisted(() => ({
+  requireAppAuth: vi.fn(),
+  getSessionShop: vi.fn(),
+  getSessionUser: vi.fn(),
+}));
+const mockCheckRateLimit = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
-  requireAppAuth: vi.fn().mockResolvedValue(null),
+  requireAppAuth: mockAuth.requireAppAuth,
+  getSessionShop: mockAuth.getSessionShop,
+  getSessionUser: mockAuth.getSessionUser,
 }));
+vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mockCheckRateLimit }));
 
 vi.mock("@/lib/db", () => ({
   prisma: mockPrisma,
@@ -43,6 +52,10 @@ import { GET } from "@/app/api/market-intelligence/route";
 describe("market-intelligence GET route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockAuth.getSessionShop.mockResolvedValue("agriko.myshopify.com");
+    mockAuth.getSessionUser.mockResolvedValue("operator-1");
+    mockCheckRateLimit.mockReturnValue(true);
     mockPrisma.marketInsight.findMany.mockResolvedValue([]);
     mockPrisma.marketInsight.count.mockResolvedValue(2);
     mockPrisma.shoppingResult.findMany.mockResolvedValue([]);
@@ -90,5 +103,30 @@ describe("market-intelligence GET route", () => {
     // The route must now use a dedicated count query instead of relying on the
     // capped, first-60 insight list.
     expect(mockPrisma.marketInsight.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects forced refreshes before starting database aggregation when rate limited", async () => {
+    mockCheckRateLimit.mockReturnValueOnce(false);
+
+    const res = await GET(new Request("http://test.local/api/market-intelligence?refresh=1"));
+
+    expect(res.status).toBe(429);
+    expect(mockPrisma.marketInsight.findMany).not.toHaveBeenCalled();
+    expect(mockCheckRateLimit).toHaveBeenCalledWith("market-intelligence-refresh:agriko.myshopify.com", 10, 60_000);
+  });
+
+  it("deduplicates concurrent forced refreshes", async () => {
+    let resolveInsights: ((value: []) => void) | undefined;
+    mockPrisma.marketInsight.findMany.mockImplementationOnce(
+      () => new Promise<[]>((resolve) => { resolveInsights = resolve; }),
+    );
+
+    const first = GET(new Request("http://test.local/api/market-intelligence?refresh=1"));
+    const second = GET(new Request("http://test.local/api/market-intelligence?refresh=1"));
+
+    await vi.waitFor(() => expect(mockPrisma.marketInsight.findMany).toHaveBeenCalledTimes(1));
+    resolveInsights?.([]);
+    expect((await first).status).toBe(200);
+    expect((await second).status).toBe(200);
   });
 });

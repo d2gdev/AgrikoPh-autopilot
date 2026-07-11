@@ -1,8 +1,9 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { requireAppAuth } from "@/lib/auth";
+import { requireAppAuth, getSessionShop, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { isSpamStoryAd } from "@/lib/market-intel/spam-filter";
 import { computeAdLongevity } from "@/lib/market-intel/ad-longevity";
 import { smoothedMedian } from "@/lib/market-intel/price-signal";
@@ -19,7 +20,7 @@ async function loadMarketIntelligencePayload(forceRefresh: boolean): Promise<Mar
   if (!forceRefresh && marketIntelligenceCache && marketIntelligenceCache.expiresAt > now) {
     return marketIntelligenceCache.payload;
   }
-  if (!forceRefresh && marketIntelligenceInFlight) return marketIntelligenceInFlight;
+  if (marketIntelligenceInFlight) return marketIntelligenceInFlight;
 
   const request = buildMarketIntelligencePayload().then((payload) => {
     const cachedPayload = {
@@ -238,6 +239,12 @@ export async function GET(req: Request) {
 
   try {
     const forceRefresh = new URL(req.url).searchParams.get("refresh") === "1";
+    if (forceRefresh) {
+      const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
+      if (!checkRateLimit(`market-intelligence-refresh:${actor}`, 10, 60_000)) {
+        return NextResponse.json({ error: "Rate limit exceeded — max 10 refreshes per minute" }, { status: 429 });
+      }
+    }
     return NextResponse.json(await loadMarketIntelligencePayload(forceRefresh));
   } catch (error) {
     // Always return a JSON body so the client surfaces the real cause instead of
