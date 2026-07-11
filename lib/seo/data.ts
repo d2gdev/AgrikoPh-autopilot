@@ -1,8 +1,7 @@
 import { prisma } from "@/lib/db";
 import {
-  getGscPagesForWindow,
+  getGscDataForWindow,
   getGscQueriesForWindow,
-  getGscQueryPagePairsForWindow,
   getLatestGscWindow,
   getPreviousGscWindow,
   type GscWindow,
@@ -139,11 +138,7 @@ export async function getLatestGscData(): Promise<LatestGscData> {
   const rawQueryPagePairs = Array.isArray(pairsRaw) ? (pairsRaw as GscQueryPageRow[]) : [];
 
   if (latestWindow) {
-    const [queries, pages, queryPagePairs] = await Promise.all([
-      getGscQueriesForWindow(latestWindow),
-      getGscPagesForWindow(latestWindow),
-      getGscQueryPagePairsForWindow(latestWindow),
-    ]);
+    const { queries, pages, queryPagePairs } = await getGscDataForWindow(latestWindow);
     const rawIsNewer = rawIsMateriallyNewer(gscSnap?.fetchedAt ?? null, latestWindow.capturedAt);
     const shouldUseRaw = rawQueries.length > 0 && (rawIsNewer || queries.length === 0);
 

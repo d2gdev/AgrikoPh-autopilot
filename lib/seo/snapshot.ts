@@ -43,16 +43,21 @@ export async function getComparisonSnapshot(
   source: string,
   latest: SnapshotRecord,
 ): Promise<SnapshotRecord | null> {
-  // Pick the snapshot whose window ends at or before the latest window starts,
-  // preferring the one ending closest to (immediately before) latest's start.
-  const prior = await prisma.rawSnapshot.findFirst({
+  // Pick a same-duration snapshot whose window ends before the latest window
+  // starts, preferring the most recent comparable period.
+  const candidates = await prisma.rawSnapshot.findMany({
     where: {
       source,
       id: { not: latest.id },
-      dateRangeEnd: { lte: latest.dateRangeStart },
+      dateRangeEnd: { lt: latest.dateRangeStart },
     },
     orderBy: { dateRangeEnd: "desc" },
+    take: 30,
   });
+  const durationMs = latest.dateRangeEnd.getTime() - latest.dateRangeStart.getTime();
+  const prior = candidates.find((candidate) =>
+    candidate.dateRangeEnd.getTime() - candidate.dateRangeStart.getTime() === durationMs,
+  );
   if (!prior) return null;
   return {
     id: prior.id,

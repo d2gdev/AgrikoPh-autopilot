@@ -95,21 +95,26 @@ export async function getPreviousGscWindow(
   latest: GscWindow,
   client?: GscClient,
 ): Promise<GscWindow | null> {
-  const row = await clientOrDefault(client).gscQuery.findFirst({
+  const rows = await clientOrDefault(client).gscQuery.findMany({
     where: {
-      dateRangeEnd: { lte: latest.dateRangeStart },
+      dateRangeEnd: { lt: latest.dateRangeStart },
     },
     select: { dateRangeStart: true, dateRangeEnd: true, capturedAt: true },
     orderBy: [{ dateRangeEnd: "desc" }, { capturedAt: "desc" }],
+    take: 30,
   });
-  return row;
+  const durationMs = latest.dateRangeEnd.getTime() - latest.dateRangeStart.getTime();
+  return rows.find((row) => row.dateRangeEnd.getTime() - row.dateRangeStart.getTime() === durationMs) ?? null;
 }
 
 export async function getGscQueriesForWindow(
   window: GscWindow,
   client?: GscClient,
 ): Promise<GscQueryRow[]> {
-  const rows = await rowsForWindow(window, client);
+  return aggregateQueries(await rowsForWindow(window, client));
+}
+
+function aggregateQueries(rows: GscQueryRecord[]): GscQueryRow[] {
   const grouped = new Map<string, Aggregate>();
 
   for (const row of rows) {
@@ -132,7 +137,10 @@ export async function getGscPagesForWindow(
   window: GscWindow,
   client?: GscClient,
 ): Promise<GscPageRow[]> {
-  const rows = await rowsForWindow(window, client);
+  return aggregatePages(await rowsForWindow(window, client));
+}
+
+function aggregatePages(rows: GscQueryRecord[]): GscPageRow[] {
   const grouped = new Map<string, Aggregate>();
 
   for (const row of rows) {
@@ -155,7 +163,10 @@ export async function getGscQueryPagePairsForWindow(
   window: GscWindow,
   client?: GscClient,
 ): Promise<GscQueryPageRow[]> {
-  const rows = await rowsForWindow(window, client);
+  return aggregateQueryPagePairs(await rowsForWindow(window, client));
+}
+
+function aggregateQueryPagePairs(rows: GscQueryRecord[]): GscQueryPageRow[] {
   return rows
     .filter((row) => row.query && row.page)
     .map((row) => ({
@@ -166,4 +177,16 @@ export async function getGscQueryPagePairsForWindow(
       position: position(row.position ?? 0),
     }))
     .sort((a, b) => b.impressions - a.impressions || b.clicks - a.clicks);
+}
+
+export async function getGscDataForWindow(
+  window: GscWindow,
+  client?: GscClient,
+): Promise<{ queries: GscQueryRow[]; pages: GscPageRow[]; queryPagePairs: GscQueryPageRow[] }> {
+  const rows = await rowsForWindow(window, client);
+  return {
+    queries: aggregateQueries(rows),
+    pages: aggregatePages(rows),
+    queryPagePairs: aggregateQueryPagePairs(rows),
+  };
 }

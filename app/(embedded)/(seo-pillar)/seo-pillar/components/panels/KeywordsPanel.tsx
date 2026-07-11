@@ -79,16 +79,18 @@ export function KeywordsPanel({
                 <Badge key={k.keyword} tone={k.alert ? "critical" : k.status === "improved" ? "success" : k.status === "declined" ? "warning" : undefined}>
                   {k.alert ? "Drop alert" : k.status}
                 </Badge>,
-                <InlineStack key={k.keyword} gap="150" wrap className={styles.actionRow}>
-                  <Button
-                    size="slim"
-                    tone="critical"
-                    loading={untrackingKw.has(key)}
-                    onClick={() => untrackKeyword(k.keyword)}
-                  >
-                    Untrack
-                  </Button>
-                </InlineStack>,
+                <div key={k.keyword} className={styles.actionRow}>
+                  <InlineStack gap="150" wrap>
+                    <Button
+                      size="slim"
+                      tone="critical"
+                      loading={untrackingKw.has(key)}
+                      onClick={() => untrackKeyword(k.keyword)}
+                    >
+                      Untrack
+                    </Button>
+                  </InlineStack>
+                </div>,
               ];
             })
           }

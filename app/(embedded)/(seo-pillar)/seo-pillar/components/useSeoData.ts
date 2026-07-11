@@ -125,15 +125,15 @@ export function useSeoData() {
       return r.json();
     };
     const failed: string[] = [];
-    const track = (p: Promise<unknown>, section: string) =>
-      p.catch((e) => { failed.push(section); throw e; });
+    const track = (p: Promise<unknown>, section: string, clear: () => void) =>
+      p.catch((e) => { clear(); failed.push(section); throw e; });
     await Promise.allSettled([
-      track(loadCore(), "SEO data"),
-      track(okJson("/api/seo/analysis", "AI analysis").then((d) => { setAnalysis(d.analysis ?? null); setAnalysisAt(d.generatedAt ?? null); }), "AI analysis"),
-      track(okJson("/api/seo/health", "On-page health").then((d) => setHealth(d?.totals ? d : null)), "On-page health"),
-      track(okJson("/api/seo/keywords", "Keywords").then((d) => setKeywords(d.keywords ?? [])), "Keywords"),
-      track(okJson("/api/content-pilot/topic-clusters", "Pillar clusters").then((d) => setClusters(d.clusters ?? [])), "Pillar clusters"),
-      track(okJson("/api/seo/history", "Trend").then((d) => setTrend(d.trend ?? [])), "Trend"),
+      track(loadCore(), "SEO data", () => setData(null)),
+      track(okJson("/api/seo/analysis", "AI analysis").then((d) => { setAnalysis(d.analysis ?? null); setAnalysisAt(d.generatedAt ?? null); }), "AI analysis", () => { setAnalysis(null); setAnalysisAt(null); }),
+      track(okJson("/api/seo/health", "On-page health").then((d) => setHealth(d?.totals ? d : null)), "On-page health", () => setHealth(null)),
+      track(okJson("/api/seo/keywords", "Keywords").then((d) => setKeywords(d.keywords ?? [])), "Keywords", () => setKeywords([])),
+      track(okJson("/api/content-pilot/topic-clusters", "Pillar clusters").then((d) => setClusters(d.clusters ?? [])), "Pillar clusters", () => setClusters([])),
+      track(okJson("/api/seo/history", "Trend").then((d) => setTrend(d.trend ?? [])), "Trend", () => setTrend([])),
     ]);
     setLoadError(failed.length ? `Some sections failed to load: ${failed.join(", ")}. Try Refresh data.` : null);
   }, [authFetch, loadCore]);

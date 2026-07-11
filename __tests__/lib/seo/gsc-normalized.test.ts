@@ -40,20 +40,33 @@ describe("normalized GSC windows", () => {
     });
   });
 
-  it("selects a non-overlapping previous window", async () => {
-    mockPrisma.gscQuery.findFirst.mockResolvedValue({
+  it("selects an equally-sized previous window that ends before the current window", async () => {
+    mockPrisma.gscQuery.findMany.mockResolvedValue([{
       dateRangeStart: new Date("2026-04-28T00:00:00.000Z"),
       dateRangeEnd: new Date("2026-05-26T00:00:00.000Z"),
       capturedAt: new Date("2026-05-26T12:00:00.000Z"),
-    });
+    }]);
 
     await getPreviousGscWindow(latestWindow);
 
-    expect(mockPrisma.gscQuery.findFirst).toHaveBeenCalledWith({
-      where: { dateRangeEnd: { lte: latestWindow.dateRangeStart } },
+    expect(mockPrisma.gscQuery.findMany).toHaveBeenCalledWith({
+      where: { dateRangeEnd: { lt: latestWindow.dateRangeStart } },
       select: { dateRangeStart: true, dateRangeEnd: true, capturedAt: true },
       orderBy: [{ dateRangeEnd: "desc" }, { capturedAt: "desc" }],
+      take: 30,
     });
+  });
+
+  it("rejects an adjacent prior window with a different reporting duration", async () => {
+    mockPrisma.gscQuery.findMany.mockResolvedValue([
+      {
+        dateRangeStart: new Date("2026-05-01T00:00:00.000Z"),
+        dateRangeEnd: new Date("2026-05-26T00:00:00.000Z"),
+        capturedAt: new Date("2026-05-26T12:00:00.000Z"),
+      },
+    ]);
+
+    await expect(getPreviousGscWindow(latestWindow)).resolves.toBeNull();
   });
 
   it("returns null when no window exists", async () => {

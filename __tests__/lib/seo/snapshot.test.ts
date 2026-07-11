@@ -41,7 +41,7 @@ describe("getLatestSnapshot", () => {
 });
 
 describe("getComparisonSnapshot", () => {
-  it("selects a non-overlapping prior window ending at or before latest start", async () => {
+  it("selects an equally-sized prior window ending before latest start", async () => {
     const latest = {
       id: "current",
       fetchedAt: new Date("2026-06-24T00:00:00.000Z"),
@@ -49,18 +49,33 @@ describe("getComparisonSnapshot", () => {
       dateRangeEnd: new Date("2026-06-24T00:00:00.000Z"),
       payload: {},
     };
-    mockPrisma.rawSnapshot.findFirst.mockResolvedValue(snapshot({ id: "prior" }));
+    mockPrisma.rawSnapshot.findMany.mockResolvedValue([snapshot({ id: "prior", dateRangeStart: new Date("2026-04-28T00:00:00.000Z"), dateRangeEnd: new Date("2026-05-26T00:00:00.000Z") })]);
 
     await getComparisonSnapshot("gsc", latest);
 
-    expect(mockPrisma.rawSnapshot.findFirst).toHaveBeenCalledWith({
+    expect(mockPrisma.rawSnapshot.findMany).toHaveBeenCalledWith({
       where: {
         source: "gsc",
         id: { not: "current" },
-        dateRangeEnd: { lte: latest.dateRangeStart },
+        dateRangeEnd: { lt: latest.dateRangeStart },
       },
       orderBy: { dateRangeEnd: "desc" },
+      take: 30,
     });
   });
-});
 
+  it("does not compare a different-length prior window", async () => {
+    const latest = {
+      id: "current",
+      fetchedAt: new Date("2026-06-24T00:00:00.000Z"),
+      dateRangeStart: new Date("2026-05-27T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-24T00:00:00.000Z"),
+      payload: {},
+    };
+    mockPrisma.rawSnapshot.findMany.mockResolvedValue([
+      snapshot({ id: "short", dateRangeStart: new Date("2026-05-25T00:00:00.000Z"), dateRangeEnd: new Date("2026-05-26T00:00:00.000Z") }),
+    ]);
+
+    await expect(getComparisonSnapshot("gsc", latest)).resolves.toBeNull();
+  });
+});

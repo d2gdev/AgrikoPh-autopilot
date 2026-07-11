@@ -10,6 +10,7 @@ const mockSnapshots = vi.hoisted(() => ({
 
 const mockNormalized = vi.hoisted(() => ({
   getGscPagesForWindow: vi.fn(),
+  getGscDataForWindow: vi.fn(),
   getGscQueriesForWindow: vi.fn(),
   getGscQueryPagePairsForWindow: vi.fn(),
   getLatestGscWindow: vi.fn(),
@@ -50,9 +51,11 @@ describe("getLatestGscData freshness selection", () => {
     mockSnapshots.getLatestSnapshot.mockResolvedValue(null);
     mockSnapshots.getQueries.mockReturnValue([]);
     mockNormalized.getLatestGscWindow.mockResolvedValue(null);
-    mockNormalized.getGscQueriesForWindow.mockResolvedValue([]);
-    mockNormalized.getGscPagesForWindow.mockResolvedValue([]);
-    mockNormalized.getGscQueryPagePairsForWindow.mockResolvedValue([]);
+    mockNormalized.getGscDataForWindow.mockImplementation(async (window) => ({
+      queries: await mockNormalized.getGscQueriesForWindow(window),
+      pages: await mockNormalized.getGscPagesForWindow(window),
+      queryPagePairs: await mockNormalized.getGscQueryPagePairsForWindow(window),
+    }));
   });
 
   it("keeps normalized GSC data when raw snapshot is not materially newer", async () => {
@@ -92,6 +95,7 @@ describe("getLatestGscData freshness selection", () => {
       normalizedCapturedAt: window.capturedAt,
       rawCapturedAt: new Date("2026-07-09T04:30:00.000Z"),
     });
+    expect(mockNormalized.getGscDataForWindow).toHaveBeenCalledWith(window);
   });
 
   it("leaves freshness selection timestamps null when the raw snapshot payload is empty", async () => {
