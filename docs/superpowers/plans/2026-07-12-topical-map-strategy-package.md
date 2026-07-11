@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- The source package is exactly the five artifacts plus manifest defined in `/home/sean/Agriko/shopify-theme/docs/seo/agriko-topical-map-strategy-package-spec.md`.
+- The authoritative source package is exactly six artifacts plus manifest defined in `/home/sean/Agriko/shopify-theme/docs/seo/agriko-topical-map-strategy-package-spec.md`; the completed historical Task 2 implementation remains five-artifact work until Task 2A lands as a new commit.
 - Validate and activate the entire package atomically; no artifact, cluster, CSV row, or compiled subset can become active independently.
 - Every embedded mutation starts with `await requireAppAuth(req)`, then `requirePermission` before parsing or database work.
 - All persistence uses `import { prisma } from "@/lib/db"`.
@@ -216,19 +216,23 @@ Tasks 1 and 2 above are completed historical five-artifact work. They must not b
 
 **Files:** Modify `lib/topical-map/types.ts`, `lib/topical-map/manifest.ts`, `lib/topical-map/package-reader.ts`, `__tests__/lib/topical-map/manifest.test.ts`, `__tests__/lib/topical-map/package-reader.test.ts`, and `.env.example` only if contract-root documentation changes. No Prisma change: Task 1 remains compatible unless later implementation evidence proves a contract-specific field necessary.
 
-**Interfaces:** Require exact artifacts `map`, `evidence`, `url-inventory`, `redirect-inventory`, `internal-links`, and `compilation-contract`. Manifest and reader return a six-artifact `RawStrategyPackage`; contract source-hash/version compatibility is checked before any compiler use. Package hashing is non-circular: contract references five semantic hashes, manifest references six hashes, and final package hash derives from canonical manifest only.
+**Interfaces:** Require exact artifacts `map`, `evidence`, `url-inventory`, `redirect-inventory`, `internal-links`, and `compilation-contract`. The sixth artifact is `agriko-topical-map-compilation-contract-${strategyVersion}.json`, media type `application/json`, and UTF-8 without BOM. Manifest and reader return a six-artifact `RawStrategyPackage`; the reader verifies the raw contract-byte hash before JSON decoding. Package hashing is non-circular: contract references five semantic hashes, manifest references six hashes, and final package hash derives from canonical manifest without `packageSha256`.
 
-- [ ] Write failing focused tests: five-artifact manifest fails; missing/duplicate/unknown contract fails; six hashes affect identity; contract/source version or hash mismatch fails; circular final-package-hash field is rejected.
+**Task 2A envelope:** Parse only `contractSchemaVersion`, `contractRevision`, `strategyVersion`, `siteHost`, `sourceArtifacts`, and `compatibility`; permit all other top-level fields as opaque. Require exact `contractSchemaVersion: "1.0.0"`, positive-decimal `contractRevision` matching `^[1-9][0-9]*$`, and top-level host `agrikoph.com`. `sourceArtifacts` is exactly five ordered entries — `map`, `evidence`, `url-inventory`, `redirect-inventory`, `internal-links` — each with exactly `id` and lowercase SHA-256 `sha256`; every source hash equals the corresponding manifest hash. `compatibility` has exactly `runtimeSchema`, `pluginVersion`, `siteHost`, and `urlNormalization`, each exactly equal to manifest compatibility; unknown compatibility keys fail. Contract strategy version equals manifest strategy version, and all three host values equal `agrikoph.com`.
+
+**Stable errors:** `MISSING_COMPILATION_CONTRACT`, `CONTRACT_FILENAME_MISMATCH`, `CONTRACT_MEDIA_TYPE_MISMATCH`, `INVALID_CONTRACT_ENCODING`, `INVALID_CONTRACT_ENVELOPE`, `UNSUPPORTED_CONTRACT_SCHEMA`, `INVALID_CONTRACT_REVISION`, `CONTRACT_STRATEGY_VERSION_MISMATCH`, `CONTRACT_SITE_HOST_MISMATCH`, `CONTRACT_SOURCE_ARTIFACT_MISMATCH`, `CONTRACT_SOURCE_HASH_MISMATCH`, `CONTRACT_COMPATIBILITY_MISMATCH`.
+
+- [ ] Write failing focused tests: previous five-artifact fixture fails; valid six-artifact fixture passes; missing/duplicate/unknown contract fails; incorrect contract filename, media type, hash, schema version, revision, UTF-8/BOM encoding, source artifact set/order/hash, strategy version, host, or compatibility fails with its stable error; changing only contract bytes changes artifact and package identity; opaque top-level body fields remain uninterpreted; traversal and symlink protections apply to the sixth artifact.
 - [ ] Run `npm test -- __tests__/lib/topical-map/manifest.test.ts __tests__/lib/topical-map/package-reader.test.ts`; expect failure from five-artifact assumptions.
-- [ ] Implement minimum parser/type/reader changes; preserve raw bytes and reject partial package loading.
-- [ ] Re-run the focused tests; expect all pass. Run `npm run typecheck`, `npm run typecheck:test`, and `git diff --check`.
+- [ ] Implement minimum parser/type/reader changes; preserve raw bytes, reject partial package loading, parse only the approved compatibility envelope, and do not parse or infer policy semantics.
+- [ ] Re-run the focused tests; expect all pass. Run `npm test -- __tests__/prisma/topical-map-strategy-migration.test.ts`, `npm run verify:prisma-client`, `npm run typecheck`, `npm run typecheck:test`, `npm run lint`, and `git diff --check`.
 - [ ] Commit `feat(topical-map): require compilation contract artifact`.
 
 ### Task 2B: Contract authoring and operator approval
 
 **Files:** Create the contract schema and July 11 compilation-contract artifact in `/home/sean/Agriko/shopify-theme/docs/seo/`; create contract/locator/coverage tests and runtime validation types in `lib/topical-map/` only where necessary; update the six-artifact manifest after source-editor approval.
 
-**Interfaces:** Contract declares schema/version/revision, source artifact hashes, locator grammar, coverage inventory, typed rule envelopes, ambiguity records, fingerprints, review metadata, and compatibility. Every rule resolves to human-source anchors; every declared coverage unit has a disposition; unresolved activation-blocking ambiguity prevents approval.
+**Interfaces:** Task 2B replaces Task 2A's opaque body with the full contract schema: locator grammar, coverage inventory, typed rule envelopes, ambiguity records, source fingerprints, review metadata, and full policy semantics. It preserves the Task 2A compatibility envelope exactly. Every rule resolves to human-source anchors; every declared coverage unit has a disposition; unresolved activation-blocking ambiguity prevents approval.
 
 - [ ] Write failing tests for source-anchor resolution, fingerprint drift, bidirectional coverage, unanchored rule rejection, undisposed coverage rejection, conflicting exclusive mappings, and unresolved activation-blocking ambiguity.
 - [ ] Run focused contract tests; expect failure because no approved contract exists.
@@ -247,7 +251,9 @@ Tasks 1 and 2 above are completed historical five-artifact work. They must not b
 
 Validator, activation, evaluator, APIs, UI, traceability, deployment, documentation, and final acceptance must require six-artifact identity, approved contract version, coverage/anchor validation, ambiguity handling, human-source plus contract-rule traceability, and atomic rejection without partial authority. No downstream task may activate or evaluate an incomplete or unapproved package.
 
-- Complete five-artifact package plus manifest validates with hashes and source locators.
+**Dependency order:** (1) approved envelope documentation; (2) Task 2A six-artifact boundary implementation; (3) Task 2B full schema, July 11 contract authoring, and explicit operator approval; (4) compiler work. Task 2A and Task 2B remain unimplemented until their own TDD and approval gates complete.
+
+- Complete six-artifact package plus manifest validates with hashes, the approved envelope, and source locators.
 - Missing, stale mandatory, incompatible, conflicting, orphaned, or mismatched packages cannot activate.
 - Activation/supersession/rollback is transactional, immutable, audit logged, and leaves exactly one active version.
 - Content, SEO, links, redirects, canonicalization, indexation, and high-stakes candidates all receive deterministic compliance evidence.
