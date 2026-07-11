@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-11
+last_updated: 2026-07-12
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **Topical-map strategy-package persistence (Task 1, 2026-07-12):** The isolated Task 1 branch now has an expand-only six-model Prisma contract, immutable package/artifact/rule PostgreSQL triggers, composite foreign keys binding active pointers to their site and compliance records to their package hash, and focused migration/integration tests. PostgreSQL 16 migration and integration verification passed against only local `autopilot_test` after the disposable `test` role was restored with its documented password and required privileges. The integration suite collects `__tests__/integration/**`, not the stale `__tests__/postgres/**` documentation path; the Prisma/PostgreSQL pattern now records that executable contract. No production database, runtime activation, live execution, Shopify write, or deployment occurred.
 - **Market Intelligence mutation authorization and refresh integrity (2026-07-11):** Every embedded Market Intelligence mutation now verifies its explicit role before parsing a request, consuming a rate-limit slot, queueing a job, calling AI/translation work, or writing data. Manual captures, keyword research, cache-miss and explicit-refresh AI briefs, ad rewrites, and Content Pilot proposal creation require `CONTENT_REVIEW`; competitor/keyword configuration and the translation backfill require `SETTINGS_ADMIN`. The page now ignores superseded Market overview loads, while forced overview refreshes are actor-rate-limited and share an active aggregation. Focused route regressions cover unauthorized/forbidden short-circuits, rate-limits, and concurrent refresh deduplication.
 - **SEO Pilot newer-empty GA4 window correction (2026-07-11):** An explicitly successful newer GA4 snapshot with `topPages: []` now suppresses older normalized reporting windows and reports no current GA4 data, while ambiguous/legacy empty raw payloads continue to preserve usable normalized evidence. Covered by SEO data regressions and full verification; deployed with healthy production evidence.
 - **SEO Pilot data-truthfulness follow-up (2026-07-11):** Successful empty GA4 captures now replace normalized rows instead of preserving stale metrics; an existing but empty normalized GA4 window is explicitly labelled `normalized_empty`; prior normalized GSC selection deduplicates reporting windows before applying the 30-window bound; article-backed SEO promotions derive word counts only from canonical `ArticleRecord` data; and Page Health never calls unknown GA4 engagement data a clean result. Covered by SEO data, normalized GSC, route, job, page-health, responsive, and full-suite checks; deployed with healthy production evidence.
