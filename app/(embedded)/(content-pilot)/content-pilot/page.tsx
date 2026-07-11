@@ -35,6 +35,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
+import { loadAllArticlePages, type ArticlePage } from "@/lib/content-pilot/article-pagination";
+import { contentIndexFeedback, overviewLoadWarning } from "@/lib/content-pilot/operator-feedback";
+import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -86,19 +89,25 @@ export default function ContentPilotPage() {
   const [loading, setLoading] = useState(true);
   const [articlesError, setArticlesError] = useState(false); // Fix #3
   const [indexing, setIndexing] = useState(false);
-  const [indexResult, setIndexResult] = useState<{ indexed: number; skipped: number } | null>(null);
+  const [indexResult, setIndexResult] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const overviewRequestsRef = useRef(createLatestRequestCoordinator());
 
-  const loadOverview = useCallback((): Promise<void> => {
+  const loadOverview = useCallback(async (): Promise<void> => {
+    const request = overviewRequestsRef.current.start({ background: false });
+    if (!request) return;
     setLoading(true);
     setArticlesError(false);
+    setWarning(null);
 
     const fetchJson = async (input: string, timeoutMs = 30000): Promise<unknown> => {
       const controller = new AbortController();
+      const abortFromNewerRequest = () => controller.abort();
+      request.signal.addEventListener("abort", abortFromNewerRequest, { once: true });
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const res = await authFetch(input, { signal: controller.signal });
-        clearTimeout(timeoutId);
         const data = await safeJson(res);
         if (!res.ok) {
           console.error(`[content-pilot] ${input} returned ${res.status}:`, data);
@@ -106,37 +115,47 @@ export default function ContentPilotPage() {
         }
         return data;
       } catch (err) {
-        clearTimeout(timeoutId);
         const reason = controller.signal.aborted ? "timed out" : String(err);
         console.error(`[content-pilot] ${input} failed: ${reason}`);
         return null;
+      } finally {
+        clearTimeout(timeoutId);
+        request.signal.removeEventListener("abort", abortFromNewerRequest);
       }
     };
 
-    return Promise.all([
-      fetchJson("/api/content-pilot/articles"),
-      fetchJson("/api/content-pilot/topic-clusters"),
-      fetchJson("/api/content-pilot/link-graph"),
-    ])
-      .then(([a, c, g]) => {
-        if (a && (a as Record<string, unknown>).articles) {
-          setArticles((a as { articles: ArticleRow[]; total: number }).articles ?? []);
-          setTotal((a as { articles: ArticleRow[]; total: number }).total ?? 0);
-        } else if (a && (a as Record<string, unknown>).error) {
-          setArticlesError(true);
-          setError(`Articles: ${(a as { error: string }).error} — try refreshing.`);
-        } else if (!a) {
-          setArticlesError(true);
-          setError("Articles timed out or failed — check the browser console and try refreshing.");
-        }
-        if (c) setClusters((c as { clusters: TopicCluster[] }).clusters ?? []);
-        if (g) setLinkGraph(g as LinkGraphData);
-        setLoading(false);
-      })
-      .catch((err) => {
+    const articlePages = loadAllArticlePages<ArticleRow>(async (page) => {
+      const value = await fetchJson(`/api/content-pilot/articles?page=${page}`);
+      if (!value || !Array.isArray((value as { articles?: unknown }).articles)) {
+        throw new Error(`Article page ${page} failed to load`);
+      }
+      return value as ArticlePage<ArticleRow>;
+    });
+
+    try {
+      const [a, c, g] = await Promise.all([
+        articlePages,
+        fetchJson("/api/content-pilot/topic-clusters"),
+        fetchJson("/api/content-pilot/link-graph"),
+      ]);
+      if (!overviewRequestsRef.current.isCurrent(request)) return;
+      setArticles(a.articles);
+      setTotal(a.total);
+      if (c) setClusters((c as { clusters: TopicCluster[] }).clusters ?? []);
+      if (g) setLinkGraph(g as LinkGraphData);
+      setWarning(overviewLoadWarning({ clustersLoaded: Boolean(c), linkGraphLoaded: Boolean(g) }));
+    } catch (err) {
+      if (overviewRequestsRef.current.isCurrent(request)) {
+        setArticlesError(true);
         setError(`Overview load failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } finally {
+      const ownsRequest = overviewRequestsRef.current.isCurrent(request);
+      overviewRequestsRef.current.finish(request);
+      if (ownsRequest) {
         setLoading(false);
-      });
+      }
+    }
   }, [authFetch]);
 
   useEffect(() => {
@@ -153,7 +172,7 @@ export default function ContentPilotPage() {
       if (!res.ok) {
         setError((d.error as string) ?? "Indexer failed");
       } else {
-        setIndexResult({ indexed: d.indexed as number, skipped: d.skipped as number });
+        setIndexResult(contentIndexFeedback(d));
         setSelectedTab(0);
         await loadOverview();
       }
@@ -182,8 +201,8 @@ export default function ContentPilotPage() {
       <Layout>
         {indexResult && (
           <Layout.Section>
-            <Banner tone="success" onDismiss={() => setIndexResult(null)}>
-              Indexed {indexResult.indexed} articles, skipped {indexResult.skipped} unchanged.
+            <Banner tone={indexResult.tone} onDismiss={() => setIndexResult(null)}>
+              {indexResult.message}
             </Banner>
           </Layout.Section>
         )}
@@ -191,6 +210,13 @@ export default function ContentPilotPage() {
           <Layout.Section>
             <Banner tone="critical" onDismiss={() => setError(null)}>
               {error}
+            </Banner>
+          </Layout.Section>
+        )}
+        {warning && (
+          <Layout.Section>
+            <Banner tone="warning" onDismiss={() => setWarning(null)}>
+              {warning}
             </Banner>
           </Layout.Section>
         )}

@@ -44,19 +44,20 @@ export function BriefTab({
   const [proposalCreated, setProposalCreated] = useState(false);
   const [blogs, setBlogs] = useState<Array<{id: string; title: string; handle: string}>>([]);
   const [selectedBlog, setSelectedBlog] = useState("");
+  const [blogsError, setBlogsError] = useState(false);
 
   useEffect(() => {
     authFetch("/api/content-pilot/blogs")
       .then(async (r) => {
         if (!r.ok) {
-          const d = await safeJson(r);
-          console.error("Failed to load blogs:", d.error ?? `HTTP ${r.status}`);
+          setBlogsError(true);
           return { blogs: [] };
         }
+        setBlogsError(false);
         return await safeJson(r) as { blogs?: Array<{id: string; title: string; handle: string}> };
       })
       .then((d: { blogs?: Array<{id: string; title: string; handle: string}> }) => setBlogs(d.blogs ?? []))
-      .catch((e) => console.error("Failed to load blogs:", e));
+      .catch(() => setBlogsError(true));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const topGaps = clusters.slice().sort((a, b) => b.gapScore - a.gapScore).slice(0, 5);
@@ -129,6 +130,11 @@ export function BriefTab({
       {proposalCreated && (
         <Banner tone="success" onDismiss={() => setProposalCreated(false)}>
           Proposal created. Switch to the <strong>Queue</strong> tab to review and generate it.
+        </Banner>
+      )}
+      {blogsError && (
+        <Banner tone="warning">
+          Shopify blogs could not be loaded. New proposals will use the default blog until this page is refreshed successfully.
         </Banner>
       )}
 

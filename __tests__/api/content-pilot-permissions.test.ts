@@ -15,6 +15,10 @@ const mockGenerateProposals = vi.hoisted(() => vi.fn());
 const mockFetchBlogArticles = vi.hoisted(() => vi.fn());
 const mockGetLatestGscData = vi.hoisted(() => vi.fn());
 const mockChatCompletionWithFailover = vi.hoisted(() => vi.fn());
+const mockGetAiClient = vi.hoisted(() => vi.fn());
+const mockFetchBlogContentHandler = vi.hoisted(() => vi.fn());
+const mockRunFetchBlogContentLocked = vi.hoisted(() => vi.fn());
+const mockJobLock = vi.hoisted(() => ({ acquireJobLock: vi.fn(), releaseJobLock: vi.fn() }));
 const mockOpportunityOutcomes = vi.hoisted(() => ({
   markContentProposalOpportunitiesTerminal: vi.fn(),
   markContentProposalOpportunityDismissed: vi.fn(),
@@ -83,7 +87,9 @@ vi.mock("@/lib/shopify-admin", () => ({ fetchBlogArticles: mockFetchBlogArticles
 vi.mock("@/lib/seo/data", () => ({ getLatestGscData: mockGetLatestGscData }));
 vi.mock("@/lib/seo/promotion", () => ({ articleHandleFromBlogPage: vi.fn(), classifySeoPromotion: vi.fn() }));
 vi.mock("@/lib/seo/meta", () => ({ hasMissingMeta: vi.fn() }));
-vi.mock("@/lib/ai/client", () => ({ chatCompletionWithFailover: mockChatCompletionWithFailover }));
+vi.mock("@/lib/ai/client", () => ({ chatCompletionWithFailover: mockChatCompletionWithFailover, getAiClient: mockGetAiClient }));
+vi.mock("@/jobs/fetch-blog-content", () => ({ fetchBlogContentHandler: mockFetchBlogContentHandler, runFetchBlogContentLocked: mockRunFetchBlogContentLocked }));
+vi.mock("@/lib/job-lock", () => mockJobLock);
 
 function mockPrismaCalls() {
   return [
@@ -104,6 +110,9 @@ function expectNoMutationBoundaries() {
   expect(mockFetchBlogArticles).not.toHaveBeenCalled();
   expect(mockGetLatestGscData).not.toHaveBeenCalled();
   expect(mockChatCompletionWithFailover).not.toHaveBeenCalled();
+  expect(mockGetAiClient).not.toHaveBeenCalled();
+  expect(mockFetchBlogContentHandler).not.toHaveBeenCalled();
+  expect(mockRunFetchBlogContentLocked).not.toHaveBeenCalled();
   expect(mockOpportunityOutcomes.markContentProposalOpportunitiesTerminal).not.toHaveBeenCalled();
   expect(mockOpportunityOutcomes.markContentProposalOpportunityDismissed).not.toHaveBeenCalled();
   expect(mockOpportunityOutcomes.markContentProposalOpportunityRouted).not.toHaveBeenCalled();
@@ -120,6 +129,8 @@ const contentReviewMutations: Array<[string, (req: Request) => Promise<Response>
   ["generate proposals", async (req) => (await import("@/app/api/content-pilot/proposals/generate/route")).POST(req)],
   ["manual proposal", async (req) => (await import("@/app/api/content-pilot/proposals/manual/route")).POST(req as never)],
   ["refresh all", async (req) => (await import("@/app/api/content-pilot/proposals/refresh-all/route")).POST(req)],
+  ["run indexer", async (req) => (await import("@/app/api/content-pilot/index/route")).POST(req)],
+  ["generate content brief", async (req) => (await import("@/app/api/content-pilot/brief/route")).POST(req as never)],
   ["SEO promote", async (req) => (await import("@/app/api/seo/promote/route")).POST(req)],
   ["SEO gap promote", async (req) => (await import("@/app/api/seo/gaps/promote/route")).POST(req as never)],
   ["SEO recommendation decompose", async (req) => (await import("@/app/api/seo/recommendations/decompose/route")).POST(req as never)],
@@ -137,6 +148,8 @@ describe("Content Pilot mutation permissions", () => {
       NextResponse.json({ error: "Forbidden", permission: "content:review" }, { status: 403 }),
     );
     mockCheckRateLimit.mockReturnValue(true);
+    mockJobLock.acquireJobLock.mockResolvedValue(true);
+    mockJobLock.releaseJobLock.mockResolvedValue(undefined);
   });
 
   it.each(contentReviewMutations)("returns 401 before boundaries when %s is unauthenticated", async (name, invoke) => {

@@ -24,6 +24,7 @@ const mockPrisma = vi.hoisted(() => ({
   },
   rawSnapshot: {
     count: vi.fn(),
+    findFirst: vi.fn(),
   },
   contentProposal: {
     findUnique: vi.fn(),
@@ -99,6 +100,7 @@ describe("embedded API-key fallback route auth", () => {
     mockPrisma.jobRun.findMany.mockResolvedValue([]);
     mockPrisma.recommendation.count.mockResolvedValue(0);
     mockPrisma.rawSnapshot.count.mockResolvedValue(0);
+    mockPrisma.rawSnapshot.findFirst.mockResolvedValue(null);
     mockCollectDraftCitations.mockResolvedValue([]);
     mockPrisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) =>
     callback({
@@ -202,6 +204,21 @@ describe("embedded API-key fallback route auth", () => {
     expect(mockCheckRateLimit).not.toHaveBeenCalledWith("brief:api", 10, 60_000);
   });
 
+  it("does not expose raw provider errors from content brief generation", async () => {
+    mockGetAiClient.mockRejectedValueOnce(new Error("socket failed with secret-provider-detail"));
+    const { POST } = await import("@/app/api/content-pilot/brief/route");
+
+    const res = await POST(jsonRequest("/api/content-pilot/brief", { topic: "black rice benefits" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body).toEqual({
+      error: "Brief generation failed",
+      detail: "The AI provider failed unexpectedly. Retry brief generation, or contact an administrator if the problem continues.",
+    });
+    expect(JSON.stringify(body)).not.toContain("secret-provider-detail");
+  });
+
   it("returns an actionable AI provider error when draft generation provider auth fails", async () => {
     mockGenerateDraft.mockRejectedValueOnce(new Error("Model output could not be parsed as valid draft JSON (after retry): 401 Authentication Fails, Your api key: ****7995 is invalid"));
     const { POST } = await import("@/app/api/content-pilot/proposals/[id]/generate-draft/route");
@@ -231,6 +248,24 @@ describe("embedded API-key fallback route auth", () => {
         draftError: expect.stringContaining("Model output could not be parsed as valid draft JSON"),
       }),
     });
+  });
+
+  it("does not expose raw unexpected draft-generation errors", async () => {
+    mockGenerateDraft.mockRejectedValueOnce(new Error("socket failed with secret-provider-detail"));
+    const { POST } = await import("@/app/api/content-pilot/proposals/[id]/generate-draft/route");
+
+    const res = await POST(
+      new Request("http://test.local/api/content-pilot/proposals/proposal-1/generate-draft", { method: "POST" }),
+      { params: Promise.resolve({ id: "proposal-1" }) },
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body).toEqual({
+      error: "Draft generation failed",
+      detail: "The draft could not be generated. Retry once, or contact an administrator if the problem continues.",
+    });
+    expect(JSON.stringify(body)).not.toContain("secret-provider-detail");
   });
 
   it("returns cron status without requiring a Shopify session shop", async () => {

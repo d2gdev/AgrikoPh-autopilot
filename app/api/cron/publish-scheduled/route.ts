@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
 import { CONTENT_PROPOSAL_PUBLISHABLE_STATUSES } from "@/lib/content-pilot/proposal-state";
 import { publishContentProposal, retryIncompletePublishFinalizations } from "@/lib/content-pilot/publish-service";
-import { fetchBlogContentHandler } from "@/jobs/fetch-blog-content";
+import { runFetchBlogContentLocked } from "@/jobs/fetch-blog-content";
 
 export async function GET(req: NextRequest) {
   const authError = requireCronAuth(req);
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     const published = results.filter((result) => result.kind === "published" || result.kind === "published_with_warnings").length;
     let reindexWarning: string | undefined;
     if (published) {
-      try { await fetchBlogContentHandler(); }
+      try { await runFetchBlogContentLocked(); }
       catch (error) { reindexWarning = `Post-publish re-index failed: ${String(error)}`; }
     }
     const withReindexWarning = (result: typeof results[number]) => {

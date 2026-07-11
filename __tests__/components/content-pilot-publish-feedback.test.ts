@@ -26,4 +26,12 @@ describe("Content Pilot publish feedback", () => {
     expect(queueSource).toContain("res.status === 202");
     expect(queueSource).toContain("publishReconciliationMessage(result)");
   });
+
+  it("keeps draft review on the page for reconciliation-required publish outcomes", () => {
+    const draftSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/draft/[id]/page.tsx", "utf8");
+
+    expect(draftSource).toContain("publishReconciliationMessage(d)");
+    expect(draftSource).toContain("res.status === 202");
+    expect(draftSource).toContain("await load()");
+  });
 });

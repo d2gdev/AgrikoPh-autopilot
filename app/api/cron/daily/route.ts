@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { fetchAdsDataHandler } from "@/jobs/fetch-ads-data";
 import { fetchSeoDataHandler } from "@/jobs/fetch-seo-data";
 import { snapshotSeoHistoryHandler } from "@/jobs/snapshot-seo-history";
-import { fetchBlogContentHandler } from "@/jobs/fetch-blog-content";
+import { runFetchBlogContentLocked } from "@/jobs/fetch-blog-content";
 import { runSkillsHandler } from "@/jobs/run-skills";
 import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
 import { notifyJobFailure, checkAndAlertJobHealth, checkAndAlertDataFreshness } from "@/lib/alerts";
@@ -21,6 +21,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 type SettledJob = PromiseSettledResult<{ status: JobStatus; errors?: string[] } | JobResult<unknown>>;
+
+async function runDailyBlogIndex() {
+  const locked = await runFetchBlogContentLocked();
+  return locked.acquired
+    ? locked.result
+    : { status: "skipped" as const, errors: ["fetch-blog-content is already running"] };
+}
 
 function settledStatus(result: SettledJob): JobStatus | "error" {
   return result.status === "fulfilled" ? result.value.status : "error";
@@ -49,6 +56,8 @@ export async function GET(req: Request) {
         return;
       }
 
+      if (result.value.status === "skipped") return;
+
       if (!isJobSuccessful(result.value.status)) {
         const message = result.value.errors?.join("\n") || `${jobName} finished with status ${result.value.status}`;
         console.error(`[cron/daily] ${jobName}:`, message);
@@ -60,7 +69,7 @@ export async function GET(req: Request) {
     const [adsResult, seoResult, blogResult] = await Promise.allSettled([
       fetchAdsDataHandler(),
       fetchSeoDataHandler(),
-      fetchBlogContentHandler(),
+      runDailyBlogIndex(),
     ]);
 
     await notifyBadResult("fetch-ads-data", adsResult);

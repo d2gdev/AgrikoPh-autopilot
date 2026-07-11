@@ -17,6 +17,8 @@ const mockPrisma = vi.hoisted(() => ({
     create: vi.fn(),
     createMany: vi.fn(),
     update: vi.fn(),
+    count: vi.fn(),
+    groupBy: vi.fn(),
   },
   auditLog: {
     create: vi.fn(),
@@ -99,6 +101,8 @@ describe("Content Pilot route regressions", () => {
     mockCheckRateLimit.mockReturnValue(true);
     mockPrisma.$transaction.mockImplementation(async (ops) => Array.isArray(ops) ? Promise.all(ops) : ops(mockPrisma));
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.contentProposal.count.mockResolvedValue(0);
+    mockPrisma.contentProposal.groupBy.mockResolvedValue([]);
     mockPrisma.contentProposal.deleteMany.mockResolvedValue({ count: 0 });
     mockPrisma.contentProposal.create.mockImplementation(async ({ data }) => ({ id: `proposal-${data.title}`, ...data }));
     mockPrisma.contentProposal.createMany.mockImplementation(async ({ data }) => { const p = await mockPrisma.contentProposal.create({ data: data[0] }); mockPrisma.contentProposal.findUnique.mockResolvedValue(p); return { count: 1 }; });
@@ -214,8 +218,38 @@ describe("Content Pilot route regressions", () => {
       sourceData: { source: "seo-pilot", query: "black rice benefits" },
     });
     expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      select: expect.objectContaining({ sourceData: true }),
+      select: expect.objectContaining({
+        sourceData: true,
+        publishWarning: true,
+        publishOperationId: true,
+        publishFinalizedAt: true,
+      }),
     }));
+  });
+
+  it("maps scheduled queue filtering and counts to ready drafts with a schedule", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValueOnce([]);
+    mockPrisma.contentProposal.groupBy.mockResolvedValueOnce([
+      { status: "approved", draftStatus: "ready", scheduledPublishAt: null, _count: { _all: 2 } },
+      { status: "approved", draftStatus: "ready", scheduledPublishAt: new Date("2026-08-01T00:00:00Z"), _count: { _all: 3 } },
+    ]);
+
+    const { GET } = await import("@/app/api/content-pilot/proposals/route");
+    const res = await GET(new Request("http://test.local/api/content-pilot/proposals?stage=scheduled"));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        status: { in: ["approved", "override_approved"] },
+        draftStatus: "ready",
+        scheduledPublishAt: { not: null },
+      }),
+    }));
+    expect(mockPrisma.contentProposal.groupBy).toHaveBeenCalledWith(expect.objectContaining({
+      by: ["status", "draftStatus", "scheduledPublishAt"],
+    }));
+    expect(body.stageCounts).toMatchObject({ ready: 2, scheduled: 3 });
   });
 
   it("only upserts opportunities for proposals that survive active duplicate filtering", async () => {

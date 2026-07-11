@@ -26,6 +26,7 @@ const mockPrisma = vi.hoisted(() => ({
 const mockPublishDraft = vi.hoisted(() => vi.fn());
 const mockResolveArticleHandle = vi.hoisted(() => vi.fn());
 const mockFetchBlogContentHandler = vi.hoisted(() => vi.fn());
+const mockRunFetchBlogContentLocked = vi.hoisted(() => vi.fn());
 const mockMarkResolved = vi.hoisted(() => vi.fn());
 const mockLocks = vi.hoisted(() => ({
   acquireJobLock: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock("@/lib/content-pilot/publish-draft", () => ({
 }));
 vi.mock("@/jobs/fetch-blog-content", () => ({
   fetchBlogContentHandler: mockFetchBlogContentHandler,
+  runFetchBlogContentLocked: mockRunFetchBlogContentLocked,
 }));
 vi.mock("@/lib/opportunities/content-proposal-outcomes", () => ({
   markContentProposalOpportunityResolved: mockMarkResolved,
@@ -75,6 +77,7 @@ describe("Content Pilot publish failure recovery", () => {
     mockAuth.requireCronAuth.mockReturnValue(null);
     mockAuth.requireAppAuth.mockResolvedValue(null);
     mockAuth.requirePermission.mockResolvedValue(null);
+    mockRunFetchBlogContentLocked.mockImplementation(async () => ({ acquired: true, result: await mockFetchBlogContentHandler() }));
     mockPrisma.auditLog.create.mockResolvedValue({});
     mockPrisma.contentProposal.findMany.mockResolvedValue([]);
     mockPrisma.contentProposal.findUnique.mockResolvedValue(readyRefreshProposal());

@@ -4,7 +4,7 @@ import { publishDraft, resolveArticleHandle } from "@/lib/content-pilot/publish-
 import { contentProposalPublishRecoveryStatus } from "@/lib/content-pilot/publish-recovery";
 import { CONTENT_PROPOSAL_PUBLISHABLE_STATUSES } from "@/lib/content-pilot/proposal-state";
 import { markContentProposalOpportunityResolved } from "@/lib/opportunities/content-proposal-outcomes";
-import { fetchBlogContentHandler } from "@/jobs/fetch-blog-content";
+import { runFetchBlogContentLocked } from "@/jobs/fetch-blog-content";
 
 type Client = any;
 export type PublishResult =
@@ -132,7 +132,7 @@ export async function publishContentProposal(input: { prismaClient: Client; prop
       return { kind: "published_with_warnings", ...external, warning: contextWarning };
     }
     if (reindex) {
-      try { await fetchBlogContentHandler(); }
+      try { await runFetchBlogContentLocked(); }
       catch (error) { throw new Error(`Post-publish re-index failed: ${String(error)}`); }
     }
     return { kind: "published", ...external };

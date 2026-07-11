@@ -23,6 +23,7 @@ const mockJobs = vi.hoisted(() => ({
   fetchSeoDataHandler: vi.fn(),
   fetchKeywordResearchHandler: vi.fn(),
   fetchBlogContentHandler: vi.fn(),
+  runFetchBlogContentLocked: vi.fn(),
   fetchMarketIntelHandler: vi.fn(),
   fetchOrdersHandler: vi.fn(),
 }));
@@ -30,7 +31,10 @@ const mockJobs = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/jobs/fetch-seo-data", () => ({ fetchSeoDataHandler: mockJobs.fetchSeoDataHandler }));
 vi.mock("@/jobs/fetch-keyword-research", () => ({ fetchKeywordResearchHandler: mockJobs.fetchKeywordResearchHandler }));
-vi.mock("@/jobs/fetch-blog-content", () => ({ fetchBlogContentHandler: mockJobs.fetchBlogContentHandler }));
+vi.mock("@/jobs/fetch-blog-content", () => ({
+  fetchBlogContentHandler: mockJobs.fetchBlogContentHandler,
+  runFetchBlogContentLocked: mockJobs.runFetchBlogContentLocked,
+}));
 vi.mock("@/jobs/fetch-market-intel", () => ({ fetchMarketIntelHandler: mockJobs.fetchMarketIntelHandler }));
 vi.mock("@/jobs/fetch-orders", () => ({ fetchOrdersHandler: mockJobs.fetchOrdersHandler }));
 
@@ -55,6 +59,7 @@ beforeEach(() => {
   mockJobs.fetchSeoDataHandler.mockResolvedValue({ status: "success", errors: [] });
   mockJobs.fetchKeywordResearchHandler.mockResolvedValue({ status: "success", errors: [] });
   mockJobs.fetchBlogContentHandler.mockResolvedValue({ status: "success", errors: [] });
+  mockJobs.runFetchBlogContentLocked.mockImplementation(async () => ({ acquired: true, result: await mockJobs.fetchBlogContentHandler() }));
   mockJobs.fetchMarketIntelHandler.mockResolvedValue({ status: "success", errors: [] });
   mockJobs.fetchOrdersHandler.mockResolvedValue({ status: "success", errors: [] });
 });

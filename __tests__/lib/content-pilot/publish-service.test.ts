@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 const publishDraft = vi.fn();
 const resolveArticleHandle = vi.fn(() => "article-handle");
+const fetchBlogContentHandler = vi.fn().mockResolvedValue(undefined);
+const runFetchBlogContentLocked = vi.fn(async () => ({ acquired: true, result: await fetchBlogContentHandler() }));
 
 vi.mock("@/lib/content-pilot/publish-draft", () => ({ publishDraft, resolveArticleHandle }));
-vi.mock("@/jobs/fetch-blog-content", () => ({ fetchBlogContentHandler: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("@/jobs/fetch-blog-content", () => ({ fetchBlogContentHandler, runFetchBlogContentLocked }));
 
 const proposal = {
   id: "p1", status: "approved", draftStatus: "ready", proposalType: "content-refresh",

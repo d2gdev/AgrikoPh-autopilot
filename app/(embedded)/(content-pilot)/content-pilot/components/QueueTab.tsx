@@ -23,6 +23,14 @@ import { QueueFilters } from "./queue/QueueFilters";
 import { QueueModals } from "./queue/QueueModals";
 import { contentProposalQueueStage } from "./queue-stage";
 import { publishFeedback, publishReconciliationMessage } from "./publish-feedback";
+import {
+  contentPilotQueueCacheKey,
+  loadAllProposalPages,
+  loadProposalDraft,
+  restoreProposalAfterFailedReload,
+} from "@/lib/content-pilot/queue-loading";
+import { bulkApprovalGenerationFeedback } from "@/lib/content-pilot/operator-feedback";
+import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
 
 // Safely parse a Response as JSON. If the body is not JSON (e.g. an HTML error
 // page from a proxy or Next.js itself), returns { error: <raw text> } rather
@@ -41,10 +49,11 @@ export function QueueTab({
   active: boolean;
 }) {
   const router = useRouter();
-  const [allProposals, setAllProposals] = useState<ContentProposal[]>(() => getCache<ContentProposal[]>("/api/content-pilot/proposals") ?? []);
+  const cacheKey = contentPilotQueueCacheKey(withShopifyContextUrl);
+  const [allProposals, setAllProposals] = useState<ContentProposal[]>(() => getCache<ContentProposal[]>(cacheKey) ?? []);
   const [generating, setGenerating] = useState(false);
   const [confirmGenerate, setConfirmGenerate] = useState(false);
-  const [loading, setLoading] = useState(() => !getCache("/api/content-pilot/proposals"));
+  const [loading, setLoading] = useState(() => !getCache(cacheKey));
   const [error, setError] = useState<string | null>(null);
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
   const [rejectingIds, setRejectingIds] = useState<Set<string>>(new Set());
@@ -65,6 +74,7 @@ export function QueueTab({
   // Bulk
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkActing, setBulkActing] = useState(false);
+  const [bulkFeedback, setBulkFeedback] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   const [confirmPublishAll, setConfirmPublishAll] = useState(false);
   const [confirmGenerateAll, setConfirmGenerateAll] = useState(false);
   // Reject
@@ -125,54 +135,41 @@ export function QueueTab({
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
-  // In-flight guard: only the most recent loadProposals call may commit its
-  // result, so an interleaved poll + manual refresh can't clobber each other.
-  const loadSeqRef = useRef(0);
-  const loadProposals = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
-    const seq = ++loadSeqRef.current;
+  const proposalRequestsRef = useRef(createLatestRequestCoordinator());
+  const loadProposals = useCallback(async ({ silent = false, replace = false, preserveError = false }: {
+    silent?: boolean;
+    replace?: boolean;
+    preserveError?: boolean;
+  } = {}): Promise<boolean> => {
+    const request = proposalRequestsRef.current.start({ background: silent && !replace });
+    if (!request) return false;
     if (!silent) setLoading(true);
     try {
-      let nextCursor: string | null = null;
-      const pages: ContentProposal[] = [];
-      let res: Response | null = null;
-      for (let page = 0; page < 20; page++) {
-        const url = nextCursor ? `/api/content-pilot/proposals?cursor=${encodeURIComponent(nextCursor)}` : "/api/content-pilot/proposals";
-        res = await authFetch(url);
-        if (!res.ok) break;
-        const chunk = (await res.json()) as { proposals?: ContentProposal[]; nextCursor?: string | null; hasMore?: boolean };
-        pages.push(...(chunk.proposals ?? []));
-        nextCursor = chunk.nextCursor ?? null;
-        if (!chunk.hasMore || !nextCursor) break;
-      }
-      if (!res) throw new Error("No response");
-      if (seq !== loadSeqRef.current) return; // a newer request superseded this one
-      if (!res.ok) {
-        // Read the body as text first so a non-JSON error page (e.g. an auth/SSO
-        // redirect or a hosting error page) yields a useful message instead of a
-        // cryptic "Unexpected token '<'" JSON-parse error.
-        let msg = `Failed to load proposals (HTTP ${res.status})`;
-        try {
-          const body = await res.text();
-          try {
-            const parsed = JSON.parse(body) as { error?: string };
-            if (parsed?.error) msg = parsed.error;
-          } catch {
-            msg = `Failed to load proposals (HTTP ${res.status}) — the server returned a non-JSON response. You may be signed out, or the API is unavailable.`;
-          }
-        } catch { /* body unreadable — keep status-only message */ }
-        setError(msg);
-        return;
-      }
-      if (seq !== loadSeqRef.current) return;
-      setCache("/api/content-pilot/proposals", pages);
+      const pages = await loadAllProposalPages<ContentProposal>(async (cursor) => {
+        const params = new URLSearchParams({ limit: "100" });
+        if (cursor) params.set("cursor", cursor);
+        const res = await authFetch(`/api/content-pilot/proposals?${params.toString()}`, { signal: request.signal });
+        const body = await safeJson(res);
+        if (!res.ok) {
+          throw new Error(typeof body.error === "string" ? body.error : `Failed to load proposals (HTTP ${res.status})`);
+        }
+        return body as { proposals?: ContentProposal[]; total?: number; nextCursor?: string | null; hasMore?: boolean };
+      });
+      if (!proposalRequestsRef.current.isCurrent(request)) return false;
+      setCache(cacheKey, pages);
       setAllProposals(pages);
+      return true;
     } catch (err) {
-      if (seq !== loadSeqRef.current) return;
-      setError(`Failed to load: ${err instanceof Error ? err.message : String(err)}`);
+      if (!request.signal.aborted && !preserveError) {
+        setError(`Failed to load: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return false;
     } finally {
-      if (!silent && seq === loadSeqRef.current) setLoading(false);
+      const ownsRequest = proposalRequestsRef.current.isCurrent(request);
+      proposalRequestsRef.current.finish(request);
+      if (!silent && ownsRequest) setLoading(false);
     }
-  }, [authFetch]);
+  }, [authFetch, cacheKey]);
 
   const hasLoadedRef = useRef(false);
   useEffect(() => {
@@ -245,6 +242,7 @@ export function QueueTab({
   };
 
   const generateDraft = async (id: string, { navigate = false, reload = true }: { navigate?: boolean; reload?: boolean } = {}): Promise<boolean> => {
+    const previousProposal = allProposals.find((proposal) => proposal.id === id);
     setGeneratingDraftIds((prev) => new Set(prev).add(id));
     // Optimistic: show "Generating…" badge immediately
     setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "generating" } : p));
@@ -255,14 +253,24 @@ export function QueueTab({
       if (!res.ok) {
         const message = draftFailureMessage(d);
         setError(message);
-        setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed", draftError: message } : p)); return false;
+        const reloaded = await loadProposals({ silent: true, replace: true, preserveError: true });
+        if (!reloaded && previousProposal) {
+          setAllProposals((current) => restoreProposalAfterFailedReload(current, id, previousProposal));
+        }
+        setError(message);
+        return false;
       } else if (navigate) { router.push(withShopifyContextUrl(`/content-pilot/draft/${id}`)); }
       else if (reload) { await loadProposals(); }
       return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
-      setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "failed", draftError: message } : p)); return false;
+      const reloaded = await loadProposals({ silent: true, replace: true, preserveError: true });
+      if (!reloaded && previousProposal) {
+        setAllProposals((current) => restoreProposalAfterFailedReload(current, id, previousProposal));
+      }
+      setError(message);
+      return false;
     }
     finally { setGeneratingDraftIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
   };
@@ -275,7 +283,7 @@ export function QueueTab({
       const reconciliationMessage = publishReconciliationMessage(result);
       if (res.status === 202 || reconciliationMessage) {
         setError(reconciliationMessage ?? "Publication outcome requires reconciliation. Inspect Shopify before retrying.");
-        void loadProposals({ silent: true });
+        void loadProposals({ silent: true, replace: true });
         return false;
       }
       if (!res.ok) { setError((result.error as string) ?? "Publish failed"); return false; }
@@ -284,7 +292,7 @@ export function QueueTab({
       setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "published" } : p));
       setLastPublishFeedback(publishFeedback(title, result as { kind?: string; publishWarning?: string }));
       setTimeout(() => setLastPublishFeedback(null), 4000);
-      void loadProposals({ silent: true });
+      void loadProposals({ silent: true, replace: true });
       return true;
     } catch (e) { setError(String(e)); return false; }
     finally { setPublishingIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
@@ -296,7 +304,7 @@ export function QueueTab({
       const res = await authFetch(`/api/content-pilot/proposals/${id}/reconcile-publish`, { method: "POST" });
       const d = await safeJson(res);
       if (!res.ok) { setError((d.error as string) ?? "Reconciliation failed"); return; }
-      await loadProposals({ silent: true });
+      await loadProposals({ silent: true, replace: true });
     } catch (error) { setError(String(error)); }
     finally { setReconcilingIds((prev) => { const next = new Set(prev); next.delete(id); return next; }); }
   };
@@ -307,7 +315,7 @@ export function QueueTab({
       const res = await authFetch(`/api/content-pilot/proposals/${id}/retry-bookkeeping`, { method: "POST" });
       const d = await safeJson(res);
       if (!res.ok) { setError((d.error as string) ?? "Bookkeeping retry failed"); return; }
-      await loadProposals({ silent: true });
+      await loadProposals({ silent: true, replace: true });
     } catch (error) { setError(String(error)); }
     finally { setReconcilingIds((prev) => { const next = new Set(prev); next.delete(id); return next; }); }
   };
@@ -318,10 +326,11 @@ export function QueueTab({
     if (draftCache[id] !== undefined) return;
     setLoadingDraftId(id);
     try {
-      const res = await authFetch(`/api/content-pilot/proposals/${id}`);
-      const d = await safeJson(res);
-      setDraftCache((prev) => ({ ...prev, [id]: ((d.proposal as Record<string,unknown>)?.draftContent ?? null) as Record<string, unknown> | null }));
-    } catch { setDraftCache((prev) => ({ ...prev, [id]: null })); }
+      const draft = await loadProposalDraft(authFetch, id);
+      setDraftCache((prev) => ({ ...prev, [id]: draft }));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
     finally { setLoadingDraftId(null); }
   };
 
@@ -332,17 +341,23 @@ export function QueueTab({
     setSelectedIds(new Set());
     const CONCURRENCY = 3;
     let cursor = 0;
+    let approved = 0;
+    let generated = 0;
+    let failed = 0;
     const worker = async () => {
       while (cursor < ids.length) {
         const id = ids[cursor++];
         if (id === undefined) break;
         const ok = await approve(id, { generate: false });
-        if (!ok) continue;
-        await generateDraft(id, { navigate: false, reload: false });
+        if (!ok) { failed++; continue; }
+        approved++;
+        if (await generateDraft(id, { navigate: false, reload: false })) generated++;
+        else failed++;
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
     await loadProposals();
+    setBulkFeedback(bulkApprovalGenerationFeedback({ approved, generated, failed }));
     setBulkActing(false);
   };
 
@@ -441,7 +456,7 @@ export function QueueTab({
       if (!res.ok) { const d = await safeJson(res); setError((d.error as string) ?? "Schedule failed"); return; }
       if (clear) setScheduleInputs((prev) => ({ ...prev, [id]: "" }));
       setScheduleOpenId(null);
-      await loadProposals({ silent: true });
+      await loadProposals({ silent: true, replace: true });
     } catch (e) { setError(String(e)); }
     finally { setSchedulingId(null); }
   };
@@ -597,6 +612,11 @@ export function QueueTab({
       {lastPublishFeedback && (
         <Banner tone={lastPublishFeedback.tone} onDismiss={() => setLastPublishFeedback(null)}>
           {lastPublishFeedback.message}
+        </Banner>
+      )}
+      {bulkFeedback && (
+        <Banner tone={bulkFeedback.tone} onDismiss={() => setBulkFeedback(null)}>
+          {bulkFeedback.message}
         </Banner>
       )}
       {lastGeneratedCount !== null && (
