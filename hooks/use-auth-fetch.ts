@@ -35,6 +35,7 @@ interface TokenLoadOptions {
 }
 
 const TOKEN_EXPIRY_SKEW_MS = 30_000;
+const TOKEN_MINIMUM_USABLE_MS = 1_000;
 const DEFAULT_TOKEN_TIMEOUT_MS = 15_000;
 const DEFAULT_RETRY_DELAYS_MS = [0, 1_000, 3_000];
 const DEFAULT_POLL_INTERVAL_MS = 100;
@@ -257,7 +258,7 @@ function preserveShopifyContextInUrl(context: ShopifyContext) {
 }
 
 function hasValidCachedToken(nowMs: number): boolean {
-  return Boolean(cachedIdToken && cachedIdToken.expiresAtMs - TOKEN_EXPIRY_SKEW_MS > nowMs);
+  return Boolean(cachedIdToken && cachedIdToken.expiresAtMs - TOKEN_MINIMUM_USABLE_MS > nowMs);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -344,7 +345,7 @@ async function requestTokenWithRetry(
         throw new Error("Shopify App Bridge returned an expired idToken");
       }
 
-      cachedIdToken = expiresAtMs && expiresAtMs - TOKEN_EXPIRY_SKEW_MS > Date.now()
+      cachedIdToken = expiresAtMs && expiresAtMs - TOKEN_MINIMUM_USABLE_MS > Date.now()
         ? { token, expiresAtMs }
         : null;
       setAuthSnapshot({

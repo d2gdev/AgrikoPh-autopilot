@@ -86,7 +86,7 @@ describe("getAppBridgeIdToken", () => {
     expect(idToken).toHaveBeenCalledTimes(1);
   });
 
-  it("refreshes the token when it is inside the expiry skew", async () => {
+  it("reuses a valid token inside the refresh skew", async () => {
     const firstToken = jwtExpiresIn(120);
     const secondToken = jwtExpiresIn(240);
     const idToken = vi.fn()
@@ -96,12 +96,12 @@ describe("getAppBridgeIdToken", () => {
 
     const now = Date.now();
     await expect(getAppBridgeIdToken(now)).resolves.toBe(firstToken);
-    await expect(getAppBridgeIdToken(now + 100_000)).resolves.toBe(secondToken);
+    await expect(getAppBridgeIdToken(now + 100_000)).resolves.toBe(firstToken);
 
-    expect(idToken).toHaveBeenCalledTimes(2);
+    expect(idToken).toHaveBeenCalledTimes(1);
   });
 
-  it("accepts a valid near-expiry token but refreshes it instead of caching it", async () => {
+  it("caches a valid near-expiry token to prevent acquisition storms", async () => {
     const nearExpiryToken = jwtExpiresIn(20);
     const freshToken = jwtExpiresIn(120);
     const idToken = vi.fn()
@@ -112,9 +112,9 @@ describe("getAppBridgeIdToken", () => {
     const now = Date.now();
     const options = { retryDelaysMs: [0], timeoutMs: 50, pollIntervalMs: 1 };
     await expect(getAppBridgeIdToken(now, options)).resolves.toBe(nearExpiryToken);
-    await expect(getAppBridgeIdToken(now + 1_000, options)).resolves.toBe(freshToken);
+    await expect(getAppBridgeIdToken(now + 1_000, options)).resolves.toBe(nearExpiryToken);
 
-    expect(idToken).toHaveBeenCalledTimes(2);
+    expect(idToken).toHaveBeenCalledTimes(1);
   });
 
   it("does not call App Bridge idToken in a direct top-level window", async () => {
