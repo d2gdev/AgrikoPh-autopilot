@@ -59,3 +59,12 @@ export interface RawStrategyPackage {
   root: string;
   artifacts: Record<StrategyArtifactId, RawStrategyArtifact>;
 }
+
+export type CompilationContractErrorCode = "INVALID_CONTRACT_SCHEMA";
+
+export class CompilationContractError extends Error {
+  constructor(public readonly code: CompilationContractErrorCode) {
+    super("Compilation contract schema is invalid.");
+    this.name = "CompilationContractError";
+  }
+}
