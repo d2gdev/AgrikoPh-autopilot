@@ -33,6 +33,9 @@ type RunSkillsDiagnostics = {
 
 const SECTION_LIMIT = 10;
 const QUEUE_OVERFETCH = 32;
+const CACHE_TTL_MS = 60_000;
+let cachedBrief: { expiresAt: number; payload: unknown } | null = null;
+let briefInFlight: Promise<unknown> | null = null;
 
 function priorityTone(priority: string | null | undefined): BriefTone {
   const rank = priorityRank(priority);
@@ -173,10 +176,7 @@ async function getImageSummary() {
   }
 }
 
-export async function GET(req: Request) {
-  const authError = await requireAppAuth(req);
-  if (authError) return authError;
-
+async function buildGrowthBrief() {
   try {
     const [
       jobs,
@@ -440,7 +440,7 @@ export async function GET(req: Request) {
       ?? sortedQuickWins[0]
       ?? null;
 
-    return NextResponse.json({
+    return {
       generatedAt: new Date().toISOString(),
       summary: {
         status: sortedNeedsAttention.length > 0 ? "needs_attention" : "ok",
@@ -481,9 +481,28 @@ export async function GET(req: Request) {
         quickWins: sortedQuickWins,
       },
       nextAction,
-    });
+    };
   } catch (err) {
     console.error("[growth-brief] error:", err);
+    throw err;
+  }
+}
+
+export async function GET(req: Request) {
+  const authError = await requireAppAuth(req);
+  if (authError) return authError;
+  if (cachedBrief && cachedBrief.expiresAt > Date.now()) return NextResponse.json(cachedBrief.payload);
+  if (!briefInFlight) {
+    briefInFlight = buildGrowthBrief()
+      .then((payload) => {
+        cachedBrief = { expiresAt: Date.now() + CACHE_TTL_MS, payload };
+        return payload;
+      })
+      .finally(() => { briefInFlight = null; });
+  }
+  try {
+    return NextResponse.json(await briefInFlight);
+  } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
