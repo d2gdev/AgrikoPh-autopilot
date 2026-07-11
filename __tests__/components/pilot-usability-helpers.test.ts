@@ -87,6 +87,7 @@ describe("pilot usability helper regressions", () => {
   it("keeps reject actions available before publishing", () => {
     const rowSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/queue/ProposalRow.tsx", "utf8");
     const draftSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/draft/[id]/page.tsx", "utf8");
+    const queueSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/QueueTab.tsx", "utf8");
 
     expect(rowSource).toContain("canRejectContentProposal");
     expect(rowSource).toContain("<RejectButton />");
@@ -94,6 +95,9 @@ describe("pilot usability helper regressions", () => {
     expect(draftSource).toContain("canRejectContentProposal");
     expect(draftSource).toContain("Reject proposal");
     expect(draftSource).toContain("Confirm Reject");
+    expect(queueSource).toContain("canRejectContentProposal");
+    expect(queueSource).toContain("const bulkReject = async () =>");
+    expect(queueSource).toContain("return proposal ? canRejectContentProposal(proposal) : false;");
   });
 
   it("shows blog-loading failures and incomplete published bookkeeping", () => {

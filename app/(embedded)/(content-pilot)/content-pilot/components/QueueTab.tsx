@@ -31,6 +31,7 @@ import {
 } from "@/lib/content-pilot/queue-loading";
 import { bulkApprovalGenerationFeedback } from "@/lib/content-pilot/operator-feedback";
 import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
+import { canRejectContentProposal } from "@/lib/content-pilot/proposal-state";
 
 // Safely parse a Response as JSON. If the body is not JSON (e.g. an HTML error
 // page from a proxy or Next.js itself), returns { error: <raw text> } rather
@@ -498,7 +499,10 @@ export function QueueTab({
   const bulkReject = async () => {
     setBulkActing(true);
     setError(null);
-    const ids = Array.from(selectedIds).filter((id) => allProposals.find((p) => p.id === id)?.status === "pending");
+    const ids = Array.from(selectedIds).filter((id) => {
+      const proposal = allProposals.find((p) => p.id === id);
+      return proposal ? canRejectContentProposal(proposal) : false;
+    });
     for (const id of ids) await reject(id);
     setSelectedIds(new Set());
     await loadProposals();
@@ -520,7 +524,11 @@ export function QueueTab({
 
   const pendingInView = proposals.filter((p) => p.status === "pending");
   const approvedNoDraftInView = proposals.filter((p) => p.status === "approved" && !p.draftStatus);
-  const selectableInView = [...pendingInView, ...approvedNoDraftInView];
+  const selectableInView = proposals.filter((proposal) =>
+    proposal.status === "pending" ||
+    (proposal.status === "approved" && !proposal.draftStatus) ||
+    canRejectContentProposal(proposal),
+  );
   const allSelectableSelected = selectableInView.length > 0 && selectableInView.every((p) => selectedIds.has(p.id));
   const toggleSelectAll = () =>
     setSelectedIds(allSelectableSelected ? new Set() : new Set(selectableInView.map((p) => p.id)));
@@ -531,6 +539,10 @@ export function QueueTab({
   const approvedSelectedCount = Array.from(selectedIds).filter((id) => {
     const p = allProposals.find((p) => p.id === id);
     return p?.status === "approved" && !p.draftStatus;
+  }).length;
+  const rejectableSelectedCount = Array.from(selectedIds).filter((id) => {
+    const proposal = allProposals.find((candidate) => candidate.id === id);
+    return proposal ? canRejectContentProposal(proposal) : false;
   }).length;
 
   const typeOptions = [
@@ -725,9 +737,9 @@ export function QueueTab({
                     {`Generate Drafts (${approvedSelectedCount})`}
                   </Button>
                 )}
-                {pendingSelectedCount > 0 && (
+                {rejectableSelectedCount > 0 && (
                   <Button size="slim" tone="critical" loading={bulkActing} onClick={bulkReject}>
-                    Reject
+                    {`Reject (${rejectableSelectedCount})`}
                   </Button>
                 )}
               </InlineStack>
