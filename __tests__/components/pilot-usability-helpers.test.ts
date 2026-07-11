@@ -105,4 +105,11 @@ describe("pilot usability helper regressions", () => {
     expect(draftSource).toContain('title="Bookkeeping incomplete"');
     expect(draftSource).toContain("Retry bookkeeping");
   });
+
+  it("prevents older overview loads from replacing a newer refresh", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/page.tsx", "utf8");
+
+    expect(source).toContain("createLatestRequestCoordinator");
+    expect(source).toContain("overviewRequestsRef.current.isCurrent(request)");
+  });
 });

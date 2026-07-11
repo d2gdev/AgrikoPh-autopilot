@@ -1,5 +1,6 @@
 export interface ProposalPage<TProposal> {
   proposals?: TProposal[];
+  total?: number;
   hasMore?: boolean;
   nextCursor?: string | null;
 }
@@ -16,16 +17,35 @@ export async function loadAllProposalPages<TProposal>(
   const proposals: TProposal[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | null = null;
+  let pageNumber = 0;
+  let maxPages = 1;
 
   while (true) {
     const page = await fetchPage(cursor);
-    proposals.push(...(page.proposals ?? []));
+    pageNumber++;
+    const pageProposals = page.proposals ?? [];
+    if (pageNumber === 1) {
+      if (!Number.isInteger(page.total) || (page.total ?? -1) < 0) {
+        throw new Error("Proposal pagination returned an invalid total");
+      }
+      maxPages = Math.max(1, Math.ceil((page.total ?? 0) / Math.max(1, pageProposals.length)));
+    }
+    proposals.push(...pageProposals);
     if (!page.hasMore) return proposals;
+    if (pageNumber >= maxPages) throw new Error("Proposal pagination exceeded its first-page total bound");
     if (!page.nextCursor) throw new Error("Proposal pagination ended without a cursor");
     if (seenCursors.has(page.nextCursor)) throw new Error("Proposal pagination returned a repeated cursor");
     seenCursors.add(page.nextCursor);
     cursor = page.nextCursor;
   }
+}
+
+export function restoreProposalAfterFailedReload<TProposal extends { id: string }>(
+  proposals: TProposal[],
+  id: string,
+  previous: TProposal,
+): TProposal[] {
+  return proposals.map((proposal) => proposal.id === id ? previous : proposal);
 }
 
 export async function loadProposalDraft(

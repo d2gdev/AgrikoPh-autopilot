@@ -17,6 +17,7 @@ const mockGetLatestGscData = vi.hoisted(() => vi.fn());
 const mockChatCompletionWithFailover = vi.hoisted(() => vi.fn());
 const mockGetAiClient = vi.hoisted(() => vi.fn());
 const mockFetchBlogContentHandler = vi.hoisted(() => vi.fn());
+const mockRunFetchBlogContentLocked = vi.hoisted(() => vi.fn());
 const mockJobLock = vi.hoisted(() => ({ acquireJobLock: vi.fn(), releaseJobLock: vi.fn() }));
 const mockOpportunityOutcomes = vi.hoisted(() => ({
   markContentProposalOpportunitiesTerminal: vi.fn(),
@@ -87,7 +88,7 @@ vi.mock("@/lib/seo/data", () => ({ getLatestGscData: mockGetLatestGscData }));
 vi.mock("@/lib/seo/promotion", () => ({ articleHandleFromBlogPage: vi.fn(), classifySeoPromotion: vi.fn() }));
 vi.mock("@/lib/seo/meta", () => ({ hasMissingMeta: vi.fn() }));
 vi.mock("@/lib/ai/client", () => ({ chatCompletionWithFailover: mockChatCompletionWithFailover, getAiClient: mockGetAiClient }));
-vi.mock("@/jobs/fetch-blog-content", () => ({ fetchBlogContentHandler: mockFetchBlogContentHandler }));
+vi.mock("@/jobs/fetch-blog-content", () => ({ fetchBlogContentHandler: mockFetchBlogContentHandler, runFetchBlogContentLocked: mockRunFetchBlogContentLocked }));
 vi.mock("@/lib/job-lock", () => mockJobLock);
 
 function mockPrismaCalls() {
@@ -111,6 +112,7 @@ function expectNoMutationBoundaries() {
   expect(mockChatCompletionWithFailover).not.toHaveBeenCalled();
   expect(mockGetAiClient).not.toHaveBeenCalled();
   expect(mockFetchBlogContentHandler).not.toHaveBeenCalled();
+  expect(mockRunFetchBlogContentLocked).not.toHaveBeenCalled();
   expect(mockOpportunityOutcomes.markContentProposalOpportunitiesTerminal).not.toHaveBeenCalled();
   expect(mockOpportunityOutcomes.markContentProposalOpportunityDismissed).not.toHaveBeenCalled();
   expect(mockOpportunityOutcomes.markContentProposalOpportunityRouted).not.toHaveBeenCalled();

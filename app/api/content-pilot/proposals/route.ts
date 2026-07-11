@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { CONTENT_PROPOSAL_ACTIVE_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
-import { parseQueueQuery } from "@/lib/content-pilot/queue-query";
+import { decodeQueueCursor, parseQueueQuery } from "@/lib/content-pilot/queue-query";
 
 export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
@@ -21,9 +21,7 @@ export async function GET(req: Request) {
   let cursor: { priority: string; createdAt: string; id: string } | undefined;
   if (cursorParam) {
     try {
-      const parsed = JSON.parse(Buffer.from(cursorParam, "base64url").toString("utf8"));
-      if (!parsed?.createdAt || !parsed?.id) throw new Error("invalid");
-      cursor = { priority: String(parsed.priority), createdAt: String(parsed.createdAt), id: String(parsed.id) };
+      cursor = decodeQueueCursor(cursorParam);
     } catch {
       return NextResponse.json({ error: "Invalid cursor" }, { status: 400 });
     }

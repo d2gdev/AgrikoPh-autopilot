@@ -15,6 +15,9 @@ import {
   sourceUrlForArticle,
 } from "@/lib/content-pilot/internal-link-edges";
 import type { JobStatus } from "@/lib/jobs/types";
+import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
+
+const BLOG_CONTENT_JOB_NAME = "fetch-blog-content";
 
 export function computeContentHash(bodyHtml: string): string {
   return crypto.createHash("sha256").update(bodyHtml).digest("hex");
@@ -54,6 +57,23 @@ export interface IndexResult {
   errors: string[];
   status: Extract<JobStatus, "success" | "partial" | "failed">;
   timings?: Record<string, number>;
+}
+
+export type LockedBlogContentResult =
+  | { acquired: false }
+  | { acquired: true; result: IndexResult };
+
+export async function runFetchBlogContentLocked(
+  run: () => Promise<IndexResult> = fetchBlogContentHandler,
+): Promise<LockedBlogContentResult> {
+  const ownerToken = crypto.randomUUID();
+  const acquired = await acquireJobLock(BLOG_CONTENT_JOB_NAME, { ownerToken });
+  if (!acquired) return { acquired: false };
+  try {
+    return { acquired: true, result: await run() };
+  } finally {
+    await releaseJobLock(BLOG_CONTENT_JOB_NAME, ownerToken);
+  }
 }
 
 export async function fetchBlogContentHandler(): Promise<IndexResult> {

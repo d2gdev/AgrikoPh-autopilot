@@ -37,6 +37,7 @@ import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
 import { loadAllArticlePages, type ArticlePage } from "@/lib/content-pilot/article-pagination";
 import { contentIndexFeedback, overviewLoadWarning } from "@/lib/content-pilot/operator-feedback";
+import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -91,18 +92,22 @@ export default function ContentPilotPage() {
   const [indexResult, setIndexResult] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const overviewRequestsRef = useRef(createLatestRequestCoordinator());
 
-  const loadOverview = useCallback((): Promise<void> => {
+  const loadOverview = useCallback(async (): Promise<void> => {
+    const request = overviewRequestsRef.current.start({ background: false });
+    if (!request) return;
     setLoading(true);
     setArticlesError(false);
     setWarning(null);
 
     const fetchJson = async (input: string, timeoutMs = 30000): Promise<unknown> => {
       const controller = new AbortController();
+      const abortFromNewerRequest = () => controller.abort();
+      request.signal.addEventListener("abort", abortFromNewerRequest, { once: true });
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const res = await authFetch(input, { signal: controller.signal });
-        clearTimeout(timeoutId);
         const data = await safeJson(res);
         if (!res.ok) {
           console.error(`[content-pilot] ${input} returned ${res.status}:`, data);
@@ -110,10 +115,12 @@ export default function ContentPilotPage() {
         }
         return data;
       } catch (err) {
-        clearTimeout(timeoutId);
         const reason = controller.signal.aborted ? "timed out" : String(err);
         console.error(`[content-pilot] ${input} failed: ${reason}`);
         return null;
+      } finally {
+        clearTimeout(timeoutId);
+        request.signal.removeEventListener("abort", abortFromNewerRequest);
       }
     };
 
@@ -125,24 +132,30 @@ export default function ContentPilotPage() {
       return value as ArticlePage<ArticleRow>;
     });
 
-    return Promise.all([
-      articlePages,
-      fetchJson("/api/content-pilot/topic-clusters"),
-      fetchJson("/api/content-pilot/link-graph"),
-    ])
-      .then(([a, c, g]) => {
-        setArticles(a.articles);
-        setTotal(a.total);
-        if (c) setClusters((c as { clusters: TopicCluster[] }).clusters ?? []);
-        if (g) setLinkGraph(g as LinkGraphData);
-        setWarning(overviewLoadWarning({ clustersLoaded: Boolean(c), linkGraphLoaded: Boolean(g) }));
-        setLoading(false);
-      })
-      .catch((err) => {
+    try {
+      const [a, c, g] = await Promise.all([
+        articlePages,
+        fetchJson("/api/content-pilot/topic-clusters"),
+        fetchJson("/api/content-pilot/link-graph"),
+      ]);
+      if (!overviewRequestsRef.current.isCurrent(request)) return;
+      setArticles(a.articles);
+      setTotal(a.total);
+      if (c) setClusters((c as { clusters: TopicCluster[] }).clusters ?? []);
+      if (g) setLinkGraph(g as LinkGraphData);
+      setWarning(overviewLoadWarning({ clustersLoaded: Boolean(c), linkGraphLoaded: Boolean(g) }));
+    } catch (err) {
+      if (overviewRequestsRef.current.isCurrent(request)) {
         setArticlesError(true);
         setError(`Overview load failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } finally {
+      const ownsRequest = overviewRequestsRef.current.isCurrent(request);
+      overviewRequestsRef.current.finish(request);
+      if (ownsRequest) {
         setLoading(false);
-      });
+      }
+    }
   }, [authFetch]);
 
   useEffect(() => {

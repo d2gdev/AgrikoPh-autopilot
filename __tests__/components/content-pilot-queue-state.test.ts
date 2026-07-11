@@ -14,7 +14,9 @@ describe("Content Pilot queue publication stages", () => {
     const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/QueueTab.tsx", "utf8");
 
     expect(source).not.toContain('{ ...p, draftStatus: "failed", draftError: message }');
-    expect(source).toContain("await loadProposals({ silent: true })");
+    expect(source).toContain("preserveError: true");
+    expect(source).toContain("restoreProposalAfterFailedReload");
+    expect(source).toContain("createLatestRequestCoordinator");
   });
 
   it("renders a truthful aggregate after bulk approval and generation", () => {

@@ -24,6 +24,25 @@ const querySchema = z.object({
   cursor: z.string().min(1).optional(),
 });
 
+const cursorSchema = z.object({
+  priority: z.enum(["P0", "P1", "P2", "P3"]),
+  createdAt: z.string().datetime({ offset: true }),
+  id: z.string().min(1).max(200),
+}).strict();
+
+export type QueueCursor = z.infer<typeof cursorSchema>;
+
+export function decodeQueueCursor(value: string): QueueCursor {
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    const parsed = cursorSchema.safeParse(decoded);
+    if (!parsed.success) throw new Error("invalid shape");
+    return parsed.data;
+  } catch {
+    throw new Error("Invalid cursor");
+  }
+}
+
 export function parseQueueQuery(url: string): QueueQuery {
   const params = new URL(url, "http://localhost").searchParams;
   const parsed = querySchema.safeParse(Object.fromEntries(params));

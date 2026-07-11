@@ -3,11 +3,8 @@ export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
 import { getSessionShop, getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
-import { fetchBlogContentHandler } from "@/jobs/fetch-blog-content";
-import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
+import { runFetchBlogContentLocked } from "@/jobs/fetch-blog-content";
 import { checkRateLimit } from "@/lib/rate-limit";
-
-const JOB_NAME = "fetch-blog-content";
 
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
@@ -20,16 +17,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Rate limit exceeded: max 3 indexing runs per minute" }, { status: 429 });
   }
 
-  const acquired = await acquireJobLock(JOB_NAME);
-  if (!acquired) {
-    return NextResponse.json({ error: "Content indexing is already running" }, { status: 409 });
-  }
   try {
-    const result = await fetchBlogContentHandler();
+    const locked = await runFetchBlogContentLocked();
+    if (!locked.acquired) {
+      return NextResponse.json({ error: "Content indexing is already running" }, { status: 409 });
+    }
+    const result = locked.result;
     return NextResponse.json(result, { status: result.status === "failed" ? 500 : 200 });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  } finally {
-    await releaseJobLock(JOB_NAME);
   }
 }

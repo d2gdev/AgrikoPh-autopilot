@@ -27,8 +27,10 @@ import {
   contentPilotQueueCacheKey,
   loadAllProposalPages,
   loadProposalDraft,
+  restoreProposalAfterFailedReload,
 } from "@/lib/content-pilot/queue-loading";
 import { bulkApprovalGenerationFeedback } from "@/lib/content-pilot/operator-feedback";
+import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
 
 // Safely parse a Response as JSON. If the body is not JSON (e.g. an HTML error
 // page from a proxy or Next.js itself), returns { error: <raw text> } rather
@@ -133,31 +135,39 @@ export function QueueTab({
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
-  // In-flight guard: only the most recent loadProposals call may commit its
-  // result, so an interleaved poll + manual refresh can't clobber each other.
-  const loadSeqRef = useRef(0);
-  const loadProposals = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
-    const seq = ++loadSeqRef.current;
+  const proposalRequestsRef = useRef(createLatestRequestCoordinator());
+  const loadProposals = useCallback(async ({ silent = false, replace = false, preserveError = false }: {
+    silent?: boolean;
+    replace?: boolean;
+    preserveError?: boolean;
+  } = {}): Promise<boolean> => {
+    const request = proposalRequestsRef.current.start({ background: silent && !replace });
+    if (!request) return false;
     if (!silent) setLoading(true);
     try {
       const pages = await loadAllProposalPages<ContentProposal>(async (cursor) => {
         const params = new URLSearchParams({ limit: "100" });
         if (cursor) params.set("cursor", cursor);
-        const res = await authFetch(`/api/content-pilot/proposals?${params.toString()}`);
+        const res = await authFetch(`/api/content-pilot/proposals?${params.toString()}`, { signal: request.signal });
         const body = await safeJson(res);
         if (!res.ok) {
           throw new Error(typeof body.error === "string" ? body.error : `Failed to load proposals (HTTP ${res.status})`);
         }
-        return body as { proposals?: ContentProposal[]; nextCursor?: string | null; hasMore?: boolean };
+        return body as { proposals?: ContentProposal[]; total?: number; nextCursor?: string | null; hasMore?: boolean };
       });
-      if (seq !== loadSeqRef.current) return; // a newer request superseded this one
+      if (!proposalRequestsRef.current.isCurrent(request)) return false;
       setCache(cacheKey, pages);
       setAllProposals(pages);
+      return true;
     } catch (err) {
-      if (seq !== loadSeqRef.current) return;
-      setError(`Failed to load: ${err instanceof Error ? err.message : String(err)}`);
+      if (!request.signal.aborted && !preserveError) {
+        setError(`Failed to load: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return false;
     } finally {
-      if (!silent && seq === loadSeqRef.current) setLoading(false);
+      const ownsRequest = proposalRequestsRef.current.isCurrent(request);
+      proposalRequestsRef.current.finish(request);
+      if (!silent && ownsRequest) setLoading(false);
     }
   }, [authFetch, cacheKey]);
 
@@ -232,6 +242,7 @@ export function QueueTab({
   };
 
   const generateDraft = async (id: string, { navigate = false, reload = true }: { navigate?: boolean; reload?: boolean } = {}): Promise<boolean> => {
+    const previousProposal = allProposals.find((proposal) => proposal.id === id);
     setGeneratingDraftIds((prev) => new Set(prev).add(id));
     // Optimistic: show "Generating…" badge immediately
     setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "generating" } : p));
@@ -242,7 +253,11 @@ export function QueueTab({
       if (!res.ok) {
         const message = draftFailureMessage(d);
         setError(message);
-        await loadProposals({ silent: true });
+        const reloaded = await loadProposals({ silent: true, replace: true, preserveError: true });
+        if (!reloaded && previousProposal) {
+          setAllProposals((current) => restoreProposalAfterFailedReload(current, id, previousProposal));
+        }
+        setError(message);
         return false;
       } else if (navigate) { router.push(withShopifyContextUrl(`/content-pilot/draft/${id}`)); }
       else if (reload) { await loadProposals(); }
@@ -250,7 +265,11 @@ export function QueueTab({
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
-      await loadProposals({ silent: true });
+      const reloaded = await loadProposals({ silent: true, replace: true, preserveError: true });
+      if (!reloaded && previousProposal) {
+        setAllProposals((current) => restoreProposalAfterFailedReload(current, id, previousProposal));
+      }
+      setError(message);
       return false;
     }
     finally { setGeneratingDraftIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
@@ -264,7 +283,7 @@ export function QueueTab({
       const reconciliationMessage = publishReconciliationMessage(result);
       if (res.status === 202 || reconciliationMessage) {
         setError(reconciliationMessage ?? "Publication outcome requires reconciliation. Inspect Shopify before retrying.");
-        void loadProposals({ silent: true });
+        void loadProposals({ silent: true, replace: true });
         return false;
       }
       if (!res.ok) { setError((result.error as string) ?? "Publish failed"); return false; }
@@ -273,7 +292,7 @@ export function QueueTab({
       setAllProposals((prev) => prev.map((p) => p.id === id ? { ...p, draftStatus: "published" } : p));
       setLastPublishFeedback(publishFeedback(title, result as { kind?: string; publishWarning?: string }));
       setTimeout(() => setLastPublishFeedback(null), 4000);
-      void loadProposals({ silent: true });
+      void loadProposals({ silent: true, replace: true });
       return true;
     } catch (e) { setError(String(e)); return false; }
     finally { setPublishingIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
@@ -285,7 +304,7 @@ export function QueueTab({
       const res = await authFetch(`/api/content-pilot/proposals/${id}/reconcile-publish`, { method: "POST" });
       const d = await safeJson(res);
       if (!res.ok) { setError((d.error as string) ?? "Reconciliation failed"); return; }
-      await loadProposals({ silent: true });
+      await loadProposals({ silent: true, replace: true });
     } catch (error) { setError(String(error)); }
     finally { setReconcilingIds((prev) => { const next = new Set(prev); next.delete(id); return next; }); }
   };
@@ -296,7 +315,7 @@ export function QueueTab({
       const res = await authFetch(`/api/content-pilot/proposals/${id}/retry-bookkeeping`, { method: "POST" });
       const d = await safeJson(res);
       if (!res.ok) { setError((d.error as string) ?? "Bookkeeping retry failed"); return; }
-      await loadProposals({ silent: true });
+      await loadProposals({ silent: true, replace: true });
     } catch (error) { setError(String(error)); }
     finally { setReconcilingIds((prev) => { const next = new Set(prev); next.delete(id); return next; }); }
   };
@@ -437,7 +456,7 @@ export function QueueTab({
       if (!res.ok) { const d = await safeJson(res); setError((d.error as string) ?? "Schedule failed"); return; }
       if (clear) setScheduleInputs((prev) => ({ ...prev, [id]: "" }));
       setScheduleOpenId(null);
-      await loadProposals({ silent: true });
+      await loadProposals({ silent: true, replace: true });
     } catch (e) { setError(String(e)); }
     finally { setSchedulingId(null); }
   };

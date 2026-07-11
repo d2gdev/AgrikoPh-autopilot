@@ -28,6 +28,7 @@ const mockDashboardHandlers = vi.hoisted(() => ({
   fetchAdsDataHandler: vi.fn(),
   fetchSeoDataHandler: vi.fn(),
   fetchBlogContentHandler: vi.fn(),
+  runFetchBlogContentLocked: vi.fn(),
   fetchGscDataHandler: vi.fn(),
   fetchMarketIntelHandler: vi.fn(),
   fetchKeywordResearchHandler: vi.fn(),
@@ -57,7 +58,10 @@ vi.mock("@/jobs/fetch-seo-data", async (importOriginal) => {
   if (process.env.TEST_REAL_FETCH_SEO_DATA === "1") return await importOriginal<typeof import("@/jobs/fetch-seo-data")>();
   return { fetchSeoDataHandler: mockDashboardHandlers.fetchSeoDataHandler };
 });
-vi.mock("@/jobs/fetch-blog-content", () => ({ fetchBlogContentHandler: mockDashboardHandlers.fetchBlogContentHandler }));
+vi.mock("@/jobs/fetch-blog-content", () => ({
+  fetchBlogContentHandler: mockDashboardHandlers.fetchBlogContentHandler,
+  runFetchBlogContentLocked: mockDashboardHandlers.runFetchBlogContentLocked,
+}));
 vi.mock("@/jobs/fetch-gsc-data", () => ({ fetchGscDataHandler: mockDashboardHandlers.fetchGscDataHandler }));
 vi.mock("@/jobs/fetch-market-intel", () => ({ fetchMarketIntelHandler: mockDashboardHandlers.fetchMarketIntelHandler }));
 vi.mock("@/jobs/fetch-keyword-research", () => ({ fetchKeywordResearchHandler: mockDashboardHandlers.fetchKeywordResearchHandler }));
@@ -105,6 +109,10 @@ beforeEach(() => {
     snapshotsCreated: 1,
     errors: [],
   });
+  mockDashboardHandlers.runFetchBlogContentLocked.mockImplementation(async () => ({
+    acquired: true,
+    result: await mockDashboardHandlers.fetchBlogContentHandler(),
+  }));
   mockDashboardHandlers.fetchGscDataHandler.mockResolvedValue(successStep("fetch-gsc-data"));
   mockDashboardHandlers.fetchMarketIntelHandler.mockResolvedValue(successStep("fetch-market-intel"));
   mockDashboardHandlers.fetchKeywordResearchHandler.mockResolvedValue(successStep("fetch-keyword-research"));

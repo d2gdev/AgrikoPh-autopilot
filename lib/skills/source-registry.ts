@@ -155,8 +155,11 @@ async function refreshKeywordResearch(): Promise<SourceRefreshResult> {
 
 async function refreshBlog(): Promise<SourceRefreshResult> {
   try {
-    const { fetchBlogContentHandler } = await import("@/jobs/fetch-blog-content");
-    return refreshResultFromJobResult(await fetchBlogContentHandler());
+    const { runFetchBlogContentLocked } = await import("@/jobs/fetch-blog-content");
+    const locked = await runFetchBlogContentLocked();
+    return locked.acquired
+      ? refreshResultFromJobResult(locked.result)
+      : { attempted: false, status: "skipped", errors: ["fetch-blog-content is already running"] };
   } catch (err) {
     return { attempted: true, status: "failed", errors: [String(err)] };
   }

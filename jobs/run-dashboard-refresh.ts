@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
 import { fetchAdsDataHandler } from "@/jobs/fetch-ads-data";
 import { fetchSeoDataHandler } from "@/jobs/fetch-seo-data";
-import { fetchBlogContentHandler, type IndexResult } from "@/jobs/fetch-blog-content";
+import { runFetchBlogContentLocked, type IndexResult } from "@/jobs/fetch-blog-content";
 import { fetchGscDataHandler } from "@/jobs/fetch-gsc-data";
 import { fetchMarketIntelHandler } from "@/jobs/fetch-market-intel";
 import { fetchKeywordResearchHandler } from "@/jobs/fetch-keyword-research";
@@ -140,7 +140,10 @@ export async function runDashboardRefreshHandler(
     const fetchSteps = await Promise.all([
       runLocked("fetch-ads-data", fetchAdsDataHandler),
       runLocked("fetch-seo-data", fetchSeoDataHandler),
-      runLocked("fetch-blog-content", async () => blogResultToJobResult(await fetchBlogContentHandler())),
+      (async () => {
+        const locked = await runFetchBlogContentLocked();
+        return locked.acquired ? blogResultToJobResult(locked.result) : skippedStep("fetch-blog-content");
+      })(),
       runLocked("fetch-gsc-data", fetchGscDataHandler),
     ]);
 
