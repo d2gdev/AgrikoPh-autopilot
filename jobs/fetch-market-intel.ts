@@ -412,7 +412,7 @@ export async function fetchMarketIntelHandler(
   }
 
   const keywords = sources.includes("shopping") ? await prisma.marketKeyword.findMany({
-    where: { active: true },
+    where: { active: true, category: { not: "seo" } },
     orderBy: { createdAt: "asc" },
     take: keywordLimit,
   }) : [];

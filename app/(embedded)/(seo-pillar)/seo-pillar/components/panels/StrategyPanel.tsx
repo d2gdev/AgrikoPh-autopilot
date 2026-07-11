@@ -7,7 +7,9 @@ export function StrategyPanel({
   trackAllPrimary,
   trackedKw,
   trackingKw,
+  untrackingKw,
   trackKeyword,
+  untrackKeyword,
   plannedKw,
   planningKw,
   planTarget,
@@ -16,7 +18,9 @@ export function StrategyPanel({
   trackAllPrimary: () => void;
   trackedKw: Set<string>;
   trackingKw: Set<string>;
+  untrackingKw: Set<string>;
   trackKeyword: (keyword: string) => void;
+  untrackKeyword: (keyword: string) => void;
   plannedKw: Set<string>;
   planningKw: Set<string>;
   planTarget: (key: string, topic: string, brief: string) => void;
@@ -75,7 +79,7 @@ export function StrategyPanel({
               <Badge key={`p-${t.keyword}`} tone={t.priority === "Very high" ? "success" : t.priority === "High" ? "info" : undefined}>{t.priority}</Badge>,
               <InlineStack key={`a-${t.keyword}`} gap="200" wrap>
                 {trackedKw.has(t.keyword)
-                  ? <Badge tone="success">Tracking</Badge>
+                  ? <Button key={`at-${t.keyword}`} tone="critical" size="slim" loading={untrackingKw.has(t.keyword)} onClick={() => untrackKeyword(t.keyword)}>Untrack</Button>
                   : <Button size="slim" loading={trackingKw.has(t.keyword)} onClick={() => trackKeyword(t.keyword)}>Track</Button>}
                 {plannedKw.has(t.keyword)
                   ? <Badge tone="success">Planned</Badge>
@@ -120,7 +124,7 @@ export function StrategyPanel({
             s.volumeBand,
             s.targetPage,
             trackedKw.has(s.keyword)
-              ? <Badge key={`sb-${s.keyword}`} tone="success">Tracking</Badge>
+              ? <Button key={`sb-${s.keyword}`} tone="critical" size="slim" loading={untrackingKw.has(s.keyword)} onClick={() => untrackKeyword(s.keyword)}>Untrack</Button>
               : <Button key={`sa-${s.keyword}`} size="slim" loading={trackingKw.has(s.keyword)} onClick={() => trackKeyword(s.keyword)}>Track</Button>,
           ])}
         />

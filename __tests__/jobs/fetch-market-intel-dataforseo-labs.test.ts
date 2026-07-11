@@ -210,6 +210,20 @@ describe("DataForSEO Labs step — enabled", () => {
     process.env.DATAFORSEO_LABS_ENABLED = "true";
   });
 
+  it("filters shopping keywords to non-SEO categories", async () => {
+    mockMarketKeyword.findMany.mockImplementationOnce(async ({ where }: { where: { [k: string]: unknown } }) => {
+      expect(where).toEqual(expect.objectContaining({ category: { not: "seo" }, active: true }));
+      return [
+        { id: "kw-2", keyword: "turmeric powder", category: "marketing", locationName: null, languageCode: "en", active: true },
+      ];
+    });
+    await fetchMarketIntelHandler({ profile: "shopping" });
+
+    expect(mockFetchSerper).toHaveBeenCalledWith(expect.objectContaining({
+      keyword: "turmeric powder",
+    }));
+  });
+
   it("fetches ranked keywords for MARKET_INTEL_OWN_DOMAIN (default agrikoph.com) and writes a dataforseo_ranked RawSnapshot", async () => {
     mockFetchRankedKeywords.mockResolvedValue({
       items: [{ keyword: "turmeric powder", position: 3, searchVolume: 1000, cpc: 0.5, url: null }],

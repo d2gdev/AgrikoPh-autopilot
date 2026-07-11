@@ -13,6 +13,20 @@ import { groundSeoBriefContext } from "@/lib/seo/brief-grounding";
 // valid briefs with a misleading "empty brief" error — retrying never helped.)
 const MAX_BRIEF_CHARS = 6_000;
 
+function formatSearchConsoleRows(rows: Awaited<ReturnType<typeof getLatestGscData>>["queries"]) {
+  return rows
+    .slice(0, 20)
+    .map((r) => `${r.query} (clicks: ${r.clicks}, impressions: ${r.impressions}, ctr: ${r.ctr}, position: ${r.position})`)
+    .join("; ");
+}
+
+function formatGa4Rows(rows: Awaited<ReturnType<typeof getLatestGa4Data>>["pages"]) {
+  return rows
+    .slice(0, 20)
+    .map((r) => `${r.page} (sessions: ${r.sessions}, bounce: ${r.bounceRate}, conversion: ${r.conversionRate})`)
+    .join("; ");
+}
+
 function classifyBriefError(err: unknown): { status: number; error: string; detail?: string } {
   const raw = err instanceof Error ? err.message : String(err);
   const lower = raw.toLowerCase();
@@ -51,10 +65,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No SEO data available — run the analyzer first" }, { status: 400 });
   }
 
-  const gscQueries = gscLatest.queries.slice(0, 20).map((r) => r.query).filter(Boolean).join(", ");
-  const ga4Pages = ga4Latest.pages.slice(0, 20).map((r) => r.page).filter(Boolean).join(", ");
-  const gscData = gscQueries ? `Top queries: ${gscQueries}` : "No GSC data";
-  const ga4Data = ga4Pages ? `Top pages: ${ga4Pages}` : "No GA4 data";
+  const gscData = gscLatest.queries.length ? `Top queries: ${formatSearchConsoleRows(gscLatest.queries)}` : "No GSC data";
+  const ga4Data = ga4Latest.pages.length ? `Top pages: ${formatGa4Rows(ga4Latest.pages)}` : "No GA4 data";
   const targetKeyword = gscLatest.queries[0]?.query || ga4Latest.pages[0]?.page || "Agriko SEO";
 
   let aiTimeout: AbortSignal | undefined;

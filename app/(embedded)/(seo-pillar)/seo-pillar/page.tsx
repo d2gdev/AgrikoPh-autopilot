@@ -84,6 +84,7 @@ export default function SeoPillarReportPage() {
   const [trackingKw, setTrackingKw] = useState<Set<string>>(new Set());
   const [trackedKw, setTrackedKw] = useState<Set<string>>(new Set());
   const [trackingAll, setTrackingAll] = useState(false);
+  const [untrackingKw, setUntrackingKw] = useState<Set<string>>(new Set());
   const [planningKw, setPlanningKw] = useState<Set<string>>(new Set());
   const [plannedKw, setPlannedKw] = useState<Set<string>>(new Set());
   const [newKeyword, setNewKeyword] = useState("");
@@ -231,6 +232,40 @@ export default function SeoPillarReportPage() {
   }, [authFetch]);
 
   // ── Strategy tab actions ──
+  const untrackKeyword = useCallback(async (keyword: string): Promise<boolean> => {
+    const normalized = keyword.trim().toLowerCase();
+    setUntrackingKw((s) => new Set([...s, normalized]));
+    try {
+      const res = await authFetch("/api/seo/keywords", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: normalized }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setToast(res.status === 404 ? "Keyword is not currently tracked." : (d.error ?? "Could not untrack keyword."));
+        return false;
+      }
+      setTrackedKw((s) => {
+        const next = new Set(s);
+        next.delete(normalized);
+        return next;
+      });
+      setKeywords((current) => current.filter((row) => row.keyword.toLowerCase() !== normalized));
+      setToast(`Stopped tracking “${normalized}”.`);
+      return true;
+    } catch {
+      setToast("Could not untrack keyword.");
+      return false;
+    } finally {
+      setUntrackingKw((s) => {
+        const next = new Set(s);
+        next.delete(normalized);
+        return next;
+      });
+    }
+  }, [authFetch]);
+
   const trackKeyword = useCallback(async (keyword: string): Promise<boolean> => {
     const normalized = keyword.trim().toLowerCase();
     setTrackingKw((s) => new Set([...s, normalized]));
@@ -541,6 +576,8 @@ export default function SeoPillarReportPage() {
                       newKeyword={newKeyword}
                       setNewKeyword={setNewKeyword}
                       addKeyword={addKeyword}
+                      untrackingKw={untrackingKw}
+                      untrackKeyword={untrackKeyword}
                       kwSearch={kwSearch}
                       setKwSearch={setKwSearch}
                       kwSort={kwSort}
@@ -577,6 +614,8 @@ export default function SeoPillarReportPage() {
                       trackedKw={trackedKw}
                       trackingKw={trackingKw}
                       trackKeyword={trackKeyword}
+                      untrackingKw={untrackingKw}
+                      untrackKeyword={untrackKeyword}
                       plannedKw={plannedKw}
                       planningKw={planningKw}
                       planTarget={planTarget}

@@ -66,4 +66,28 @@ describe("buildProgrammaticSeoGaps", () => {
       }),
     ]);
   });
+
+  it("does not treat long-query term overlap as fully covered when only half the terms match", () => {
+    const gaps = buildProgrammaticSeoGaps({
+      queries: [{
+        query: "black rice price philippines",
+        clicks: 10,
+        impressions: 200,
+        ctr: "3%",
+        position: "10",
+      }],
+      queryPagePairs: [],
+      articles: [{
+        handle: "black-rice",
+        title: "Black Rice",
+        wordCount: 1000,
+        internalLinkCount: 8,
+        seoData: { titleLength: 0 },
+      }],
+    });
+
+    expect(gaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ query: "black rice price philippines" }),
+    ]));
+  });
 });

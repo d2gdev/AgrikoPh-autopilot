@@ -34,6 +34,7 @@ const mockPrisma = vi.hoisted(() => ({
   marketKeyword: {
     findFirst: vi.fn(),
     findMany: vi.fn(),
+    updateMany: vi.fn(),
     update: vi.fn(),
     create: vi.fn(),
   },
@@ -47,6 +48,7 @@ const mockSeoData = vi.hoisted(() => ({
   getPreviousGscData: vi.fn(),
   getSeoHistoryTrend: vi.fn(),
 }));
+const mockGroundSeoBriefContext = vi.hoisted(() => vi.fn(async (content: string) => content));
 const mockGetAiClient = vi.hoisted(() => vi.fn());
 const mockChatCompletion = vi.hoisted(() => vi.fn());
 const mockJobs = vi.hoisted(() => ({
@@ -71,6 +73,7 @@ vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock("@/lib/seo/data", () => mockSeoData);
 vi.mock("@/lib/ai/client", () => ({ getAiClient: mockGetAiClient, chatCompletionWithFailover: mockChatCompletion }));
+vi.mock("@/lib/seo/brief-grounding", () => ({ groundSeoBriefContext: mockGroundSeoBriefContext }));
 vi.mock("@/jobs/fetch-seo-data", () => ({ fetchSeoDataHandler: mockJobs.fetchSeoDataHandler }));
 vi.mock("@/jobs/fetch-gsc-data", () => ({ fetchGscDataHandler: mockJobs.fetchGscDataHandler }));
 vi.mock("@/jobs/snapshot-seo-history", () => ({ snapshotSeoHistoryHandler: mockJobs.snapshotSeoHistoryHandler }));
@@ -85,9 +88,9 @@ vi.mock("@/lib/dashboard/jobs-status", () => ({
   materializeJobsStatusSnapshot: (...args: Parameters<typeof mockMaterializeJobsStatusSnapshot>) => mockMaterializeJobsStatusSnapshot(...args),
 }));
 
-function jsonRequest(path: string, body: Record<string, unknown>) {
+function jsonRequest(path: string, body: Record<string, unknown>, method = "POST") {
   return new Request(`http://test.local${path}`, {
-    method: "POST",
+    method,
     body: JSON.stringify(body),
   }) as NextRequest;
 }
@@ -109,6 +112,7 @@ describe("SEO Pilot route regressions", () => {
     mockPrisma.auditLog.create.mockResolvedValue({});
     mockPrisma.keywordResearchResult.findMany.mockResolvedValue([]);
     mockPrisma.marketKeyword.findFirst.mockResolvedValue(null);
+    mockPrisma.marketKeyword.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.marketKeyword.create.mockResolvedValue({});
     mockPrisma.marketKeyword.update.mockResolvedValue({});
     mockSeoData.getLatestGscData.mockResolvedValue({
@@ -717,6 +721,57 @@ describe("SEO Pilot route regressions", () => {
     });
   });
 
+  it("passes deterministic GSC query and GA4 page metrics into brief grounding context", async () => {
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [{
+        query: "black rice",
+        clicks: 12,
+        impressions: 400,
+        ctr: "3.4%",
+        position: "8.2",
+      }],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: new Date("2026-06-01T00:00:00.000Z"),
+      source: "normalized",
+      window: null,
+    });
+    mockSeoData.getLatestGa4Data.mockResolvedValue({
+      pages: [{
+        page: "/blogs/news/black-rice-benefits",
+        sessions: 52,
+        bounceRate: "0.38",
+        conversionRate: "0.02",
+      }],
+      fetchedAt: new Date("2026-06-01T00:00:00.000Z"),
+      source: "normalized",
+      freshness: {
+        selectedSource: "normalized",
+        selectedCapturedAt: new Date("2026-06-01T00:00:00.000Z"),
+        normalizedCapturedAt: new Date("2026-06-01T00:00:00.000Z"),
+        rawCapturedAt: null,
+        fallbackReason: null,
+      },
+    });
+
+    const { POST } = await import("@/app/api/seo/brief/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
+    await res.json();
+
+    const prompt = mockGroundSeoBriefContext.mock.calls.at(-1)?.[0] ?? "";
+    expect(prompt).toContain("black rice");
+    expect(prompt).toContain("clicks: 12");
+    expect(prompt).toContain("impressions: 400");
+    expect(prompt).toContain("ctr: 3.4%");
+    expect(prompt).toContain("position: 8.2");
+    expect(prompt).toContain("Top pages");
+    expect(prompt).toContain("sessions: 52");
+    expect(prompt).toContain("bounce: 0.38");
+    expect(prompt).toContain("conversion: 0.02");
+    expect(mockGroundSeoBriefContext).toHaveBeenCalledTimes(1);
+  });
+
   it("does not expose raw provider failures from SEO brief generation", async () => {
     mockSeoData.getLatestGscData.mockResolvedValue({
       queries: [{ query: "black rice", clicks: 3, impressions: 200, ctr: "1.5%", position: "7.0" }],
@@ -746,6 +801,16 @@ describe("SEO Pilot route regressions", () => {
     expect(res.status).toBe(403);
     expect(mockPrisma.marketKeyword.create).not.toHaveBeenCalled();
     expect(mockCheckRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("blocks a user without CONTENT_REVIEW before SEO keyword deletion", async () => {
+    mockAuth.requirePermission.mockResolvedValue(new Response("Forbidden", { status: 403 }));
+    const { DELETE } = await import("@/app/api/seo/keywords/route");
+
+    const res = await DELETE(jsonRequest("/api/seo/keywords", { keyword: "black rice" }, "DELETE"));
+
+    expect(res.status).toBe(403);
+    expect(mockPrisma.marketKeyword.updateMany).not.toHaveBeenCalled();
   });
 
   it("blocks a user without CONTENT_REVIEW before queueing an SEO refresh", async () => {
@@ -908,6 +973,36 @@ describe("SEO Pilot route regressions", () => {
     expect(res.status).toBe(200);
     expect(body.keyword).toBe("black rice benefits");
     expect(mockPrisma.marketKeyword.create).toHaveBeenCalledWith({ data: { keyword: "black rice benefits", category: "seo", languageCode: "en", active: true } });
+  });
+
+  it("deactivates matching tracked keywords on DELETE", async () => {
+    const { DELETE } = await import("@/app/api/seo/keywords/route");
+
+    const res = await DELETE(jsonRequest("/api/seo/keywords", { keyword: "  Black   Rice Benefits  " }, "DELETE"));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ ok: true, keyword: "black rice benefits" });
+    expect(mockPrisma.marketKeyword.updateMany).toHaveBeenCalledWith({
+      where: {
+        keyword: { equals: "black rice benefits", mode: "insensitive" },
+        category: "seo",
+        languageCode: "en",
+        locationName: null,
+        active: true,
+      },
+      data: { active: false },
+    });
+  });
+
+  it("returns 404 when no active SEO keyword exists to untrack", async () => {
+    mockPrisma.marketKeyword.updateMany.mockResolvedValue({ count: 0 });
+    const { DELETE } = await import("@/app/api/seo/keywords/route");
+
+    const res = await DELETE(jsonRequest("/api/seo/keywords", { keyword: "missing keyword" }, "DELETE"));
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Keyword not currently tracked" });
   });
 
   it("recovers concurrent tracked-keyword inserts", async () => {

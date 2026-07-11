@@ -1,4 +1,4 @@
-import { Text, BlockStack, TextField, Button, Badge } from "@shopify/polaris";
+import { Text, BlockStack, TextField, Button, Badge, InlineStack } from "@shopify/polaris";
 import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
 import type { Dispatch, SetStateAction } from "react";
 import type { KeywordRow } from "../types";
@@ -11,6 +11,8 @@ export function KeywordsPanel({
   newKeyword,
   setNewKeyword,
   addKeyword,
+  untrackingKw,
+  untrackKeyword,
   kwSearch,
   setKwSearch,
   kwSort,
@@ -20,6 +22,8 @@ export function KeywordsPanel({
   newKeyword: string;
   setNewKeyword: Dispatch<SetStateAction<string>>;
   addKeyword: () => void;
+  untrackingKw: Set<string>;
+  untrackKeyword: (keyword: string) => Promise<boolean>;
   kwSearch: string;
   setKwSearch: Dispatch<SetStateAction<string>>;
   kwSort: KwSort;
@@ -41,9 +45,9 @@ export function KeywordsPanel({
       </div>
       {keywords.length === 0 ? <Text as="p" tone="subdued">No keywords tracked yet.</Text> : (
         <ResponsiveDataTable
-          columnContentTypes={["text", "numeric", "text", "numeric", "numeric", "text"]}
-          headings={["Keyword", "Position", "Δ Pos", "Clicks", "Impr.", "Status"]}
-          sortable={[true, true, true, true, true, false]}
+          columnContentTypes={["text", "numeric", "text", "numeric", "numeric", "text", "text"]}
+          headings={["Keyword", "Position", "Δ Pos", "Clicks", "Impr.", "Status", "Actions"]}
+          sortable={[true, true, true, true, true, false, false]}
           compactSortIndex={kwSort?.index ?? -1}
           compactSortDirection={kwSort?.dir ?? "ascending"}
           onSort={(index, direction) => {
@@ -64,16 +68,30 @@ export function KeywordsPanel({
                 default: return 0;
               }
             })
-            .map((k) => [
-            k.keyword,
-            k.position === null ? "—" : k.position.toFixed(1),
-            k.positionDelta === null ? "—" : `${k.positionDelta < 0 ? "▲" : "▼"} ${Math.abs(k.positionDelta).toFixed(1)}`,
-            String(k.clicks),
-            String(k.impressions),
-            <Badge key={k.keyword} tone={k.alert ? "critical" : k.status === "improved" ? "success" : k.status === "declined" ? "warning" : undefined}>
-              {k.alert ? "Drop alert" : k.status}
-            </Badge>,
-          ])}
+            .map((k) => {
+              const key = k.keyword.toLowerCase();
+              return [
+                k.keyword,
+                k.position === null ? "—" : k.position.toFixed(1),
+                k.positionDelta === null ? "—" : `${k.positionDelta < 0 ? "▲" : "▼"} ${Math.abs(k.positionDelta).toFixed(1)}`,
+                String(k.clicks),
+                String(k.impressions),
+                <Badge key={k.keyword} tone={k.alert ? "critical" : k.status === "improved" ? "success" : k.status === "declined" ? "warning" : undefined}>
+                  {k.alert ? "Drop alert" : k.status}
+                </Badge>,
+                <InlineStack key={k.keyword} gap="150" wrap className={styles.actionRow}>
+                  <Button
+                    size="slim"
+                    tone="critical"
+                    loading={untrackingKw.has(key)}
+                    onClick={() => untrackKeyword(k.keyword)}
+                  >
+                    Untrack
+                  </Button>
+                </InlineStack>,
+              ];
+            })
+          }
         />
       )}
     </BlockStack>

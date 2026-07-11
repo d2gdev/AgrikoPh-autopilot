@@ -61,7 +61,7 @@ function titleCoversQuery(title: string, query: string): boolean {
   const matchCount = queryTerms.filter((term) => titleTerms.has(term)).length;
   return queryTerms.length <= 2
     ? matchCount >= queryTerms.length
-    : matchCount >= Math.ceil(queryTerms.length * 0.5) && matchCount >= 2;
+    : matchCount >= Math.max(2, Math.ceil(queryTerms.length * 0.75));
 }
 
 const gapKey = (gap: ProgrammaticSeoGap) =>

@@ -36,6 +36,33 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ keywords: report });
 }
 
+export async function DELETE(req: NextRequest) {
+  const authError = await requireAppAuth(req);
+  if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
+
+  const parsed = KeywordBodySchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const keyword = normalizeKeyword(parsed.data.keyword);
+  const result = await prisma.marketKeyword.updateMany({
+    where: {
+      keyword: { equals: keyword, mode: "insensitive" },
+      category: "seo",
+      languageCode: "en",
+      locationName: null,
+      active: true,
+    },
+    data: { active: false },
+  });
+  if (result.count === 0) return NextResponse.json({ error: "Keyword not currently tracked" }, { status: 404 });
+
+  return NextResponse.json({ ok: true, keyword });
+}
+
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
