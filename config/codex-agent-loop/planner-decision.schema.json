@@ -7,7 +7,9 @@
     "requires_approval",
     "approval_scope",
     "next_prompt",
-    "question"
+    "question",
+    "current_task_id",
+    "completed_task_ids"
   ],
   "properties": {
     "action": { "enum": ["run", "ask_user", "done"] },
@@ -18,7 +20,12 @@
       "items": { "type": "string", "minLength": 1 }
     },
     "next_prompt": { "type": ["string", "null"] },
-    "question": { "type": ["string", "null"] }
+    "question": { "type": ["string", "null"] },
+    "current_task_id": { "type": ["string", "null"] },
+    "completed_task_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
   },
   "additionalProperties": false
 }

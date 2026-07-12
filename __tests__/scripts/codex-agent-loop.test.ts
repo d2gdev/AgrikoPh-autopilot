@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -44,6 +44,27 @@ function run(config: object, paths: ReturnType<typeof fixture>) {
     "--codex", resolve(paths.root, "fake-codex"),
   ], { encoding: "utf8" });
   return { ...result, parsed: JSON.parse(result.stdout.trim()) };
+}
+
+function installFakeCodex(paths: ReturnType<typeof fixture>, plannerDecision: object) {
+  const executable = resolve(paths.root, "fake-codex");
+  writeFileSync(executable, `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const output = args[args.indexOf("-o") + 1];
+const schema = args[args.indexOf("--output-schema") + 1];
+let prompt = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", chunk => prompt += chunk);
+process.stdin.on("end", () => {
+  fs.appendFileSync(${JSON.stringify(resolve(paths.root, "prompts.jsonl"))}, JSON.stringify({ schema, prompt }) + "\\n");
+  const response = schema.includes("execution-report")
+    ? { status: "complete", outcome: "task complete", approval_required: false, approval_question: null, blockers: [], recommended_next_step: "review", runtime_impact: { production_accessed: false, deployed: false, live_changes_made: false } }
+    : ${JSON.stringify(plannerDecision)};
+  fs.writeFileSync(output, JSON.stringify(response));
+});
+`);
+  chmodSync(executable, 0o755);
 }
 
 afterEach(() => {
@@ -102,5 +123,48 @@ describe("codex agent loop plan configuration", () => {
     expect(result.status).toBe(0);
     expect(result.parsed.question).toContain("fake-codex");
     expect(result.parsed.question).not.toContain("planPath");
+  });
+});
+
+describe("codex agent loop plan progress", () => {
+  test("initializes progress and gives Sol the approved-plan contract", () => {
+    const paths = fixture();
+    const planPath = resolve(paths.workspace, "approved-plan.md");
+    writeFileSync(planPath, "# Plan\n\n### Task alpha: First\n");
+    installFakeCodex(paths, {
+      action: "ask_user", reason: "need authority", requires_approval: true, approval_scope: ["scope"],
+      next_prompt: null, question: "Authorize?", current_task_id: null, completed_task_ids: [],
+    });
+
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath: "approved-plan.md", maxAutomaticWindows: 10 }, paths);
+    const state = JSON.parse(readFileSync(resolve(result.parsed.evidenceDirectory, "state.json"), "utf8"));
+    const prompts = readFileSync(resolve(paths.root, "prompts.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    const planner = prompts.find(entry => entry.schema.includes("planner-decision")).prompt;
+
+    expect(state.planPath).toBe(planPath);
+    expect(state.currentTaskId).toBeNull();
+    expect(state.completedTaskIds).toEqual([]);
+    expect(state.cumulativeIterations).toBe(1);
+    expect(state.windowNumber).toBe(1);
+    expect(planner).toContain(planPath);
+    expect(planner).toContain("Select only the next incomplete task in plan order");
+    expect(planner).toContain("Protected approval scopes:");
+    expect(planner).toContain("Do not return done while any approved plan task remains incomplete");
+  });
+
+  test("rejects done when completed task identifiers omit an approved plan task", () => {
+    const paths = fixture();
+    const planPath = resolve(paths.workspace, "approved-plan.md");
+    writeFileSync(planPath, "# Plan\n\n### Task alpha: First\n\n### Task beta: Second\n");
+    installFakeCodex(paths, {
+      action: "done", reason: "finished", requires_approval: false, approval_scope: [],
+      next_prompt: null, question: null, current_task_id: null, completed_task_ids: ["alpha"],
+    });
+
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath, maxAutomaticWindows: 10 }, paths);
+
+    expect(result.parsed.status).toBe("interrupted");
+    expect(result.parsed.reason).toContain("invalid planner decision");
+    expect(result.parsed.reason).toContain("beta");
   });
 });

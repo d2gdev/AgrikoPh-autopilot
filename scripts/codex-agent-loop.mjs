@@ -205,14 +205,27 @@ function validateReport(report) {
   return report;
 }
 
-function validateDecision(decision) {
+function planTaskIds(planPath) {
+  const identifiers = [];
+  const headings = readFileSync(planPath, "utf8").matchAll(/^### Task ([^:\r\n]+):/gm);
+  for (const heading of headings) identifiers.push(heading[1].trim());
+  return identifiers;
+}
+
+function validateDecision(decision, config) {
   if (!decision || !["run", "ask_user", "done"].includes(decision.action)) throw new Error("Invalid planner action");
   if (typeof decision.reason !== "string" || !decision.reason.trim()) throw new Error("Invalid planner reason");
   if (typeof decision.requires_approval !== "boolean" || !Array.isArray(decision.approval_scope)) {
     throw new Error("Invalid planner approval fields");
   }
+  if (!Array.isArray(decision.completed_task_ids) || decision.completed_task_ids.some((id) => typeof id !== "string" || !id.trim())) {
+    throw new Error("Invalid planner completed_task_ids");
+  }
+  if (decision.current_task_id !== null && (typeof decision.current_task_id !== "string" || !decision.current_task_id.trim())) {
+    throw new Error("Invalid planner current_task_id");
+  }
   if (decision.action === "run") {
-    if (decision.requires_approval || decision.approval_scope.length || typeof decision.next_prompt !== "string" || !decision.next_prompt.trim() || decision.question !== null) {
+    if (decision.requires_approval || decision.approval_scope.length || typeof decision.next_prompt !== "string" || !decision.next_prompt.trim() || decision.question !== null || typeof decision.current_task_id !== "string" || !decision.current_task_id.trim()) {
       throw new Error("Unsafe run decision");
     }
   }
@@ -221,8 +234,17 @@ function validateDecision(decision) {
       throw new Error("Invalid ask_user decision");
     }
   }
-  if (decision.action === "done" && (decision.requires_approval || decision.approval_scope.length || decision.next_prompt !== null || decision.question !== null)) {
+  if (decision.action === "done" && (decision.requires_approval || decision.approval_scope.length || decision.next_prompt !== null || decision.question !== null || decision.current_task_id !== null)) {
     throw new Error("Invalid done decision");
+  }
+  if (config.autoContinuePlan && decision.action === "done") {
+    const expected = planTaskIds(config.planPath);
+    const completed = [...new Set(decision.completed_task_ids)];
+    const missing = expected.filter((id) => !completed.includes(id));
+    const unknown = completed.filter((id) => !expected.includes(id));
+    if (missing.length || unknown.length) {
+      throw new Error(`invalid planner decision: plan completion mismatch (missing: ${JSON.stringify(missing)}, unknown: ${JSON.stringify(unknown)})`);
+    }
   }
   return decision;
 }
@@ -275,7 +297,7 @@ async function runCodex({ executable, role, config, prompt, schema, directory })
   if (!existsSync(temporaryFinal)) throw new Error(`${role} did not produce a final JSON file`);
   const parsed = readJson(temporaryFinal, `${role} final response`);
   if (role === "executor") validateReport(parsed);
-  else validateDecision(parsed);
+  else validateDecision(parsed, config);
   renameSync(temporaryFinal, finalPath);
   chmodSync(finalPath, 0o600);
   return { parsed, finalPath, eventsPath, stderrPath };
@@ -288,9 +310,15 @@ Return exactly one JSON execution report matching the supplied schema. Set appro
 }
 
 function plannerPrompt(state, config) {
+  const planContext = config.autoContinuePlan ? `Approved implementation plan: ${config.planPath}
+Current bounded task: ${state.currentTaskId ?? "none"}
+Recorded completed tasks: ${JSON.stringify(state.completedTaskIds)}
+Select only the next incomplete task in plan order. Confirm completion from repository and verification evidence, not checkboxes alone. Do not return done while any approved plan task remains incomplete. A plan entry does not grant protected authority.
+
+` : "";
   return `You are the read-only planning half of an automated Sol-to-Terra workflow.
 
-Original objective:
+${planContext}Original objective:
 ${state.objective}
 
 Latest Terra execution report:
@@ -344,6 +372,7 @@ async function continueRun(layout, state, config, executable) {
   while (state.iteration < config.maxIterations) {
     if (state.phase === "executor") {
       state.iteration += 1;
+      state.cumulativeIterations += 1;
       state.status = "running";
       state.operatorAnswer = null;
       const directory = iterationDirectory(layout, state.iteration);
@@ -390,6 +419,8 @@ async function continueRun(layout, state, config, executable) {
         return publicStatus(layout, state);
       }
       state.lastDecision = planning.parsed;
+      state.currentTaskId = state.lastDecision.current_task_id;
+      state.completedTaskIds = [...new Set(state.lastDecision.completed_task_ids)];
       saveState(layout, state);
       appendEvent(layout, state, "planner_completed", { action: state.lastDecision.action });
 
@@ -425,6 +456,11 @@ function createState(prompt, config) {
     status: "running",
     phase: "executor",
     iteration: 0,
+    planPath: config.planPath,
+    currentTaskId: null,
+    completedTaskIds: [],
+    cumulativeIterations: 0,
+    windowNumber: 1,
     objective: prompt,
     currentPrompt: prompt,
     lastReport: null,
