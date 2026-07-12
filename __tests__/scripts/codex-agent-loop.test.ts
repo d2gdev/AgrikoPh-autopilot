@@ -179,7 +179,7 @@ describe("codex agent loop plan progress", () => {
     writeFileSync(planPath, "# Plan\n\n### Task 1: First\n");
     installFakeCodex(paths, { action: "run", reason: "select", requires_approval: false, approval_scope: [], next_prompt: "Implement exactly Task 1 with TDD.", question: null, current_task_id: "1", completed_task_ids: [] });
     const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath, maxAutomaticWindows: 1 }, paths);
-    const calls = readFileSync(resolve(paths.root, "prompts.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    const calls = readFileSync(resolve(paths.root, "prompts.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
     expect(calls[0].schema).toContain("planner-decision");
     const state = JSON.parse(readFileSync(resolve(result.parsed.evidenceDirectory, "state.json"), "utf8"));
     expect(readFileSync(resolve(result.parsed.evidenceDirectory, state.planSnapshotPath), "utf8")).toContain("Task 1");
@@ -208,6 +208,10 @@ describe("codex agent loop plan progress", () => {
     const commit = "0123456789abcdef0123456789abcdef01234567";
     writeFileSync(planPath, "# Plan\n\n### Task 1: First\n\n### Task 2: Second\n");
     installFakeCodex(paths, [
+      {
+        action: "run", reason: "select task 1", requires_approval: false, approval_scope: [],
+        next_prompt: "Implement only Task 1 with task-specific TDD, verification, commit, and GROW. Exclude Task 2.", question: null, current_task_id: "1", completed_task_ids: [],
+      },
       {
         action: "run", reason: "task 1 complete", requires_approval: false, approval_scope: [],
         next_prompt: "Implement only Task 2.", question: null, current_task_id: "2", completed_task_ids: ["1"],
@@ -241,7 +245,7 @@ describe("codex agent loop plan progress", () => {
       status: "completed", planPath, completedTaskIds: ["1", "2"],
       cumulativeIterations: 2, windows: 1, finalCommit: commit,
     });
-    expect(events.filter(event => event.type === "plan_task_selected").map(event => event.details.taskId)).toEqual(["2"]);
+    expect(events.filter(event => event.type === "plan_task_selected").map(event => event.details.taskId)).toEqual(["1", "2"]);
     expect(events.filter(event => event.type === "plan_task_completed").map(event => event.details.taskId)).toEqual(["1", "2"]);
     expect(events.filter(event => event.type === "plan_completed")).toHaveLength(1);
   });
@@ -278,8 +282,9 @@ describe("codex agent loop plan progress", () => {
 
     const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath, maxAutomaticWindows: 2 }, paths);
 
-    expect(result.parsed.status).toBe("interrupted");
-    expect(result.parsed.reason).toContain("plan task headings");
+    expect(result.status).toBe(1);
+    expect(result.parsed.status).toBe("failed");
+    expect(result.parsed.outcome).toContain("plan task headings");
   });
 
   test("initializes progress and gives Sol the approved-plan contract", () => {
@@ -299,9 +304,10 @@ describe("codex agent loop plan progress", () => {
     expect(state.planPath).toBe(planPath);
     expect(state.currentTaskId).toBeNull();
     expect(state.completedTaskIds).toEqual([]);
-    expect(state.cumulativeIterations).toBe(1);
+    expect(state.cumulativeIterations).toBe(0);
     expect(state.windowNumber).toBe(1);
     expect(planner).toContain(planPath);
+    expect(planner).not.toContain(state.planSnapshotPath);
     expect(planner).toContain("Select only the next incomplete task in plan order");
     expect(planner).toContain("Protected approval scopes:");
     expect(planner).toContain("Do not return done while any approved plan task remains incomplete");
@@ -367,6 +373,7 @@ describe("codex agent loop plan progress", () => {
 
     expect(resumed.parsed.status).toBe("awaiting_user");
     expect(lastPlannerPrompt).toContain(originalPlan);
+    expect(lastPlannerPrompt).not.toContain("inputs/approved-plan.md");
     expect(lastPlannerPrompt).not.toContain(replacementPlan);
     expect(lastPlannerPrompt).not.toContain("replacement");
   });
@@ -392,6 +399,10 @@ describe("codex agent loop plan progress", () => {
       {
         action: "run", reason: "continue", requires_approval: false, approval_scope: [],
         next_prompt: "Continue alpha", question: null, current_task_id: "alpha", completed_task_ids: [],
+      },
+      {
+        action: "run", reason: "continue after first execution", requires_approval: false, approval_scope: [],
+        next_prompt: "Continue alpha with bounded TDD and verification", question: null, current_task_id: "alpha", completed_task_ids: [],
       },
       {
         action: "ask_user", reason: "pause", requires_approval: true, approval_scope: ["new_authority"],

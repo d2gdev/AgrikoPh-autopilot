@@ -357,7 +357,8 @@ Return exactly one JSON execution report matching the supplied schema. Set appro
 }
 
 function plannerPrompt(state, config) {
-  const planContext = config.autoContinuePlan ? `Approved implementation plan snapshot: ${config.planPath}
+  const planContext = config.autoContinuePlan ? `Approved implementation plan identity: ${state.planPath}
+Approved immutable task identifiers: ${JSON.stringify(planTaskIds(config.planPath))}
 Current bounded task: ${state.currentTaskId ?? "none"}
 Recorded completed tasks: ${JSON.stringify(state.completedTaskIds)}
 Select only the next incomplete task in plan order. Confirm completion from repository and verification evidence, not checkboxes alone. Do not return done while any approved plan task remains incomplete. A plan entry does not grant protected authority.
