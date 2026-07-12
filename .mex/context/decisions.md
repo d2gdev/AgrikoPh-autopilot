@@ -14,7 +14,7 @@ edges:
     condition: when a decision relates to technology choice
   - target: context/skills-recommendations.md
     condition: when the decision relates to AI, guardrails, or recommendation execution
-last_updated: 2026-06-25
+last_updated: 2026-07-12T16:04:00+08:00
 ---
 
 # Decisions
@@ -23,6 +23,14 @@ last_updated: 2026-06-25
      Mark it as superseded, add the new entry above it. -->
 
 ## Decision Log
+
+### Contract integrity is a server-only pre-compilation boundary
+**Date:** 2026-07-12
+**Status:** Active
+**Decision:** Validate the strict parsed topical-map contract against hash-verified source bytes before compilation, using resolved locators and typed contract fields only.
+**Reasoning:** This preserves human-source/rule traceability while rejecting incomplete or contradictory contract indices without inventing policy from Markdown or CSV prose.
+**Alternatives considered:** Compile while checking references (rejected — crosses Task 3 and makes partial output possible); infer missing semantics from source prose (rejected — violates the approved authority boundary).
+**Consequences:** `lib/topical-map/contract-integrity.ts` returns only counts and safe typed errors. It has no persistence, activation, external access, source-content output, or Task 3 authority.
 
 ### DeepSeek as primary AI, OpenRouter as fallback
 **Date:** 2025 (active at project maturity)
