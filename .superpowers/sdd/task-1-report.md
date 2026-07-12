@@ -1,46 +1,48 @@
-# Task 1 Report: SEO Pilot Evidence Sweep
+# Task 1 Report: Runtime production activation gate
 
-## What I changed
+Status: DONE
 
-- Added evidence-backed findings under `## SEO Pilot Findings` in:
-  - `docs/superpowers/reviews/2026-07-09-seo-content-pilot-audit-findings.md`
-- Consolidated findings with severity tags and issue format:
-  - `[Critical]` replacement-key collision in daily proposal refresh path
-  - `[Important]` SEO Opportunities UI marks skipped promotions as created
-- Updated this report with the executed command outputs, blockers/uncertainties, and changed file list.
+## Outcome
 
-## Test output summary
+- Added `runtimeActivationEnabled()`, returning true only when `TOPICAL_MAP_ACTIVATION_ENABLED` is exactly `"true"`.
+- Kept the authorization check before the initial active-pointer query and lifecycle transaction.
+- Preserved the existing validated-target claim, active-pointer race check, serializable transaction, advisory lock, pointer update, supersession, and audit behavior.
+- Documented `TOPICAL_MAP_ACTIVATION_ENABLED=false` as server-only, strategy-selection-only, and independent of Shopify/Meta live execution.
+- Preserved route ordering: embedded auth first, `SETTINGS_ADMIN` permission second, then request/service/database boundaries.
 
-- `npm test -- __tests__/api/seo-pilot-routes.test.ts`
-  - `Test Files  1 passed (1)`
-  - `Tests 16 passed (16)`
-- `npm test -- __tests__/api/seo/analyze.test.ts __tests__/api/seo-analysis.test.ts`
-  - `No test files found, exiting with code 1`
-  - command is in the task brief but the files do not exist at these paths in this repo state.
+## TDD evidence
 
-## Blockers / uncertainties
+- RED: `npm test -- __tests__/lib/topical-map/activation.test.ts __tests__/api/topical-map-routes.test.ts`
+  - Expected result observed: 2 failures, 25 passes.
+  - Failures were specifically the absent `runtimeActivationEnabled` export and exact `true` still reaching the prior hardcoded rejection.
+- GREEN: same focused command.
+  - Result: 2 files passed, 28 tests passed, 0 failed.
 
-- The brief references files that are not present in the current tree:
-  - `app/api/seo/pillars/route.ts`
-  - `app/api/seo/pilot/route.ts`
-- I therefore audited the existing equivalent SEO routes and components actually present:
-  - `app/api/seo/analysis/route.ts`
-  - `app/api/seo/analyze/route.ts`
-  - `app/api/seo/promote/route.ts`
-  - `app/api/seo/gaps/promote/route.ts`
-  - `app/api/seo/recommendations/decompose/route.ts`
-  - `lib/seo/data.ts`
-  - `lib/seo/gsc-normalized.ts`
-  - `app/api/cron/daily/route.ts`
-  - `app/(embedded)/(seo-pillar)/seo-pillar/components/*`
-  - `__tests__/api/seo-pilot-routes.test.ts`
-- I did not change runtime code; all findings are read-verified from source and behavior exercised by the above test run.
+Tests cover absent, empty, `false`, and non-exact `TRUE` values rejecting before database access; exact `true` reaching and completing the existing validated lifecycle transaction; and route auth/permission ordering before enabled activation database access.
 
-## Commit
+## Verification
 
-- `SHA`: `5b51d0169a94674ab66f20db695d6f8f7b198e64`
+- `npm run typecheck`: pass.
+- `npm run typecheck:test`: pass.
+- `npm run lint`: pass with 0 errors and 115 pre-existing repository warnings; none are in the task's changed TypeScript files.
+- `git diff --check`: pass.
+- Focused tests: 28/28 pass.
 
-## File list
+## Self-review
 
-- `docs/superpowers/reviews/2026-07-09-seo-content-pilot-audit-findings.md`
-- `.superpowers/sdd/task-1-report.md`
+- The flag comparison is exact and case-sensitive with no trimming or permissive coercion.
+- Disabled values cannot execute the preliminary Prisma read, open a transaction, acquire a lock, mutate lifecycle state, update the active pointer, or create audit history.
+- The enabled path changes no transaction semantics.
+- No live execution flag, recommendation status, Shopify connector, Meta connector, route permission, schema, migration, cron, or deployment behavior was changed.
+- No unrelated pre-existing working-tree changes were present at task start.
+
+## GROW
+
+- Ground: topical-map strategy selection is runtime-gated and remains default-off.
+- Record: updated `.mex/ROUTER.md` and logged the decision in `.mex/events/decisions.jsonl`.
+- Orient: updated `.mex/patterns/topical-map-activation-persistence.md` with exact flag semantics and the live-execution boundary.
+- Write: bumped the pattern `last_updated` value and ran `mex log --type decision`.
+
+## Concerns
+
+The repository-wide lint command reports 115 pre-existing warnings but zero errors; none are in the task's changed TypeScript files. This task does not set the production flag, activate a strategy, deploy code, or authorize Shopify/Meta writes.

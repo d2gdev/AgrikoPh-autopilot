@@ -148,11 +148,14 @@ function auditData(action: string, input: LifecycleInput, before: VersionSummary
   };
 }
 
+export function runtimeActivationEnabled(): boolean {
+  return process.env.TOPICAL_MAP_ACTIVATION_ENABLED === "true";
+}
+
 export async function activateStrategyVersion(input: LifecycleInput) {
-  // The approved contract is validation/import-only. A future activation design
-  // must introduce explicit runtime authorization before this transaction can run.
-  const runtimeActivationAuthorized = false;
-  if (!runtimeActivationAuthorized) throw new StrategyActivationConflictError("Runtime topical-map activation is not authorized.");
+  if (!runtimeActivationEnabled()) {
+    throw new StrategyActivationConflictError("Runtime topical-map activation is not authorized.");
+  }
 
   const expectedCurrent = await prisma.topicalMapActivation.findUnique({
     where: { siteHost: input.siteHost },

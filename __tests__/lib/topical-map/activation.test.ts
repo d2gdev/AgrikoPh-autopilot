@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
   $transaction: vi.fn(),
@@ -16,6 +16,7 @@ import {
   activateStrategyVersion,
   importAndValidatePackage,
   rollbackStrategyVersion,
+  runtimeActivationEnabled,
   StrategyActivationConflictError,
 } from "@/lib/topical-map/activation";
 
@@ -99,7 +100,15 @@ describe("topical-map activation persistence boundary", () => {
 });
 
 describe("topical-map atomic lifecycle transitions", () => {
-  it("fails closed for a validated target while runtime activation authorization is false", async () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    ["absent", undefined],
+    ["empty", ""],
+    ["false", "false"],
+    ["non-exact", "TRUE"],
+  ])("fails closed before database access when runtime activation authorization is %s", async (_name, value) => {
+    vi.stubEnv("TOPICAL_MAP_ACTIVATION_ENABLED", value);
     const client = tx();
     db.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersionId: "old" });
     client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "b".repeat(64) });
@@ -114,7 +123,35 @@ describe("topical-map atomic lifecycle transitions", () => {
     expect(client.auditLog.create).not.toHaveBeenCalled();
   });
 
+  it("enables runtime activation only for the exact value true", () => {
+    vi.stubEnv("TOPICAL_MAP_ACTIVATION_ENABLED", "true");
+
+    expect(runtimeActivationEnabled()).toBe(true);
+  });
+
+  it("activates a validated target through the existing lifecycle transaction when runtime authorization is enabled", async () => {
+    vi.stubEnv("TOPICAL_MAP_ACTIVATION_ENABLED", "true");
+    const client = tx();
+    db.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersionId: "old" });
+    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "b".repeat(64) });
+    client.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { id: "old", packageSha256: "a".repeat(64) } });
+    client.topicalMapStrategyVersion.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 });
+    client.topicalMapActivation.upsert.mockResolvedValue({ strategyVersionId: "next" });
+    db.$transaction.mockImplementation(async (fn: any) => fn(client));
+
+    await expect(activateStrategyVersion({ siteHost: "agrikoph.com", versionId: "next", actor: "operator", reason: "reviewed" })).resolves.toEqual({
+      versionId: "next",
+      packageSha256: "b".repeat(64),
+      siteHost: "agrikoph.com",
+    });
+    expect(client.$executeRaw).toHaveBeenCalledOnce();
+    expect(client.topicalMapStrategyVersion.updateMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: { id: "next", siteHost: "agrikoph.com", lifecycle: "validated" } }));
+    expect(client.topicalMapActivation.upsert).toHaveBeenCalledOnce();
+    expect(client.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "topical_map_strategy_activated" }) }));
+  });
+
   it("fails closed when a conditional activation loses its race", async () => {
+    vi.stubEnv("TOPICAL_MAP_ACTIVATION_ENABLED", "true");
     const client = tx();
     client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "b".repeat(64) });
     client.topicalMapStrategyVersion.updateMany.mockResolvedValue({ count: 0 });

@@ -90,3 +90,4 @@
 {"timestamp":"2026-07-11T16:42:18.918Z","kind":"decision","message":"Specified atomic topical-map strategy package governance for Autopilot; no partial activation or runtime behavior changes.","files":[],"cwd":"."}
 {"timestamp":"2026-07-11T16:49:22.300Z","kind":"decision","message":"Created execution-ready atomic topical-map strategy package implementation plan; no runtime behavior changed.","files":[],"cwd":"."}
 {"timestamp":"2026-07-12T20:19:29.398Z","kind":"decision","message":"Deployed the six-artifact topical-map runtime after a verified production backup and expand-only migrations; kept package import/activation and live execution disabled.","files":[],"cwd":"."}
+{"timestamp":"2026-07-12T20:36:27.208Z","kind":"decision","message":"Gate topical-map strategy activation behind exact server-only TOPICAL_MAP_ACTIVATION_ENABLED=true while keeping live execution authorization independent","files":[],"cwd":"."}

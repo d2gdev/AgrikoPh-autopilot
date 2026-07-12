@@ -188,6 +188,25 @@ describe("topical-map package operator routes", () => {
     expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 
+  it("keeps auth and permission first before an enabled activation reaches the lifecycle transaction", async () => {
+    vi.stubEnv("TOPICAL_MAP_ACTIVATION_ENABLED", "true");
+    const actual = await vi.importActual<typeof import("@/lib/topical-map/activation")>("@/lib/topical-map/activation");
+    services.activateStrategyVersion.mockImplementation(actual.activateStrategyVersion);
+    db.topicalMapActivation.findUnique.mockResolvedValue(null);
+    tx.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "version-a", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "a".repeat(64) });
+    tx.topicalMapActivation.findUnique.mockResolvedValue(null);
+    tx.topicalMapStrategyVersion.updateMany.mockResolvedValue({ count: 1 });
+    tx.topicalMapActivation.upsert.mockResolvedValue({ strategyVersionId: "version-a" });
+
+    const response = await (await activate()).POST(req("/packages/version-a/activate", JSON.stringify({ reason: "reviewed" })), params());
+
+    expect(response.status).toBe(200);
+    expect(auth.requireAppAuth.mock.invocationCallOrder[0]).toBeLessThan(auth.requirePermission.mock.invocationCallOrder[0]!);
+    expect(auth.requirePermission.mock.invocationCallOrder[0]).toBeLessThan(db.topicalMapActivation.findUnique.mock.invocationCallOrder[0]!);
+    expect(tx.$executeRaw).toHaveBeenCalledOnce();
+    expect(tx.auditLog.create).toHaveBeenCalledOnce();
+  });
+
   it("accepts an empty activation body and maps lifecycle conflicts to 409", async () => {
     services.activateStrategyVersion.mockRejectedValue(new StrategyActivationConflictError());
 
