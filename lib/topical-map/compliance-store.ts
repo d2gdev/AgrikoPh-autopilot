@@ -23,10 +23,13 @@ export interface GovernedProposalPersistence {
   topicalMapProposalCompliance: GovernedProposalTransaction["topicalMapProposalCompliance"];
 }
 
-interface GovernedProposalTransaction {
+export interface ActiveStrategyPolicyReader {
   topicalMapActivation: {
     findUnique(args: unknown): Promise<unknown>;
   };
+}
+
+interface GovernedProposalTransaction extends ActiveStrategyPolicyReader {
   contentProposal: {
     findFirst?(args: { where: { proposalType: string; articleHandle: string }; orderBy: { createdAt: "asc" } }): Promise<Proposal | null>;
     createMany(args: { data: ContentProposalCreateData[]; skipDuplicates?: boolean }): Promise<{ count: number }>;
@@ -124,7 +127,7 @@ function activePolicy(value: unknown): { strategyVersionId: string; policy: Acti
   };
 }
 
-async function loadActiveStrategyPolicy(tx: GovernedProposalTransaction) {
+export async function loadActiveStrategyPolicy(tx: ActiveStrategyPolicyReader) {
   const activation = await tx.topicalMapActivation.findUnique({
     where: { siteHost: SITE_HOST },
     select: {

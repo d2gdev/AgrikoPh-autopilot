@@ -5,7 +5,7 @@ triggers:
   - "topical-map evaluator"
   - "strategy compliance"
   - "governed proposal evaluation"
-last_updated: 2026-07-12T23:20:00+08:00
+last_updated: 2026-07-12T23:40:00+08:00
 ---
 
 # Topical-map Policy Evaluation
@@ -44,3 +44,9 @@ Do not add active-pointer queries, Prisma work, APIs, proposal writers, complian
 3. Call `evaluateStrategyPolicy` before proposal creation. `compliant` and `needs_high_stakes_review` create normal pending review proposals; every other result creates no `ContentProposal` and returns safe evidence. High-stakes outcomes remain unapproved and set no draft/publish/execution state.
 4. For a newly created proposal, write the normalized compliance row and a JSON-safe `sourceData.strategyCompliance` projection in the same transaction. Keep `executionAuthorized: false`; an existing deduplicated proposal never receives replacement provenance.
 5. For a governed rejection with a real active version, retain candidate-level normalized compliance evidence. Never fabricate a version/package foreign key for `unavailable_strategy`.
+
+## Task 9 Operation Adapter and Endpoint
+
+`governed-operations.ts` reuses the Task 8 active-policy projection and the pure evaluator but returns proposal/review evidence only. Internal-link source/destination pairs must exactly match the declared normalized rule; declared redirect sources block targets. Redirect, canonical, and indexation pairs must be declared, retain `operator_review`, and use persisted validator freshness. Only explicit `medical`, `dosage`, `safety`, and `health` fields can trigger `manual_high_stakes_review`.
+
+`POST /api/topical-map/evaluate` calls embedded auth first and `CONTENT_REVIEW` second, before parsing or reading the active pointer. Its strict candidate schema rejects prose-only fields and never returns raw strategy bytes.

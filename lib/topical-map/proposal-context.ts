@@ -6,27 +6,29 @@ export type SourceConditionEvidence = {
   observedValue?: number;
 };
 
+export type HighStakesTopic = "medical" | "dosage" | "safety" | "health";
+
 export type StrategyProposalCandidate =
-  | { type: "content"; action: "create" | "update"; targetUrl: string; exclusiveIntentScope?: string; sourceConditionEvidence?: SourceConditionEvidence[]; highStakesTopics?: Array<"medical" | "dosage"> }
+  | { type: "content"; action: "create" | "update"; targetUrl: string; exclusiveIntentScope?: string; sourceConditionEvidence?: SourceConditionEvidence[]; highStakesTopics?: HighStakesTopic[] }
   | { type: "internal_link"; fromUrl: string; toUrl: string }
   | { type: "redirect"; fromUrl: string; toUrl: string }
   | { type: "canonical"; currentUrl: string; proposedCanonicalUrl: string }
   | { type: "indexation"; currentUrl: string; proposedCanonicalUrl: string }
-  | { type: "seo_metadata"; targetUrl: string; highStakesTopics?: Array<"medical" | "dosage"> };
+  | { type: "seo_metadata"; targetUrl: string; highStakesTopics?: HighStakesTopic[] };
 
 export type NormalizedStrategyProposalCandidate =
-  | { type: "content"; action: "create" | "update"; targetUrl: string; exclusiveIntentScope?: string; sourceConditionEvidence: SourceConditionEvidence[]; highStakesTopics: Array<"medical" | "dosage"> }
+  | { type: "content"; action: "create" | "update"; targetUrl: string; exclusiveIntentScope?: string; sourceConditionEvidence: SourceConditionEvidence[]; highStakesTopics: HighStakesTopic[] }
   | { type: "internal_link"; fromUrl: string; toUrl: string }
   | { type: "redirect"; fromUrl: string; toUrl: string }
   | { type: "canonical"; currentUrl: string; proposedCanonicalUrl: string }
   | { type: "indexation"; currentUrl: string; proposedCanonicalUrl: string }
-  | { type: "seo_metadata"; targetUrl: string; highStakesTopics: Array<"medical" | "dosage"> };
+  | { type: "seo_metadata"; targetUrl: string; highStakesTopics: HighStakesTopic[] };
 
 function evidence(value: SourceConditionEvidence[] | undefined): SourceConditionEvidence[] {
   return (value ?? []).map((entry) => ({ ...entry })).sort((left, right) => left.coverageUnitId.localeCompare(right.coverageUnitId));
 }
 
-function topics(value: Array<"medical" | "dosage"> | undefined): Array<"medical" | "dosage"> {
+function topics(value: HighStakesTopic[] | undefined): HighStakesTopic[] {
   return [...new Set(value ?? [])].sort();
 }
 

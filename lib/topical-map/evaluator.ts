@@ -13,7 +13,8 @@ export type StrategyComplianceReasonCode =
   | "STALE_MANDATORY_EVIDENCE"
   | "MISSING_EVIDENCE_GATE"
   | "HIGH_STAKES_MEDICAL_DOSAGE_REVIEW"
-  | "INTERNAL_LINK_RULE_NOT_FOUND";
+  | "INTERNAL_LINK_RULE_NOT_FOUND"
+  | "TECHNICAL_OPERATION_RULE_NOT_FOUND";
 
 export interface StrategyPackageIdentity {
   strategyVersion: string;
@@ -55,6 +56,15 @@ function rules(items: CompiledRule[]): MatchedStrategyRule[] {
   return items.map(matched);
 }
 
+function sameGovernedUrl(left: string, right: string): boolean {
+  const canonical = (value: string) => {
+    const url = new URL(value, "https://agrikoph.com");
+    const path = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") : "/";
+    return `${path}${url.search}${url.hash}`;
+  };
+  return canonical(left) === canonical(right);
+}
+
 function identityIsComplete(active: ActiveStrategyPolicy): boolean {
   const artifactIds = active.packageIdentity.artifacts.map((artifact) => artifact.id);
   return artifactIds.length === 6
@@ -94,16 +104,19 @@ export function evaluateStrategyPolicy(active: ActiveStrategyPolicy | null, cand
   const policy = active.compiledPackage.rules;
 
   if (normalized.type === "internal_link") {
-    const legacyRedirects = policy.filter((rule) => rule.domain === "redirects" && payload(rule).source === normalized.toUrl);
+    const legacyRedirects = policy.filter((rule) => rule.domain === "redirects" && typeof payload(rule).source === "string" && sameGovernedUrl(payload(rule).source as string, normalized.toUrl));
     if (legacyRedirects.length > 0) return result(active, "blocked", ["LEGACY_REDIRECT_SOURCE_TARGET"], rules(legacyRedirects));
-    const exactLinks = policy.filter((rule) => rule.domain === "internal_links" && payload(rule).fromUrl === normalized.fromUrl && payload(rule).toUrl === normalized.toUrl);
+    const exactLinks = policy.filter((rule) => rule.domain === "internal_links"
+      && typeof payload(rule).fromUrl === "string" && typeof payload(rule).toUrl === "string"
+      && sameGovernedUrl(payload(rule).fromUrl as string, normalized.fromUrl)
+      && sameGovernedUrl(payload(rule).toUrl as string, normalized.toUrl));
     return exactLinks.length > 0
       ? result(active, "compliant", [], rules(exactLinks))
       : result(active, "conflict", ["INTERNAL_LINK_RULE_NOT_FOUND"]);
   }
 
   const highStakesTopics = "highStakesTopics" in normalized ? normalized.highStakesTopics : [];
-  if (highStakesTopics.includes("medical") || highStakesTopics.includes("dosage")) {
+  if (highStakesTopics.some((topic) => topic === "medical" || topic === "dosage" || topic === "safety" || topic === "health")) {
     return result(active, "needs_high_stakes_review", ["HIGH_STAKES_MEDICAL_DOSAGE_REVIEW"], rules(policy.filter((rule) => rule.domain === "high_stakes_reviews")), ["manual_high_stakes_review"]);
   }
 
@@ -126,13 +139,23 @@ export function evaluateStrategyPolicy(active: ActiveStrategyPolicy | null, cand
   const technical = normalized.type === "canonical" || normalized.type === "indexation";
   if (technical) {
     const domain = normalized.type === "canonical" ? "canonicalization" : "indexation";
-    const matching = policy.filter((rule) => rule.domain === domain && payload(rule).currentUrl === normalized.currentUrl && payload(rule).proposedCanonicalUrl === normalized.proposedCanonicalUrl);
-    return result(active, "compliant", [], rules(matching), ["operator_review"]);
+    const matching = policy.filter((rule) => rule.domain === domain
+      && typeof payload(rule).currentUrl === "string" && typeof payload(rule).proposedCanonicalUrl === "string"
+      && sameGovernedUrl(payload(rule).currentUrl as string, normalized.currentUrl)
+      && sameGovernedUrl(payload(rule).proposedCanonicalUrl as string, normalized.proposedCanonicalUrl));
+    return matching.length > 0
+      ? result(active, "compliant", [], rules(matching), ["operator_review"])
+      : result(active, "conflict", ["TECHNICAL_OPERATION_RULE_NOT_FOUND"], [], ["operator_review"]);
   }
 
   if (normalized.type === "redirect") {
-    const matching = policy.filter((rule) => rule.domain === "redirects" && payload(rule).source === normalized.fromUrl && payload(rule).finalTarget === normalized.toUrl);
-    return result(active, "compliant", [], rules(matching), ["operator_review"]);
+    const matching = policy.filter((rule) => rule.domain === "redirects"
+      && typeof payload(rule).source === "string" && typeof payload(rule).finalTarget === "string"
+      && sameGovernedUrl(payload(rule).source as string, normalized.fromUrl)
+      && sameGovernedUrl(payload(rule).finalTarget as string, normalized.toUrl));
+    return matching.length > 0
+      ? result(active, "compliant", [], rules(matching), ["operator_review"])
+      : result(active, "conflict", ["TECHNICAL_OPERATION_RULE_NOT_FOUND"], [], ["operator_review"]);
   }
 
   return result(active, "compliant", []);
