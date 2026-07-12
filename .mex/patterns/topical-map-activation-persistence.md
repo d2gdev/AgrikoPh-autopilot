@@ -5,7 +5,7 @@ triggers:
   - "topical-map activation"
   - "strategy package import"
   - "strategy rollback"
-last_updated: 2026-07-12T20:55:00+08:00
+last_updated: 2026-07-12T22:46:33+08:00
 ---
 
 # Topical-map Activation Persistence
@@ -30,3 +30,7 @@ last_updated: 2026-07-12T20:55:00+08:00
 ## Boundary
 
 This service contains no route, filesystem read, evaluator, cron, Shopify/Meta integration, recommendation execution, production access, or deployment behavior. A lifecycle transition is local persistence only and is not authorization to make a live change.
+
+## Secured Operator API
+
+The embedded `app/api/topical-map/packages` routes are the sole operator entry point for this boundary. Their GET handlers call `requireAppAuth` first and use explicit Prisma projections that exclude `rawContent` and compiled source bytes. Every mutation calls `requireAppAuth` first, then `requirePermission(req, PERMISSIONS.SETTINGS_ADMIN)` before resolving params, parsing a body, reading `TOPICAL_MAP_STRATEGY_ROOT`, reading the filesystem, querying Prisma, or calling an activation service. Import injects `new Date().toISOString()` into `importAndValidatePackage`; it never accepts caller freshness. Activation and rollback use `agrikoph.com`, `getSessionUser` attribution, and only an optional non-empty reason of at most 500 characters. Map `StrategyActivationConflictError` to a safe 409 and known strategy validation failures to a typed 422; do not return paths, raw package content, stack traces, or unknown exception messages.
