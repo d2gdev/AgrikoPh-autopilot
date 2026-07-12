@@ -1,18 +1,22 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import {
+  accessSync,
   chmodSync,
   closeSync,
   existsSync,
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { constants } from "node:fs";
+import { dirname, isAbsolute, relative as relativePath, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
@@ -54,8 +58,25 @@ function readJson(path, label) {
   }
 }
 
+function pathWithin(candidate, root) {
+  const relative = relativePath(realpathSync(root), realpathSync(candidate));
+  return relative === "" || (!relative.startsWith("..") && !isAbsolute(relative));
+}
+
+function isWithinReadableWorkspace(path, config) {
+  try {
+    if (!statSync(path).isFile()) return false;
+    accessSync(path, constants.R_OK);
+    return [config.workingDirectory, ...(config.additionalDirectories ?? [])]
+      .some((root) => pathWithin(path, root));
+  } catch {
+    return false;
+  }
+}
+
 function loadConfig(path) {
-  const config = readJson(path, "controller config");
+  const parsed = readJson(path, "controller config");
+  const config = { ...parsed, autoContinuePlan: parsed.autoContinuePlan ?? false };
   for (const role of ["executor", "planner"]) {
     if (!config[role]?.model || !config[role]?.reasoning || !config[role]?.sandbox) {
       throw new Error(`Controller config is missing ${role} model, reasoning, or sandbox`);
@@ -68,6 +89,28 @@ function loadConfig(path) {
     if (!existsSync(directory)) throw new Error(`Additional directory does not exist: ${directory}`);
   }
   if (!Number.isInteger(config.maxIterations) || config.maxIterations < 1) throw new Error("maxIterations must be positive");
+  if (!Number.isInteger(config.maxAutomaticWindows) || config.maxAutomaticWindows < 1) {
+    throw new Error("maxAutomaticWindows must be positive");
+  }
+  if (config.autoContinuePlan) {
+    if (typeof config.planPath !== "string" || !config.planPath.trim()) {
+      throw new Error("planPath is required when autoContinuePlan is true");
+    }
+    const planPath = absolutePath(config.planPath, config.workingDirectory);
+    if (!existsSync(planPath)) throw new Error("Plan file does not exist");
+    if (!statSync(planPath).isFile()) throw new Error("Plan path must be a regular readable file");
+    try {
+      accessSync(planPath, constants.R_OK);
+    } catch {
+      throw new Error("Plan path must be a regular readable file");
+    }
+    if (!isWithinReadableWorkspace(planPath, config)) {
+      throw new Error("Plan path must be inside a configured workspace");
+    }
+    config.planPath = planPath;
+  } else {
+    config.planPath = null;
+  }
   return config;
 }
 
