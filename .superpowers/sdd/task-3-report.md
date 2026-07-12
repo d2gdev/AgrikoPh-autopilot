@@ -67,6 +67,12 @@ The test-only typing correction was committed as `2299c41bda10a81458a4fb4cf62e9b
 - The production reader requires the fixed basename `strategy-package-manifest.json`; dated source manifests must be installed under that canonical runtime name without changing bytes.
 - The first localhost health probe after each deliberate PM2 recreation can briefly receive connection refused before the retry succeeds; final local and public health checks were green.
 
+## Final authorization-integrity fix verification
+
+Final review identified that activation needed to enforce persisted validity and the contract's activation authorization projection. Commit `d11b2dd7c43f0665fa44d4cd5fac72535252ba80` added the expand-only projection migration, import persistence/coherence checks, and atomic activation/rollback predicates; commit `ff03307` widened only the heavy validator immutability test's local timeout after measured full-suite contention.
+
+Fresh sequential verification on `ff03307` passed: Prisma generation and freshness verification; full Vitest suite (193 files passed, 3 skipped; 1,314 tests passed, 8 skipped); application and test typechecks; lint (0 errors, 115 existing warnings); isolated PostgreSQL-URL production build; `git diff --check`; and guarded PostgreSQL integration (3 files, 8/8 tests, all 53 migrations current). No production action was taken during this verification.
+
 ## Fresh review evidence (2026-07-13)
 
 Collected read-only after the rollout; no deployment, activation, restart, environment mutation, or database mutation was performed:
