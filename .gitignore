@@ -29,6 +29,7 @@ repomix-plans.xml
 .codesight/
 .seo-cache/
 .surface-fix/
+.codex-agent-loop/
 .worktrees/
 
 # Local/generated Superpowers plan drafts

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "status",
+    "outcome",
+    "approval_required",
+    "approval_question",
+    "blockers",
+    "recommended_next_step",
+    "runtime_impact"
+  ],
+  "properties": {
+    "status": { "enum": ["complete", "blocked", "failed"] },
+    "outcome": { "type": "string", "minLength": 1 },
+    "approval_required": { "type": "boolean" },
+    "approval_question": { "type": ["string", "null"] },
+    "blockers": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "recommended_next_step": { "type": ["string", "null"] },
+    "runtime_impact": {
+      "type": "object",
+      "required": ["production_accessed", "deployed", "live_changes_made"],
+      "properties": {
+        "production_accessed": { "type": "boolean" },
+        "deployed": { "type": "boolean" },
+        "live_changes_made": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
