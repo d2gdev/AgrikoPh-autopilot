@@ -34,6 +34,7 @@ const hash = (value: Buffer | string) => createHash("sha256").update(value).dige
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const sha = /^[a-f0-9]{64}$/;
 const date = /^\d{4}-\d{2}-\d{2}$/;
+const contractFilename = /^agriko-topical-map-compilation-contract-\d{4}-\d{2}-\d{2}\.json$/;
 const contractRevision = /^[1-9][0-9]*$/;
 const compatibilitySchema = z.object({
   runtimeSchema: z.string(),
@@ -91,7 +92,7 @@ export function parseManifest(value: unknown): StrategyManifest {
     seen.add(entry.id);
     if (!sha.test(entry.sha256)) throw new StrategyPackageError("INVALID_SHA256", "Invalid artifact hash.");
     const expected = expectedArtifact(entry.id as StrategyArtifactId, value.strategyVersion as string);
-    if (entry.path !== expected.path) throw new StrategyPackageError(manifestErrorForContract(entry.id, "path"), "Artifact filename/version mismatch.");
+    if (entry.id === "compilation-contract" ? !contractFilename.test(entry.path) : entry.path !== expected.path) throw new StrategyPackageError(manifestErrorForContract(entry.id, "path"), "Artifact filename/version mismatch.");
     if (entry.mediaType !== expected.mediaType) throw new StrategyPackageError(manifestErrorForContract(entry.id, "mediaType"), "Artifact media type is invalid.");
     return { id: entry.id as StrategyArtifactId, path: entry.path, mediaType: expected.mediaType, sha256: entry.sha256, required: true };
   });

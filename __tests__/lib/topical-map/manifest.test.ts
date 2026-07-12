@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { derivePackageSha256, parseManifest } from "@/lib/topical-map/manifest";
 
@@ -37,7 +38,9 @@ function validManifest() {
 
 describe("topical-map strategy manifest", () => {
   it("accepts the exact activation-authorized revision 3 package identity", () => {
-    const manifest = JSON.parse(readFileSync("/home/sean/Agriko/shopify-theme/docs/seo/strategy-package-manifest-2026-07-13.json", "utf8"));
+    const themeRoot = process.env.TOPICAL_MAP_THEME_ROOT ?? resolve(process.cwd(), "../shopify-theme");
+    const manifest = JSON.parse(readFileSync(resolve(themeRoot, "docs/seo/strategy-package-manifest-2026-07-13.json"), "utf8"));
+    const parsed = parseManifest(manifest);
     expect(manifest.artifacts).toHaveLength(6);
     expect(manifest.artifacts.map(({ id, sha256 }) => ({ id, sha256 }))).toEqual([
       { id: "map", sha256: "f213be82bf5c774d3cb278b5f316feb4b21ff430762874f46a792a9186b8a7de" },
@@ -47,7 +50,7 @@ describe("topical-map strategy manifest", () => {
       { id: "internal-links", sha256: "b7d620096fb6c7eed326a70b13ff7c3cbe891fe24b4ed94247ad09836cf36345" },
       { id: "compilation-contract", sha256: "3fe3f70b239fc907b61dc8baf96e2c3916c515fd046f2124ea1f2edb0098cb05" },
     ]);
-    expect(manifest.packageSha256).toBe("f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c");
+    expect(parsed.packageSha256).toBe("f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c");
     const { packageSha256: _packageSha256, ...withoutHash } = manifest;
     expect(derivePackageSha256(withoutHash)).toBe(manifest.packageSha256);
   });
@@ -80,6 +83,7 @@ describe("topical-map strategy manifest", () => {
 
   it.each([
     ["contract filename", (value: ReturnType<typeof validManifest>) => ({ ...value, artifacts: (value.artifacts as Array<Record<string, unknown>>).map((artifact) => artifact.id === "compilation-contract" ? { ...artifact, path: "wrong.json" } : artifact) }), "CONTRACT_FILENAME_MISMATCH"],
+    ["contract path escape", (value: ReturnType<typeof validManifest>) => ({ ...value, artifacts: (value.artifacts as Array<Record<string, unknown>>).map((artifact) => artifact.id === "compilation-contract" ? { ...artifact, path: "../agriko-topical-map-compilation-contract-2026-07-13.json" } : artifact) }), "UNSAFE_PATH"],
     ["contract media type", (value: ReturnType<typeof validManifest>) => ({ ...value, artifacts: (value.artifacts as Array<Record<string, unknown>>).map((artifact) => artifact.id === "compilation-contract" ? { ...artifact, mediaType: "text/json" } : artifact) }), "CONTRACT_MEDIA_TYPE_MISMATCH"],
     ["duplicate contract", (value: ReturnType<typeof validManifest>) => ({ ...value, artifacts: [...(value.artifacts as Array<Record<string, unknown>>), (value.artifacts as Array<Record<string, unknown>>).at(-1)] }), "DUPLICATE_ARTIFACT"],
     ["unknown contract-like identity", (value: ReturnType<typeof validManifest>) => ({ ...value, artifacts: (value.artifacts as Array<Record<string, unknown>>).map((artifact) => artifact.id === "compilation-contract" ? { ...artifact, id: "contract" } : artifact) }), "UNKNOWN_ARTIFACT"],
