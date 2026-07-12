@@ -5,7 +5,7 @@ triggers:
   - "topical-map activation"
   - "strategy package import"
   - "strategy rollback"
-last_updated: 2026-07-13T04:35:00+08:00
+last_updated: 2026-07-13T05:43:00+08:00
 ---
 
 # Topical-map Activation Persistence
@@ -22,12 +22,19 @@ authorize Shopify/Meta writes or approved-recommendation execution. An audited
 rollback remains the only defined strategy-reversion mechanism for an already
 active historical state; it is not a schema rollback.
 
+Import persists the strict contract revision and its two safe activation
+authorization booleans. Activation and rollback require persisted valid status,
+`activationEligible = true`, and `runtimeActivationAuthorized = true` before
+mutation and in the atomic conditional claim. Defaults are false, so historical
+packages remain unauthorized unless an explicit reviewed migration backfill
+names their package identity; runtime code must never contain package-hash exceptions.
+
 ## Lifecycle
 
 1. A zero-blocking-issue report stores the package as `validated`; a report with blocking issues stores it as `rejected` with all report and freshness data intact.
 2. A same-host/same-hash retry must return only a coherent existing version. Missing, duplicated, or report-conflicting child data is a typed conflict, never a repair.
-3. Activation takes a PostgreSQL transaction advisory lock scoped to the site and conditionally claims only a `validated` target. It updates the unique pointer and audit row in the same transaction; a prior active version is `superseded`.
-4. Rollback takes the same lock, accepts only a different same-site `superseded` or `rolled_back` version whose `validationStatus` is `valid`, changes the current active version to `rolled_back`, restores the target to `active`, and records no artifact bytes in audit data.
+3. Activation takes a PostgreSQL transaction advisory lock scoped to the site and conditionally claims only a `validated`, valid, contract-authorized target. It updates the unique pointer and audit row in the same transaction; a prior active version is `superseded`.
+4. Rollback takes the same lock, accepts only a different same-site `superseded` or `rolled_back` version that remains valid and contract-authorized, changes the current active version to `rolled_back`, restores the target to `active`, and records no artifact bytes in audit data.
 
 ## Verification
 

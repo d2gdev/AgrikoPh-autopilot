@@ -419,6 +419,9 @@ model TopicalMapStrategyVersion {
   lifecycle             String   @default("draft") // draft | validated | active | superseded | rolled_back | rejected
   validationStatus      String   @default("pending") // pending | valid | invalid | stale_evidence
   validationReport      Json?
+  contractRevision      Int?
+  activationEligible    Boolean  @default(false)
+  runtimeActivationAuthorized Boolean @default(false)
   compiledAt            DateTime?
   compiledSchemaVersion String?
   validatedAt           DateTime?

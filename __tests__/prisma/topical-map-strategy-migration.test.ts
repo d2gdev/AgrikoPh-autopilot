@@ -60,4 +60,21 @@ describe("topical-map strategy-package persistence migration", () => {
     expect(sql).toContain('ADD COLUMN "validationReport" JSONB');
     expect(sql).not.toMatch(/\bDROP\b/i);
   });
+
+  it("adds fail-closed activation authorization and backfills only the reviewed revision-3 package", async () => {
+    const schema = await readFile(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+    const sql = await readFile(resolve(process.cwd(), "prisma/migrations/20260713120000_add_topical_map_activation_authorization/migration.sql"), "utf8");
+
+    expect(schema).toContain("contractRevision");
+    expect(schema).toContain("activationEligible");
+    expect(schema).toContain("runtimeActivationAuthorized");
+    expect(sql).toContain('"contractRevision" INTEGER');
+    expect(sql).toContain('"activationEligible" BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).toContain('"runtimeActivationAuthorized" BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).toContain("f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c");
+    expect(sql).toContain('"contractRevision" = 3');
+    expect(sql).not.toMatch(/UPDATE[\s\S]+WHERE\s+"packageSha256"\s*<>/i);
+    expect(sql).not.toMatch(/\bDROP\b/i);
+    expect(sql).not.toMatch(/\bDELETE\b/i);
+  });
 });

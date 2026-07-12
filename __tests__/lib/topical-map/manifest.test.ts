@@ -38,8 +38,7 @@ function validManifest() {
 
 describe("topical-map strategy manifest", () => {
   it("accepts the exact activation-authorized revision 3 package identity", () => {
-    const themeRoot = process.env.TOPICAL_MAP_THEME_ROOT ?? resolve(process.cwd(), "../shopify-theme");
-    const manifest = JSON.parse(readFileSync(resolve(themeRoot, "docs/seo/strategy-package-manifest-2026-07-13.json"), "utf8"));
+    const manifest = JSON.parse(readFileSync(resolve(process.cwd(), "__tests__/fixtures/topical-map/revision-3-manifest.json"), "utf8"));
     const parsed = parseManifest(manifest);
     expect(manifest.artifacts).toHaveLength(6);
     expect(manifest.artifacts.map(({ id, sha256 }: { id: string; sha256: string }) => ({ id, sha256 }))).toEqual([
@@ -51,7 +50,8 @@ describe("topical-map strategy manifest", () => {
       { id: "compilation-contract", sha256: "3fe3f70b239fc907b61dc8baf96e2c3916c515fd046f2124ea1f2edb0098cb05" },
     ]);
     expect(parsed.packageSha256).toBe("f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c");
-    const { packageSha256: _packageSha256, ...withoutHash } = manifest;
+    const withoutHash = { ...manifest };
+    delete withoutHash.packageSha256;
     expect(derivePackageSha256(withoutHash)).toBe(manifest.packageSha256);
   });
   it("accepts exactly six artifacts and produces a stable canonical hash", () => {

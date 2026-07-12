@@ -7,6 +7,8 @@ import { normalizeGovernedUrl } from "./url-normalizer";
 type ContractRule = CompilationContract["rules"][number];
 type ContractCoverage = CompilationContract["coverageInventory"][number];
 type RuleDomain = ContractRule["domain"];
+type ContractActivationProjection = { contractRevision: number; activationEligible: boolean; runtimeActivationAuthorized: boolean };
+const activationProjections = new WeakMap<CompiledStrategyPackage, ContractActivationProjection>();
 
 export type CompiledSourceReference = ContractRule["sourceReferences"][number] & {
   resolved: { artifactId: ContractRule["sourceReferences"][number]["artifactId"]; lineStart: number; lineEnd: number };
@@ -77,5 +79,17 @@ export function compileStrategyPackage(raw: RawStrategyPackage): CompiledStrateg
     byDomain[compiled.domain].push(compiled);
     return compiled;
   });
-  return { strategyVersion: contract.strategyVersion, packageSha256: raw.packageSha256, integrity, coverage, rules, byDomain };
+  const compiled = { strategyVersion: contract.strategyVersion, packageSha256: raw.packageSha256, integrity, coverage, rules, byDomain };
+  activationProjections.set(compiled, {
+    contractRevision: Number(contract.contractRevision),
+    activationEligible: contract.review.activationEligible,
+    runtimeActivationAuthorized: contract.review.runtimeActivationAuthorized,
+  });
+  return compiled;
+}
+
+export function contractActivationProjection(compiled: CompiledStrategyPackage): ContractActivationProjection {
+  const projection = activationProjections.get(compiled);
+  if (!projection) throw new StrategyCompilerError("INVALID_COMPILATION_CONTRACT");
+  return projection;
 }

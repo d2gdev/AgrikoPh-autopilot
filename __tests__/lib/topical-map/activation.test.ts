@@ -5,11 +5,11 @@ const db = vi.hoisted(() => ({
   topicalMapStrategyVersion: { findUnique: vi.fn() },
   topicalMapActivation: { findUnique: vi.fn() },
 }));
-const compiler = vi.hoisted(() => vi.fn());
+const compiler = vi.hoisted(() => ({ compile: vi.fn(), projection: vi.fn() }));
 const validator = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/db", () => ({ prisma: db }));
-vi.mock("@/lib/topical-map/compiler", () => ({ compileStrategyPackage: compiler }));
+vi.mock("@/lib/topical-map/compiler", () => ({ compileStrategyPackage: compiler.compile, contractActivationProjection: compiler.projection }));
 vi.mock("@/lib/topical-map/validator", () => ({ validateCompiledPackage: validator }));
 
 import {
@@ -35,8 +35,12 @@ const rawPackage = {
     "compilation-contract": { id: "compilation-contract", path: "contract.json", mediaType: "application/json", sha256: "6".repeat(64), required: true, byteLength: 8, bytes: Buffer.from("contract") },
   },
 } as any;
+rawPackage.artifacts["compilation-contract"].bytes = Buffer.from(JSON.stringify({
+  contractRevision: "3",
+  review: { activationEligible: true, runtimeActivationAuthorized: true },
+}));
 
-const compiled = { strategyVersion: "2026-07-12", packageSha256: rawPackage.packageSha256, rules: [{ ruleId: "rule-a", domain: "clusters", payload: { kind: "cluster" }, sourceReferences: [{ artifactId: "map", locator: { kind: "markdown", lineStart: 1 }, resolved: { artifactId: "map", lineStart: 1, lineEnd: 1 } }] }], coverage: [], integrity: {}, byDomain: {} } as any;
+const compiled = { strategyVersion: "2026-07-12", packageSha256: rawPackage.packageSha256, contractRevision: 3, activationEligible: true, runtimeActivationAuthorized: true, rules: [{ ruleId: "rule-a", domain: "clusters", payload: { kind: "cluster" }, sourceReferences: [{ artifactId: "map", locator: { kind: "markdown", lineStart: 1 }, resolved: { artifactId: "map", lineStart: 1, lineEnd: 1 } }] }], coverage: [], integrity: {}, byDomain: {} } as any;
 const validReport = { valid: true, issues: [], blockingIssueCount: 0, evidenceFreshness: [{ gateId: "gate-a", status: "current" }] };
 
 function tx() {
@@ -55,7 +59,8 @@ describe("topical-map activation persistence boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     db.topicalMapActivation.findUnique.mockResolvedValue(null);
-    compiler.mockReturnValue(compiled);
+    compiler.compile.mockReturnValue(compiled);
+    compiler.projection.mockReturnValue({ contractRevision: 3, activationEligible: true, runtimeActivationAuthorized: true });
     validator.mockReturnValue(validReport);
     db.$transaction.mockImplementation(async (fn: any) => fn(tx()));
   });
@@ -68,23 +73,30 @@ describe("topical-map activation persistence boundary", () => {
 
     await importAndValidatePackage({ rawPackage, asOf: "2026-07-12T00:00:00.000Z" });
 
-    expect(compiler).toHaveBeenCalledWith(rawPackage);
+    expect(compiler.compile).toHaveBeenCalledWith(rawPackage);
     expect(validator).toHaveBeenCalledWith({ rawPackage, compiledPackage: compiled, asOf: "2026-07-12T00:00:00.000Z" });
     expect(client.topicalMapStrategyArtifact.createMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.arrayContaining([expect.objectContaining({ artifactId: "compilation-contract" })]) }));
     expect(client.topicalMapCompiledRule.createMany).toHaveBeenCalled();
-    expect(client.topicalMapStrategyVersion.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ lifecycle: "validated", validationStatus: "valid", validationReport: validReport }) }));
+    expect(client.topicalMapStrategyVersion.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ lifecycle: "validated", validationStatus: "valid", validationReport: validReport, contractRevision: 3, activationEligible: true, runtimeActivationAuthorized: true }) }));
     expect(client.topicalMapActivation.upsert).not.toHaveBeenCalled();
   });
 
   it("returns a coherent same-host same-hash version without immutable overwrite or history duplication", async () => {
     const client = tx();
-    const existing = { id: "version-a", siteHost: "agrikoph.com", packageSha256: rawPackage.packageSha256, lifecycle: "validated", validationReport: validReport, artifacts: [{ artifactId: "map" }, { artifactId: "evidence" }, { artifactId: "url-inventory" }, { artifactId: "redirect-inventory" }, { artifactId: "internal-links" }, { artifactId: "compilation-contract" }], compiledRules: [{ ruleId: "rule-a" }], validationIssues: [] };
+    const existing = { id: "version-a", siteHost: "agrikoph.com", packageSha256: rawPackage.packageSha256, lifecycle: "validated", validationReport: validReport, contractRevision: 3, activationEligible: true, runtimeActivationAuthorized: true, artifacts: [{ artifactId: "map" }, { artifactId: "evidence" }, { artifactId: "url-inventory" }, { artifactId: "redirect-inventory" }, { artifactId: "internal-links" }, { artifactId: "compilation-contract" }], compiledRules: [{ ruleId: "rule-a" }], validationIssues: [] };
     client.topicalMapStrategyVersion.findUnique.mockResolvedValue(existing);
     db.$transaction.mockImplementation(async (fn: any) => fn(client));
     await expect(importAndValidatePackage({ rawPackage, asOf: "2026-07-12T00:00:00.000Z" })).resolves.toEqual(expect.objectContaining({ id: "version-a", idempotent: true }));
     expect(client.topicalMapStrategyVersion.create).not.toHaveBeenCalled();
     expect(client.topicalMapStrategyArtifact.createMany).not.toHaveBeenCalled();
     expect(client.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects an idempotent import whose persisted activation projection conflicts with the contract", async () => {
+    const client = tx();
+    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "version-a", siteHost: "agrikoph.com", packageSha256: rawPackage.packageSha256, lifecycle: "validated", validationReport: validReport, contractRevision: 3, activationEligible: false, runtimeActivationAuthorized: false, artifacts: [{ artifactId: "map" }, { artifactId: "evidence" }, { artifactId: "url-inventory" }, { artifactId: "redirect-inventory" }, { artifactId: "internal-links" }, { artifactId: "compilation-contract" }], compiledRules: [{ ruleId: "rule-a" }], validationIssues: [] });
+    db.$transaction.mockImplementation(async (fn: any) => fn(client));
+    await expect(importAndValidatePackage({ rawPackage, asOf: "2026-07-12T00:00:00.000Z" })).rejects.toThrow("incomplete or conflicting");
   });
 
   it("persists stale validation as rejected and inspectable but never activates it", async () => {
@@ -111,7 +123,7 @@ describe("topical-map atomic lifecycle transitions", () => {
     vi.stubEnv("TOPICAL_MAP_ACTIVATION_ENABLED", value);
     const client = tx();
     db.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersionId: "old" });
-    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "b".repeat(64) });
+    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: true, packageSha256: "b".repeat(64) });
     client.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { id: "old", packageSha256: "a".repeat(64) } });
     client.topicalMapStrategyVersion.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 });
     client.topicalMapActivation.upsert.mockResolvedValue({ strategyVersionId: "next" });
@@ -133,7 +145,7 @@ describe("topical-map atomic lifecycle transitions", () => {
     vi.stubEnv("TOPICAL_MAP_ACTIVATION_ENABLED", "true");
     const client = tx();
     db.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersionId: "old" });
-    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "b".repeat(64) });
+    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: true, packageSha256: "b".repeat(64) });
     client.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { id: "old", packageSha256: "a".repeat(64) } });
     client.topicalMapStrategyVersion.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 });
     client.topicalMapActivation.upsert.mockResolvedValue({ strategyVersionId: "next" });
@@ -145,15 +157,29 @@ describe("topical-map atomic lifecycle transitions", () => {
       siteHost: "agrikoph.com",
     });
     expect(client.$executeRaw).toHaveBeenCalledOnce();
-    expect(client.topicalMapStrategyVersion.updateMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: { id: "next", siteHost: "agrikoph.com", lifecycle: "validated" } }));
+    expect(client.topicalMapStrategyVersion.updateMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: { id: "next", siteHost: "agrikoph.com", lifecycle: "validated", validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: true } }));
     expect(client.topicalMapActivation.upsert).toHaveBeenCalledOnce();
     expect(client.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "topical_map_strategy_activated" }) }));
+  });
+
+  it.each([
+    ["invalid validation", { validationStatus: "invalid", activationEligible: true, runtimeActivationAuthorized: true }],
+    ["not activation eligible", { validationStatus: "valid", activationEligible: false, runtimeActivationAuthorized: true }],
+    ["not runtime authorized", { validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: false }],
+  ])("rejects a validated lifecycle target when persisted authorization is %s", async (_name, authorization) => {
+    vi.stubEnv("TOPICAL_MAP_ACTIVATION_ENABLED", "true");
+    const client = tx();
+    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "b".repeat(64), ...authorization });
+    db.$transaction.mockImplementation(async (fn: any) => fn(client));
+
+    await expect(activateStrategyVersion({ siteHost: "agrikoph.com", versionId: "next", actor: "operator" })).rejects.toBeInstanceOf(StrategyActivationConflictError);
+    expect(client.topicalMapStrategyVersion.updateMany).not.toHaveBeenCalled();
   });
 
   it("fails closed when a conditional activation loses its race", async () => {
     vi.stubEnv("TOPICAL_MAP_ACTIVATION_ENABLED", "true");
     const client = tx();
-    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "b".repeat(64) });
+    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: true, packageSha256: "b".repeat(64) });
     client.topicalMapStrategyVersion.updateMany.mockResolvedValue({ count: 0 });
     db.$transaction.mockImplementation(async (fn: any) => fn(client));
     await expect(activateStrategyVersion({ siteHost: "agrikoph.com", versionId: "next", actor: "operator" })).rejects.toBeInstanceOf(StrategyActivationConflictError);
@@ -162,7 +188,7 @@ describe("topical-map atomic lifecycle transitions", () => {
 
   it("rolls back atomically only to a historically validated same-site version and audits both hashes", async () => {
     const client = tx();
-    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "historic", siteHost: "agrikoph.com", lifecycle: "superseded", validationStatus: "valid", packageSha256: "a".repeat(64) });
+    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "historic", siteHost: "agrikoph.com", lifecycle: "superseded", validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: true, packageSha256: "a".repeat(64) });
     client.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { id: "current", packageSha256: "b".repeat(64) } });
     client.topicalMapStrategyVersion.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 });
     client.topicalMapActivation.upsert.mockResolvedValue({ strategyVersionId: "historic" });
@@ -172,9 +198,17 @@ describe("topical-map atomic lifecycle transitions", () => {
     expect(client.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "topical_map_strategy_rolled_back", before: expect.objectContaining({ versionId: "current", packageSha256: "b".repeat(64) }), after: expect.objectContaining({ versionId: "historic", packageSha256: "a".repeat(64) }) }) }));
   });
 
+  it("rejects rollback to a historical version without persisted activation authorization", async () => {
+    const client = tx();
+    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "historic", siteHost: "agrikoph.com", lifecycle: "superseded", validationStatus: "valid", activationEligible: false, runtimeActivationAuthorized: false, packageSha256: "a".repeat(64) });
+    db.$transaction.mockImplementation(async (fn: any) => fn(client));
+    await expect(rollbackStrategyVersion({ siteHost: "agrikoph.com", versionId: "historic", actor: "operator" })).rejects.toBeInstanceOf(StrategyActivationConflictError);
+    expect(client.topicalMapStrategyVersion.updateMany).not.toHaveBeenCalled();
+  });
+
   it("does not report a rollback when its in-transaction audit persistence fails", async () => {
     const client = tx();
-    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "historic", siteHost: "agrikoph.com", lifecycle: "superseded", validationStatus: "valid", packageSha256: "a".repeat(64) });
+    client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "historic", siteHost: "agrikoph.com", lifecycle: "superseded", validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: true, packageSha256: "a".repeat(64) });
     client.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { id: "current", packageSha256: "b".repeat(64) } });
     client.topicalMapStrategyVersion.updateMany.mockResolvedValue({ count: 1 });
     client.topicalMapActivation.upsert.mockResolvedValue({ strategyVersionId: "historic" });

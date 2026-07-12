@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-13T00:00:00+08:00
+last_updated: 2026-07-13T05:43:00+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **Topical-map persisted activation authorization (2026-07-13):** Strategy import now persists contract revision plus safe activation-eligibility projections. Activation and rollback fail closed unless the stored version is valid and both flags are true, including conditional lifecycle claims. The expand-only migration leaves historical rows unauthorized by default and narrowly backfills only the reviewed revision-3 production package; runtime logic contains no package-hash exception. Exact-package identity coverage is hermetic through a committed manifest-only fixture.
 - **Topical-map revision 3 production activation (2026-07-13):** The operator-reviewed package `f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c` is the sole active `agrikoph.com` strategy pointer in production. Its activation-authorized contract hash is `3fe3f70b239fc907b61dc8baf96e2c3916c515fd046f2124ea1f2edb0098cb05`; production validation remains `valid` with exactly six artifacts, 1,493 compiled rules, and zero issues. Activation was performed once through the authenticated `SETTINGS_ADMIN` route with actor/reason audit provenance. `TOPICAL_MAP_ACTIVATION_ENABLED=true` enables strategy selection only, while `EXECUTE_APPROVED_LIVE_ENABLED=false` remains persisted without an inherited PM2 override; no Shopify/Meta execution occurred during rollout. Production backup, migrations, PM2, governance projection, active build, and public health were verified.
 - **Topical-map runtime activation gate (2026-07-13):** Production strategy selection now remains fail-closed unless the server-only `TOPICAL_MAP_ACTIVATION_ENABLED` value is exactly `true`. When enabled, the existing validated-version lifecycle transaction, active-pointer race check, and audit persistence remain unchanged. This gate is independent of `EXECUTE_APPROVED_LIVE_ENABLED` and grants no Shopify/Meta live-write authority; production activation still requires separate operator authorization and acceptance evidence.
 - **Topical-map strategy package production release (2026-07-13):** Local and production release gates passed for the six-artifact topical-map strategy package. Production was backed up before deployment, all 52 Prisma migrations are current, PM2 and the public health endpoint are healthy, `TOPICAL_MAP_STRATEGY_ROOT` remains unset, and `EXECUTE_APPROVED_LIVE_ENABLED=false` is persisted without an inherited PM2 override. The package remains validation/import-only: no strategy was imported or activated and no Shopify/Meta live write occurred.

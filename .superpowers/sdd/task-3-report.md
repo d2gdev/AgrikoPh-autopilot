@@ -16,7 +16,7 @@ Completed. The reviewed revision-3 topical-map package is the sole active `agrik
 - `git diff --check`: pass.
 - Guarded `DATABASE_URL_TEST=postgresql://test:test@127.0.0.1:5432/autopilot_test npm run test:postgres`: pass; all 52 migrations current.
 
-The test-only typing correction was committed as `2299c41bda10a81458a4fb4cf62e9b7ef2995ce7` before rollout. Unrelated dirty Shopify-theme files were not staged or changed.
+The test-only typing correction was committed as `2299c41bda10a81458a4fb4cf62e9b7ef2995ce7` before rollout. This was a prerequisite verification remediation, not scope expansion: Task 2 introduced the exact-package test, and Task 3's mandated `npm run typecheck` exposed its implicit-`any` destructuring callback. The one-line annotation changed only test typing; it changed no runtime behavior and no production file. Unrelated dirty Shopify-theme files were not staged or changed.
 
 ## Backup and deployment
 
@@ -66,3 +66,25 @@ The test-only typing correction was committed as `2299c41bda10a81458a4fb4cf62e9b
 
 - The production reader requires the fixed basename `strategy-package-manifest.json`; dated source manifests must be installed under that canonical runtime name without changing bytes.
 - The first localhost health probe after each deliberate PM2 recreation can briefly receive connection refused before the retry succeeds; final local and public health checks were green.
+
+## Fresh review evidence (2026-07-13)
+
+Collected read-only after the rollout; no deployment, activation, restart, environment mutation, or database mutation was performed:
+
+- Commit parity at evidence collection: local `HEAD`, `origin/main`, and `/opt/autopilot` are all `e1c26d4635c86abcea0b3fc12b12e734692c6c3a`; local status was `main...origin/main` with no changes before this requested report-only amendment.
+- Active build ID: `pMCeOnJp_lT4UJSWtCm5P`.
+- PM2: `online`, process start time `2026-07-12T21:18:19.515Z`, restart count 1.
+- Public health: `status=ok`, timestamp `2026-07-12T21:24:25.435Z`, zero degraded reasons.
+- Runtime controls: `TOPICAL_MAP_ACTIVATION_ENABLED=true`; `EXECUTE_APPROVED_LIVE_ENABLED=false`.
+- Production state: exactly one active `agrikoph.com` pointer, version `cmriak0gt00y8s66lxrfkstp6`, package `f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c`, lifecycle `active`, validation `valid`, 6 artifacts, 1,493 compiled rules, 0 validation issues, and exactly one activation audit.
+- Live-execution evidence: 0 recommendations have `executedAt` on or after the verified pre-rollout backup time `2026-07-12T21:10:30Z`.
+- Theme preservation: current theme status exactly matches the pre-task enumeration: branch `main...origin/main [ahead 101]`; modified `scripts/audit/audit/homepage-ui-audit-2026-05-10.md`; untracked `.worktrees/`, the seven dated July-11 topical-map/review files, and `orchestration/qa/surface-fix/homepage/20260710T233901Z/`. No item was added, removed, staged, or modified by Task 3.
+
+## Final activation-authorization fix evidence (2026-07-13)
+
+- Import persists contract revision, activation eligibility, and runtime activation authorization without source prose.
+- Activation and rollback require persisted `validationStatus=valid` and both authorization flags before mutation and in the conditional target claim.
+- The expand-only migration defaults historical packages to unauthorized and backfills only reviewed package `f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c` to revision 3 with both flags true. Runtime code does not hardcode that identity.
+- Exact-package identity coverage uses a committed manifest-only fixture and no sibling theme checkout.
+- RED: focused tests failed for missing migration/projection/claim predicates and conflicting idempotent projection. GREEN: focused tests 40/40; guarded PostgreSQL integration 8/8 after all 53 migrations.
+- No deployment, production mutation, strategy activation, Shopify/Meta write, or live-execution gate change occurred.

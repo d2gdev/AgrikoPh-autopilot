@@ -14,7 +14,7 @@ const stamp = `${Date.now()}${Math.random().toString(16).slice(2)}`;
 const hash = (prefix: string) => `${prefix}${stamp}`.padEnd(64, "0").slice(0, 64);
 
 function versionData(packageSha256: string, lifecycle: "validated" | "active" | "superseded" | "rolled_back" = "validated") {
-  return { siteHost: host, packageId: `activation-${stamp}`, strategyVersion: "2026-07-12", packageSha256, evidenceDate: new Date("2026-07-11T00:00:00.000Z"), provenance: { test: stamp }, compatibility: { runtimeSchema: "1.0.0" }, manifest: { test: stamp }, lifecycle, validationStatus: "valid", validationReport: { valid: true, issues: [], blockingIssueCount: 0, evidenceFreshness: [] }, compiledAt: new Date(), compiledSchemaVersion: "1.0.0", validatedAt: new Date() };
+  return { siteHost: host, packageId: `activation-${stamp}`, strategyVersion: "2026-07-12", packageSha256, evidenceDate: new Date("2026-07-11T00:00:00.000Z"), provenance: { test: stamp }, compatibility: { runtimeSchema: "1.0.0" }, manifest: { test: stamp }, lifecycle, validationStatus: "valid", validationReport: { valid: true, issues: [], blockingIssueCount: 0, evidenceFreshness: [] }, contractRevision: 3, activationEligible: true, runtimeActivationAuthorized: true, compiledAt: new Date(), compiledSchemaVersion: "1.0.0", validatedAt: new Date() };
 }
 
 describe.skipIf(!url)("PostgreSQL topical-map activation", () => {

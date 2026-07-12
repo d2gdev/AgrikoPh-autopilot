@@ -176,7 +176,7 @@ describe("topical-map package operator routes", () => {
     const actual = await vi.importActual<typeof import("@/lib/topical-map/activation")>("@/lib/topical-map/activation");
     services.activateStrategyVersion.mockImplementation(actual.activateStrategyVersion);
     db.topicalMapActivation.findUnique.mockResolvedValue(null);
-    tx.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "version-a", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "a".repeat(64) });
+    tx.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "version-a", siteHost: "agrikoph.com", lifecycle: "validated", validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: true, packageSha256: "a".repeat(64) });
     tx.topicalMapActivation.findUnique.mockResolvedValue(null);
     tx.topicalMapStrategyVersion.updateMany.mockResolvedValue({ count: 1 });
 
@@ -193,7 +193,7 @@ describe("topical-map package operator routes", () => {
     const actual = await vi.importActual<typeof import("@/lib/topical-map/activation")>("@/lib/topical-map/activation");
     services.activateStrategyVersion.mockImplementation(actual.activateStrategyVersion);
     db.topicalMapActivation.findUnique.mockResolvedValue(null);
-    tx.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "version-a", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "a".repeat(64) });
+    tx.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "version-a", siteHost: "agrikoph.com", lifecycle: "validated", validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: true, packageSha256: "a".repeat(64) });
     tx.topicalMapActivation.findUnique.mockResolvedValue(null);
     tx.topicalMapStrategyVersion.updateMany.mockResolvedValue({ count: 1 });
     tx.topicalMapActivation.upsert.mockResolvedValue({ strategyVersionId: "version-a" });

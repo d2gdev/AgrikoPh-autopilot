@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "packageId": "agriko-topical-map-2026-07-12",
+  "strategyVersion": "2026-07-12",
+  "evidenceDate": "2026-07-11",
+  "createdAt": "2026-07-12T20:48:08.000Z",
+  "provenance": { "sourcePackageCommit": "b5883474f50a2af4f7dfa264946da704492cfcf9", "inheritedEvidence": "evidence and CSV companions retain exact 2026-07-11 evidence bytes" },
+  "compatibility": { "runtimeSchema": ">=1.0.0 <2.0.0", "pluginVersion": ">=0.1.0", "siteHost": "agrikoph.com", "urlNormalization": "agriko-url-v1" },
+  "artifacts": [
+    { "id": "map", "path": "agriko-topical-map-2026-07-12.md", "mediaType": "text/markdown", "sha256": "f213be82bf5c774d3cb278b5f316feb4b21ff430762874f46a792a9186b8a7de", "required": true },
+    { "id": "evidence", "path": "agriko-topical-map-evidence-2026-07-12.md", "mediaType": "text/markdown", "sha256": "37c3356dfb9b5ec378fdc88f2d4b6f6e87f1bfba56e599988ffbbe542874c921", "required": true },
+    { "id": "url-inventory", "path": "agriko-topical-map-url-inventory-2026-07-12.csv", "mediaType": "text/csv", "sha256": "03d673d8a4bc02dd7c1db7690c28de31b3d30bd3860f8dbc44d7c7176d827a31", "required": true },
+    { "id": "redirect-inventory", "path": "agriko-topical-map-redirect-inventory-2026-07-12.csv", "mediaType": "text/csv", "sha256": "fd2cb1c1892dde6f28d2d042af7a1ecb16fa22d64bf165cfb0bcba19edb2070e", "required": true },
+    { "id": "internal-links", "path": "agriko-topical-map-internal-links-2026-07-12.csv", "mediaType": "text/csv", "sha256": "b7d620096fb6c7eed326a70b13ff7c3cbe891fe24b4ed94247ad09836cf36345", "required": true },
+    { "id": "compilation-contract", "path": "agriko-topical-map-compilation-contract-2026-07-13.json", "mediaType": "application/json", "sha256": "3fe3f70b239fc907b61dc8baf96e2c3916c515fd046f2124ea1f2edb0098cb05", "required": true }
+  ],
+  "approval": { "status": "approved", "approval": { "identity": "Sean <lazenby84@gmail.com>", "approvedAt": "2026-07-12T20:48:08.000Z" }, "validationImportEligible": true, "activationEligible": true, "operatorReviewRequired": true, "active": false, "approvalBasis": "operator approval of the production strategy-selection activation revision", "approvalScope": "validation, import, and runtime strategy-selection activation only; deployment, production import or activation, and live Shopify/Meta execution remain separately controlled", "runtimeActivationAuthorized": true, "liveExecutionAuthorized": false, "canonicalIndexationExecutionProhibited": true, "task3Authorized": false },
+  "packageSha256": "f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c"
+}

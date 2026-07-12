@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { compileStrategyPackage, type CompiledStrategyPackage } from "@/lib/topical-map/compiler";
+import { compileStrategyPackage, contractActivationProjection, type CompiledStrategyPackage } from "@/lib/topical-map/compiler";
 import type { RawStrategyPackage } from "@/lib/topical-map/types";
 import { validateCompiledPackage, type ValidationReport } from "@/lib/topical-map/validator";
 
@@ -57,7 +57,10 @@ function coherentExisting(existing: {
   compiledRules: Array<{ ruleId: string }>;
   validationIssues: Array<{ code: string }>;
   validationReport: Prisma.JsonValue | null;
-}, compiledPackage: CompiledStrategyPackage, report: ValidationReport): boolean {
+  contractRevision: number | null;
+  activationEligible: boolean;
+  runtimeActivationAuthorized: boolean;
+}, compiledPackage: CompiledStrategyPackage, report: ValidationReport, authorization: ReturnType<typeof contractActivationProjection>): boolean {
   const artifactIds = new Set(existing.artifacts.map((artifact) => artifact.artifactId));
   const ruleIds = new Set(existing.compiledRules.map((rule) => rule.ruleId));
   const expectedIssues = report.issues.map((issue) => issue.code).sort();
@@ -68,13 +71,17 @@ function coherentExisting(existing: {
     && existing.compiledRules.length === compiledPackage.rules.length
     && compiledPackage.rules.every((rule) => ruleIds.has(rule.ruleId))
     && JSON.stringify(existingIssues) === JSON.stringify(expectedIssues)
-    && canonicalJson(existing.validationReport) === canonicalJson(report);
+    && canonicalJson(existing.validationReport) === canonicalJson(report)
+    && existing.contractRevision === authorization.contractRevision
+    && existing.activationEligible === authorization.activationEligible
+    && existing.runtimeActivationAuthorized === authorization.runtimeActivationAuthorized;
 }
 
 /** The only persistence boundary for immutable strategy packages. */
 export async function importAndValidatePackage(input: ImportInput): Promise<StrategyVersionResult> {
   // Compile before opening a transaction: pre-persistence failures cannot leave rows behind.
   const compiledPackage = compileStrategyPackage(input.rawPackage);
+  const authorization = contractActivationProjection(compiledPackage);
   const report = validateCompiledPackage({ rawPackage: input.rawPackage, compiledPackage, asOf: input.asOf });
   const host = siteHost(input.rawPackage);
 
@@ -85,7 +92,7 @@ export async function importAndValidatePackage(input: ImportInput): Promise<Stra
       include: { artifacts: { select: { artifactId: true } }, compiledRules: { select: { ruleId: true } }, validationIssues: { select: { code: true } } },
     });
     if (existing) {
-      if (!coherentExisting(existing, compiledPackage, report)) throw new StrategyActivationConflictError("Existing strategy package state is incomplete or conflicting.");
+      if (!coherentExisting(existing, compiledPackage, report, authorization)) throw new StrategyActivationConflictError("Existing strategy package state is incomplete or conflicting.");
       return { id: existing.id, siteHost: existing.siteHost, packageSha256: existing.packageSha256, lifecycle: existing.lifecycle, idempotent: true };
     }
 
@@ -102,6 +109,7 @@ export async function importAndValidatePackage(input: ImportInput): Promise<Stra
         lifecycle: report.valid ? "validated" : "rejected",
         validationStatus: validationStatus(report),
         validationReport: json(report),
+        ...authorization,
         compiledAt: new Date(input.asOf),
         compiledSchemaVersion: "1.0.0",
         validatedAt: new Date(input.asOf),
@@ -134,7 +142,7 @@ async function withLifecycleTransaction<T>(host: string, run: (tx: Prisma.Transa
 }
 
 async function targetVersion(tx: Prisma.TransactionClient, input: LifecycleInput) {
-  const target = await tx.topicalMapStrategyVersion.findUnique({ where: { id: input.versionId }, select: { id: true, siteHost: true, lifecycle: true, validationStatus: true, packageSha256: true } });
+  const target = await tx.topicalMapStrategyVersion.findUnique({ where: { id: input.versionId }, select: { id: true, siteHost: true, lifecycle: true, validationStatus: true, activationEligible: true, runtimeActivationAuthorized: true, packageSha256: true } });
   if (!target || target.siteHost !== input.siteHost) throw new StrategyActivationConflictError();
   return target;
 }
@@ -163,12 +171,12 @@ export async function activateStrategyVersion(input: LifecycleInput) {
   });
   return withLifecycleTransaction(input.siteHost, async (tx) => {
     const target = await targetVersion(tx, input);
-    if (target.lifecycle !== "validated") throw new StrategyActivationConflictError();
+    if (target.lifecycle !== "validated" || target.validationStatus !== "valid" || !target.activationEligible || !target.runtimeActivationAuthorized) throw new StrategyActivationConflictError();
     const current = await tx.topicalMapActivation.findUnique({ where: { siteHost: input.siteHost }, select: { strategyVersion: { select: { id: true, packageSha256: true } } } });
     if ((current?.strategyVersion.id ?? null) !== (expectedCurrent?.strategyVersionId ?? null)) {
       throw new StrategyActivationConflictError("Active strategy changed before this request acquired ownership.");
     }
-    const claimed = await tx.topicalMapStrategyVersion.updateMany({ where: { id: target.id, siteHost: input.siteHost, lifecycle: "validated" }, data: { lifecycle: "active", activatedAt: new Date() } });
+    const claimed = await tx.topicalMapStrategyVersion.updateMany({ where: { id: target.id, siteHost: input.siteHost, lifecycle: "validated", validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: true }, data: { lifecycle: "active", activatedAt: new Date() } });
     if (claimed.count !== 1) throw new StrategyActivationConflictError();
     if (current && current.strategyVersion.id !== target.id) {
       const superseded = await tx.topicalMapStrategyVersion.updateMany({ where: { id: current.strategyVersion.id, siteHost: input.siteHost, lifecycle: "active" }, data: { lifecycle: "superseded" } });
@@ -183,10 +191,10 @@ export async function activateStrategyVersion(input: LifecycleInput) {
 export async function rollbackStrategyVersion(input: LifecycleInput) {
   return withLifecycleTransaction(input.siteHost, async (tx) => {
     const target = await targetVersion(tx, input);
-    if (!(["superseded", "rolled_back"] as const).includes(target.lifecycle as "superseded" | "rolled_back") || target.validationStatus !== "valid") throw new StrategyActivationConflictError();
+    if (!(["superseded", "rolled_back"] as const).includes(target.lifecycle as "superseded" | "rolled_back") || target.validationStatus !== "valid" || !target.activationEligible || !target.runtimeActivationAuthorized) throw new StrategyActivationConflictError();
     const current = await tx.topicalMapActivation.findUnique({ where: { siteHost: input.siteHost }, select: { strategyVersion: { select: { id: true, packageSha256: true } } } });
     if (!current || current.strategyVersion.id === target.id) throw new StrategyActivationConflictError();
-    const restored = await tx.topicalMapStrategyVersion.updateMany({ where: { id: target.id, siteHost: input.siteHost, lifecycle: target.lifecycle }, data: { lifecycle: "active", activatedAt: new Date() } });
+    const restored = await tx.topicalMapStrategyVersion.updateMany({ where: { id: target.id, siteHost: input.siteHost, lifecycle: target.lifecycle, validationStatus: "valid", activationEligible: true, runtimeActivationAuthorized: true }, data: { lifecycle: "active", activatedAt: new Date() } });
     if (restored.count !== 1) throw new StrategyActivationConflictError();
     const rolledBack = await tx.topicalMapStrategyVersion.updateMany({ where: { id: current.strategyVersion.id, siteHost: input.siteHost, lifecycle: "active" }, data: { lifecycle: "rolled_back" } });
     if (rolledBack.count !== 1) throw new StrategyActivationConflictError();
