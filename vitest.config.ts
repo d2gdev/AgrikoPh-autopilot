@@ -13,6 +13,7 @@ export default defineConfig({
       ".next.new/**",
       ".claude/**",
       ".serena/**",
+      ".worktrees/**",
       "tmp/**",
       "__tests__/postgres/**",
     ],

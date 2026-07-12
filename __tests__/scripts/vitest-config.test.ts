@@ -29,6 +29,7 @@ describe("Vitest PostgreSQL test isolation", () => {
 
     const defaultTestConfig = defaultConfig?.config as VitestConfigShape | undefined;
     expect(defaultTestConfig?.test?.exclude).toContain("__tests__/postgres/**");
+    expect(defaultTestConfig?.test?.exclude).toContain(".worktrees/**");
 
     process.env.DATABASE_URL_TEST = "postgresql://test:test@127.0.0.1:5432/autopilot_test";
     const postgresConfig = await loadConfigFromFile(
