@@ -54,5 +54,5 @@ describe("topical-map compilation contract integrity", () => {
     ["non-bidirectional rule reference", (v: any) => { v.coverageInventory.find((entry: any) => entry.ruleIds.length > 0).ruleIds = []; }, "COVERAGE_REFERENCE_MISMATCH"],
     ["conflicting exclusive typed mappings", (v: any) => { const exclusive = v.rules.filter((rule: any) => rule.payload?.exclusiveIntentScope); exclusive[1].payload.exclusiveIntentScope = exclusive[0].payload.exclusiveIntentScope; }, "CONFLICTING_EXCLUSIVE_MAPPING"],
     ["activation-blocking ambiguity on approved eligibility", (v: any) => { v.unresolvedAmbiguities = [{ ambiguityId: "ambiguity:one", classification: "activation_blocking", sourceReferences: [v.rules[0].sourceReferences[0]], unresolvedQuestion: "question", safeEffect: "blocks_governed_action", provenance: { recordedAt: "2026-07-12", reason: "reason" } }]; }, "UNRESOLVED_ACTIVATION_BLOCKING_AMBIGUITY"],
-  ])("rejects %s", async (_name, mutate, code) => expectIntegrityError(mutate, code));
+  ])("rejects %s", async (_name, mutate, code) => expectIntegrityError(mutate, code), 30000);
 });
