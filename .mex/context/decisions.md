@@ -14,7 +14,7 @@ edges:
     condition: when a decision relates to technology choice
   - target: context/skills-recommendations.md
     condition: when the decision relates to AI, guardrails, or recommendation execution
-last_updated: 2026-07-12T20:15:00+08:00
+last_updated: 2026-07-12T22:16:57+08:00
 ---
 
 # Decisions
@@ -23,6 +23,13 @@ last_updated: 2026-07-12T20:15:00+08:00
      Mark it as superseded, add the new entry above it. -->
 
 ## Decision Log
+
+### Topical-map proposal evaluation is caller-supplied, deterministic, and non-executable
+**Date:** 2026-07-12
+**Status:** Active
+**Decision:** Evaluate a normalized proposal only against an explicitly supplied compiled package, six-artifact identity, and validator freshness report. Return stable compliance/reason evidence with matching contract rule and source locator provenance; do not query or select an active pointer. Source-condition outcomes are caller-provided evidence states, not policy inferred from prose; medical/dosage context requires manual high-stakes review.
+**Reasoning:** This prevents clock, database, AI, and source-prose interpretation from changing evaluation results or bypassing package governance.
+**Consequences:** Missing/stale validator gates, owner conflicts, prohibited content, legacy redirect targets, unresolved conditions, and high-stakes context fail closed. Redirect, canonical, and indexation results are proposal/review evidence only, always return `executionAuthorized: false`, and preserve all existing approval and live-execution gates.
 
 ### Whole-package topical-map validation rejects rather than repairs
 **Date:** 2026-07-12

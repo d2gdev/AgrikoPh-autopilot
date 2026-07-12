@@ -22,7 +22,7 @@ edges:
     condition: when adding a new route to the system
   - target: patterns/add-cron-job.md
     condition: when adding a new job handler to the pipeline
-last_updated: 2026-07-12T20:15:00+08:00
+last_updated: 2026-07-12T22:16:57+08:00
 ---
 
 # Architecture
@@ -39,7 +39,7 @@ Shopify admin iframe → Next.js App Router page (`app/(embedded)/`) → App Bri
 
 ## Key Components
 
-- **`lib/topical-map/`** — server-only strategy-package boundaries: read/hash-check six supplied artifacts, parse the strict typed compilation contract, validate coverage/reference integrity against source bytes, atomically compile typed rules with locator provenance and governed-URL normalization, then purely validate the complete raw/compiled package with an injected `asOf`. Validation reports safe deterministic conflicts and inspectable mandatory evidence gates (180-day general, 90-day high-stakes) without source bytes, mutation, filesystem, clock, database, activation, API, or live-execution authority.
+- **`lib/topical-map/`** — server-only strategy-package boundaries: read/hash-check six supplied artifacts, parse the strict typed compilation contract, validate coverage/reference integrity against source bytes, atomically compile typed rules with locator provenance and governed-URL normalization, then purely validate the complete raw/compiled package with an injected `asOf`. A pure evaluator consumes only caller-supplied compiled active strategy identity, validator-derived freshness, and normalized proposal context to return deterministic compliance evidence; it never selects active state, uses time, persists, or authorizes technical execution. Validation/evaluation report safe conflicts and inspectable mandatory evidence gates (180-day general, 90-day high-stakes) without source bytes, mutation, filesystem, clock, database, activation, API, or live-execution authority.
 - **`jobs/`** — standalone job handler functions; each exports a `[name]Handler()` called by cron routes; writes a `JobRun` row and returns `JobResult<T>`
 - **`lib/skills/`** — AI skill system: `loader.ts` reads `skills-source/*.md`, `runner.ts` calls DeepSeek, `orchestrator.ts` coordinates multi-skill runs and deduplicates recommendations
 - **`lib/connectors/`** — per-platform data fetchers: `meta.ts`, `ga4.ts`, `gsc.ts`, `google-ads.ts`, `klaviyo.ts` (dead); each normalises raw API data into the `RawSnapshot` payload schema
