@@ -42,7 +42,7 @@ describe("topical-map strategy manifest", () => {
     const manifest = JSON.parse(readFileSync(resolve(themeRoot, "docs/seo/strategy-package-manifest-2026-07-13.json"), "utf8"));
     const parsed = parseManifest(manifest);
     expect(manifest.artifacts).toHaveLength(6);
-    expect(manifest.artifacts.map(({ id, sha256 }) => ({ id, sha256 }))).toEqual([
+    expect(manifest.artifacts.map(({ id, sha256 }: { id: string; sha256: string }) => ({ id, sha256 }))).toEqual([
       { id: "map", sha256: "f213be82bf5c774d3cb278b5f316feb4b21ff430762874f46a792a9186b8a7de" },
       { id: "evidence", sha256: "37c3356dfb9b5ec378fdc88f2d4b6f6e87f1bfba56e599988ffbbe542874c921" },
       { id: "url-inventory", sha256: "03d673d8a4bc02dd7c1db7690c28de31b3d30bd3860f8dbc44d7c7176d827a31" },
