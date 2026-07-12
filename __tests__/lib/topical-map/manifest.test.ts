@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { parseManifest } from "@/lib/topical-map/manifest";
+import { derivePackageSha256, parseManifest } from "@/lib/topical-map/manifest";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const canonical = (value: unknown): string => {
@@ -35,6 +36,21 @@ function validManifest() {
 }
 
 describe("topical-map strategy manifest", () => {
+  it("accepts the exact activation-authorized revision 3 package identity", () => {
+    const manifest = JSON.parse(readFileSync("/home/sean/Agriko/shopify-theme/docs/seo/strategy-package-manifest-2026-07-13.json", "utf8"));
+    expect(manifest.artifacts).toHaveLength(6);
+    expect(manifest.artifacts.map(({ id, sha256 }) => ({ id, sha256 }))).toEqual([
+      { id: "map", sha256: "f213be82bf5c774d3cb278b5f316feb4b21ff430762874f46a792a9186b8a7de" },
+      { id: "evidence", sha256: "37c3356dfb9b5ec378fdc88f2d4b6f6e87f1bfba56e599988ffbbe542874c921" },
+      { id: "url-inventory", sha256: "03d673d8a4bc02dd7c1db7690c28de31b3d30bd3860f8dbc44d7c7176d827a31" },
+      { id: "redirect-inventory", sha256: "fd2cb1c1892dde6f28d2d042af7a1ecb16fa22d64bf165cfb0bcba19edb2070e" },
+      { id: "internal-links", sha256: "b7d620096fb6c7eed326a70b13ff7c3cbe891fe24b4ed94247ad09836cf36345" },
+      { id: "compilation-contract", sha256: "3fe3f70b239fc907b61dc8baf96e2c3916c515fd046f2124ea1f2edb0098cb05" },
+    ]);
+    expect(manifest.packageSha256).toBe("f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c");
+    const { packageSha256: _packageSha256, ...withoutHash } = manifest;
+    expect(derivePackageSha256(withoutHash)).toBe(manifest.packageSha256);
+  });
   it("accepts exactly six artifacts and produces a stable canonical hash", () => {
     const input = validManifest();
     const first = parseManifest(input);

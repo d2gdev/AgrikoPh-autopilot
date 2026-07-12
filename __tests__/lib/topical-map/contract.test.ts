@@ -35,9 +35,20 @@ describe("full compilation contract parser", () => {
     value.review.validationImportEligible = true;
     expect(parseCompilationContract(value).review).toMatchObject({ status: "approved", validationImportEligible: true, activationEligible: false, runtimeActivationAuthorized: false, liveExecutionAuthorized: false });
   });
-  it("rejects approved validation/import contracts that claim activation eligibility", () => {
+  it("permits approved strategy-selection activation authority", () => {
     const value = validContract();
     value.review.activationEligible = true;
+    value.review.runtimeActivationAuthorized = true;
+    expect(parseCompilationContract(value).review).toMatchObject({ status: "approved", validationImportEligible: true, activationEligible: true, runtimeActivationAuthorized: true, active: false, liveExecutionAuthorized: false });
+  });
+  it.each([
+    ["partial activation authority", (r: any) => r.activationEligible = true],
+    ["activation without validation/import eligibility", (r: any) => { r.activationEligible = true; r.runtimeActivationAuthorized = true; r.validationImportEligible = false; }],
+    ["pre-marked active package", (r: any) => { r.activationEligible = true; r.runtimeActivationAuthorized = true; r.active = true; }],
+    ["live-execution authority", (r: any) => { r.activationEligible = true; r.runtimeActivationAuthorized = true; r.liveExecutionAuthorized = true; }],
+  ])("rejects approved contract with %s", (_name, mutate) => {
+    const value = validContract();
+    mutate(value.review);
     expect(() => parseCompilationContract(value)).toThrow(expect.objectContaining({ code: "INVALID_CONTRACT_SCHEMA" }));
   });
   it("requires explicit mandatory freshness policy for every declared evidence gate", () => {

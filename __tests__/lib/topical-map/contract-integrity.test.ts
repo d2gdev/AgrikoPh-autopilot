@@ -8,7 +8,7 @@ const root = "/home/sean/Agriko/shopify-theme/docs/seo";
 
 async function approvedInput() {
   const rawPackage = await readStrategyPackage(root);
-  const contract = parseCompilationContract(JSON.parse(await readFile(`${root}/agriko-topical-map-compilation-contract-2026-07-12.json`, "utf8")));
+  const contract = parseCompilationContract(JSON.parse(await readFile(`${root}/agriko-topical-map-compilation-contract-2026-07-13.json`, "utf8")));
   return { rawPackage, contract };
 }
 
@@ -20,7 +20,7 @@ async function expectIntegrityError(mutate: (contract: any) => void, code: strin
 }
 
 describe("topical-map compilation contract integrity", () => {
-  it("accepts the exact approved July 12 package with all approved units and rules accounted for", async () => {
+  it("accepts the exact activation-authorized revision 3 contract with all approved units and rules accounted for", async () => {
     const result = validateCompilationContractIntegrity(await approvedInput());
     expect(result).toEqual({ coverageUnitCount: 853, ruleCount: 1493, sourceRowCounts: { "url-inventory": 163, "redirect-inventory": 113, "internal-links": 456 } });
   }, 30000);
