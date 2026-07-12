@@ -68,3 +68,17 @@ export class CompilationContractError extends Error {
     this.name = "CompilationContractError";
   }
 }
+
+export type SourceLocatorErrorCode =
+  | "INVALID_SOURCE_LOCATOR"
+  | "LOCATOR_CROSS_ARTIFACT"
+  | "LOCATOR_MISSING"
+  | "LOCATOR_AMBIGUOUS"
+  | "LOCATOR_FINGERPRINT_DRIFT";
+
+export class SourceLocatorError extends Error {
+  constructor(public readonly code: SourceLocatorErrorCode) {
+    super("Source locator could not be resolved.");
+    this.name = "SourceLocatorError";
+  }
+}

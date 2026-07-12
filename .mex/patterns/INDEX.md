@@ -21,4 +21,5 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [pilot-queue-usability.md](pilot-queue-usability.md) | Pilot queues are technically deduped but still feel stale, opaque, or misleading to operators |
 | [seo-pilot-proposal-actions.md](seo-pilot-proposal-actions.md) | SEO Pilot actions create proposals that do not generate or publish correctly in Content Pilot |
 | [surface-fix.md](surface-fix.md) | Running a bounded audit/fix loop for one named product surface |
+| [topical-map-locator-resolution.md](topical-map-locator-resolution.md) | Resolving approved topical-map Markdown and CSV source locators without interpreting policy semantics |
 | [ad-approval-workflow.md](ad-approval-workflow.md) | Working on or debugging the Ad Approval workflow (state machine, AI reviews, reviewer assignment, SLA escalation, conflict-of-interest) |
