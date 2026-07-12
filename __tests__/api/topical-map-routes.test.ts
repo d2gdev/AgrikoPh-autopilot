@@ -21,7 +21,7 @@ const tx = vi.hoisted(() => ({
   auditLog: { create: vi.fn() },
 }));
 const db = vi.hoisted(() => ({
-  $transaction: vi.fn(),
+  $transaction: vi.fn(), auditLog: { findMany: vi.fn() },
   topicalMapStrategyVersion: { findMany: vi.fn(), findUnique: vi.fn() },
   topicalMapActivation: { findUnique: vi.fn() },
 }));
@@ -57,6 +57,7 @@ function boundaryCalls() {
     db.topicalMapStrategyVersion.findMany,
     db.topicalMapStrategyVersion.findUnique,
     db.topicalMapActivation.findUnique,
+    db.auditLog.findMany,
     db.$transaction,
     tx.auditLog.create,
   ].reduce((count, fn) => count + fn.mock.calls.length, 0);
@@ -73,6 +74,7 @@ beforeEach(() => {
   auth.requirePermission.mockResolvedValue(null);
   auth.getSessionUser.mockResolvedValue("operator-1");
   db.$transaction.mockImplementation(async (run) => run(tx));
+  db.auditLog.findMany.mockResolvedValue([]);
 });
 
 afterEach(() => vi.unstubAllEnvs());
@@ -146,7 +148,7 @@ describe("topical-map package operator routes", () => {
   });
 
   it("returns only projected inspection fields and never artifact source bytes", async () => {
-    db.topicalMapStrategyVersion.findMany.mockResolvedValue([{ id: "version-a", packageId: "package-a", strategyVersion: "2026-07-12", packageSha256: "a".repeat(64), lifecycle: "validated", validationStatus: "valid", evidenceDate: new Date("2026-07-11T00:00:00.000Z"), createdAt: new Date("2026-07-12T00:00:00.000Z"), validatedAt: new Date("2026-07-12T00:00:00.000Z"), activatedAt: null, validationReport: { valid: true }, artifacts: [{ artifactId: "map", sha256: "b".repeat(64), byteLength: 10, mediaType: "text/markdown", metadata: { required: true } }], validationIssues: [{ code: "NONE", blocking: false, severity: "warning", ruleId: null, sourceArtifactId: null }], _count: { compiledRules: 4 } }]);
+    db.topicalMapStrategyVersion.findMany.mockResolvedValue([{ id: "version-a", packageId: "package-a", strategyVersion: "2026-07-12", packageSha256: "a".repeat(64), lifecycle: "validated", validationStatus: "valid", evidenceDate: new Date("2026-07-11T00:00:00.000Z"), createdAt: new Date("2026-07-12T00:00:00.000Z"), validatedAt: new Date("2026-07-12T00:00:00.000Z"), activatedAt: null, validationReport: { valid: true, evidenceFreshness: [{ gateId: "gate-a", ruleId: "rule-a", mandatory: true, status: "current", maxAgeDays: 180, ageDays: 1, blockingReason: null }] }, artifacts: [{ artifactId: "map", sha256: "b".repeat(64), byteLength: 10, mediaType: "text/markdown", metadata: { required: true } }], validationIssues: [{ code: "NONE", blocking: false, severity: "warning", ruleId: null, sourceArtifactId: null }], proposalCompliances: [{ result: "conflict", matchedRuleIds: ["rule-a"], evidenceFreshness: [], requiredGates: ["gate-a"] }], _count: { compiledRules: 4 } }]);
     db.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersionId: "version-a" });
 
     const response = await (await imports()).GET(new Request("http://test.local/packages"));
@@ -156,6 +158,9 @@ describe("topical-map package operator routes", () => {
     const body = await response.json();
     expect(body.activeVersionId).toBe("version-a");
     expect(JSON.stringify(body)).not.toContain("rawContent");
+    expect(JSON.stringify(body)).not.toContain("validationReport");
+    expect(JSON.stringify(body)).not.toContain("compiledPayload");
+    expect(body.packages[0]).toMatchObject({ compiledRuleCount: 4, evidenceGates: [{ gateId: "gate-a" }], compliance: { counts: { conflict: 1 } }, lifecycleControls: { canActivate: false, canRollback: false } });
     expect(JSON.stringify(db.topicalMapStrategyVersion.findMany.mock.calls[0]![0])).not.toContain("rawContent");
   });
 

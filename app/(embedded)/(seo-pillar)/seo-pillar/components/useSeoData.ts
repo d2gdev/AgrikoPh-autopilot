@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
-import type { SeoData, Analysis, Health, KeywordRow, Cluster, SnapshotTrendPoint } from "./types";
+import type { SeoData, Analysis, Health, KeywordRow, Cluster, SnapshotTrendPoint, StrategyPackageOverview } from "./types";
 
 export async function loadSeoCoreRequest(
   authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
@@ -104,6 +104,7 @@ export function useSeoData() {
   const [keywords, setKeywords] = useState<KeywordRow[]>([]);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [trend, setTrend] = useState<SnapshotTrendPoint[]>([]);
+  const [strategyPackage, setStrategyPackage] = useState<StrategyPackageOverview>({ state: "loading" });
   const trendFirst = trend[0];
   const trendLast = trend[trend.length - 1];
 
@@ -134,6 +135,10 @@ export function useSeoData() {
       track(okJson("/api/seo/keywords", "Keywords").then((d) => setKeywords(d.keywords ?? [])), "Keywords", () => setKeywords([])),
       track(okJson("/api/content-pilot/topic-clusters", "Pillar clusters").then((d) => setClusters(d.clusters ?? [])), "Pillar clusters", () => setClusters([])),
       track(okJson("/api/seo/history", "Trend").then((d) => setTrend(d.trend ?? [])), "Trend", () => setTrend([])),
+      track(okJson("/api/topical-map/packages", "Strategy governance").then((d) => {
+        const packages = Array.isArray(d.packages) ? d.packages : [];
+        setStrategyPackage({ state: packages.length ? "ready" : "empty", activeVersionId: typeof d.activeVersionId === "string" ? d.activeVersionId : null, packages });
+      }), "Strategy governance", () => setStrategyPackage({ state: "unavailable", message: "Strategy governance data is unavailable. Existing SEO data remains available." })),
     ]);
     setLoadError(failed.length ? `Some sections failed to load: ${failed.join(", ")}. Try Refresh data.` : null);
   }, [authFetch, loadCore]);
@@ -182,6 +187,7 @@ export function useSeoData() {
     keywords, setKeywords,
     clusters, setClusters,
     trend, trendFirst, trendLast,
+    strategyPackage,
     refreshing,
     loadError, setLoadError,
     toast, setToast,

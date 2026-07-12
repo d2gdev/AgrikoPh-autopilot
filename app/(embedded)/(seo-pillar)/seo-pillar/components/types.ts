@@ -77,6 +77,32 @@ export function analysisCompletionToast(analysis: Pick<Analysis, "aiStatus" | "c
 }
 export interface Cluster { topic: string; articleCount: number; keywordCount: number; gapScore: number }
 
+export interface StrategyEvidenceGate {
+  gateId: string;
+  ruleId: string;
+  mandatory: boolean;
+  status: "current" | "missing" | "stale";
+  maxAgeDays: number;
+  ageDays: number | null;
+  blockingReason: string | null;
+}
+
+export interface StrategyPackageOverview {
+  state: "loading" | "unavailable" | "empty" | "partial" | "ready";
+  message?: string;
+  activeVersionId?: string | null;
+  packages?: Array<{
+    id: string; packageId: string; strategyVersion: string; packageSha256: string;
+    lifecycle: string; validationStatus: string; evidenceDate: string;
+    compiledRuleCount: number;
+    validationIssues: Array<{ code: string; severity: string; blocking: boolean; ruleId: string | null; sourceArtifactId: string | null }>;
+    evidenceGates: StrategyEvidenceGate[];
+    compliance: { counts: Record<string, number>; recent: Array<{ result: string; matchedRuleIds: string[]; evidenceGates: string[]; sourceArtifactIds: string[] }> };
+    auditTimeline: Array<{ action: string; occurredAt: string; actor: string | null; reason: string | null }>;
+    lifecycleControls: { canActivate: boolean; canRollback: boolean; reason: string };
+  }>;
+}
+
 export const gapKey = (g: { query: string; suggestedTitle: string }) => `${g.query}::${g.suggestedTitle}`;
 export const opportunityKey = (o: Pick<Opportunity, "query" | "page" | "type">) => JSON.stringify([o.query, o.page ?? "", o.type]);
 

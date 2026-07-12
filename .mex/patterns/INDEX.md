@@ -27,4 +27,5 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [topical-map-validation.md](topical-map-validation.md) | Validating a complete raw and compiled topical-map package for import eligibility without repairing, persisting, or activating it |
 | [topical-map-activation-persistence.md](topical-map-activation-persistence.md) | Persisting immutable strategy packages and atomically activating, superseding, or rolling back validated versions |
 | [topical-map-policy-evaluation.md](topical-map-policy-evaluation.md) | Deterministically evaluating a supplied governed proposal without selecting, persisting, or executing a strategy |
+| [topical-map-operator-surface.md](topical-map-operator-surface.md) | Rendering authenticated, read-only topical-map package governance in SEO Pilot |
 | [ad-approval-workflow.md](ad-approval-workflow.md) | Working on or debugging the Ad Approval workflow (state machine, AI reviews, reviewer assignment, SLA escalation, conflict-of-interest) |

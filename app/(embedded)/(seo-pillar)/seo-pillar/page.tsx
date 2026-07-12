@@ -26,6 +26,7 @@ import { PillarClustersPanel } from "./components/panels/PillarClustersPanel";
 import { PageHealthPanel } from "./components/panels/PageHealthPanel";
 import { OpportunityClustersPanel } from "./components/panels/OpportunityClustersPanel";
 import { StrategyPanel } from "./components/panels/StrategyPanel";
+import { StrategyPackagePanel } from "./components/StrategyPackagePanel";
 import { SeoPilotNavigation } from "./components/SeoPilotNavigation";
 
 // render a page path/url as a subdued span (or link when it looks like a path/url)
@@ -62,7 +63,7 @@ export default function SeoPillarReportPage() {
     data, loading,
     analysis, setAnalysis, analysisAt, setAnalysisAt,
     health, keywords, setKeywords, clusters, trend, trendFirst, trendLast,
-    refreshing, loadError, setLoadError, toast, setToast,
+    refreshing, loadError, setLoadError, toast, setToast, strategyPackage,
     refreshData,
   } = useSeoData();
   const [tab, setTab] = useState(0);
@@ -608,6 +609,8 @@ export default function SeoPillarReportPage() {
                   )}
 
                   {tab === 8 && (
+                    <BlockStack gap="500">
+                    <StrategyPackagePanel strategy={strategyPackage} />
                     <StrategyPanel
                       trackingAll={trackingAll}
                       trackAllPrimary={trackAllPrimary}
@@ -620,6 +623,7 @@ export default function SeoPillarReportPage() {
                       planningKw={planningKw}
                       planTarget={planTarget}
                     />
+                    </BlockStack>
                   )}
                 </>
               )}
