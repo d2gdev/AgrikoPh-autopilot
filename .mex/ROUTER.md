@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-12T16:04:00+08:00
+last_updated: 2026-07-12T16:46:00+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **Topical-map whole-package policy compilation (Task 3, 2026-07-12):** Server-only compilation now safely decodes the hash-verified strict contract, requires existing integrity validation before projecting anything, and atomically projects all 1,493 typed rules and 853 disposed coverage units into domain-indexed records. Each record retains contract identity, rule/locator provenance, resolved source coordinates, typed safeguards, and normalized governed URLs without source bytes or prose-derived policy. It rejects source/locator/coverage/ambiguity integrity failures and external governed URLs; it does not persist/import/activate packages, evaluate proposals, expose APIs, or execute any change.
 - **Topical-map compilation-contract integrity (Task 2B, 2026-07-12):** Server-only validation now consumes the strict parsed contract plus hash-verified semantic source bytes, resolves every approved anchor, rejects duplicate/dangling/non-bidirectional coverage and rule IDs, undisclosed CSV coverage, typed exclusive-owner conflicts, and unresolved activation-blocking ambiguity with safe typed errors. The approved July 12 package validates as 853 coverage units, 1,493 rules, 163 URL rows, 113 redirect rows, and 456 internal-link rows. It preserves source/rule traceability but does not compile semantics, persist/import/activate packages, access databases or external systems, or authorize Task 3.
 - **Topical-map deterministic locator resolution (Task 2B, 2026-07-12):** Server-only resolution now accepts the approved `agriko-locator-v1` Markdown heading/prose-span and CSV-row anchors, confirms their normalized content/header/canonical-row SHA-256 fingerprints from original bytes, and preserves only artifact identity plus line coordinates. It tolerates unique harmless movement, rejects malformed, cross-artifact, missing, ambiguous/duplicated, and drifted anchors through safe typed errors, and resolves the approved July 12 package’s 853 coverage units and 1,493 rules. It does not validate coverage semantics or cross-references, compile rules, import/persist/activate packages, expose source content, or access external systems.
 - **Topical-map full compilation-contract grammar (Task 2B parser slice, 2026-07-12):** Server-only parsing now validates the approved strict 1.0.0 contract grammar, including the Task 2A envelope, typed coverage/rules/source locators, strict nested objects, schedule phase-gate fail-closed constraints, advisory schedule/canonical/indexation constraints, and approval metadata. It returns a safe typed schema error without source or contract content. Locator resolution, coverage-reference integrity, package import, persistence, activation, compilation, APIs, and live execution remain out of scope.

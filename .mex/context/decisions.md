@@ -14,7 +14,7 @@ edges:
     condition: when a decision relates to technology choice
   - target: context/skills-recommendations.md
     condition: when the decision relates to AI, guardrails, or recommendation execution
-last_updated: 2026-07-12T16:04:00+08:00
+last_updated: 2026-07-12T16:46:00+08:00
 ---
 
 # Decisions
@@ -23,6 +23,14 @@ last_updated: 2026-07-12T16:04:00+08:00
      Mark it as superseded, add the new entry above it. -->
 
 ## Decision Log
+
+### Topical-map compilation projects only typed contract policy after integrity succeeds
+**Date:** 2026-07-12
+**Status:** Active
+**Decision:** Compile a complete package only by parsing its hash-verified contract, running contract integrity validation, resolving cited locators, and projecting typed rule fields into domain-indexed records.
+**Reasoning:** The contract, rather than Markdown/CSV prose, is the sole semantic authority. Full source provenance remains available without exposing source bytes, while invalid packages fail before any result is returned.
+**Alternatives considered:** Parse source prose during compilation (rejected — editorial interpretation and authority-boundary violation); emit partially compiled records before a final integrity check (rejected — callers could consume invalid policy).
+**Consequences:** `lib/topical-map/compiler.ts` is server-only and atomic. It normalizes only explicit governed URL fields, rejects external destinations, and neither persists nor activates policy.
 
 ### Contract integrity is a server-only pre-compilation boundary
 **Date:** 2026-07-12

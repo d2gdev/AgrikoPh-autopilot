@@ -82,3 +82,21 @@ export class SourceLocatorError extends Error {
     this.name = "SourceLocatorError";
   }
 }
+
+export type GovernedUrlErrorCode = "INVALID_GOVERNED_URL" | "EXTERNAL_GOVERNED_URL";
+
+export class GovernedUrlError extends Error {
+  constructor(public readonly code: GovernedUrlErrorCode) {
+    super("Governed URL is invalid.");
+    this.name = "GovernedUrlError";
+  }
+}
+
+export type StrategyCompilerErrorCode = "INVALID_COMPILATION_CONTRACT";
+
+export class StrategyCompilerError extends Error {
+  constructor(public readonly code: StrategyCompilerErrorCode) {
+    super("Strategy package compilation failed.");
+    this.name = "StrategyCompilerError";
+  }
+}

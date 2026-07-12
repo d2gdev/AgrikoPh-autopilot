@@ -22,7 +22,7 @@ edges:
     condition: when adding a new route to the system
   - target: patterns/add-cron-job.md
     condition: when adding a new job handler to the pipeline
-last_updated: 2026-07-10
+last_updated: 2026-07-12
 ---
 
 # Architecture
@@ -39,6 +39,7 @@ Shopify admin iframe → Next.js App Router page (`app/(embedded)/`) → App Bri
 
 ## Key Components
 
+- **`lib/topical-map/`** — server-only strategy-package boundaries: read/hash-check six supplied artifacts, parse the strict typed compilation contract, validate coverage/reference integrity against source bytes, then atomically compile typed rules with locator provenance and governed-URL normalization. It never derives semantics from Markdown/CSV prose and has no database, activation, API, or live-execution authority.
 - **`jobs/`** — standalone job handler functions; each exports a `[name]Handler()` called by cron routes; writes a `JobRun` row and returns `JobResult<T>`
 - **`lib/skills/`** — AI skill system: `loader.ts` reads `skills-source/*.md`, `runner.ts` calls DeepSeek, `orchestrator.ts` coordinates multi-skill runs and deduplicates recommendations
 - **`lib/connectors/`** — per-platform data fetchers: `meta.ts`, `ga4.ts`, `gsc.ts`, `google-ads.ts`, `klaviyo.ts` (dead); each normalises raw API data into the `RawSnapshot` payload schema
