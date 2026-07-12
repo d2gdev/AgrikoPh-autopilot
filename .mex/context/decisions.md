@@ -14,7 +14,7 @@ edges:
     condition: when a decision relates to technology choice
   - target: context/skills-recommendations.md
     condition: when the decision relates to AI, guardrails, or recommendation execution
-last_updated: 2026-07-12T16:46:00+08:00
+last_updated: 2026-07-12T19:45:00+08:00
 ---
 
 # Decisions
@@ -23,6 +23,13 @@ last_updated: 2026-07-12T16:46:00+08:00
      Mark it as superseded, add the new entry above it. -->
 
 ## Decision Log
+
+### Typed topical-map evidence freshness is package-date based and validation-only
+**Date:** 2026-07-12
+**Status:** Active
+**Decision:** Every declared evidence requirement is mandatory and explicitly classed as `general_seo_market` with a 180-day maximum or `high_stakes` with a 90-day maximum. The future validation boundary receives `asOf` from its caller, compares it with the manifest `evidenceDate`, derives each gate identifier from rule ID plus requirement index, and retains stale/missing evidence in its historical report while blocking eligibility.
+**Reasoning:** This gives deterministic freshness without interpreting human source prose or allowing wall-clock-dependent validation results.
+**Consequences:** Contract revision 2 is only locally approved for validation/import eligibility. It neither activates a strategy nor changes deployment, production, Shopify/Meta, or Task 5 authority.
 
 ### Topical-map compilation projects only typed contract policy after integrity succeeds
 **Date:** 2026-07-12

@@ -24,7 +24,7 @@ function minimalPackage() {
     compatibility: { runtimeSchema: ">=1.0.0 <2.0.0", pluginVersion: ">=0.1.0", siteHost: "agrikoph.com", urlNormalization: "agriko-url-v1" }, locatorGrammarVersion: "agriko-locator-v1",
     coverageInventory: [{ coverageId: "coverage:one", artifactId: "map", locator, disposition: "compiled", ruleIds: ["literal:one"], ambiguityIds: [], rationale: "literal" }],
     rules: [{ ruleId: "literal:one", domain: "evidence_gates", type: "literal", sourceReferences: [reference], sourceFingerprints: [locator.contentFingerprint], payload: { name: "n", literalText: "t" }, conditions: [], evidenceRequirements: [], reviewRequirements: [], resolutionStatus: "resolved", provenance: { projection: "literal", authoredAt: "2026-07-12" } }],
-    unresolvedAmbiguities: [], review: { status: "approved", approval: { identity: "operator", approvedAt: "2026-07-12T00:00:00.000Z" }, activationEligible: true, operatorReviewRequired: true, active: false, approvalBasis: "review", approvalScope: "package", runtimeActivationAuthorized: false, liveExecutionAuthorized: false, canonicalIndexationExecutionProhibited: true, task3Authorized: false },
+    unresolvedAmbiguities: [], review: { status: "approved", approval: { identity: "operator", approvedAt: "2026-07-12T00:00:00.000Z" }, validationImportEligible: true, activationEligible: false, operatorReviewRequired: true, active: false, approvalBasis: "review", approvalScope: "package", runtimeActivationAuthorized: false, liveExecutionAuthorized: false, canonicalIndexationExecutionProhibited: true, task3Authorized: false },
   };
   const bytes = { map, evidence, "url-inventory": csv, "redirect-inventory": csv, "internal-links": csv, "compilation-contract": JSON.stringify(contract) } as const;
   return {
@@ -77,7 +77,7 @@ describe("topical-map approved-contract compiler", () => {
 
     expect(recipe?.payload).toMatchObject({ decision: "do not create now; create only after six original tested recipes and fresh SERP validation" });
     expect(recipe?.conditions).toEqual([{ kind: "literal_source_condition", text: "do not create now; create only after six original tested recipes and fresh SERP validation", sourceReferenceIds: ["coverage:url-inventory:3396fb206dd722f3a4d5"] }]);
-    expect(dossier?.evidenceRequirements).toEqual([{ kind: "source_required_evidence", text: "Eight source-to-target dossier fields are required before a redirect decision is complete.", sourceReferenceIds: ["coverage:evidence:heading:0d705ce702b0474d9059"] }]);
+    expect(dossier?.evidenceRequirements).toEqual([{ kind: "source_required_evidence", text: "Eight source-to-target dossier fields are required before a redirect decision is complete.", sourceReferenceIds: ["coverage:evidence:heading:0d705ce702b0474d9059"], mandatory: true, evidenceClass: "general_seo_market", maxAgeDays: 180 }]);
     expect(medical?.reviewRequirements).toEqual([{ kind: "source_required_manual_review", text: "Absent completed reviewer evidence blocks medical and dosage governed action.", sourceReferenceIds: ["coverage:map:matrix:medical-dosage-review:1"] }]);
   }, 30000);
 

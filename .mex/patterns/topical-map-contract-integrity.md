@@ -10,7 +10,7 @@ edges:
     condition: when parsing the strict contract grammar before integrity validation
   - target: ../../lib/topical-map/locator-resolver.ts
     condition: when resolving hash-bound Markdown or CSV source locators
-last_updated: 2026-07-12T16:04:00+08:00
+last_updated: 2026-07-12T19:45:00+08:00
 ---
 
 # Topical-map Contract Integrity
@@ -28,6 +28,10 @@ Run this server-only boundary after `readStrategyPackage` has hash-verified all 
 5. Count CSV records structurally and require one coverage unit per URL inventory, redirect inventory, and internal-link row.
 6. Reject duplicate exclusive ownership only from `url_intent_ownership` typed payload fields; never derive it from prose.
 7. Reject any unresolved `activation_blocking` ambiguity. Return only safe count metadata on success.
+
+## Evidence-freshness handoff
+
+The strict contract requires every declared `source_required_evidence` item to set `mandatory: true`, an `evidenceClass`, and its matching maximum age: `general_seo_market` is 180 days and `high_stakes` is 90 days. The integrity boundary preserves these typed fields but does not evaluate wall-clock freshness. The Task 4 validator must accept `asOf` explicitly, use the manifest `evidenceDate`, derive a deterministic gate ID from rule ID plus zero-based evidence-requirement index, and retain missing/stale mandatory evidence in the report while blocking eligibility.
 
 ## Verify
 

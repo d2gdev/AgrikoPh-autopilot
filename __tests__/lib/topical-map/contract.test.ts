@@ -7,6 +7,7 @@ const compatibility = { runtimeSchema: ">=1.0.0 <2.0.0", pluginVersion: ">=0.1.0
 const locator = { kind: "markdown_prose_span", headingPath: ["Map"], contentFingerprint: sha, lineStart: 1, lineEnd: 1 };
 const reference = { coverageUnitId: "coverage:one", artifactId: "map", locator };
 const requirement = { kind: "literal_source_condition", text: "literal", sourceReferenceIds: ["coverage:one"] };
+const evidenceRequirement = { kind: "source_required_evidence", text: "evidence", sourceReferenceIds: ["coverage:one"], mandatory: true, evidenceClass: "general_seo_market", maxAgeDays: 180 };
 
 function validContract(): any {
   return {
@@ -15,7 +16,7 @@ function validContract(): any {
     coverageInventory: [{ coverageId: "coverage:one", artifactId: "map", locator, disposition: "compiled", ruleIds: ["literal:one"], ambiguityIds: [], rationale: "literal" }],
     rules: [{ ruleId: "literal:one", domain: "evidence_gates", type: "literal", sourceReferences: [reference], sourceFingerprints: [sha], payload: { name: "n", literalText: "t" }, conditions: [], evidenceRequirements: [], reviewRequirements: [], resolutionStatus: "resolved", provenance: { projection: "literal", authoredAt: "2026-07-12" } }],
     unresolvedAmbiguities: [],
-    review: { status: "approved", approval: { identity: "operator", approvedAt: "2026-07-12T00:00:00.000Z" }, activationEligible: true, operatorReviewRequired: true, active: false, approvalBasis: "review", approvalScope: "package", runtimeActivationAuthorized: false, liveExecutionAuthorized: false, canonicalIndexationExecutionProhibited: true, task3Authorized: false },
+    review: { status: "approved", approval: { identity: "operator", approvedAt: "2026-07-12T00:00:00.000Z" }, validationImportEligible: true, activationEligible: false, operatorReviewRequired: true, active: false, approvalBasis: "review", approvalScope: "package", runtimeActivationAuthorized: false, liveExecutionAuthorized: false, canonicalIndexationExecutionProhibited: true, task3Authorized: false },
   };
 }
 
@@ -28,6 +29,38 @@ function scheduleRule(): any {
 
 describe("full compilation contract parser", () => {
   it("parses an approved minimal full contract", () => expect(parseCompilationContract(validContract()).review.status).toBe("approved"));
+  it("permits local validation/import approval without activation authority", () => {
+    const value = validContract();
+    value.review.activationEligible = false;
+    value.review.validationImportEligible = true;
+    expect(parseCompilationContract(value).review).toMatchObject({ status: "approved", validationImportEligible: true, activationEligible: false, runtimeActivationAuthorized: false, liveExecutionAuthorized: false });
+  });
+  it("rejects approved validation/import contracts that claim activation eligibility", () => {
+    const value = validContract();
+    value.review.activationEligible = true;
+    expect(() => parseCompilationContract(value)).toThrow(expect.objectContaining({ code: "INVALID_CONTRACT_SCHEMA" }));
+  });
+  it("requires explicit mandatory freshness policy for every declared evidence gate", () => {
+    const value = validContract();
+    value.rules[0].evidenceRequirements = [{ ...evidenceRequirement, mandatory: undefined }];
+    expect(() => parseCompilationContract(value)).toThrow(expect.objectContaining({ code: "INVALID_CONTRACT_SCHEMA" }));
+  });
+  it("accepts high-stakes evidence only with the 90-day policy", () => {
+    const value = validContract();
+    value.rules[0].domain = "high_stakes_reviews";
+    value.rules[0].evidenceRequirements = [{ ...evidenceRequirement, evidenceClass: "high_stakes", maxAgeDays: 90 }];
+    expect(parseCompilationContract(value).rules[0]?.evidenceRequirements[0]).toMatchObject({ mandatory: true, evidenceClass: "high_stakes", maxAgeDays: 90 });
+  });
+  it.each([
+    ["optional", (r: any) => r.mandatory = false],
+    ["general freshness", (r: any) => r.maxAgeDays = 90],
+    ["high-stakes freshness", (r: any) => { r.evidenceClass = "high_stakes"; r.maxAgeDays = 180; }],
+  ])("rejects unsafe evidence gate %s", (_name, mutate) => {
+    const value = validContract();
+    value.rules[0].evidenceRequirements = [{ ...evidenceRequirement }];
+    mutate(value.rules[0].evidenceRequirements[0]);
+    expect(() => parseCompilationContract(value)).toThrow(expect.objectContaining({ code: "INVALID_CONTRACT_SCHEMA" }));
+  });
   it.each([
     ["missing body field", (v: any) => delete v.coverageInventory],
     ["unknown reserved nested field", (v: any) => v.compatibility.extra = true],
