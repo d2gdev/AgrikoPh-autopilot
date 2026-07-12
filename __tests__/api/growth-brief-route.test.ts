@@ -43,6 +43,7 @@ function request() {
 
 describe("growth-brief route", () => {
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
     mockAuth.requireAppAuth.mockResolvedValue(null);
     mockJobsStatus.getJobsStatusPayload.mockResolvedValue({
