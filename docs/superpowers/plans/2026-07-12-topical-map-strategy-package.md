@@ -77,6 +77,36 @@
 - [ ] **Step 5: Re-run focused tests; expected:** all fixture failures return typed `StrategyPackageError` codes and valid package passes.
 - [ ] **Step 6: Commit** `feat(topical-map): validate complete strategy package manifests`.
 
+### Task 2A: Six-artifact package amendment
+
+**Files:** Modify `lib/topical-map/types.ts`, `lib/topical-map/manifest.ts`, `lib/topical-map/package-reader.ts`, `__tests__/lib/topical-map/manifest.test.ts`, `__tests__/lib/topical-map/package-reader.test.ts`, and `.env.example` only if contract-root documentation changes. No Prisma change: Task 1 remains compatible unless later implementation evidence proves a contract-specific field necessary.
+
+**Interfaces:** Require exact artifacts `map`, `evidence`, `url-inventory`, `redirect-inventory`, `internal-links`, and `compilation-contract`. The sixth artifact is `agriko-topical-map-compilation-contract-${strategyVersion}.json`, media type `application/json`, and UTF-8 without BOM. Manifest and reader return a six-artifact `RawStrategyPackage`; the reader verifies the raw contract-byte hash before JSON decoding. Package hashing is non-circular: contract references five semantic hashes, manifest references six hashes, and final package hash derives from canonical manifest without `packageSha256`.
+
+**Task 2A envelope:** Parse only `contractSchemaVersion`, `contractRevision`, `strategyVersion`, `siteHost`, `sourceArtifacts`, and `compatibility`; permit all other top-level fields as opaque. Require exact `contractSchemaVersion: "1.0.0"`, positive-decimal `contractRevision` matching `^[1-9][0-9]*$`, and top-level host `agrikoph.com`. `sourceArtifacts` is exactly five ordered entries — `map`, `evidence`, `url-inventory`, `redirect-inventory`, `internal-links` — each with exactly `id` and lowercase SHA-256 `sha256`; every source hash equals the corresponding manifest hash. `compatibility` has exactly `runtimeSchema`, `pluginVersion`, `siteHost`, and `urlNormalization`, each exactly equal to manifest compatibility; unknown compatibility keys fail. Contract strategy version equals manifest strategy version, and all three host values equal `agrikoph.com`.
+
+**Stable errors:** `MISSING_COMPILATION_CONTRACT`, `CONTRACT_FILENAME_MISMATCH`, `CONTRACT_MEDIA_TYPE_MISMATCH`, `INVALID_CONTRACT_ENCODING`, `INVALID_CONTRACT_ENVELOPE`, `UNSUPPORTED_CONTRACT_SCHEMA`, `INVALID_CONTRACT_REVISION`, `CONTRACT_STRATEGY_VERSION_MISMATCH`, `CONTRACT_SITE_HOST_MISMATCH`, `CONTRACT_SOURCE_ARTIFACT_MISMATCH`, `CONTRACT_SOURCE_HASH_MISMATCH`, `CONTRACT_COMPATIBILITY_MISMATCH`.
+
+- [ ] Write failing focused tests: previous five-artifact fixture fails; valid six-artifact fixture passes; missing/duplicate/unknown contract fails; incorrect contract filename, media type, hash, schema version, revision, UTF-8/BOM encoding, source artifact set/order/hash, strategy version, host, or compatibility fails with its stable error; changing only contract bytes changes artifact and package identity; opaque top-level body fields remain uninterpreted; traversal and symlink protections apply to the sixth artifact.
+- [ ] Run `npm test -- __tests__/lib/topical-map/manifest.test.ts __tests__/lib/topical-map/package-reader.test.ts`; expect failure from five-artifact assumptions.
+- [ ] Implement minimum parser/type/reader changes; preserve raw bytes, reject partial package loading, parse only the approved compatibility envelope, and do not parse or infer policy semantics.
+- [ ] Re-run the focused tests; expect all pass. Run `npm test -- __tests__/prisma/topical-map-strategy-migration.test.ts`, `npm run verify:prisma-client`, `npm run typecheck`, `npm run typecheck:test`, `npm run lint`, and `git diff --check`.
+- [ ] Commit `feat(topical-map): require compilation contract artifact`.
+
+### Task 2B: Contract authoring and operator approval
+
+**Files:** Create the contract schema and July 11 compilation-contract artifact in `/home/sean/Agriko/shopify-theme/docs/seo/`; create contract/locator/coverage tests and runtime validation types in `lib/topical-map/` only where necessary; update the six-artifact manifest after source-editor approval.
+
+**Interfaces:** Task 2B replaces Task 2A's opaque body with the full contract schema: locator grammar, coverage inventory, typed rule envelopes, ambiguity records, source fingerprints, review metadata, and full policy semantics. It preserves the Task 2A compatibility envelope exactly. Every rule resolves to human-source anchors; every declared coverage unit has a disposition; unresolved activation-blocking ambiguity prevents approval.
+
+- [ ] Write failing tests for source-anchor resolution, fingerprint drift, bidirectional coverage, unanchored rule rejection, undisposed coverage rejection, conflicting exclusive mappings, and unresolved activation-blocking ambiguity.
+- [ ] Run focused contract tests; expect failure because no approved contract exists.
+- [ ] Author the contract and coverage inventory without changing human semantic sources; update the six-artifact manifest only after editorial review.
+- [ ] Run focused tests; expect exact anchor/coverage validation pass.
+- [ ] Stop at explicit operator approval of the contract and coverage inventory. Do not begin compiler work, activate a package, or write runtime policy before approval.
+- [ ] Commit `docs(seo): add reviewed topical map compilation contract` only after approval.
+
+
 ### Task 3: Compile all source artifacts with traceability
 
 **Files:**
@@ -211,35 +241,6 @@
 ## Approved Compilation-Contract Amendment
 
 Tasks 1 and 2 above are completed historical five-artifact work. They must not be rewritten. The following tasks are mandatory before compiler work resumes. The authoritative package is six required artifacts plus manifest; no incomplete, unapproved, or five-artifact package has authority.
-
-### Task 2A: Six-artifact package amendment
-
-**Files:** Modify `lib/topical-map/types.ts`, `lib/topical-map/manifest.ts`, `lib/topical-map/package-reader.ts`, `__tests__/lib/topical-map/manifest.test.ts`, `__tests__/lib/topical-map/package-reader.test.ts`, and `.env.example` only if contract-root documentation changes. No Prisma change: Task 1 remains compatible unless later implementation evidence proves a contract-specific field necessary.
-
-**Interfaces:** Require exact artifacts `map`, `evidence`, `url-inventory`, `redirect-inventory`, `internal-links`, and `compilation-contract`. The sixth artifact is `agriko-topical-map-compilation-contract-${strategyVersion}.json`, media type `application/json`, and UTF-8 without BOM. Manifest and reader return a six-artifact `RawStrategyPackage`; the reader verifies the raw contract-byte hash before JSON decoding. Package hashing is non-circular: contract references five semantic hashes, manifest references six hashes, and final package hash derives from canonical manifest without `packageSha256`.
-
-**Task 2A envelope:** Parse only `contractSchemaVersion`, `contractRevision`, `strategyVersion`, `siteHost`, `sourceArtifacts`, and `compatibility`; permit all other top-level fields as opaque. Require exact `contractSchemaVersion: "1.0.0"`, positive-decimal `contractRevision` matching `^[1-9][0-9]*$`, and top-level host `agrikoph.com`. `sourceArtifacts` is exactly five ordered entries — `map`, `evidence`, `url-inventory`, `redirect-inventory`, `internal-links` — each with exactly `id` and lowercase SHA-256 `sha256`; every source hash equals the corresponding manifest hash. `compatibility` has exactly `runtimeSchema`, `pluginVersion`, `siteHost`, and `urlNormalization`, each exactly equal to manifest compatibility; unknown compatibility keys fail. Contract strategy version equals manifest strategy version, and all three host values equal `agrikoph.com`.
-
-**Stable errors:** `MISSING_COMPILATION_CONTRACT`, `CONTRACT_FILENAME_MISMATCH`, `CONTRACT_MEDIA_TYPE_MISMATCH`, `INVALID_CONTRACT_ENCODING`, `INVALID_CONTRACT_ENVELOPE`, `UNSUPPORTED_CONTRACT_SCHEMA`, `INVALID_CONTRACT_REVISION`, `CONTRACT_STRATEGY_VERSION_MISMATCH`, `CONTRACT_SITE_HOST_MISMATCH`, `CONTRACT_SOURCE_ARTIFACT_MISMATCH`, `CONTRACT_SOURCE_HASH_MISMATCH`, `CONTRACT_COMPATIBILITY_MISMATCH`.
-
-- [ ] Write failing focused tests: previous five-artifact fixture fails; valid six-artifact fixture passes; missing/duplicate/unknown contract fails; incorrect contract filename, media type, hash, schema version, revision, UTF-8/BOM encoding, source artifact set/order/hash, strategy version, host, or compatibility fails with its stable error; changing only contract bytes changes artifact and package identity; opaque top-level body fields remain uninterpreted; traversal and symlink protections apply to the sixth artifact.
-- [ ] Run `npm test -- __tests__/lib/topical-map/manifest.test.ts __tests__/lib/topical-map/package-reader.test.ts`; expect failure from five-artifact assumptions.
-- [ ] Implement minimum parser/type/reader changes; preserve raw bytes, reject partial package loading, parse only the approved compatibility envelope, and do not parse or infer policy semantics.
-- [ ] Re-run the focused tests; expect all pass. Run `npm test -- __tests__/prisma/topical-map-strategy-migration.test.ts`, `npm run verify:prisma-client`, `npm run typecheck`, `npm run typecheck:test`, `npm run lint`, and `git diff --check`.
-- [ ] Commit `feat(topical-map): require compilation contract artifact`.
-
-### Task 2B: Contract authoring and operator approval
-
-**Files:** Create the contract schema and July 11 compilation-contract artifact in `/home/sean/Agriko/shopify-theme/docs/seo/`; create contract/locator/coverage tests and runtime validation types in `lib/topical-map/` only where necessary; update the six-artifact manifest after source-editor approval.
-
-**Interfaces:** Task 2B replaces Task 2A's opaque body with the full contract schema: locator grammar, coverage inventory, typed rule envelopes, ambiguity records, source fingerprints, review metadata, and full policy semantics. It preserves the Task 2A compatibility envelope exactly. Every rule resolves to human-source anchors; every declared coverage unit has a disposition; unresolved activation-blocking ambiguity prevents approval.
-
-- [ ] Write failing tests for source-anchor resolution, fingerprint drift, bidirectional coverage, unanchored rule rejection, undisposed coverage rejection, conflicting exclusive mappings, and unresolved activation-blocking ambiguity.
-- [ ] Run focused contract tests; expect failure because no approved contract exists.
-- [ ] Author the contract and coverage inventory without changing human semantic sources; update the six-artifact manifest only after editorial review.
-- [ ] Run focused tests; expect exact anchor/coverage validation pass.
-- [ ] Stop at explicit operator approval of the contract and coverage inventory. Do not begin compiler work, activate a package, or write runtime policy before approval.
-- [ ] Commit `docs(seo): add reviewed topical map compilation contract` only after approval.
 
 ### Revised Task 3: Compile approved contract mappings
 
