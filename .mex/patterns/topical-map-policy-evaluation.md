@@ -1,11 +1,11 @@
 ---
 name: topical-map-policy-evaluation
-description: Deterministically evaluate a caller-supplied governed topical-map proposal without selecting, persisting, or executing a strategy.
+description: Deterministically evaluate a caller-supplied governed topical-map proposal, or persist the resulting evidence through the separate atomic compliance-store boundary.
 triggers:
   - "topical-map evaluator"
   - "strategy compliance"
   - "governed proposal evaluation"
-last_updated: 2026-07-12T22:16:57+08:00
+last_updated: 2026-07-12T23:20:00+08:00
 ---
 
 # Topical-map Policy Evaluation
@@ -34,3 +34,13 @@ last_updated: 2026-07-12T22:16:57+08:00
 ## Boundary
 
 Do not add active-pointer queries, Prisma work, APIs, proposal writers, compliance persistence, activation, deployment, Shopify/Meta work, LLM calls, gate waivers, or technical execution to this slice.
+
+## Task 8 Persistence Adapter
+
+`lib/topical-map/compliance-store.ts` is deliberately outside the pure evaluator boundary. It runs inside the proposed `ContentProposal` transaction and must:
+
+1. Select only the `agrikoph.com` active pointer, `active`/`valid` version, exact six artifacts, persisted compiled rule payloads, and lossless stored validation report. Missing or incoherent stored state is `unavailable_strategy`; it never reads package files or recomputes freshness.
+2. Build candidates only from explicit structured route/proposal fields. Never turn an AI description into an authoritative URL, owner, evidence condition, or high-stakes classification.
+3. Call `evaluateStrategyPolicy` before proposal creation. `compliant` and `needs_high_stakes_review` create normal pending review proposals; every other result creates no `ContentProposal` and returns safe evidence. High-stakes outcomes remain unapproved and set no draft/publish/execution state.
+4. For a newly created proposal, write the normalized compliance row and a JSON-safe `sourceData.strategyCompliance` projection in the same transaction. Keep `executionAuthorized: false`; an existing deduplicated proposal never receives replacement provenance.
+5. For a governed rejection with a real active version, retain candidate-level normalized compliance evidence. Never fabricate a version/package foreign key for `unavailable_strategy`.

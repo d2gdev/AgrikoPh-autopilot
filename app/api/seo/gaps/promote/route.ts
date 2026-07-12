@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
+import { createGovernedContentProposalInTransaction } from "@/lib/topical-map/compliance-store";
 import { getSessionShop, getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { classifyPriority, findingToImpact, changeTypeToEffort } from "@/lib/content-pilot/priority-score";
@@ -25,10 +25,6 @@ const GapInputSchema = z.object({
 const PromoteGapsBodySchema = z.object({
   gaps: z.array(GapInputSchema).min(1).max(50),
 });
-
-function normalizeHandle(handle: string | null | undefined): string | null {
-  return handle ? handle.toLowerCase() : null;
-}
 
 export async function POST(req: NextRequest) {
   const appAuthError = await requireAppAuth(req);
@@ -59,7 +55,7 @@ export async function POST(req: NextRequest) {
   const candidateTitles = Array.from(new Set(gaps.map((g) => g.suggestedTitle)));
   const gapHandles = gaps.map((g) => g.articleHandle ?? articleHandleFromBlogPage(g.page)).filter((h): h is string => Boolean(h));
   const candidateHandles = Array.from(new Set(gapHandles));
-  const skippedReasons = { duplicate: 0, missingArticle: 0, nonBlogExistingPage: 0 };
+  const skippedReasons = { duplicate: 0, missingArticle: 0, nonBlogExistingPage: 0, missingGovernedContext: 0 };
 
   const created = await prisma.$transaction(async (tx) => {
     const existingArticles = await tx.articleRecord.findMany({
@@ -76,7 +72,7 @@ export async function POST(req: NextRequest) {
     const articleByTitle = new Map(existingArticles.map((a) => [a.title.toLowerCase(), a]));
 
     const seenInBatch = new Set<string>();
-    const rows: Array<Record<string, unknown>> = [];
+    const rows: Array<{ data: Record<string, unknown>; candidate: { type: "content" | "seo_metadata"; action?: "create" | "update"; targetUrl: string } }> = [];
 
     for (const gap of gaps) {
       const knownQuery = knownQueries.get(gap.query.toLowerCase());
@@ -101,6 +97,14 @@ export async function POST(req: NextRequest) {
       }
       const proposalType = decision.proposalType;
       const articleHandle = matchedArticle?.handle ?? requestedHandle ?? null;
+      const targetUrl = typeof gap.page === "string" && gap.page.trim()
+        ? gap.page.trim()
+        : articleHandle ? `/blogs/news/${articleHandle}` : null;
+      if (!targetUrl) {
+        skipped++;
+        skippedReasons.missingGovernedContext++;
+        continue;
+      }
       const title = matchedArticle?.title ?? inputTitle;
       const wordCount = matchedArticle?.wordCount ?? 0;
       const proposalTitle =
@@ -123,7 +127,7 @@ export async function POST(req: NextRequest) {
         : "medium";
     const target = Math.max(500, Math.round(Math.max(wordCount || 200, 200) * 2));
 
-    rows.push({
+    const data = {
       proposalType,
       changeType: proposalType === "new-content" ? "new_article" : "update",
       articleHandle: articleHandle ?? null,
@@ -154,18 +158,28 @@ export async function POST(req: NextRequest) {
                 gscImpressions: impressions ?? 0,
               },
       sourceData: { source: "seo-pilot", query: gap.query, impressions: impressions ?? 0, position: position ?? null, issue: gap.issue ?? null, page: gap.page ?? null },
-    });
-    const keyed = withContentProposalDedupeKey(rows[rows.length - 1] as any);
+    };
+    const keyed = withContentProposalDedupeKey(data as any);
     if (seenInBatch.has(keyed.dedupeKey)) {
-      rows.pop(); skipped++; skippedReasons.duplicate++;
-    } else seenInBatch.add(keyed.dedupeKey);
+      skipped++; skippedReasons.duplicate++;
+    } else {
+      seenInBatch.add(keyed.dedupeKey);
+      rows.push({
+        data,
+        candidate: proposalType === "new-content"
+          ? { type: "content", action: "create", targetUrl }
+          : proposalType === "seo-fix"
+            ? { type: "seo_metadata", targetUrl }
+            : { type: "content", action: "update", targetUrl },
+      });
+    }
     }
 
     if (rows.length === 0) return [];
 
     const results = [];
     for (const r of rows) {
-      const result = await createContentProposalOnce(tx, r as never);
+      const result = await createGovernedContentProposalInTransaction(tx as never, r as never);
       if (result.created) results.push(result.proposal); else skipped++;
     }
     return results;
@@ -182,7 +196,7 @@ export async function POST(req: NextRequest) {
         actor,
         action: "seo_gap_promoted",
         entityType: "ContentProposal",
-        entityId: created.map((p) => p.id).join(","),
+        entityId: created.map((p) => p!.id).join(","),
         meta: { created: created.length, skipped, skippedReasons },
       },
     });
@@ -192,6 +206,6 @@ export async function POST(req: NextRequest) {
     created: created.length,
     skipped,
     skippedReasons,
-    proposals: created.map((p) => ({ id: p.id, title: p.title })),
+    proposals: created.map((p) => ({ id: p!.id, title: p!.title })),
   });
 }
