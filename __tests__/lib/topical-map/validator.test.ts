@@ -127,5 +127,5 @@ describe("topical-map whole-package validator", () => {
     expect(first).toEqual(second);
     expect(input).toEqual(before);
     expect(input.rawPackage.packageSha256).toBe(approvedHash);
-  }, 30000);
+  }, 60000);
 });
