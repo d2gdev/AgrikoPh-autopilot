@@ -44,3 +44,13 @@ Fresh final evidence:
 - `npm run typecheck` and `npm run typecheck:test`: exit 0.
 - `npm run lint`: exit 0 with 0 errors and the same 118 unrelated warnings.
 - Three JSON config/schema files parsed; `git diff --check` passed; exact dangerous-bypass grep returned no matches.
+
+## Third final-review hardening
+
+- Failed prompt identity is canonicalized with `trim()` both when captured and when a reconciliation decision is compared.
+- A real failing executor regression uses a whitespace-padded objective, verifies before/after repository fingerprints in Sol stdin, proves the trimmed identical replay is rejected, and proves only one executor launch occurred.
+- Fixed a discovered window-edge defect: a failed executor now releases its current per-window iteration slot while retaining cumulative evidence, guaranteeing read-only reconciliation runs before any iteration-limit pause.
+- Resume validates the existing run directory and state as contained, real, non-symlink evidence before any layout creation or permission mutation. A symlinked-run regression proves the external marker contents and directory mode remain unchanged.
+- Repeated pause/resume coverage proves `answer-0001.md` and `answer-0002.md` retain distinct immutable contents, all prior events remain present, and three pause events plus two answer events append in order.
+- A bounded fake child ignores SIGTERM; the controller records delivery and exits in under two seconds through configurable 20ms test grace followed by SIGKILL. Production default remains 5000ms and accepted configuration is bounded to 10–5000ms.
+- Final focused suite: 35 passed, 0 failed. Typechecks passed. Lint: 0 errors and the unchanged 118 warnings. Three JSON files parsed; diff check and dangerous-bypass negation passed.

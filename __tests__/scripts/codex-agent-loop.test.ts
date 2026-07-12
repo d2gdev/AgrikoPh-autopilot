@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, renameSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -47,13 +47,15 @@ function run(config: object, paths: ReturnType<typeof fixture>) {
   return { ...result, parsed: JSON.parse(result.stdout.trim()) };
 }
 
-function resume(runId: string, config: object, paths: ReturnType<typeof fixture>) {
+function resume(runId: string, config: object, paths: ReturnType<typeof fixture>, answerPath?: string) {
   const configPath = resolve(paths.root, "resume-config.json");
   writeFileSync(configPath, JSON.stringify(config));
-  const result = spawnSync(process.execPath, [
+  const args = [
     controllerPath, "resume", runId, "--config", configPath, "--run-root", paths.root,
     "--codex", resolve(paths.root, "fake-codex"),
-  ], { encoding: "utf8" });
+  ];
+  if (answerPath) args.push("--answer-file", answerPath);
+  const result = spawnSync(process.execPath, args, { encoding: "utf8" });
   return { ...result, parsed: JSON.parse(result.stdout.trim()) };
 }
 
@@ -199,6 +201,72 @@ describe("codex agent loop plan progress", () => {
     const statePath = resolve(started.parsed.evidenceDirectory, "state.json");
     const state = JSON.parse(readFileSync(statePath, "utf8")); state.iteration = -1; writeFileSync(statePath, JSON.stringify(state));
     expect(resume(started.parsed.runId, {}, paths).parsed.outcome).toContain("Invalid persisted run state iteration");
+  });
+
+  test("rejects a symlinked run directory before mutating its external target", () => {
+    const paths = fixture();
+    installFakeCodex(paths, { action: "run", reason: "continue", requires_approval: false, approval_scope: [], next_prompt: "Continue", question: null, current_task_id: null, completed_task_ids: [] });
+    const started = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: false }, paths);
+    const originalRun = started.parsed.evidenceDirectory;
+    const external = resolve(paths.root, "external-evidence");
+    renameSync(originalRun, external); chmodSync(external, 0o755);
+    const marker = resolve(external, "marker.txt"); writeFileSync(marker, "unchanged"); chmodSync(marker, 0o644);
+    symlinkSync(external, originalRun, "dir");
+    const beforeMode = statSync(external).mode & 0o777;
+    const resumed = resume(started.parsed.runId, {}, paths);
+    expect(resumed.status).toBe(1);
+    expect(resumed.parsed.outcome).toContain("Symlinked run directory");
+    expect(readFileSync(marker, "utf8")).toBe("unchanged");
+    expect(statSync(external).mode & 0o777).toBe(beforeMode);
+  });
+
+  test("preserves append-only events and creates unique answers across repeated pauses", () => {
+    const paths = fixture(); const planPath = resolve(paths.workspace, "plan.md");
+    writeFileSync(planPath, "# Plan\n\n### Task alpha: First\n");
+    const pauseDecision = { action: "ask_user", reason: "choice", requires_approval: true, approval_scope: ["new_authority"], next_prompt: null, question: "Choose?", current_task_id: null, completed_task_ids: [] };
+    installFakeCodex(paths, [pauseDecision, pauseDecision, pauseDecision]);
+    const started = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath }, paths);
+    const answer1 = resolve(paths.root, "a1.md"); writeFileSync(answer1, "first");
+    resume(started.parsed.runId, {}, paths, answer1);
+    const answer2 = resolve(paths.root, "a2.md"); writeFileSync(answer2, "second");
+    resume(started.parsed.runId, {}, paths, answer2);
+    const inputs = resolve(started.parsed.evidenceDirectory, "inputs");
+    expect(readFileSync(resolve(inputs, "answer-0001.md"), "utf8")).toBe("first\n");
+    expect(readFileSync(resolve(inputs, "answer-0002.md"), "utf8")).toBe("second\n");
+    const events = readFileSync(resolve(started.parsed.evidenceDirectory, "events.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(events[0].type).toBe("run_created");
+    expect(events.filter((event) => event.type === "operator_answer_recorded")).toHaveLength(2);
+    expect(events.filter((event) => event.type === "approval_paused")).toHaveLength(3);
+  });
+
+  test("reconciles a whitespace-padded failed executor with fingerprints and rejects trimmed replay", () => {
+    const paths = fixture(); const executable = resolve(paths.root, "fake-codex"); const captured = resolve(paths.root, "planner.txt");
+    writeFileSync(paths.promptPath, "  Failed objective with whitespace  \n");
+    writeFileSync(executable, `#!/usr/bin/env node
+const fs=require('fs'); const a=process.argv.slice(2); const schema=a[a.indexOf('--output-schema')+1]; const out=a[a.indexOf('-o')+1]; let p=''; process.stdin.on('data',c=>p+=c); process.stdin.on('end',()=>{ if(schema.includes('execution-report')) process.exit(7); fs.writeFileSync(${JSON.stringify(captured)},p); fs.writeFileSync(out,JSON.stringify({action:'run',reason:'replay',requires_approval:false,approval_scope:[],next_prompt:'Failed objective with whitespace',question:null,current_task_id:null,completed_task_ids:[]})); });`);
+    chmodSync(executable, 0o755);
+    const started = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: false }, paths);
+    expect(started.parsed.status).toBe("awaiting_user");
+    const answer = resolve(paths.root, "answer.md"); writeFileSync(answer, "reconcile");
+    const reconciled = resume(started.parsed.runId, {}, paths, answer);
+    expect(reconciled.parsed.status).toBe("interrupted");
+    expect(reconciled.parsed.reason).toContain("identical failed executor prompt replay");
+    expect(readFileSync(captured, "utf8")).toMatch(/Repository before executor:[\s\S]*identity/);
+    expect(readFileSync(captured, "utf8")).toMatch(/Repository after executor:[\s\S]*identity/);
+    const events = readFileSync(resolve(started.parsed.evidenceDirectory, "events.jsonl"), "utf8");
+    expect(events.match(/"type":"executor_started"/g)).toHaveLength(1);
+  });
+
+  test("escalates a timed-out child that ignores SIGTERM to bounded SIGKILL", () => {
+    const paths = fixture(); const executable = resolve(paths.root, "fake-codex"); const signal = resolve(paths.root, "sigterm-seen");
+    writeFileSync(executable, `#!/usr/bin/env node
+const fs=require('fs'); process.on('SIGTERM',()=>fs.writeFileSync(${JSON.stringify(signal)},'yes')); process.stdin.resume(); setInterval(()=>{},1000);`);
+    chmodSync(executable, 0o755);
+    const before = Date.now();
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: false, timeoutMinutes: 0.001, terminationGraceMs: 20 }, paths);
+    expect(Date.now() - before).toBeLessThan(2_000);
+    expect(readFileSync(signal, "utf8")).toBe("yes");
+    expect(result.parsed.status).toBe("awaiting_user");
   });
   test("runs the planner before the first plan executor and snapshots immutable plan bytes", () => {
     const paths = fixture(); const planPath = resolve(paths.workspace, "plan.md");

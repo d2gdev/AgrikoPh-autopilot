@@ -94,6 +94,8 @@ function normalizeConfig(parsed) {
     if (!existsSync(directory)) throw new Error(`Additional directory does not exist: ${directory}`);
   }
   if (!Number.isInteger(config.maxIterations) || config.maxIterations < 1) throw new Error("maxIterations must be positive");
+  config.terminationGraceMs = config.terminationGraceMs ?? 5_000;
+  if (!Number.isInteger(config.terminationGraceMs) || config.terminationGraceMs < 10 || config.terminationGraceMs > 5_000) throw new Error("terminationGraceMs must be between 10 and 5000");
   if (!Number.isInteger(config.maxAutomaticWindows) || config.maxAutomaticWindows < 1) {
     throw new Error("maxAutomaticWindows must be positive");
   }
@@ -359,7 +361,7 @@ async function runCodex({ executable, role, config, prompt, schema, directory })
   const timeout = setTimeout(() => {
     timedOut = true;
     child.kill("SIGTERM");
-    killTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    killTimer = setTimeout(() => child.kill("SIGKILL"), config.terminationGraceMs);
   }, config.timeoutMinutes * 60_000);
   const result = await new Promise((resolvePromise, rejectPromise) => {
     child.once("error", rejectPromise);
@@ -499,6 +501,7 @@ async function continueRun(layout, state, config, executable) {
         saveState(layout, state);
         appendEvent(layout, state, "executor_completed", { status: state.lastReport.status });
       } catch (error) {
+        state.iteration -= 1;
         state.postExecutorFingerprint = repositoryFingerprint(config.workingDirectory);
         state.reconciliation = {
           kind: "executor_failure_reconciliation",
@@ -506,7 +509,7 @@ async function continueRun(layout, state, config, executable) {
           after: state.postExecutorFingerprint,
           failedTaskId: state.currentTaskId,
           failedPrompt: state.currentPrompt,
-          failedPromptDigest: digest(state.currentPrompt),
+          failedPromptDigest: digest(state.currentPrompt.trim()),
         };
         state.phase = "planner";
         return pause(layout, state, `Executor stopped without a valid report: ${error.message}. Review repository evidence before read-only reconciliation.`, ["new_authority"], "reconcile_executor");
@@ -665,7 +668,8 @@ async function main() {
     const runId = options.positional[0];
     if (!runId) throw new Error("resume requires a run id");
     layout = runLayout(runRoot, runId);
-    ensureLayout(layout);
+    assertContainedRealPath(layout.runDir, resolve(runRoot, ".codex-agent-loop", "runs"), "run directory");
+    assertContainedRealPath(layout.state, layout.runDir, "run state");
     state = readJson(layout.state, "run state");
     validateState(state, layout);
     config = normalizeConfig(state.config);
