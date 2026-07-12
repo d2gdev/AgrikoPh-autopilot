@@ -205,6 +205,14 @@ function validateReport(report) {
   for (const key of ["production_accessed", "deployed", "live_changes_made"]) {
     if (typeof report.runtime_impact?.[key] !== "boolean") throw new Error(`Invalid runtime_impact.${key}`);
   }
+  if (report.evidence !== undefined) {
+    const keys = report.evidence && typeof report.evidence === "object" && !Array.isArray(report.evidence)
+      ? Object.keys(report.evidence)
+      : [];
+    if (keys.length !== 1 || keys[0] !== "commit" || typeof report.evidence.commit !== "string" || !/^[0-9a-f]{7,64}$/i.test(report.evidence.commit)) {
+      throw new Error("Invalid execution report evidence");
+    }
+  }
   return report;
 }
 
@@ -212,7 +220,7 @@ function planTaskIds(planPath) {
   const source = readFileSync(planPath, "utf8");
   const identifiers = [];
   const taskHeadingLines = [...source.matchAll(/^### Task.*$/gm)].map((match) => match[0]);
-  const headings = source.matchAll(/^### Task ([^:\r\n]+):[^\r\n]*$/gm);
+  const headings = source.matchAll(/^### Task ([^:\r\n]+):[ \t]*(\S[^\r\n]*)$/gm);
   for (const heading of headings) identifiers.push(heading[1].trim());
   if (!identifiers.length || identifiers.length !== taskHeadingLines.length || identifiers.some((id) => !id)) {
     throw new Error("invalid plan task headings: every task must use '### Task <unique-id>: <title>'");

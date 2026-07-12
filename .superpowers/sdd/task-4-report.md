@@ -63,3 +63,47 @@ Duration  2.84s
 ## Concerns
 
 The repository-wide lint command currently exits 1 solely due to 118 pre-existing warnings despite reporting 0 errors. Task 4 introduces no lint finding.
+
+## Review fixes
+
+Two review findings were corrected with a separate RED/GREEN cycle:
+
+- Restored `additionalProperties: false` at the execution-report root and added one optional bounded `evidence` object. It requires exactly `commit`, rejects other evidence fields, and validates the commit as 7–64 hexadecimal characters. Runtime validation now enforces the same contract.
+- Tightened plan heading parsing so `### Task 1:` and titles containing only spaces/tabs interrupt as invalid plan task headings instead of entering planner completion validation.
+
+### Review-fix RED
+
+Command:
+
+```bash
+npx vitest run __tests__/scripts/codex-agent-loop.test.ts
+```
+
+Exact result:
+
+```text
+Test Files  1 failed (1)
+Tests  3 failed | 21 passed (24)
+```
+
+The failures were the open root schema assertion, empty-title interruption, and whitespace-only-title interruption.
+
+### Review-fix GREEN
+
+The same focused command then returned:
+
+```text
+Test Files  1 passed (1)
+Tests  24 passed (24)
+Duration  3.25s
+```
+
+Both schema JSON files were parsed with:
+
+```bash
+node -e 'const fs=require("fs"); for (const p of ["config/codex-agent-loop/execution-report.schema.json","config/codex-agent-loop/planner-decision.schema.json"]) JSON.parse(fs.readFileSync(p,"utf8"));'
+```
+
+Result: exit 0, no output.
+
+`git diff --check` result: exit 0, no output.

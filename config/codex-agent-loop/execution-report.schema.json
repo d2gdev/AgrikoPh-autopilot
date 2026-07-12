@@ -29,7 +29,18 @@
         "live_changes_made": { "type": "boolean" }
       },
       "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{7,64}$"
+        }
+      },
+      "required": ["commit"],
+      "additionalProperties": false
     }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

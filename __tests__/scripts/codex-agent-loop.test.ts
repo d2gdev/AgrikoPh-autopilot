@@ -101,6 +101,17 @@ afterEach(() => {
 });
 
 describe("codex agent loop plan configuration", () => {
+  test("keeps task-specific execution evidence bounded to a hex commit", () => {
+    const schema = JSON.parse(readFileSync(resolve(process.cwd(), "config/codex-agent-loop/execution-report.schema.json"), "utf8"));
+
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.properties.evidence).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      properties: { commit: { type: "string", pattern: "^[0-9a-fA-F]{7,64}$" } },
+    });
+  });
+
   test("does not contain a dangerous Codex bypass flag", () => {
     const source = readFileSync(controllerPath, "utf8");
 
@@ -225,6 +236,8 @@ describe("codex agent loop plan progress", () => {
   test.each([
     ["malformed", "# Plan\n\n### Task 1 First\n"],
     ["duplicate", "# Plan\n\n### Task 1: First\n\n### Task 1: Again\n"],
+    ["empty title", "# Plan\n\n### Task 1:\n"],
+    ["whitespace-only title", "# Plan\n\n### Task 1:   \t\n"],
   ])("interrupts safely for %s task headings", (_label, plan) => {
     const paths = fixture();
     const planPath = resolve(paths.workspace, "approved-plan.md");
