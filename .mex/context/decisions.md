@@ -14,7 +14,7 @@ edges:
     condition: when a decision relates to technology choice
   - target: context/skills-recommendations.md
     condition: when the decision relates to AI, guardrails, or recommendation execution
-last_updated: 2026-07-12T19:45:00+08:00
+last_updated: 2026-07-12T20:15:00+08:00
 ---
 
 # Decisions
@@ -23,6 +23,13 @@ last_updated: 2026-07-12T19:45:00+08:00
      Mark it as superseded, add the new entry above it. -->
 
 ## Decision Log
+
+### Whole-package topical-map validation rejects rather than repairs
+**Date:** 2026-07-12
+**Status:** Active
+**Decision:** Validate already loaded raw and compiled topical-map data at a pure boundary. It rechecks six-artifact hashes, supported contract/package identity, exact compiled coverage/rule references, exclusive owners, redirects, canonicals, and typed evidence freshness using only an injected UTC `asOf`.
+**Reasoning:** A validation/import-eligibility report must be deterministic, auditable, and unable to turn a contradictory package into policy by selecting a winner or repairing input.
+**Consequences:** Safe reports retain rule plus source-coordinate provenance but never source bytes. Missing, invalid/future, or stale mandatory evidence remains inspectable and blocks the report; the boundary does not persist, import, activate, supersede, roll back, call APIs, or authorize Task 5.
 
 ### Typed topical-map evidence freshness is package-date based and validation-only
 **Date:** 2026-07-12

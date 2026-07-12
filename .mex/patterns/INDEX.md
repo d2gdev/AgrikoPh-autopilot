@@ -24,4 +24,5 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [topical-map-locator-resolution.md](topical-map-locator-resolution.md) | Resolving approved topical-map Markdown and CSV source locators without interpreting policy semantics |
 | [topical-map-contract-integrity.md](topical-map-contract-integrity.md) | Validating an approved topical-map contract's hash-bound anchors, coverage, references, and approval blockers before compilation |
 | [topical-map-contract-compilation.md](topical-map-contract-compilation.md) | Atomically compiling an approved typed topical-map contract without deriving policy from source prose |
+| [topical-map-validation.md](topical-map-validation.md) | Validating a complete raw and compiled topical-map package for import eligibility without repairing, persisting, or activating it |
 | [ad-approval-workflow.md](ad-approval-workflow.md) | Working on or debugging the Ad Approval workflow (state machine, AI reviews, reviewer assignment, SLA escalation, conflict-of-interest) |
