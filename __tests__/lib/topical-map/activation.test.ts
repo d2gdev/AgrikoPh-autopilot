@@ -99,7 +99,7 @@ describe("topical-map activation persistence boundary", () => {
 });
 
 describe("topical-map atomic lifecycle transitions", () => {
-  it("activates only a same-site validated target, supersedes the prior active version, and records provenance", async () => {
+  it("fails closed for a validated target while runtime activation authorization is false", async () => {
     const client = tx();
     db.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersionId: "old" });
     client.topicalMapStrategyVersion.findUnique.mockResolvedValue({ id: "next", siteHost: "agrikoph.com", lifecycle: "validated", packageSha256: "b".repeat(64) });
@@ -107,11 +107,11 @@ describe("topical-map atomic lifecycle transitions", () => {
     client.topicalMapStrategyVersion.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 });
     client.topicalMapActivation.upsert.mockResolvedValue({ strategyVersionId: "next" });
     db.$transaction.mockImplementation(async (fn: any) => fn(client));
-    await activateStrategyVersion({ siteHost: "agrikoph.com", versionId: "next", actor: "operator", reason: "reviewed" });
-    expect(client.$executeRaw).toHaveBeenCalled();
-    expect(client.topicalMapStrategyVersion.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "next", siteHost: "agrikoph.com", lifecycle: "validated" }, data: expect.objectContaining({ lifecycle: "active" }) }));
-    expect(client.topicalMapStrategyVersion.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "old", siteHost: "agrikoph.com", lifecycle: "active" }, data: { lifecycle: "superseded" } }));
-    expect(client.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "topical_map_strategy_activated", before: expect.objectContaining({ versionId: "old", packageSha256: "a".repeat(64) }), after: expect.objectContaining({ versionId: "next", packageSha256: "b".repeat(64) }), meta: expect.objectContaining({ siteHost: "agrikoph.com", actor: "operator", reason: "reviewed" }) }) }));
+    await expect(activateStrategyVersion({ siteHost: "agrikoph.com", versionId: "next", actor: "operator", reason: "reviewed" })).rejects.toThrow("Runtime topical-map activation is not authorized.");
+    expect(client.$executeRaw).not.toHaveBeenCalled();
+    expect(client.topicalMapStrategyVersion.updateMany).not.toHaveBeenCalled();
+    expect(client.topicalMapActivation.upsert).not.toHaveBeenCalled();
+    expect(client.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("fails closed when a conditional activation loses its race", async () => {

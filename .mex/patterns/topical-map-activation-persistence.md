@@ -5,7 +5,7 @@ triggers:
   - "topical-map activation"
   - "strategy package import"
   - "strategy rollback"
-last_updated: 2026-07-12T22:46:33+08:00
+last_updated: 2026-07-13T00:00:00+08:00
 ---
 
 # Topical-map Activation Persistence
@@ -13,6 +13,14 @@ last_updated: 2026-07-12T22:46:33+08:00
 ## Context
 
 `importAndValidatePackage` is the only persistence boundary. It compiles and validates an already loaded package with an explicit `asOf`, then writes all six artifacts, compiled rules, validation issues, and the full report atomically. It never creates an activation pointer.
+
+The currently approved contract is validation/import-only: both activation
+eligibility and runtime activation authorization are false. The activation
+service therefore fails closed before opening its lifecycle transaction. Do not
+remove that guard or add an activation path without a separately approved
+runtime-authorization design. An audited rollback remains the only defined
+strategy-reversion mechanism for an already active historical state; it is not
+a schema rollback.
 
 ## Lifecycle
 

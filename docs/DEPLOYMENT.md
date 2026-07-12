@@ -66,6 +66,32 @@ npm run db:seed
 
 Run these after first setup or after pulling new migrations.
 
+### Topical-map strategy schema and package operations
+
+The topical-map persistence migration is expand-only. Before applying it to any
+environment, take and verify a database backup appropriate to that environment.
+Then apply committed migrations with:
+
+```bash
+npx prisma migrate deploy
+```
+
+Do not use destructive schema rollback for this feature. If a deployed strategy
+version must be reverted, an authorized operator changes the audited active
+activation pointer to an already validated historical version; that is a
+strategy rollback, not a Prisma/schema rollback. The migration remains in
+place.
+
+Set `TOPICAL_MAP_STRATEGY_ROOT` only to an absolute server-only directory that
+contains the complete hash-bound six-artifact package and its manifest. Package
+import and validation are operator-triggered; no topical-map validation cron
+exists. Import may persist an immutable local package/validation record, but it
+never activates a strategy and never writes to Shopify or Meta. Activation is a
+separate, audited operator action and must remain blocked unless the package's
+own eligibility and runtime-authorization controls permit it. For the approved
+July 12 package, both activation eligibility and runtime activation
+authorization are false.
+
 ---
 
 ## Google Ads OAuth

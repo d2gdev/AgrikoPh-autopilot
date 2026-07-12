@@ -172,7 +172,7 @@ describe("topical-map package operator routes", () => {
     expect(response.status).toBe(404);
   });
 
-  it("reaches the Task 5 activation boundary and retains its activation audit behavior", async () => {
+  it("fails closed before the activation transaction while runtime authorization is false", async () => {
     const actual = await vi.importActual<typeof import("@/lib/topical-map/activation")>("@/lib/topical-map/activation");
     services.activateStrategyVersion.mockImplementation(actual.activateStrategyVersion);
     db.topicalMapActivation.findUnique.mockResolvedValue(null);
@@ -182,9 +182,10 @@ describe("topical-map package operator routes", () => {
 
     const response = await (await activate()).POST(req("/packages/version-a/activate", JSON.stringify({ reason: "reviewed" })), params());
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(409);
     expect(services.activateStrategyVersion).toHaveBeenCalledWith({ versionId: "version-a", siteHost: "agrikoph.com", actor: "operator-1", reason: "reviewed" });
-    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "topical_map_strategy_activated", meta: expect.objectContaining({ actor: "operator-1", reason: "reviewed" }) }) }));
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("accepts an empty activation body and maps lifecycle conflicts to 409", async () => {
