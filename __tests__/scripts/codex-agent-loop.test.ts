@@ -27,8 +27,9 @@ function baseConfig(workspace: string, additional: string) {
     workingDirectory: workspace,
     additionalDirectories: [additional],
     maxIterations: 1,
+    maxAutomaticWindows: 1,
     timeoutMinutes: 1,
-    protectedApprovalScopes: [],
+    protectedApprovalScopes: ["new_authority", "production_access", "deployment", "live_shopify_or_meta_write", "production_database_change", "credential_or_permission_change", "destructive_or_irreversible_action", "scope_expansion", "strategy_activation"],
   };
 }
 
@@ -173,6 +174,34 @@ describe("codex agent loop plan configuration", () => {
 });
 
 describe("codex agent loop plan progress", () => {
+  test("runs the planner before the first plan executor and snapshots immutable plan bytes", () => {
+    const paths = fixture(); const planPath = resolve(paths.workspace, "plan.md");
+    writeFileSync(planPath, "# Plan\n\n### Task 1: First\n");
+    installFakeCodex(paths, { action: "run", reason: "select", requires_approval: false, approval_scope: [], next_prompt: "Implement exactly Task 1 with TDD.", question: null, current_task_id: "1", completed_task_ids: [] });
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath, maxAutomaticWindows: 1 }, paths);
+    const calls = readFileSync(resolve(paths.root, "prompts.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    expect(calls[0].schema).toContain("planner-decision");
+    const state = JSON.parse(readFileSync(resolve(result.parsed.evidenceDirectory, "state.json"), "utf8"));
+    expect(readFileSync(resolve(result.parsed.evidenceDirectory, state.planSnapshotPath), "utf8")).toContain("Task 1");
+    expect(state.planDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  test.each(["production_accessed", "deployed", "live_changes_made"])("halts on protected runtime impact %s", (field) => {
+    const paths = fixture();
+    const impact = { production_accessed: false, deployed: false, live_changes_made: false, [field]: true };
+    installFakeCodex(paths, { action: "done", reason: "done", requires_approval: false, approval_scope: [], next_prompt: null, question: null, current_task_id: null, completed_task_ids: [] }, { status: "complete", outcome: "unsafe", approval_required: false, approval_question: null, blockers: [], recommended_next_step: null, runtime_impact: impact });
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: false }, paths);
+    expect(result.parsed.status).toBe("awaiting_user");
+    expect(result.parsed.approvalScope).toContain("protected_runtime_impact");
+  });
+
+  test("rejects incomplete, duplicate, unknown protected scope configuration", () => {
+    const paths = fixture();
+    for (const scopes of [[], [...baseConfig(paths.workspace, paths.additional).protectedApprovalScopes, "deployment"], [...baseConfig(paths.workspace, paths.additional).protectedApprovalScopes, "unknown"]]) {
+      const result = run({ ...baseConfig(paths.workspace, paths.additional), protectedApprovalScopes: scopes }, paths);
+      expect(result.status).toBe(1);
+    }
+  });
   test("completes a two-task plan with bounded prompts and public progress evidence", () => {
     const paths = fixture();
     const planPath = resolve(paths.workspace, "approved-plan.md");
@@ -258,7 +287,7 @@ describe("codex agent loop plan progress", () => {
     const planPath = resolve(paths.workspace, "approved-plan.md");
     writeFileSync(planPath, "# Plan\n\n### Task alpha: First\n");
     installFakeCodex(paths, {
-      action: "ask_user", reason: "need authority", requires_approval: true, approval_scope: ["scope"],
+      action: "ask_user", reason: "need authority", requires_approval: true, approval_scope: ["new_authority"],
       next_prompt: null, question: "Authorize?", current_task_id: null, completed_task_ids: [],
     });
 
@@ -328,7 +357,7 @@ describe("codex agent loop plan progress", () => {
     const originalConfig = { ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath: originalPlan, maxIterations: 2, maxAutomaticWindows: 10 };
     const started = run(originalConfig, paths);
     installFakeCodex(paths, {
-      action: "ask_user", reason: "pause", requires_approval: true, approval_scope: ["persisted"],
+      action: "ask_user", reason: "pause", requires_approval: true, approval_scope: ["new_authority"],
       next_prompt: null, question: "Persisted?", current_task_id: null, completed_task_ids: [],
     });
 
@@ -365,7 +394,7 @@ describe("codex agent loop plan progress", () => {
         next_prompt: "Continue alpha", question: null, current_task_id: "alpha", completed_task_ids: [],
       },
       {
-        action: "ask_user", reason: "pause", requires_approval: true, approval_scope: ["operator_choice"],
+        action: "ask_user", reason: "pause", requires_approval: true, approval_scope: ["new_authority"],
         next_prompt: null, question: "Choose?", current_task_id: "alpha", completed_task_ids: [],
       },
     ]);
@@ -375,7 +404,7 @@ describe("codex agent loop plan progress", () => {
     const events = readFileSync(resolve(result.parsed.evidenceDirectory, "events.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
 
     expect(result.parsed.status).toBe("awaiting_user");
-    expect(result.parsed.approvalScope).toEqual(["operator_choice"]);
+    expect(result.parsed.approvalScope).toEqual(["new_authority"]);
     expect(state.windowNumber).toBe(2);
     expect(state.cumulativeIterations).toBe(2);
     expect(events.some((event) => event.type === "window_advanced")).toBe(true);

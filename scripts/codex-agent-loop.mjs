@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import {
   accessSync,
+  appendFileSync,
   chmodSync,
   closeSync,
   existsSync,
@@ -18,7 +19,11 @@ import {
 import { constants } from "node:fs";
 import { dirname, isAbsolute, relative as relativePath, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
+
+const PROTECTED_SCOPES = ["new_authority", "production_access", "deployment", "live_shopify_or_meta_write", "production_database_change", "credential_or_permission_change", "destructive_or_irreversible_action", "scope_expansion", "strategy_activation"];
+const digest = (value) => createHash("sha256").update(value).digest("hex");
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultConfig = resolve(projectRoot, "config/codex-agent-loop.json");
@@ -91,6 +96,7 @@ function normalizeConfig(parsed) {
   if (!Number.isInteger(config.maxAutomaticWindows) || config.maxAutomaticWindows < 1) {
     throw new Error("maxAutomaticWindows must be positive");
   }
+  if (!Array.isArray(config.protectedApprovalScopes) || config.protectedApprovalScopes.length !== new Set(config.protectedApprovalScopes).size || config.protectedApprovalScopes.some((scope) => !PROTECTED_SCOPES.includes(scope)) || PROTECTED_SCOPES.some((scope) => !config.protectedApprovalScopes.includes(scope))) throw new Error("protectedApprovalScopes must contain exactly the complete protected set");
   if (config.autoContinuePlan) {
     if (typeof config.planPath !== "string" || !config.planPath.trim()) {
       throw new Error("planPath is required when autoContinuePlan is true");
@@ -160,8 +166,16 @@ function appendEvent(layout, state, type, details = {}) {
     type,
     details,
   };
-  const previous = existsSync(layout.events) ? readFileSync(layout.events, "utf8") : "";
-  writePrivate(layout.events, `${previous}${JSON.stringify(event)}\n`);
+  appendFileSync(layout.events, `${JSON.stringify(event)}\n`, { mode: 0o600 });
+  chmodSync(layout.events, 0o600);
+}
+
+function repositoryFingerprint(cwd) {
+  const git = (...args) => spawnSync("git", args, { cwd, encoding: "utf8" });
+  const head = git("rev-parse", "HEAD");
+  const status = git("status", "--porcelain=v1", "--untracked-files=all");
+  const diff = git("diff", "--binary", "HEAD");
+  return { head: head.status === 0 ? head.stdout.trim() : null, identity: digest(`${status.stdout}\0${diff.stdout}`) };
 }
 
 function processAlive(pid) {
@@ -237,6 +251,7 @@ function validateDecision(decision, config) {
   if (typeof decision.requires_approval !== "boolean" || !Array.isArray(decision.approval_scope)) {
     throw new Error("Invalid planner approval fields");
   }
+  if (decision.approval_scope.length !== new Set(decision.approval_scope).size || decision.approval_scope.some((scope) => !config.protectedApprovalScopes.includes(scope))) throw new Error("Invalid planner approval_scope");
   if (!Array.isArray(decision.completed_task_ids) || decision.completed_task_ids.some((id) => typeof id !== "string" || !id.trim())) {
     throw new Error("Invalid planner completed_task_ids");
   }
@@ -309,14 +324,16 @@ async function runCodex({ executable, role, config, prompt, schema, directory })
   child.stdin.end(prompt);
 
   let timedOut = false;
+  let killTimer;
   const timeout = setTimeout(() => {
     timedOut = true;
     child.kill("SIGTERM");
+    killTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
   }, config.timeoutMinutes * 60_000);
   const result = await new Promise((resolvePromise, rejectPromise) => {
     child.once("error", rejectPromise);
     child.once("close", (code, signal) => resolvePromise({ code, signal }));
-  }).finally(() => clearTimeout(timeout));
+  }).finally(() => { clearTimeout(timeout); if (killTimer) clearTimeout(killTimer); });
 
   writePrivate(eventsPath, Buffer.concat(stdout));
   writePrivate(stderrPath, Buffer.concat(stderr));
@@ -340,10 +357,11 @@ Return exactly one JSON execution report matching the supplied schema. Set appro
 }
 
 function plannerPrompt(state, config) {
-  const planContext = config.autoContinuePlan ? `Approved implementation plan: ${config.planPath}
+  const planContext = config.autoContinuePlan ? `Approved implementation plan snapshot: ${config.planPath}
 Current bounded task: ${state.currentTaskId ?? "none"}
 Recorded completed tasks: ${JSON.stringify(state.completedTaskIds)}
 Select only the next incomplete task in plan order. Confirm completion from repository and verification evidence, not checkboxes alone. Do not return done while any approved plan task remains incomplete. A plan entry does not grant protected authority.
+For action=run, select exactly one named next task. Its bounded prompt must name that exact task, require task-specific RED/GREEN TDD, focused verification, one coherent commit, and GROW documentation, and explicitly exclude every later task. Never return a generic objective.
 
 ` : "";
   return `You are the read-only planning half of an automated Sol-to-Terra workflow.
@@ -419,6 +437,8 @@ async function continueRun(layout, state, config, executable) {
       writePrivate(resolve(directory, "executor-prompt.md"), `${state.currentPrompt.trim()}\n`);
       saveState(layout, state);
       appendEvent(layout, state, "executor_started");
+      state.preExecutorFingerprint = repositoryFingerprint(config.workingDirectory);
+      saveState(layout, state);
       try {
         const execution = await runCodex({
           executable,
@@ -433,7 +453,9 @@ async function continueRun(layout, state, config, executable) {
         saveState(layout, state);
         appendEvent(layout, state, "executor_completed", { status: state.lastReport.status });
       } catch (error) {
-        return pause(layout, state, `Executor stopped without a valid report: ${error.message}. Authorize retry after reviewing the run logs?`, ["retry_executor"], "retry_executor");
+        state.postExecutorFingerprint = repositoryFingerprint(config.workingDirectory);
+        state.phase = "planner";
+        return pause(layout, state, `Executor stopped without a valid report: ${error.message}. Review repository evidence before read-only reconciliation.`, ["new_authority"], "reconcile_executor");
       }
     }
 
@@ -472,8 +494,11 @@ async function continueRun(layout, state, config, executable) {
         appendEvent(layout, state, "plan_task_selected", { taskId: state.currentTaskId });
       }
 
-      if (state.lastReport.approval_required && !state.operatorAnswer) {
+      if (state.lastReport?.approval_required && !state.operatorAnswer) {
         return pause(layout, state, state.lastReport.approval_question, ["execution_report_approval"], "planner");
+      }
+      if (state.lastReport && Object.values(state.lastReport.runtime_impact).some(Boolean)) {
+        return pause(layout, state, "Protected runtime impact was reported. Automatic execution is halted.", ["protected_runtime_impact"], "protected_runtime_impact");
       }
       if (state.lastDecision.action === "ask_user" || state.lastDecision.requires_approval) {
         return pause(layout, state, state.lastDecision.question, state.lastDecision.approval_scope, "planner");
@@ -514,7 +539,7 @@ function createState(prompt, config) {
     version: "1.0.0",
     runId: `agent-loop-${timestamp.replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`,
     status: "running",
-    phase: "executor",
+    phase: config.autoContinuePlan ? "planner" : "executor",
     iteration: 0,
     planPath: config.planPath,
     currentTaskId: null,
@@ -527,6 +552,7 @@ function createState(prompt, config) {
     lastDecision: null,
     operatorAnswer: null,
     pending: null,
+    answerSequence: 0,
     result: null,
     config,
     createdAt: timestamp,
@@ -561,6 +587,14 @@ async function main() {
     state = createState(prompt, config);
     layout = runLayout(runRoot, state.runId);
     ensureLayout(layout);
+    if (config.autoContinuePlan) {
+      const bytes = readFileSync(config.planPath);
+      const snapshot = resolve(layout.inputs, "approved-plan.md");
+      writePrivate(snapshot, bytes);
+      state.planSnapshotPath = relativePath(layout.runDir, snapshot);
+      state.planDigest = digest(bytes);
+      config = { ...config, planPath: snapshot };
+    }
     writePrivate(resolve(layout.inputs, "initial-prompt.md"), `${prompt}\n`);
     saveState(layout, state);
     appendEvent(layout, state, "run_created", { configPath });
@@ -571,7 +605,11 @@ async function main() {
     ensureLayout(layout);
     state = readJson(layout.state, "run state");
     config = normalizeConfig(state.config);
-    if (state.planPath !== config.planPath) throw new Error("Persisted plan scope does not match persisted config");
+    if (state.planSnapshotPath) {
+      const snapshot = resolve(layout.runDir, state.planSnapshotPath);
+      if (!pathWithin(snapshot, layout.runDir) || digest(readFileSync(snapshot)) !== state.planDigest) throw new Error("Persisted plan snapshot or digest is invalid");
+      config = { ...config, planPath: snapshot };
+    }
     if (state.status === "completed") {
       console.log(JSON.stringify(publicStatus(layout, state)));
       return;
@@ -584,10 +622,12 @@ async function main() {
       const answerPath = absolutePath(options["answer-file"]);
       const answer = readFileSync(answerPath, "utf8").trim();
       if (!answer) throw new Error("Answer file is empty");
-      const storedAnswer = resolve(layout.inputs, `answer-${String(state.iteration).padStart(4, "0")}.md`);
-      writePrivate(storedAnswer, `${answer}\n`);
+      state.answerSequence = (state.answerSequence ?? 0) + 1;
+      const storedAnswer = resolve(layout.inputs, `answer-${String(state.answerSequence).padStart(4, "0")}.md`);
+      const answerFd = openSync(storedAnswer, "wx", 0o600);
+      try { writeFileSync(answerFd, `${answer}\n`); } finally { closeSync(answerFd); }
       state.operatorAnswer = answer;
-      state.phase = state.pending.kind === "retry_executor" ? "executor" : "planner";
+      state.phase = "planner";
       state.pending = null;
       state.status = "running";
       saveState(layout, state);
