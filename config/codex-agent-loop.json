@@ -14,9 +14,6 @@
     "/home/sean/Agriko/shopify-theme"
   ],
   "maxIterations": 30,
-  "autoContinuePlan": true,
-  "planPath": "docs/superpowers/plans/2026-07-12-topical-map-strategy-package.md",
-  "maxAutomaticWindows": 10,
   "timeoutMinutes": 60,
   "protectedApprovalScopes": [
     "new_authority",
