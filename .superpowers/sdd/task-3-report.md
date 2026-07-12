@@ -1,80 +1,68 @@
-# Task 3 Report: Keyword Research Snapshot Evidence
+# Task 3 report — production acceptance, import, and activation
 
-## What I implemented
+## Status
 
-- Added a focused unit test proving `fetchKeywordResearchHandler()` writes a persisted `RawSnapshot` with `source: "keyword_research"` for skill evidence consumption.
-- Extended the Prisma test mock surface to cover:
-  - `jobRun.findUnique`
-  - `keywordResearchResult.findMany`
-  - `rawSnapshot.upsert`
-- Updated `jobs/fetch-keyword-research.ts` to:
-  - read the latest persisted `KeywordResearchResult` rows from PostgreSQL via `prisma`
-  - build the required snapshot payload
-  - upsert a real `RawSnapshot("keyword_research")` keyed by the capture-day UTC date range
-  - attach the current `jobRunId` on create/update
+Completed. The reviewed revision-3 topical-map package is the sole active `agrikoph.com` production strategy. Shopify/Meta live execution remains disabled.
 
-## Test commands and results
+## Local acceptance
 
-- `npm test -- fetch-keyword-research`
-  - RED: failed as expected once the test harness covered the `runId` lookup path, because `rawSnapshot.upsert` had `0` calls
-  - GREEN: passed with `Test Files 1 passed (1)` and `Tests 3 passed (3)`
+- `npm run db:generate`: pass; Prisma client freshness stamp updated.
+- `npm run verify:prisma-client`: pass.
+- `npm test`: pass (exit 0).
+- `npm run typecheck`: pass after correcting an implicit-`any` in the exact-package test.
+- `npm run typecheck:test`: pass.
+- `npm run lint`: pass (exit 0).
+- Isolated `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/autopilot_test?... npm run build`: pass.
+- `git diff --check`: pass.
+- Guarded `DATABASE_URL_TEST=postgresql://test:test@127.0.0.1:5432/autopilot_test npm run test:postgres`: pass; all 52 migrations current.
 
-## TDD Evidence
+The test-only typing correction was committed as `2299c41bda10a81458a4fb4cf62e9b7ef2995ce7` before rollout. Unrelated dirty Shopify-theme files were not staged or changed.
 
-### RED
+## Backup and deployment
 
-1. Added the failing snapshot-evidence test in `__tests__/jobs/fetch-keyword-research.test.ts`.
-2. First execution exposed missing mock surface:
-   - `TypeError: prisma.jobRun.findUnique is not a function`
-3. Fixed the test harness to cover the existing runtime path, then reran RED.
-4. Confirmed behavioral failure:
-   - `AssertionError: expected "vi.fn()" to be called`
-   - `Number of calls: 0`
-   - target: `mockPrisma.rawSnapshot.upsert`
+- Verified custom-format backup: `/opt/backups/autopilot-topical-map-activation-20260712T211030Z.dump`.
+- Size: 28,374,854 bytes.
+- SHA-256: `92c335073944d04d09df3a372d06b5c9d4984d94522458c23e2712d3c4ed1533`.
+- `pg_restore --list`: pass.
+- Deployed with `node scripts/git-deploy.mjs`.
+- Initial release commit parity: local/origin/server `2299c41bda10a81458a4fb4cf62e9b7ef2995ce7`.
+- Production migrations: 52 present, none pending.
+- Initial active build ID: `SAuR45WdRY950HUfxeFge`.
+- PM2: online; public health: `ok`, no degraded reasons.
 
-### GREEN
+## Package install and import
 
-1. Implemented the `keyword_research` snapshot upsert in `jobs/fetch-keyword-research.ts`.
-2. Reran `npm test -- fetch-keyword-research`.
-3. Confirmed passing result:
-   - `Test Files 1 passed (1)`
-   - `Tests 3 passed (3)`
+- Installed exactly seven files under mode-0700 `/opt/autopilot-strategy/topical-map-f2a39fabd27a1dcb` (one manifest and six artifacts; files mode 0600).
+- Runtime canonical manifest filename: `strategy-package-manifest.json`; bytes are the committed revision-3 dated manifest.
+- Package SHA-256 independently derived on production: `f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c`.
+- Contract SHA-256: `3fe3f70b239fc907b61dc8baf96e2c3916c515fd046f2124ea1f2edb0098cb05`.
+- All five semantic artifact hashes matched the manifest.
+- The first import attempt returned typed `MISSING_FILE` because the runtime requires the canonical manifest basename. Renaming the same reviewed manifest in place preserved exactly seven files and the package identity; no validation was bypassed.
+- Authenticated import returned HTTP 201 and version `cmriak0gt00y8s66lxrfkstp6`.
+- Imported state: lifecycle `validated`, validation `valid`, 6 artifacts, 1,493 compiled rules, 0 validation issues.
 
-## Files changed
+## Explicit activation and verification
 
-- `jobs/fetch-keyword-research.ts`
-- `__tests__/jobs/fetch-keyword-research.test.ts`
-- `.superpowers/sdd/task-3-report.md`
+- Persisted `TOPICAL_MAP_STRATEGY_ROOT=/opt/autopilot-strategy/topical-map-f2a39fabd27a1dcb`.
+- Persisted `TOPICAL_MAP_ACTIVATION_ENABLED=true`.
+- Persisted and verified `EXECUTE_APPROVED_LIVE_ENABLED=false`.
+- PM2 was deleted/recreated and saved to eliminate inherited overrides; health returned `ok` after restart.
+- Authenticated `SETTINGS_ADMIN` activation returned HTTP 200 once, with reason: `Operator-authorized production activation of reviewed topical-map revision 3; strategy selection only, Shopify/Meta live execution remains disabled.`
+- Sole active pointer count: 1, referencing version `cmriak0gt00y8s66lxrfkstp6` and package `f2a39f...bf1c`.
+- Target lifecycle: `active`; validation remains `valid`; counts remain 6 artifacts, 1,493 rules, 0 issues.
+- Activation audit count: 1; actor `api-key`; action `topical_map_strategy_activated`; reason persisted.
+- `loadActiveStrategyPolicy` loaded the active production projection with the same package identity and 1,493 rules.
+- Recommendations executed since the pre-rollout backup: 0.
+- PM2: online; public health: `ok`; `EXECUTE_APPROVED_LIVE_ENABLED=false`.
 
-## Self-review findings
+## GROW
 
-- Runtime code uses `import { prisma } from "@/lib/db"` only.
-- No fixture data was introduced into runtime logic; the snapshot is built from persisted `keywordResearchResult` rows.
-- The snapshot write is scoped to the capture-day UTC range and uses `rawSnapshot.upsert`, matching the existing `RawSnapshot` uniqueness model.
-- The test remains focused on the task’s contract: a `keyword_research` snapshot exists with the expected evidence payload.
-- No unrelated files were edited.
-
-## Verify checklist
-
-- New API route exports `dynamic`: not applicable, no route changes
-- Embedded route auth first statement: not applicable, no route changes
-- Cron auth + job lock: not applicable, no route changes
-- All DB access imports `prisma` from `@/lib/db`: pass
-- LLM outputs validated with Zod before persistence: not applicable, no LLM path changed
-- No `NEXT_PUBLIC_*` secret exposure: pass
-- New job handlers write `JobRun` and return `JobResult<T>`: not applicable, existing handler updated only
-- Skills prompts in markdown, not TS strings: not applicable
+- Ground: production strategy selection now resolves the reviewed revision-3 package through the sole active pointer.
+- Record: updated `.mex/ROUTER.md` and `.mex/events/decisions.jsonl` with verified activation evidence.
+- Orient: existing topical-map strategy-package and activation runbooks covered the recurring workflow; no new runbook was needed.
+- Write: recorded the activation decision with `mex log`; the final release-record commit is deployed and verified below.
 
 ## Concerns
 
-- None.
-
-## Review remediation (2026-07-09)
-
-- Fixed the critical day-scoping bug in `jobs/fetch-keyword-research.ts`: the snapshot payload query now reads `keywordResearchResult` rows only from the same UTC capture window used by `RawSnapshot("keyword_research")`, via `where: { capturedAt: { gte: start, lt: end } }`.
-- Strengthened the regression test in `__tests__/jobs/fetch-keyword-research.test.ts` by freezing time and asserting the `findMany` call includes the exact current-day `capturedAt` bounds, plus the matching snapshot date-range key.
-
-## Review remediation verification
-
-- `npm test -- fetch-keyword-research`: pass (`Test Files 1 passed (1)`, `Tests 3 passed (3)`)
-- `npx tsc --noEmit`: pass
+- The production reader requires the fixed basename `strategy-package-manifest.json`; dated source manifests must be installed under that canonical runtime name without changing bytes.
+- The first localhost health probe after each deliberate PM2 recreation can briefly receive connection refused before the retry succeeds; final local and public health checks were green.
