@@ -51,4 +51,13 @@ describe("topical-map strategy-package persistence migration", () => {
     expect(sql).not.toMatch(/\bDELETE\s+FROM\b/i);
     expect(sql).not.toMatch(/\bUPDATE\s+"(?:ContentProposal|Recommendation)"/i);
   });
+
+  it("adds a nullable lossless validation report without weakening the original immutable contract", async () => {
+    const schema = await readFile(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+    const sql = await readFile(resolve(process.cwd(), "prisma/migrations/20260712100000_add_topical_map_validation_report/migration.sql"), "utf8");
+
+    expect(schema).toContain("validationReport      Json?");
+    expect(sql).toContain('ADD COLUMN "validationReport" JSONB');
+    expect(sql).not.toMatch(/\bDROP\b/i);
+  });
 });

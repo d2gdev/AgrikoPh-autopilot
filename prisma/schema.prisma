@@ -418,6 +418,7 @@ model TopicalMapStrategyVersion {
   manifest              Json
   lifecycle             String   @default("draft") // draft | validated | active | superseded | rolled_back | rejected
   validationStatus      String   @default("pending") // pending | valid | invalid | stale_evidence
+  validationReport      Json?
   compiledAt            DateTime?
   compiledSchemaVersion String?
   validatedAt           DateTime?
