@@ -60,6 +60,7 @@ const mockJobs = vi.hoisted(() => ({
 }));
 const mockEnqueueJob = vi.hoisted(() => vi.fn());
 const mockMaterializeJobsStatusSnapshot = vi.hoisted(() => vi.fn());
+const mockCreateGovernedContentProposal = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
   PERMISSIONS: { CONTENT_REVIEW: "content:review" },
@@ -70,6 +71,10 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
+vi.mock("@/lib/topical-map/compliance-store", () => ({
+  createGovernedContentProposal: mockCreateGovernedContentProposal,
+  createGovernedContentProposalInTransaction: mockCreateGovernedContentProposal,
+}));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock("@/lib/seo/data", () => mockSeoData);
 vi.mock("@/lib/ai/client", () => ({ getAiClient: mockGetAiClient, chatCompletionWithFailover: mockChatCompletion }));
@@ -104,6 +109,11 @@ describe("SEO Pilot route regressions", () => {
     mockAuth.getSessionUser.mockResolvedValue("api-key");
     mockCheckRateLimit.mockReturnValue(true);
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+    mockCreateGovernedContentProposal.mockImplementation(async (_db, { data }) => ({
+      created: true,
+      proposal: await mockPrisma.contentProposal.create({ data }),
+      compliance: { result: "compliant", executionAuthorized: false },
+    }));
     mockPrisma.contentProposal.findMany.mockResolvedValue([]);
     mockPrisma.contentProposal.createMany.mockImplementation(async ({ data }) => { const p = await mockPrisma.contentProposal.create({ data: data[0] }); mockPrisma.contentProposal.findUnique.mockResolvedValue(p); return { count: 1 }; });
     mockPrisma.contentProposal.findUnique.mockResolvedValue({ id: "proposal-1" });
@@ -184,6 +194,7 @@ describe("SEO Pilot route regressions", () => {
       handle: "black-rice",
       title: "Client title ignored",
       issue: "missing-meta",
+      targetUrl: "/blogs/news/black-rice",
     }));
     const body = await res.json();
 
@@ -217,6 +228,7 @@ describe("SEO Pilot route regressions", () => {
       title: "Moringa Benefits",
       wordCount: 9_999,
       issue: "missing-h1",
+      targetUrl: "/blogs/news/moringa",
     }));
 
     expect(res.status).toBe(200);

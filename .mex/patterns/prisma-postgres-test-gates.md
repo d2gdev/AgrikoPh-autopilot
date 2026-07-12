@@ -12,20 +12,20 @@ edges:
     condition: when running local verification commands
   - target: context/conventions.md
     condition: when database access is added to an integration test
-last_updated: 2026-07-10T20:33:00Z
+last_updated: 2026-07-12T00:00:00Z
 ---
 
 # Prisma and PostgreSQL Test Gates
 
 ## Context
 
-`npm run db:generate` must be followed by a current hash stamp based on `prisma/schema.prisma`, `package.json`, and `package-lock.json`. The default Vitest configuration explicitly excludes `__tests__/postgres/**`, so ordinary `npm test` does not require or read `DATABASE_URL_TEST`. PostgreSQL integration tests use `DATABASE_URL_TEST` only; `vitest.postgres.config.ts` validates it before assigning it to `DATABASE_URL` for the test process.
+`npm run db:generate` must be followed by a current hash stamp based on `prisma/schema.prisma`, `package.json`, and `package-lock.json`. PostgreSQL integration tests live in `__tests__/integration/**` and run with `npm run test:postgres`; they must guard database access when `DATABASE_URL_TEST` is absent so ordinary `npm test` remains safe. `vitest.postgres.config.ts` validates `DATABASE_URL_TEST` before assigning it to `DATABASE_URL` for the PostgreSQL test process.
 
 ## Steps
 
 1. After changing Prisma inputs or dependencies, run `npm run db:generate`.
 2. Run `npm run verify:prisma-client` before application or test typechecks.
-3. Place database-backed tests in `__tests__/postgres/` so `npm run test:postgres` is isolated from the mocked Vitest suite.
+3. Place database-backed tests in `__tests__/integration/` because `vitest.postgres.config.ts` explicitly collects `__tests__/integration/**/*.test.ts`. Guard each suite against an absent `DATABASE_URL_TEST`; do not change test discovery to preserve obsolete documentation.
 4. Use exactly `postgresql://test:test@127.0.0.1:5432/autopilot_test`; the URL-decoded database path must be exactly `autopilot_test`.
 5. In CI, retain the PostgreSQL 16 service and set `DATABASE_URL_TEST`; never use a production or secret database URL.
 
@@ -34,7 +34,7 @@ last_updated: 2026-07-10T20:33:00Z
 - `prisma generate` alone is not enough for this repository: it must update the freshness stamp through `npm run db:generate`.
 - The PostgreSQL guard rejects a missing URL, every host except `localhost`/`127.0.0.1`, and every URL-decoded database path except `autopilot_test`. Do not recreate a generic `test`-token allowlist plus a production-name denylist: composable names such as `autopilot_productionX_test` can bypass it. The `postgres` service hostname is allowed only when both `CI=true` and `ALLOW_CI_POSTGRES=true`.
 - Keep the generated-client verification before both typecheck steps, otherwise a reused dependency cache can hide stale Prisma types.
-- Keep `__tests__/postgres/**` in the default Vitest `exclude` list. The PostgreSQL config's `include` is not enough by itself because the default suite otherwise discovers future integration files.
+- The default Vitest configuration still excludes the legacy `__tests__/postgres/**` path, but the active PostgreSQL configuration collects `__tests__/integration/**`. Integration suites must therefore use the guarded URL pattern; do not rely on the stale excluded path for isolation.
 
 ## Verify
 

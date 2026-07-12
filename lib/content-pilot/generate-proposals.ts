@@ -771,5 +771,23 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
     deduped.push(proposal);
   }
 
-  return deduped;
+  return deduped.map((proposal) => ({
+    ...proposal,
+    sourceData: {
+      ...proposal.sourceData,
+      strategyCandidate: structuredCandidate(proposal),
+    },
+  }));
+}
+
+function structuredCandidate(proposal: ProposalInput): Record<string, unknown> | null {
+  if (proposal.proposalType === "internal-link") {
+    const state = proposal.proposedState as { fromArticle?: unknown; toArticle?: unknown };
+    if (typeof state.fromArticle !== "string" || typeof state.toArticle !== "string") return null;
+    return { type: "internal_link", fromUrl: `/blogs/news/${state.fromArticle}`, toUrl: `/blogs/news/${state.toArticle}` };
+  }
+  if (!proposal.articleHandle) return null;
+  const targetUrl = `/blogs/news/${proposal.articleHandle}`;
+  if (proposal.proposalType === "seo-fix") return { type: "seo_metadata", targetUrl };
+  return { type: "content", action: proposal.proposalType === "new-content" ? "create" : "update", targetUrl };
 }

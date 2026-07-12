@@ -4,7 +4,7 @@ export const maxDuration = 30;
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
+import { createGovernedContentProposalInTransaction } from "@/lib/topical-map/compliance-store";
 import { getSessionShop, getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { chatCompletionWithFailover } from "@/lib/ai/client";
@@ -15,6 +15,7 @@ import {
   CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES,
   contentProposalDedupeKey,
 } from "@/lib/content-pilot/proposal-dedupe";
+import type { StrategyProposalCandidate } from "@/lib/topical-map/proposal-context";
 
 const MAX_TASKS = 8;
 
@@ -268,7 +269,9 @@ ${articleRecords.slice(0, 120).map((a) => `${a.handle} — ${a.title} — ${a.wo
     if (toCreate.length === 0) return [];
     const results = [];
     for (const r of toCreate) {
-      const result = await createContentProposalOnce(tx, r as never);
+      const candidate = candidateForProposal(r);
+      if (!candidate) { dropped++; continue; }
+      const result = await createGovernedContentProposalInTransaction(tx as never, { data: r as never, candidate });
       if (result.created) results.push(result.proposal); else skipped++;
     }
     return results;
@@ -282,7 +285,7 @@ ${articleRecords.slice(0, 120).map((a) => `${a.handle} — ${a.title} — ${a.wo
           actor,
           action: "seo_recommendation_decomposed",
           entityType: "ContentProposal",
-          entityId: created.map((p) => p.id).join(","),
+          entityId: created.map((p) => p!.id).join(","),
           meta: { created: created.length, skipped, dropped, capped },
         },
       });
@@ -294,6 +297,22 @@ ${articleRecords.slice(0, 120).map((a) => `${a.handle} — ${a.title} — ${a.wo
     skipped,
     dropped,
     capped,
-    proposals: created.map((p) => ({ id: p.id, title: p.title, type: p.proposalType })),
+    proposals: created.map((p) => ({ id: p!.id, title: p!.title, type: p!.proposalType })),
   });
+}
+
+function candidateForProposal(row: Record<string, unknown>): StrategyProposalCandidate | null {
+  const state = row.proposedState as Record<string, unknown> | null;
+  const handle = typeof row.articleHandle === "string" && row.articleHandle ? row.articleHandle : null;
+  if (row.proposalType === "new-content") return null;
+  if (row.proposalType === "internal-link") {
+    const from = typeof state?.fromArticle === "string" ? state.fromArticle : null;
+    const to = typeof state?.toArticle === "string" ? state.toArticle : null;
+    return from && to ? { type: "internal_link", fromUrl: `/blogs/news/${from}`, toUrl: `/blogs/news/${to}` } : null;
+  }
+  if (!handle) return null;
+  const targetUrl = `/blogs/news/${handle}`;
+  return row.proposalType === "seo-fix"
+    ? { type: "seo_metadata", targetUrl }
+    : { type: "content", action: "update", targetUrl };
 }

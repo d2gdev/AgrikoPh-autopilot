@@ -10,6 +10,7 @@ const mockAuth = vi.hoisted(() => ({
 const mockGenerateDraft = vi.hoisted(() => vi.fn());
 const mockPublishDraft = vi.hoisted(() => vi.fn());
 const mockCreateContentProposalOnce = vi.hoisted(() => vi.fn());
+const mockCreateGovernedContentProposal = vi.hoisted(() => vi.fn());
 const mockCheckRateLimit = vi.hoisted(() => vi.fn());
 const mockGenerateProposals = vi.hoisted(() => vi.fn());
 const mockFetchBlogArticles = vi.hoisted(() => vi.fn());
@@ -65,6 +66,9 @@ vi.mock("@/lib/content-pilot/create-proposal", () => ({
   createContentProposalOnce: mockCreateContentProposalOnce,
   withContentProposalDedupeKey: vi.fn((proposal) => proposal),
 }));
+vi.mock("@/lib/topical-map/compliance-store", () => ({
+  createGovernedContentProposal: mockCreateGovernedContentProposal,
+}));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock("@/lib/content-pilot/proposal-dedupe", () => ({
   CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES: [],
@@ -104,6 +108,7 @@ function mockPrismaCalls() {
 function expectNoMutationBoundaries() {
   expect(mockPrismaCalls()).toBe(0);
   expect(mockCreateContentProposalOnce).not.toHaveBeenCalled();
+  expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
   expect(mockGenerateDraft).not.toHaveBeenCalled();
   expect(mockPublishDraft).not.toHaveBeenCalled();
   expect(mockGenerateProposals).not.toHaveBeenCalled();
@@ -180,13 +185,14 @@ describe("Content Pilot mutation permissions", () => {
 
   it("allows a content reviewer to create a manually requested proposal", async () => {
     mockAuth.requirePermission.mockResolvedValue(null);
-    mockCreateContentProposalOnce.mockResolvedValue({
+    mockCreateGovernedContentProposal.mockResolvedValue({
       created: true,
       proposal: { id: "proposal-1" },
+      compliance: { result: "compliant" },
     });
     const req = new Request("http://test.local/manual", {
       method: "POST",
-      body: JSON.stringify({ topic: "Organic rice recipes" }),
+      body: JSON.stringify({ topic: "Organic rice recipes", targetUrl: "/blogs/news/organic-rice-recipes" }),
     });
     const { POST } = await import("@/app/api/content-pilot/proposals/manual/route");
 
@@ -194,6 +200,6 @@ describe("Content Pilot mutation permissions", () => {
 
     expect(response.status).toBe(200);
     expect(mockAuth.requirePermission).toHaveBeenCalledWith(req, "content:review");
-    expect(mockCreateContentProposalOnce).toHaveBeenCalledTimes(1);
+    expect(mockCreateGovernedContentProposal).toHaveBeenCalledTimes(1);
   });
 });

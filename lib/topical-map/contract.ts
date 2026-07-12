@@ -1,0 +1,45 @@
+import { z } from "zod";
+import { CompilationContractError, type CompilationContractEnvelope } from "./types";
+
+const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
+const semanticId = z.enum(["map", "evidence", "url-inventory", "redirect-inventory", "internal-links"]);
+const compatibility = z.object({ runtimeSchema: z.string(), pluginVersion: z.string(), siteHost: z.literal("agrikoph.com"), urlNormalization: z.string() }).strict();
+const headingPath = z.array(z.string().min(1)).min(1);
+const markdownLocator = z.object({ kind: z.enum(["markdown_heading", "markdown_prose_span"]), headingPath, contentFingerprint: sha256, lineStart: z.number().int().min(1), lineEnd: z.number().int().min(1) }).strict();
+const csvLocator = z.object({ kind: z.literal("csv_row"), businessKey: z.string().min(1), headerFingerprint: sha256, rowFingerprint: sha256, rowNumber: z.number().int().min(2) }).strict();
+const locator = z.union([markdownLocator, csvLocator]);
+const sourceReference = z.object({ coverageUnitId: z.string().regex(/^coverage:/), artifactId: semanticId, locator }).strict();
+const literalRequirement = z.union([
+  z.object({ kind: z.literal("literal_source_condition"), text: z.string().min(1), sourceReferenceIds: z.array(z.string().regex(/^coverage:/)).min(1) }).strict(),
+  z.object({ kind: z.literal("source_required_evidence"), text: z.string().min(1), sourceReferenceIds: z.array(z.string().regex(/^coverage:/)).min(1), mandatory: z.literal(true), evidenceClass: z.enum(["general_seo_market", "high_stakes"]), maxAgeDays: z.union([z.literal(180), z.literal(90)]) }).strict(),
+  z.object({ kind: z.literal("source_required_manual_review"), text: z.string().min(1), sourceReferenceIds: z.array(z.string().regex(/^coverage:/)).min(1) }).strict(),
+]).superRefine((value, ctx) => {
+  if (value.kind === "source_required_evidence" && ((value.evidenceClass === "general_seo_market" && value.maxAgeDays !== 180) || (value.evidenceClass === "high_stakes" && value.maxAgeDays !== 90))) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "evidence freshness" });
+});
+const provenance = z.object({ projection: z.string(), authoredAt: z.enum(["2026-07-11", "2026-07-12"]) }).strict();
+const scheduleBoundary = z.object({ operationMode: z.literal("proposal_only"), executionProhibited: z.literal(true), elapsedTimeAuthorizesAction: z.literal(false), satisfactionCanTriggerMutation: z.literal(false), independentSafeguardsRequired: z.literal(true), absentEvidenceNonExecutable: z.literal(true) }).strict();
+const phaseGate = z.object({ governedAdvisoryAction: z.string().min(1), defaultSatisfied: z.literal(false), autoPass: z.literal(false), reviewRequired: z.literal(true), executionProhibited: z.literal(true), blocksOnlyGovernedAction: z.literal(true), sourceConditions: z.array(z.string().min(1)).min(1) }).strict();
+const advisory = z.object({ operationMode: z.literal("proposal_only"), executionProhibited: z.literal(true), stateClassification: z.enum(["observed_current_state", "proposed_review_state", "evidence_not_asserted"]), evidenceRequirement: z.literal("read_only_evidence_required"), deferredExecutionDecisions: z.array(z.string()).min(1) }).strict();
+const urlPayload = z.object({ currentUrl: z.string(), proposedCanonicalUrl: z.string(), title: z.string(), contentKind: z.string(), publishingState: z.string(), cluster: z.string(), primaryKeywordOrTheme: z.string(), secondaryVariants: z.string(), dominantIntent: z.string(), role: z.string(), decision: z.string(), exactTargetIfAny: z.string(), priority: z.string(), evidence: z.string(), exclusiveIntentScope: z.string().min(1).optional(), advisoryCanonicalIndexation: advisory.optional() }).strict();
+const clusterPayload = z.object({ cluster: z.string(), memberUrls: z.array(z.string()) }).strict();
+const redirectPayload = z.object({ redirectId: z.string(), source: z.string(), configuredTarget: z.string(), finalTarget: z.string(), hopCount: z.string(), topicRelevant: z.string(), knownState: z.string(), requiredAction: z.string() }).strict();
+const linkPayload = z.object({ fromUrl: z.string(), toUrl: z.string(), currentBodyState: z.string(), requiredAction: z.string(), recommendedAnchor: z.string(), linkPurpose: z.string(), priority: z.string(), verification: z.string() }).strict();
+const literalPayload = z.object({ name: z.string(), literalText: z.string() }).strict();
+const domains = z.enum(["clusters", "page_roles", "url_intent_ownership", "content_decisions", "prohibited_content", "internal_links", "redirects", "canonicalization", "indexation", "evidence_gates", "high_stakes_reviews"]);
+const baseRule = z.object({ ruleId: z.string().regex(/^[a-z][a-z0-9_-]*:/), domain: domains, type: z.string(), sourceReferences: z.array(sourceReference).min(1), sourceFingerprints: z.array(sha256).min(1), conditions: z.array(literalRequirement), evidenceRequirements: z.array(literalRequirement), reviewRequirements: z.array(literalRequirement), resolutionStatus: z.enum(["resolved", "manual_gate", "activation_blocking"]), provenance, scheduleAuthorityBoundary: scheduleBoundary.optional(), phaseGate: phaseGate.optional() }).strict();
+const rule = baseRule.extend({ payload: z.union([urlPayload, clusterPayload, redirectPayload, linkPayload, literalPayload]) }).superRefine((value, ctx) => {
+  const expected = value.domain === "clusters" ? clusterPayload : value.domain === "redirects" ? redirectPayload : value.domain === "internal_links" ? linkPayload : value.domain === "evidence_gates" || value.domain === "high_stakes_reviews" ? literalPayload : urlPayload;
+  if (!expected.safeParse(value.payload).success) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "payload" });
+  if (value.type === "phase_specific_schedule_gate" && (!value.phaseGate || value.reviewRequirements.length === 0)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "phase gate" });
+  if (value.type === "literal_schedule_obligation" && !value.scheduleAuthorityBoundary) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "schedule" });
+  if (value.domain === "canonicalization" || value.domain === "indexation") {
+    const payload = urlPayload.safeParse(value.payload);
+    if (!payload.success || !payload.data.advisoryCanonicalIndexation) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "advisory" });
+  }
+});
+const coverage = z.object({ coverageId: z.string().regex(/^coverage:/), artifactId: semanticId, locator, disposition: z.enum(["compiled", "contextual_non_runtime", "unresolved_activation_blocking", "superseded"]), ruleIds: z.array(z.string()), ambiguityIds: z.array(z.string().regex(/^ambiguity:/)), rationale: z.string().min(1) }).strict();
+const ambiguity = z.object({ ambiguityId: z.string().regex(/^ambiguity:/), classification: z.enum(["manual_gate", "activation_blocking"]), sourceReferences: z.array(sourceReference).min(1), unresolvedQuestion: z.string().min(1), safeEffect: z.literal("blocks_governed_action"), provenance: z.object({ recordedAt: z.literal("2026-07-12"), reason: z.string() }).strict() }).strict();
+const review = z.object({ status: z.enum(["pending", "approved"]), approval: z.object({ identity: z.string().nullable(), approvedAt: z.string().datetime().nullable() }).strict(), validationImportEligible: z.boolean(), activationEligible: z.boolean(), operatorReviewRequired: z.literal(true), active: z.boolean(), approvalBasis: z.string(), approvalScope: z.string(), runtimeActivationAuthorized: z.literal(false), liveExecutionAuthorized: z.literal(false), canonicalIndexationExecutionProhibited: z.literal(true), task3Authorized: z.literal(false) }).strict().superRefine((v, ctx) => { if (v.status === "approved" && (!v.approval.identity || !v.approval.approvedAt || !v.validationImportEligible || v.activationEligible || v.active)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "approval" }); if (v.status === "pending" && (v.validationImportEligible || v.activationEligible)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "pending" }); });
+const contractSchema = z.object({ $schema: z.string(), contractSchemaVersion: z.literal("1.0.0"), contractRevision: z.string().regex(/^[1-9][0-9]*$/), strategyVersion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), siteHost: z.literal("agrikoph.com"), sourceArtifacts: z.tuple([z.object({ id: z.literal("map"), sha256 }).strict(), z.object({ id: z.literal("evidence"), sha256 }).strict(), z.object({ id: z.literal("url-inventory"), sha256 }).strict(), z.object({ id: z.literal("redirect-inventory"), sha256 }).strict(), z.object({ id: z.literal("internal-links"), sha256 }).strict()]), compatibility, locatorGrammarVersion: z.literal("agriko-locator-v1"), coverageInventory: z.array(coverage), rules: z.array(rule), unresolvedAmbiguities: z.array(ambiguity), review }).strict();
+export type CompilationContract = z.infer<typeof contractSchema> & CompilationContractEnvelope;
+export function parseCompilationContract(value: unknown): CompilationContract { const result = contractSchema.safeParse(value); if (!result.success) throw new CompilationContractError("INVALID_CONTRACT_SCHEMA"); return result.data as CompilationContract; }

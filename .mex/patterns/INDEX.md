@@ -22,4 +22,12 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [seo-pilot-proposal-actions.md](seo-pilot-proposal-actions.md) | SEO Pilot actions create proposals that do not generate or publish correctly in Content Pilot |
 | [surface-fix.md](surface-fix.md) | Running a bounded audit/fix loop for one named product surface |
 | [codex-agent-loop.md](codex-agent-loop.md) | Running or resuming a bounded approved implementation plan through the local Codex controller |
+| [topical-map-locator-resolution.md](topical-map-locator-resolution.md) | Resolving approved topical-map Markdown and CSV source locators without interpreting policy semantics |
+| [topical-map-contract-integrity.md](topical-map-contract-integrity.md) | Validating an approved topical-map contract's hash-bound anchors, coverage, references, and approval blockers before compilation |
+| [topical-map-contract-compilation.md](topical-map-contract-compilation.md) | Atomically compiling an approved typed topical-map contract without deriving policy from source prose |
+| [topical-map-validation.md](topical-map-validation.md) | Validating a complete raw and compiled topical-map package for import eligibility without repairing, persisting, or activating it |
+| [topical-map-activation-persistence.md](topical-map-activation-persistence.md) | Persisting immutable strategy packages and atomically activating, superseding, or rolling back validated versions |
+| [topical-map-policy-evaluation.md](topical-map-policy-evaluation.md) | Deterministically evaluating a supplied governed proposal without selecting, persisting, or executing a strategy |
+| [topical-map-operator-surface.md](topical-map-operator-surface.md) | Rendering authenticated, read-only topical-map package governance in SEO Pilot |
+| [topical-map-strategy-package.md](topical-map-strategy-package.md) | Safely operating, migrating, validating, importing, activating, or rolling back the complete topical-map strategy package |
 | [ad-approval-workflow.md](ad-approval-workflow.md) | Working on or debugging the Ad Approval workflow (state machine, AI reviews, reviewer assignment, SLA escalation, conflict-of-interest) |

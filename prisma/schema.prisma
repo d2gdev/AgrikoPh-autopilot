@@ -63,6 +63,7 @@ model Recommendation {
 
   snapshotId       String
   snapshot         RawSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  topicalMapProposalCompliances TopicalMapProposalCompliance[]
 
   @@index([status, createdAt])
   @@index([status, targetEntityId])
@@ -391,6 +392,7 @@ model ContentProposal {
   publishTrigger           String?
 
   draftHistory  ContentProposalDraftHistory[]
+  topicalMapProposalCompliances TopicalMapProposalCompliance[]
 
   @@index([status])
   @@index([status, priority, createdAt])
@@ -398,6 +400,147 @@ model ContentProposal {
   @@index([createdAt])
   @@index([draftStatus])
   @@index([scheduledPublishAt])
+}
+
+// The topical-map package is a content-addressed, immutable strategy source.
+// Lifecycle changes are constrained by PostgreSQL triggers in its migration;
+// this model deliberately has no application-level mutation path in Task 1.
+model TopicalMapStrategyVersion {
+  id                    String   @id @default(cuid())
+  createdAt             DateTime @default(now())
+  siteHost              String
+  packageId             String
+  strategyVersion       String
+  packageSha256         String
+  evidenceDate          DateTime
+  provenance            Json
+  compatibility         Json
+  manifest              Json
+  lifecycle             String   @default("draft") // draft | validated | active | superseded | rolled_back | rejected
+  validationStatus      String   @default("pending") // pending | valid | invalid | stale_evidence
+  validationReport      Json?
+  compiledAt            DateTime?
+  compiledSchemaVersion String?
+  validatedAt           DateTime?
+  activatedAt           DateTime?
+
+  artifacts             TopicalMapStrategyArtifact[]
+  validationIssues      TopicalMapValidationIssue[]
+  compiledRules         TopicalMapCompiledRule[]
+  activations           TopicalMapActivation[]
+  proposalCompliances   TopicalMapProposalCompliance[]
+
+  @@unique([siteHost, packageSha256])
+  @@unique([id, siteHost])
+  @@unique([id, packageSha256])
+  @@index([siteHost, lifecycle])
+  @@index([packageSha256])
+  @@index([strategyVersion])
+}
+
+model TopicalMapStrategyArtifact {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  strategyVersionId String
+  artifactId        String
+  path              String
+  mediaType         String
+  sha256            String
+  byteLength        Int
+  rawContent        String   @db.Text
+  metadata          Json
+
+  strategyVersion   TopicalMapStrategyVersion @relation(fields: [strategyVersionId], references: [id], onDelete: Restrict)
+  compiledRules     TopicalMapCompiledRule[]
+
+  @@unique([strategyVersionId, artifactId])
+  @@unique([strategyVersionId, path])
+  @@index([sha256])
+}
+
+model TopicalMapValidationIssue {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  strategyVersionId String
+  severity          String
+  code              String
+  message           String
+  blocking          Boolean  @default(true)
+  sourceArtifactId  String?
+  sourceLocator     String?
+  ruleId            String?
+  details           Json?
+
+  strategyVersion   TopicalMapStrategyVersion @relation(fields: [strategyVersionId], references: [id], onDelete: Cascade)
+
+  @@index([strategyVersionId, severity])
+  @@index([code])
+  @@index([sourceArtifactId])
+}
+
+model TopicalMapCompiledRule {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  strategyVersionId String
+  ruleId            String
+  ruleType          String
+  sourceArtifactId  String
+  sourceLocator     String
+  compiledPayload   Json
+
+  strategyVersion   TopicalMapStrategyVersion @relation(fields: [strategyVersionId], references: [id], onDelete: Restrict)
+  sourceArtifact    TopicalMapStrategyArtifact @relation(fields: [strategyVersionId, sourceArtifactId], references: [strategyVersionId, artifactId], onDelete: Restrict)
+
+  @@unique([strategyVersionId, ruleId])
+  @@index([strategyVersionId, ruleType])
+  @@index([sourceArtifactId])
+}
+
+// One row per host is the database-level active pointer. It references the
+// version and host together so a version from another site cannot be activated.
+model TopicalMapActivation {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  siteHost          String   @unique
+  strategyVersionId String
+  activatedBy       String
+  activationReason  String?
+
+  strategyVersion   TopicalMapStrategyVersion @relation(fields: [strategyVersionId, siteHost], references: [id, siteHost], onDelete: Restrict)
+
+  @@index([strategyVersionId])
+}
+
+model TopicalMapProposalCompliance {
+  id                    String   @id @default(cuid())
+  createdAt             DateTime @default(now())
+  strategyVersionId     String
+  packageSha256         String
+  entityType            String
+  entityId              String
+  proposalType          String
+  result                String   // compliant | conflict | blocked | needs_evidence | needs_high_stakes_review | unavailable_strategy
+  matchedRuleIds        Json
+  evidence              Json
+  evidenceFreshness     Json
+  requiredGates         Json
+  requiredApprovals     Json
+  evaluatorSchemaVersion String
+  evaluatedAt           DateTime @default(now())
+  contentProposalId     String?
+  recommendationId      String?
+
+  strategyVersion       TopicalMapStrategyVersion @relation(fields: [strategyVersionId, packageSha256], references: [id, packageSha256], onDelete: Restrict)
+  contentProposal       ContentProposal? @relation(fields: [contentProposalId], references: [id], onDelete: SetNull)
+  recommendation        Recommendation? @relation(fields: [recommendationId], references: [id], onDelete: SetNull)
+
+  @@index([strategyVersionId])
+  @@index([packageSha256])
+  @@index([entityType, entityId])
+  @@index([contentProposalId])
+  @@index([recommendationId])
+  @@index([result])
 }
 
 model ContentProposalDraftHistory {

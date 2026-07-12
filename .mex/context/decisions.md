@@ -14,7 +14,7 @@ edges:
     condition: when a decision relates to technology choice
   - target: context/skills-recommendations.md
     condition: when the decision relates to AI, guardrails, or recommendation execution
-last_updated: 2026-06-25
+last_updated: 2026-07-12T22:16:57+08:00
 ---
 
 # Decisions
@@ -23,6 +23,43 @@ last_updated: 2026-06-25
      Mark it as superseded, add the new entry above it. -->
 
 ## Decision Log
+
+### Topical-map proposal evaluation is caller-supplied, deterministic, and non-executable
+**Date:** 2026-07-12
+**Status:** Active
+**Decision:** Evaluate a normalized proposal only against an explicitly supplied compiled package, six-artifact identity, and validator freshness report. Return stable compliance/reason evidence with matching contract rule and source locator provenance; do not query or select an active pointer. Source-condition outcomes are caller-provided evidence states, not policy inferred from prose; medical/dosage context requires manual high-stakes review.
+**Reasoning:** This prevents clock, database, AI, and source-prose interpretation from changing evaluation results or bypassing package governance.
+**Consequences:** Missing/stale validator gates, owner conflicts, prohibited content, legacy redirect targets, unresolved conditions, and high-stakes context fail closed. Redirect, canonical, and indexation results are proposal/review evidence only, always return `executionAuthorized: false`, and preserve all existing approval and live-execution gates.
+
+### Whole-package topical-map validation rejects rather than repairs
+**Date:** 2026-07-12
+**Status:** Active
+**Decision:** Validate already loaded raw and compiled topical-map data at a pure boundary. It rechecks six-artifact hashes, supported contract/package identity, exact compiled coverage/rule references, exclusive owners, redirects, canonicals, and typed evidence freshness using only an injected UTC `asOf`.
+**Reasoning:** A validation/import-eligibility report must be deterministic, auditable, and unable to turn a contradictory package into policy by selecting a winner or repairing input.
+**Consequences:** Safe reports retain rule plus source-coordinate provenance but never source bytes. Missing, invalid/future, or stale mandatory evidence remains inspectable and blocks the report; the boundary does not persist, import, activate, supersede, roll back, call APIs, or authorize Task 5.
+
+### Typed topical-map evidence freshness is package-date based and validation-only
+**Date:** 2026-07-12
+**Status:** Active
+**Decision:** Every declared evidence requirement is mandatory and explicitly classed as `general_seo_market` with a 180-day maximum or `high_stakes` with a 90-day maximum. The future validation boundary receives `asOf` from its caller, compares it with the manifest `evidenceDate`, derives each gate identifier from rule ID plus requirement index, and retains stale/missing evidence in its historical report while blocking eligibility.
+**Reasoning:** This gives deterministic freshness without interpreting human source prose or allowing wall-clock-dependent validation results.
+**Consequences:** Contract revision 2 is only locally approved for validation/import eligibility. It neither activates a strategy nor changes deployment, production, Shopify/Meta, or Task 5 authority.
+
+### Topical-map compilation projects only typed contract policy after integrity succeeds
+**Date:** 2026-07-12
+**Status:** Active
+**Decision:** Compile a complete package only by parsing its hash-verified contract, running contract integrity validation, resolving cited locators, and projecting typed rule fields into domain-indexed records.
+**Reasoning:** The contract, rather than Markdown/CSV prose, is the sole semantic authority. Full source provenance remains available without exposing source bytes, while invalid packages fail before any result is returned.
+**Alternatives considered:** Parse source prose during compilation (rejected — editorial interpretation and authority-boundary violation); emit partially compiled records before a final integrity check (rejected — callers could consume invalid policy).
+**Consequences:** `lib/topical-map/compiler.ts` is server-only and atomic. It normalizes only explicit governed URL fields, rejects external destinations, and neither persists nor activates policy.
+
+### Contract integrity is a server-only pre-compilation boundary
+**Date:** 2026-07-12
+**Status:** Active
+**Decision:** Validate the strict parsed topical-map contract against hash-verified source bytes before compilation, using resolved locators and typed contract fields only.
+**Reasoning:** This preserves human-source/rule traceability while rejecting incomplete or contradictory contract indices without inventing policy from Markdown or CSV prose.
+**Alternatives considered:** Compile while checking references (rejected — crosses Task 3 and makes partial output possible); infer missing semantics from source prose (rejected — violates the approved authority boundary).
+**Consequences:** `lib/topical-map/contract-integrity.ts` returns only counts and safe typed errors. It has no persistence, activation, external access, source-content output, or Task 3 authority.
 
 ### DeepSeek as primary AI, OpenRouter as fallback
 **Date:** 2025 (active at project maturity)

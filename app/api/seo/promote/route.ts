@@ -4,13 +4,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { createContentProposalOnce } from "@/lib/content-pilot/create-proposal";
+import { createGovernedContentProposal } from "@/lib/topical-map/compliance-store";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 const PromoteBodySchema = z.object({
   handle: z.string().trim().min(1).max(180),
   title: z.string().trim().min(1).max(240),
   issue: z.enum(["missing-meta", "thin-content", "missing-h1"]),
+  targetUrl: z.string().trim().min(1).max(500),
+  highStakesTopics: z.array(z.enum(["medical", "dosage"])).max(2).optional(),
   wordCount: z.coerce.number().int().nonnegative().max(100_000).optional(),
 });
 
@@ -29,7 +31,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "handle, title, and issue are required" }, { status: 400 });
   }
-  const { handle, issue } = parsed.data;
+  const { handle, issue, targetUrl, highStakesTopics } = parsed.data;
 
   const article = await prisma.articleRecord.findUnique({
     where: { handle },
@@ -42,10 +44,6 @@ export async function POST(req: Request) {
   const title = article.title;
   const currentWordCount = article.wordCount ?? 0;
 
-  const proposalType =
-    issue === "thin-content" ? "content-refresh" :
-    issue === "missing-h1" ? "content-refresh" :
-    "seo-fix";
   const proposalTitle =
     issue === "thin-content" ? `Expand thin content: ${title}` :
     issue === "missing-h1" ? `Add heading structure: ${title}` :
@@ -105,6 +103,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unknown issue type" }, { status: 400 });
   }
 
-  const result = await createContentProposalOnce(prisma, proposalData as never);
-  return NextResponse.json({ id: result.proposal.id, existed: !result.created });
+  const result = await createGovernedContentProposal(prisma as never, {
+    data: proposalData as never,
+    candidate: { type: "seo_metadata", targetUrl, ...(highStakesTopics ? { highStakesTopics } : {}) },
+  });
+  if (!result.created || !result.proposal) return NextResponse.json({ id: null, existed: false, compliance: result.compliance }, { status: 409 });
+  return NextResponse.json({ id: result.proposal.id, existed: false });
 }
