@@ -174,6 +174,32 @@ describe("codex agent loop plan configuration", () => {
 });
 
 describe("codex agent loop plan progress", () => {
+  test("uses immutable snapshot bytes after the source plan changes and rejects snapshot digest tampering", () => {
+    const paths = fixture(); const planPath = resolve(paths.workspace, "plan.md");
+    writeFileSync(planPath, "# Plan\n\n### Task alpha: Original immutable body\n");
+    installFakeCodex(paths, { action: "done", reason: "premature", requires_approval: false, approval_scope: [], next_prompt: null, question: null, current_task_id: null, completed_task_ids: [] });
+    const started = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath }, paths);
+    writeFileSync(planPath, "# Plan\n\n### Task beta: Mutated source body\n");
+    installFakeCodex(paths, { action: "ask_user", reason: "pause", requires_approval: true, approval_scope: ["new_authority"], next_prompt: null, question: "Review?", current_task_id: null, completed_task_ids: [] });
+    resume(started.parsed.runId, {}, paths);
+    const prompts = readFileSync(resolve(paths.root, "prompts.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line).prompt);
+    expect(prompts.at(-1)).toContain("Task alpha: Original immutable body");
+    expect(prompts.at(-1)).not.toContain("Task beta: Mutated source body");
+    const statePath = resolve(started.parsed.evidenceDirectory, "state.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8")); state.planDigest = "0".repeat(64); writeFileSync(statePath, JSON.stringify(state));
+    const tampered = resume(started.parsed.runId, {}, paths);
+    expect(tampered.status).toBe(1);
+    expect(tampered.parsed.outcome).toContain("snapshot or digest is invalid");
+  });
+
+  test("rejects structurally tampered state and symlinked evidence", () => {
+    const paths = fixture();
+    installFakeCodex(paths, { action: "run", reason: "continue", requires_approval: false, approval_scope: [], next_prompt: "Continue", question: null, current_task_id: null, completed_task_ids: [] });
+    const started = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: false }, paths);
+    const statePath = resolve(started.parsed.evidenceDirectory, "state.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8")); state.iteration = -1; writeFileSync(statePath, JSON.stringify(state));
+    expect(resume(started.parsed.runId, {}, paths).parsed.outcome).toContain("Invalid persisted run state iteration");
+  });
   test("runs the planner before the first plan executor and snapshots immutable plan bytes", () => {
     const paths = fixture(); const planPath = resolve(paths.workspace, "plan.md");
     writeFileSync(planPath, "# Plan\n\n### Task 1: First\n");
@@ -214,7 +240,7 @@ describe("codex agent loop plan progress", () => {
       },
       {
         action: "run", reason: "task 1 complete", requires_approval: false, approval_scope: [],
-        next_prompt: "Implement only Task 2.", question: null, current_task_id: "2", completed_task_ids: ["1"],
+        next_prompt: "Implement only Task 2 with RED/GREEN TDD, tests, verification, commit, and GROW; exclude all later and out-of-scope tasks.", question: null, current_task_id: "2", completed_task_ids: ["1"],
       },
       {
         action: "done", reason: "plan complete", requires_approval: false, approval_scope: [],
@@ -398,11 +424,11 @@ describe("codex agent loop plan progress", () => {
     installFakeCodex(paths, [
       {
         action: "run", reason: "continue", requires_approval: false, approval_scope: [],
-        next_prompt: "Continue alpha", question: null, current_task_id: "alpha", completed_task_ids: [],
+        next_prompt: "Continue Task alpha with RED/GREEN TDD, tests, verification, commit, and GROW; exclude later and out-of-scope tasks.", question: null, current_task_id: "alpha", completed_task_ids: [],
       },
       {
         action: "run", reason: "continue after first execution", requires_approval: false, approval_scope: [],
-        next_prompt: "Continue alpha with bounded TDD and verification", question: null, current_task_id: "alpha", completed_task_ids: [],
+        next_prompt: "Continue Task alpha with bounded RED/GREEN TDD, tests, verification, commit, and GROW; exclude later and out-of-scope tasks.", question: null, current_task_id: "alpha", completed_task_ids: [],
       },
       {
         action: "ask_user", reason: "pause", requires_approval: true, approval_scope: ["new_authority"],
@@ -427,7 +453,7 @@ describe("codex agent loop plan progress", () => {
     writeFileSync(planPath, "# Plan\n\n### Task alpha: First\n");
     const runDecision = {
       action: "run", reason: "continue", requires_approval: false, approval_scope: [],
-      next_prompt: "Continue alpha", question: null, current_task_id: "alpha", completed_task_ids: [],
+      next_prompt: "Continue Task alpha with RED/GREEN TDD, tests, verification, commit, and GROW; exclude later and out-of-scope tasks.", question: null, current_task_id: "alpha", completed_task_ids: [],
     };
     installFakeCodex(paths, [runDecision, runDecision]);
 

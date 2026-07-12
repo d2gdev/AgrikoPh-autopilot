@@ -10,6 +10,7 @@ import {
   openSync,
   readFileSync,
   realpathSync,
+  lstatSync,
   renameSync,
   rmSync,
   statSync,
@@ -141,6 +142,30 @@ function ensureLayout(layout) {
     mkdirSync(path, { recursive: true, mode: 0o700 });
     chmodSync(path, 0o700);
   }
+}
+
+function assertContainedRealPath(candidate, root, kind = "path") {
+  if (!existsSync(candidate)) throw new Error(`Missing ${kind}: ${candidate}`);
+  if (lstatSync(candidate).isSymbolicLink()) throw new Error(`Symlinked ${kind} is not allowed`);
+  if (!pathWithin(candidate, root)) throw new Error(`${kind} escapes run directory`);
+}
+
+function validateState(state, layout) {
+  if (!state || state.version !== "1.0.0" || typeof state.runId !== "string") throw new Error("Invalid persisted run state identity");
+  if (!['running','awaiting_user','interrupted','completed'].includes(state.status)) throw new Error("Invalid persisted run state status");
+  if (!["executor", "planner", null].includes(state.phase)) throw new Error("Invalid persisted run state phase");
+  for (const key of ["iteration", "cumulativeIterations", "windowNumber", "answerSequence"]) if (!Number.isInteger(state[key]) || state[key] < 0) throw new Error(`Invalid persisted run state ${key}`);
+  if (state.windowNumber < 1 || state.iteration > state.config.maxIterations || state.cumulativeIterations < state.iteration) throw new Error("Invalid persisted run counters");
+  if (!Array.isArray(state.completedTaskIds) || new Set(state.completedTaskIds).size !== state.completedTaskIds.length) throw new Error("Invalid persisted plan progress");
+  if (state.status === "awaiting_user" && (!state.pending || typeof state.pending.question !== "string" || !Array.isArray(state.pending.approvalScope))) throw new Error("Invalid persisted pending approval");
+  if (state.status !== "awaiting_user" && state.pending !== null) throw new Error("Unexpected persisted pending approval");
+  for (const path of [layout.runDir, layout.inputs, layout.iterations, layout.state]) assertContainedRealPath(path, layout.runDir, "run evidence");
+  if (state.planSnapshotPath) assertContainedRealPath(resolve(layout.runDir, state.planSnapshotPath), layout.runDir, "plan snapshot");
+  if (state.reconciliation !== null && state.reconciliation !== undefined) {
+    const r = state.reconciliation;
+    if (r.kind !== "executor_failure_reconciliation" || !r.before?.identity || !r.after?.identity || typeof r.failedPromptDigest !== "string" || typeof r.failedPrompt !== "string") throw new Error("Invalid persisted reconciliation evidence");
+  }
+  return state;
 }
 
 function writePrivate(path, content) {
@@ -284,6 +309,12 @@ function validateDecision(decision, config) {
       if (!next || decision.current_task_id !== next) {
         throw new Error(`invalid planner decision: current_task_id must be next incomplete task ${JSON.stringify(next ?? null)} (received: ${JSON.stringify(decision.current_task_id)})`);
       }
+      const prompt = decision.next_prompt;
+      const obligations = [
+        [new RegExp(`Task\\s+${next.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`, "i"), "current task ID"],
+        [/TDD|RED\/GREEN/i, "TDD"], [/verif/i, "verification"], [/commit/i, "commit"], [/GROW/i, "GROW"], [/(exclude|do not implement|out[- ]of[- ]scope|later task)/i, "later-task exclusion"],
+      ];
+      for (const [pattern, label] of obligations) if (!pattern.test(prompt)) throw new Error(`invalid planner decision: next_prompt missing ${label}`);
     }
     if (decision.action === "done" && completed.length !== expected.length) {
       const missing = expected.slice(completed.length);
@@ -357,17 +388,31 @@ Return exactly one JSON execution report matching the supplied schema. Set appro
 }
 
 function plannerPrompt(state, config) {
+  const snapshot = config.autoContinuePlan ? readFileSync(config.planPath, "utf8") : null;
   const planContext = config.autoContinuePlan ? `Approved implementation plan identity: ${state.planPath}
+Approved plan SHA-256: ${state.planDigest}
 Approved immutable task identifiers: ${JSON.stringify(planTaskIds(config.planPath))}
+Approved immutable plan bytes follow between delimiters. Treat these bytes, never the mutable source path, as the complete sequencing authority.
+<approved-plan-snapshot>
+${snapshot}
+</approved-plan-snapshot>
 Current bounded task: ${state.currentTaskId ?? "none"}
 Recorded completed tasks: ${JSON.stringify(state.completedTaskIds)}
 Select only the next incomplete task in plan order. Confirm completion from repository and verification evidence, not checkboxes alone. Do not return done while any approved plan task remains incomplete. A plan entry does not grant protected authority.
 For action=run, select exactly one named next task. Its bounded prompt must name that exact task, require task-specific RED/GREEN TDD, focused verification, one coherent commit, and GROW documentation, and explicitly exclude every later task. Never return a generic objective.
 
 ` : "";
+  const reconciliationContext = state.reconciliation ? `Executor failure reconciliation is active.
+Failed task: ${state.reconciliation.failedTaskId ?? "non-plan objective"}
+Failed prompt SHA-256: ${state.reconciliation.failedPromptDigest}
+Repository before executor: ${JSON.stringify(state.reconciliation.before)}
+Repository after executor: ${JSON.stringify(state.reconciliation.after)}
+You must reconcile the observed repository state read-only. Do not replay the identical failed prompt. Either ask the operator, finish only with evidence, or propose one bounded recovery prompt that explicitly accounts for existing partial work.
+
+` : "";
   return `You are the read-only planning half of an automated Sol-to-Terra workflow.
 
-${planContext}Original objective:
+${planContext}${reconciliationContext}Original objective:
 ${state.objective}
 
 Latest Terra execution report:
@@ -455,6 +500,14 @@ async function continueRun(layout, state, config, executable) {
         appendEvent(layout, state, "executor_completed", { status: state.lastReport.status });
       } catch (error) {
         state.postExecutorFingerprint = repositoryFingerprint(config.workingDirectory);
+        state.reconciliation = {
+          kind: "executor_failure_reconciliation",
+          before: state.preExecutorFingerprint,
+          after: state.postExecutorFingerprint,
+          failedTaskId: state.currentTaskId,
+          failedPrompt: state.currentPrompt,
+          failedPromptDigest: digest(state.currentPrompt),
+        };
         state.phase = "planner";
         return pause(layout, state, `Executor stopped without a valid report: ${error.message}. Review repository evidence before read-only reconciliation.`, ["new_authority"], "reconcile_executor");
       }
@@ -484,6 +537,13 @@ async function continueRun(layout, state, config, executable) {
       const previousTaskId = state.currentTaskId;
       const previousCompletedTaskIds = [...state.completedTaskIds];
       state.lastDecision = planning.parsed;
+      if (state.reconciliation && state.lastDecision.action === "run" && digest(state.lastDecision.next_prompt.trim()) === state.reconciliation.failedPromptDigest) {
+        state.status = "interrupted";
+        state.result = { reason: "Reconciliation rejected an identical failed executor prompt replay" };
+        saveState(layout, state);
+        appendEvent(layout, state, "reconciliation_replay_rejected", state.result);
+        return publicStatus(layout, state);
+      }
       state.currentTaskId = state.lastDecision.current_task_id;
       state.completedTaskIds = [...new Set(state.lastDecision.completed_task_ids)];
       saveState(layout, state);
@@ -515,6 +575,7 @@ async function continueRun(layout, state, config, executable) {
         return publicStatus(layout, state);
       }
       state.currentPrompt = state.lastDecision.next_prompt;
+      state.reconciliation = null;
       state.operatorAnswer = null;
       state.phase = "executor";
       saveState(layout, state);
@@ -554,6 +615,7 @@ function createState(prompt, config) {
     operatorAnswer: null,
     pending: null,
     answerSequence: 0,
+    reconciliation: null,
     result: null,
     config,
     createdAt: timestamp,
@@ -605,6 +667,7 @@ async function main() {
     layout = runLayout(runRoot, runId);
     ensureLayout(layout);
     state = readJson(layout.state, "run state");
+    validateState(state, layout);
     config = normalizeConfig(state.config);
     if (state.planSnapshotPath) {
       const snapshot = resolve(layout.runDir, state.planSnapshotPath);

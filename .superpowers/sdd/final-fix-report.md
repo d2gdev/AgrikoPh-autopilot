@@ -32,3 +32,15 @@ Fresh final evidence:
 - JSON parse gate: `config/codex-agent-loop.json`, `execution-report.schema.json`, and `planner-decision.schema.json` all parsed (3/3).
 - `git diff --check`: exit 0.
 - Exact dangerous-bypass negation over controller/config paths: no matches.
+
+## Second final-review hardening
+
+- Sol now consumes the exact private approved-plan snapshot bytes, its SHA-256 digest, and immutable task identifiers. Public status continues to expose only the normalized original plan identity.
+- Resume validates snapshot digest and containment. Regression coverage mutates the original plan after startup and proves subsequent Sol input retains the original task/body; forged digest resume fails closed.
+- Executor failure creates durable `executor_failure_reconciliation` evidence with failed task/prompt identity and before/after repository fingerprints. Planner input carries a reconciliation-only contract, and byte-identical failed-prompt replay is deterministically rejected before executor launch.
+- Resume validates lifecycle status/phase, counters, ordered progress shape, pending approval invariants, reconciliation shape, and real non-symlink containment of the run/state/inputs/iterations/snapshot evidence roots.
+- Plan-aware run decisions now require the exact next task plus TDD/RED-GREEN, verification, commit, GROW, and explicit later/out-of-scope exclusion markers.
+- Focused suite expanded to 31 tests: 31 passed, 0 failed.
+- `npm run typecheck` and `npm run typecheck:test`: exit 0.
+- `npm run lint`: exit 0 with 0 errors and the same 118 unrelated warnings.
+- Three JSON config/schema files parsed; `git diff --check` passed; exact dangerous-bypass grep returned no matches.
