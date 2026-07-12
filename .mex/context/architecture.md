@@ -22,7 +22,7 @@ edges:
     condition: when adding a new route to the system
   - target: patterns/add-cron-job.md
     condition: when adding a new job handler to the pipeline
-last_updated: 2026-07-10
+last_updated: 2026-07-12
 ---
 
 # Architecture
@@ -68,3 +68,11 @@ External services accessed via HTTP/REST. Connectors live in `lib/connectors/`.
 - No Klaviyo / Email Pilot — `lib/connectors/klaviyo.ts` exists but is dead code; treat as out of scope
 - No built-in job scheduler — external cron on the VPS calls the `/api/cron/*` routes; the app itself does not schedule tasks
 - No file storage abstraction — images handled directly via Shopify Admin API; no S3 or CDN layer
+
+## Local Development Controller Boundary
+
+`scripts/codex-agent-loop.mjs` is a local, file-backed development orchestrator, not part of the Next.js application or production job pipeline. In plan mode it runs one workspace-writing executor and one read-only planner sequentially, persists private evidence under `.codex-agent-loop/runs/`, and may roll over only through a configured finite number of iteration windows.
+
+An approved plan authorizes bounded local implementation, verification, documentation, and commits only. Plan text never grants production access, deployment, live Shopify or Meta writes, production database changes, credential or permission changes, destructive actions, scope expansion, strategy activation, or material operator judgment. Those boundaries still produce `awaiting_user`; neither resume nor automatic window rollover weakens the configured Codex sandboxes.
+
+Public status deliberately excludes objectives, prompts, plan source, model output, and operator answers. Plan-aware output is limited to the normalized plan path, task identifiers, iteration/window counters, evidence directory, approval metadata when paused, completion reason, and a validated commit identifier when final execution evidence supplies one.

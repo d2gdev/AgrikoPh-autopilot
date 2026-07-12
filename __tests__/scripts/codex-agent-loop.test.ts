@@ -56,7 +56,15 @@ function resume(runId: string, config: object, paths: ReturnType<typeof fixture>
   return { ...result, parsed: JSON.parse(result.stdout.trim()) };
 }
 
-function installFakeCodex(paths: ReturnType<typeof fixture>, plannerDecision: object | object[]) {
+function installFakeCodex(
+  paths: ReturnType<typeof fixture>,
+  plannerDecision: object | object[],
+  executorReport: object | object[] = {
+    status: "complete", outcome: "task complete", approval_required: false, approval_question: null,
+    blockers: [], recommended_next_step: "review",
+    runtime_impact: { production_accessed: false, deployed: false, live_changes_made: false },
+  },
+) {
   const executable = resolve(paths.root, "fake-codex");
   writeFileSync(executable, `#!/usr/bin/env node
 const fs = require("node:fs");
@@ -69,12 +77,18 @@ process.stdin.on("data", chunk => prompt += chunk);
 process.stdin.on("end", () => {
   fs.appendFileSync(${JSON.stringify(resolve(paths.root, "prompts.jsonl"))}, JSON.stringify({ schema, prompt }) + "\\n");
   const plannerDecisions = ${JSON.stringify(Array.isArray(plannerDecision) ? plannerDecision : [plannerDecision])};
+  const executorReports = ${JSON.stringify(Array.isArray(executorReport) ? executorReport : [executorReport])};
   const plannerCallsPath = ${JSON.stringify(resolve(paths.root, "planner-calls"))};
+  const executorCallsPath = ${JSON.stringify(resolve(paths.root, "executor-calls"))};
   let plannerCall = 0;
   if (fs.existsSync(plannerCallsPath)) plannerCall = Number(fs.readFileSync(plannerCallsPath, "utf8"));
-  const response = schema.includes("execution-report")
-    ? { status: "complete", outcome: "task complete", approval_required: false, approval_question: null, blockers: [], recommended_next_step: "review", runtime_impact: { production_accessed: false, deployed: false, live_changes_made: false } }
+  let executorCall = 0;
+  if (fs.existsSync(executorCallsPath)) executorCall = Number(fs.readFileSync(executorCallsPath, "utf8"));
+  const isExecutor = schema.includes("execution-report");
+  const response = isExecutor
+    ? executorReports[Math.min(executorCall, executorReports.length - 1)]
     : plannerDecisions[Math.min(plannerCall, plannerDecisions.length - 1)];
+  if (isExecutor) fs.writeFileSync(executorCallsPath, String(executorCall + 1));
   if (!schema.includes("execution-report")) fs.writeFileSync(plannerCallsPath, String(plannerCall + 1));
   fs.writeFileSync(output, JSON.stringify(response));
 });
@@ -87,6 +101,12 @@ afterEach(() => {
 });
 
 describe("codex agent loop plan configuration", () => {
+  test("does not contain a dangerous Codex bypass flag", () => {
+    const source = readFileSync(controllerPath, "utf8");
+
+    expect(source).not.toMatch(/dangerously-bypass-approvals-and-sandbox|dangerously-bypass/);
+  });
+
   test("requires a plan path when automatic plan continuation is enabled", () => {
     const paths = fixture();
     const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, maxAutomaticWindows: 10 }, paths);
@@ -142,6 +162,84 @@ describe("codex agent loop plan configuration", () => {
 });
 
 describe("codex agent loop plan progress", () => {
+  test("completes a two-task plan with bounded prompts and public progress evidence", () => {
+    const paths = fixture();
+    const planPath = resolve(paths.workspace, "approved-plan.md");
+    const commit = "0123456789abcdef0123456789abcdef01234567";
+    writeFileSync(planPath, "# Plan\n\n### Task 1: First\n\n### Task 2: Second\n");
+    installFakeCodex(paths, [
+      {
+        action: "run", reason: "task 1 complete", requires_approval: false, approval_scope: [],
+        next_prompt: "Implement only Task 2.", question: null, current_task_id: "2", completed_task_ids: ["1"],
+      },
+      {
+        action: "done", reason: "plan complete", requires_approval: false, approval_scope: [],
+        next_prompt: null, question: null, current_task_id: null, completed_task_ids: ["1", "2"],
+      },
+    ], [
+      {
+        status: "complete", outcome: "Task 1 complete", approval_required: false, approval_question: null,
+        blockers: [], recommended_next_step: "Task 2",
+        runtime_impact: { production_accessed: false, deployed: false, live_changes_made: false },
+      },
+      {
+        status: "complete", outcome: "Task 2 complete", approval_required: false, approval_question: null,
+        blockers: [], recommended_next_step: "Review", evidence: { commit },
+        runtime_impact: { production_accessed: false, deployed: false, live_changes_made: false },
+      },
+    ]);
+
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath, maxIterations: 2, maxAutomaticWindows: 2 }, paths);
+    const prompts = readFileSync(resolve(paths.root, "prompts.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    const executorPrompts = prompts.filter(entry => entry.schema.includes("execution-report")).map(entry => entry.prompt);
+    const events = readFileSync(resolve(result.parsed.evidenceDirectory, "events.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+
+    expect(executorPrompts).toHaveLength(2);
+    expect(executorPrompts[1]).toContain("Task 2");
+    expect(executorPrompts[1]).not.toContain("Task 1");
+    expect(result.parsed).toMatchObject({
+      status: "completed", planPath, completedTaskIds: ["1", "2"],
+      cumulativeIterations: 2, windows: 1, finalCommit: commit,
+    });
+    expect(events.filter(event => event.type === "plan_task_selected").map(event => event.details.taskId)).toEqual(["2"]);
+    expect(events.filter(event => event.type === "plan_task_completed").map(event => event.details.taskId)).toEqual(["1", "2"]);
+    expect(events.filter(event => event.type === "plan_completed")).toHaveLength(1);
+  });
+
+  test("still pauses when an approved plan mentions a protected deployment step", () => {
+    const paths = fixture();
+    const planPath = resolve(paths.workspace, "approved-plan.md");
+    writeFileSync(planPath, "# Plan\n\n### Task 1: Implement\n\n### Task 2: Deploy to production\n");
+    installFakeCodex(paths, {
+      action: "ask_user", reason: "deployment needs authority", requires_approval: true,
+      approval_scope: ["deployment"], next_prompt: null, question: "Authorize deployment?",
+      current_task_id: "2", completed_task_ids: ["1"],
+    });
+
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath, maxAutomaticWindows: 2 }, paths);
+
+    expect(result.parsed.status).toBe("awaiting_user");
+    expect(result.parsed.approvalScope).toEqual(["deployment"]);
+  });
+
+  test.each([
+    ["malformed", "# Plan\n\n### Task 1 First\n"],
+    ["duplicate", "# Plan\n\n### Task 1: First\n\n### Task 1: Again\n"],
+  ])("interrupts safely for %s task headings", (_label, plan) => {
+    const paths = fixture();
+    const planPath = resolve(paths.workspace, "approved-plan.md");
+    writeFileSync(planPath, plan);
+    installFakeCodex(paths, {
+      action: "done", reason: "finished", requires_approval: false, approval_scope: [],
+      next_prompt: null, question: null, current_task_id: null, completed_task_ids: [],
+    });
+
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath, maxAutomaticWindows: 2 }, paths);
+
+    expect(result.parsed.status).toBe("interrupted");
+    expect(result.parsed.reason).toContain("plan task headings");
+  });
+
   test("initializes progress and gives Sol the approved-plan contract", () => {
     const paths = fixture();
     const planPath = resolve(paths.workspace, "approved-plan.md");

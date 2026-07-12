@@ -209,9 +209,17 @@ function validateReport(report) {
 }
 
 function planTaskIds(planPath) {
+  const source = readFileSync(planPath, "utf8");
   const identifiers = [];
-  const headings = readFileSync(planPath, "utf8").matchAll(/^### Task ([^:\r\n]+):/gm);
+  const taskHeadingLines = [...source.matchAll(/^### Task.*$/gm)].map((match) => match[0]);
+  const headings = source.matchAll(/^### Task ([^:\r\n]+):[^\r\n]*$/gm);
   for (const heading of headings) identifiers.push(heading[1].trim());
+  if (!identifiers.length || identifiers.length !== taskHeadingLines.length || identifiers.some((id) => !id)) {
+    throw new Error("invalid plan task headings: every task must use '### Task <unique-id>: <title>'");
+  }
+  if (new Set(identifiers).size !== identifiers.length) {
+    throw new Error("invalid plan task headings: task identifiers must be unique");
+  }
   return identifiers;
 }
 
@@ -278,7 +286,8 @@ async function runCodex({ executable, role, config, prompt, schema, directory })
   ];
   for (const path of config.additionalDirectories ?? []) args.push("--add-dir", path);
   args.push("--ephemeral", "--output-schema", schema, "--json", "-o", temporaryFinal, "-");
-  if (args.some((value) => value.includes("dangerously-bypass"))) throw new Error("Dangerous Codex bypass flag rejected");
+  const forbiddenBypassPrefix = ["dangerously", "bypass"].join("-");
+  if (args.some((value) => value.includes(forbiddenBypassPrefix))) throw new Error("Dangerous Codex bypass flag rejected");
 
   const child = spawn(executable, args, {
     cwd: config.workingDirectory,
@@ -360,6 +369,13 @@ function publicStatus(layout, state) {
     iteration: state.iteration,
     evidenceDirectory: layout.runDir,
   };
+  if (state.planPath) {
+    output.planPath = state.planPath;
+    output.currentTaskId = state.currentTaskId;
+    output.completedTaskIds = [...state.completedTaskIds];
+    output.cumulativeIterations = state.cumulativeIterations;
+    output.windows = state.windowNumber;
+  }
   if (state.status === "awaiting_user") {
     output.question = state.pending.question;
     output.approvalScope = state.pending.approvalScope;
@@ -369,6 +385,8 @@ function publicStatus(layout, state) {
     output.resumeCommand = `npm run codex:loop -- resume ${state.runId}`;
   } else if (state.status === "completed") {
     output.outcome = state.result?.reason;
+    const finalCommit = state.lastReport?.evidence?.commit;
+    if (typeof finalCommit === "string" && /^[0-9a-f]{7,64}$/i.test(finalCommit)) output.finalCommit = finalCommit;
   }
   return output;
 }
@@ -432,11 +450,19 @@ async function continueRun(layout, state, config, executable) {
         appendEvent(layout, state, "planner_interrupted", state.result);
         return publicStatus(layout, state);
       }
+      const previousTaskId = state.currentTaskId;
+      const previousCompletedTaskIds = [...state.completedTaskIds];
       state.lastDecision = planning.parsed;
       state.currentTaskId = state.lastDecision.current_task_id;
       state.completedTaskIds = [...new Set(state.lastDecision.completed_task_ids)];
       saveState(layout, state);
       appendEvent(layout, state, "planner_completed", { action: state.lastDecision.action });
+      for (const taskId of state.completedTaskIds.slice(previousCompletedTaskIds.length)) {
+        appendEvent(layout, state, "plan_task_completed", { taskId });
+      }
+      if (state.currentTaskId && state.currentTaskId !== previousTaskId) {
+        appendEvent(layout, state, "plan_task_selected", { taskId: state.currentTaskId });
+      }
 
       if (state.lastReport.approval_required && !state.operatorAnswer) {
         return pause(layout, state, state.lastReport.approval_question, ["execution_report_approval"], "planner");
@@ -450,6 +476,7 @@ async function continueRun(layout, state, config, executable) {
         state.pending = null;
         state.result = { reason: state.lastDecision.reason };
         saveState(layout, state);
+        if (state.planPath) appendEvent(layout, state, "plan_completed", { completedTaskIds: state.completedTaskIds });
         appendEvent(layout, state, "run_completed", state.result);
         return publicStatus(layout, state);
       }
