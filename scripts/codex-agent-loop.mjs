@@ -74,8 +74,7 @@ function isWithinReadableWorkspace(path, config) {
   }
 }
 
-function loadConfig(path) {
-  const parsed = readJson(path, "controller config");
+function normalizeConfig(parsed) {
   const config = { ...parsed, autoContinuePlan: parsed.autoContinuePlan ?? false };
   for (const role of ["executor", "planner"]) {
     if (!config[role]?.model || !config[role]?.reasoning || !config[role]?.sandbox) {
@@ -112,6 +111,10 @@ function loadConfig(path) {
     config.planPath = null;
   }
   return config;
+}
+
+function loadConfig(path) {
+  return normalizeConfig(readJson(path, "controller config"));
 }
 
 function runLayout(runRoot, runId) {
@@ -225,7 +228,7 @@ function validateDecision(decision, config) {
     throw new Error("Invalid planner current_task_id");
   }
   if (decision.action === "run") {
-    if (decision.requires_approval || decision.approval_scope.length || typeof decision.next_prompt !== "string" || !decision.next_prompt.trim() || decision.question !== null || typeof decision.current_task_id !== "string" || !decision.current_task_id.trim()) {
+    if (decision.requires_approval || decision.approval_scope.length || typeof decision.next_prompt !== "string" || !decision.next_prompt.trim() || decision.question !== null) {
       throw new Error("Unsafe run decision");
     }
   }
@@ -237,13 +240,23 @@ function validateDecision(decision, config) {
   if (decision.action === "done" && (decision.requires_approval || decision.approval_scope.length || decision.next_prompt !== null || decision.question !== null || decision.current_task_id !== null)) {
     throw new Error("Invalid done decision");
   }
-  if (config.autoContinuePlan && decision.action === "done") {
+  if (config.autoContinuePlan) {
     const expected = planTaskIds(config.planPath);
-    const completed = [...new Set(decision.completed_task_ids)];
-    const missing = expected.filter((id) => !completed.includes(id));
-    const unknown = completed.filter((id) => !expected.includes(id));
-    if (missing.length || unknown.length) {
-      throw new Error(`invalid planner decision: plan completion mismatch (missing: ${JSON.stringify(missing)}, unknown: ${JSON.stringify(unknown)})`);
+    const completed = decision.completed_task_ids;
+    const invalidCompletedIndex = completed.findIndex((id, index) => id !== expected[index]);
+    if (invalidCompletedIndex !== -1 || completed.length > expected.length) {
+      const invalidId = completed[invalidCompletedIndex === -1 ? expected.length : invalidCompletedIndex];
+      throw new Error(`invalid planner decision: completed_task_ids must be an ordered approved prefix (invalid: ${JSON.stringify(invalidId)})`);
+    }
+    if (decision.action === "run") {
+      const next = expected[completed.length];
+      if (!next || decision.current_task_id !== next) {
+        throw new Error(`invalid planner decision: current_task_id must be next incomplete task ${JSON.stringify(next ?? null)} (received: ${JSON.stringify(decision.current_task_id)})`);
+      }
+    }
+    if (decision.action === "done" && completed.length !== expected.length) {
+      const missing = expected.slice(completed.length);
+      throw new Error(`invalid planner decision: plan completion mismatch (missing: ${JSON.stringify(missing)}, unknown: [])`);
     }
   }
   return decision;
@@ -488,11 +501,12 @@ async function main() {
   }
 
   const configPath = absolutePath(options.config ?? defaultConfig);
-  const config = loadConfig(configPath);
+  let config;
   let state;
   let layout;
 
   if (options.command === "start") {
+    config = loadConfig(configPath);
     if (!options["prompt-file"]) throw new Error("start requires --prompt-file");
     const promptPath = absolutePath(options["prompt-file"]);
     const prompt = readFileSync(promptPath, "utf8").trim();
@@ -509,6 +523,8 @@ async function main() {
     layout = runLayout(runRoot, runId);
     ensureLayout(layout);
     state = readJson(layout.state, "run state");
+    config = normalizeConfig(state.config);
+    if (state.planPath !== config.planPath) throw new Error("Persisted plan scope does not match persisted config");
     if (state.status === "completed") {
       console.log(JSON.stringify(publicStatus(layout, state)));
       return;

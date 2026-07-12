@@ -46,6 +46,16 @@ function run(config: object, paths: ReturnType<typeof fixture>) {
   return { ...result, parsed: JSON.parse(result.stdout.trim()) };
 }
 
+function resume(runId: string, config: object, paths: ReturnType<typeof fixture>) {
+  const configPath = resolve(paths.root, "resume-config.json");
+  writeFileSync(configPath, JSON.stringify(config));
+  const result = spawnSync(process.execPath, [
+    controllerPath, "resume", runId, "--config", configPath, "--run-root", paths.root,
+    "--codex", resolve(paths.root, "fake-codex"),
+  ], { encoding: "utf8" });
+  return { ...result, parsed: JSON.parse(result.stdout.trim()) };
+}
+
 function installFakeCodex(paths: ReturnType<typeof fixture>, plannerDecision: object) {
   const executable = resolve(paths.root, "fake-codex");
   writeFileSync(executable, `#!/usr/bin/env node
@@ -166,5 +176,66 @@ describe("codex agent loop plan progress", () => {
     expect(result.parsed.status).toBe("interrupted");
     expect(result.parsed.reason).toContain("invalid planner decision");
     expect(result.parsed.reason).toContain("beta");
+  });
+
+  test.each([
+    ["unknown current task", "rogue", [], "rogue"],
+    ["skipped next task", "beta", [], "beta"],
+    ["unknown completed task", "alpha", ["rogue"], "rogue"],
+  ])("rejects run progress with %s", (_label, currentTaskId, completedTaskIds, expected) => {
+    const paths = fixture();
+    const planPath = resolve(paths.workspace, "approved-plan.md");
+    writeFileSync(planPath, "# Plan\n\n### Task alpha: First\n\n### Task beta: Second\n");
+    installFakeCodex(paths, {
+      action: "run", reason: "continue", requires_approval: false, approval_scope: [],
+      next_prompt: "unsafe next prompt", question: null,
+      current_task_id: currentTaskId, completed_task_ids: completedTaskIds,
+    });
+
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath, maxAutomaticWindows: 10 }, paths);
+
+    expect(result.parsed.status).toBe("interrupted");
+    expect(result.parsed.reason).toContain("invalid planner decision");
+    expect(result.parsed.reason).toContain(expected);
+  });
+
+  test("resume uses the persisted plan and config instead of caller replacements", () => {
+    const paths = fixture();
+    const originalPlan = resolve(paths.workspace, "original-plan.md");
+    const replacementPlan = resolve(paths.workspace, "replacement-plan.md");
+    writeFileSync(originalPlan, "# Plan\n\n### Task alpha: First\n");
+    writeFileSync(replacementPlan, "# Plan\n\n### Task replacement: Different\n");
+    installFakeCodex(paths, {
+      action: "done", reason: "bad", requires_approval: false, approval_scope: [],
+      next_prompt: null, question: null, current_task_id: null, completed_task_ids: [],
+    });
+    const originalConfig = { ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath: originalPlan, maxIterations: 2, maxAutomaticWindows: 10 };
+    const started = run(originalConfig, paths);
+    installFakeCodex(paths, {
+      action: "ask_user", reason: "pause", requires_approval: true, approval_scope: ["persisted"],
+      next_prompt: null, question: "Persisted?", current_task_id: null, completed_task_ids: [],
+    });
+
+    const resumed = resume(started.parsed.runId, { ...originalConfig, planPath: replacementPlan, protectedApprovalScopes: ["replacement"] }, paths);
+    const prompts = readFileSync(resolve(paths.root, "prompts.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    const lastPlannerPrompt = prompts.filter(entry => entry.schema.includes("planner-decision")).at(-1).prompt;
+
+    expect(resumed.parsed.status).toBe("awaiting_user");
+    expect(lastPlannerPrompt).toContain(originalPlan);
+    expect(lastPlannerPrompt).not.toContain(replacementPlan);
+    expect(lastPlannerPrompt).not.toContain("replacement");
+  });
+
+  test("non-plan runs accept null and empty planner progress", () => {
+    const paths = fixture();
+    installFakeCodex(paths, {
+      action: "run", reason: "continue objective", requires_approval: false, approval_scope: [],
+      next_prompt: "Continue objective", question: null, current_task_id: null, completed_task_ids: [],
+    });
+
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: false, maxAutomaticWindows: 10 }, paths);
+
+    expect(result.parsed.status).toBe("awaiting_user");
+    expect(result.parsed.approvalScope).toEqual(["iteration_limit"]);
   });
 });
