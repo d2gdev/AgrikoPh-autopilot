@@ -56,7 +56,7 @@ function resume(runId: string, config: object, paths: ReturnType<typeof fixture>
   return { ...result, parsed: JSON.parse(result.stdout.trim()) };
 }
 
-function installFakeCodex(paths: ReturnType<typeof fixture>, plannerDecision: object) {
+function installFakeCodex(paths: ReturnType<typeof fixture>, plannerDecision: object | object[]) {
   const executable = resolve(paths.root, "fake-codex");
   writeFileSync(executable, `#!/usr/bin/env node
 const fs = require("node:fs");
@@ -68,9 +68,14 @@ process.stdin.setEncoding("utf8");
 process.stdin.on("data", chunk => prompt += chunk);
 process.stdin.on("end", () => {
   fs.appendFileSync(${JSON.stringify(resolve(paths.root, "prompts.jsonl"))}, JSON.stringify({ schema, prompt }) + "\\n");
+  const plannerDecisions = ${JSON.stringify(Array.isArray(plannerDecision) ? plannerDecision : [plannerDecision])};
+  const plannerCallsPath = ${JSON.stringify(resolve(paths.root, "planner-calls"))};
+  let plannerCall = 0;
+  if (fs.existsSync(plannerCallsPath)) plannerCall = Number(fs.readFileSync(plannerCallsPath, "utf8"));
   const response = schema.includes("execution-report")
     ? { status: "complete", outcome: "task complete", approval_required: false, approval_question: null, blockers: [], recommended_next_step: "review", runtime_impact: { production_accessed: false, deployed: false, live_changes_made: false } }
-    : ${JSON.stringify(plannerDecision)};
+    : plannerDecisions[Math.min(plannerCall, plannerDecisions.length - 1)];
+  if (!schema.includes("execution-report")) fs.writeFileSync(plannerCallsPath, String(plannerCall + 1));
   fs.writeFileSync(output, JSON.stringify(response));
 });
 `);
@@ -234,6 +239,62 @@ describe("codex agent loop plan progress", () => {
     });
 
     const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: false, maxAutomaticWindows: 10 }, paths);
+
+    expect(result.parsed.status).toBe("awaiting_user");
+    expect(result.parsed.approvalScope).toEqual(["iteration_limit"]);
+  });
+
+  test("automatically advances to a second finite iteration window", () => {
+    const paths = fixture();
+    const planPath = resolve(paths.workspace, "approved-plan.md");
+    writeFileSync(planPath, "# Plan\n\n### Task alpha: First\n");
+    installFakeCodex(paths, [
+      {
+        action: "run", reason: "continue", requires_approval: false, approval_scope: [],
+        next_prompt: "Continue alpha", question: null, current_task_id: "alpha", completed_task_ids: [],
+      },
+      {
+        action: "ask_user", reason: "pause", requires_approval: true, approval_scope: ["operator_choice"],
+        next_prompt: null, question: "Choose?", current_task_id: "alpha", completed_task_ids: [],
+      },
+    ]);
+
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath, maxAutomaticWindows: 2 }, paths);
+    const state = JSON.parse(readFileSync(resolve(result.parsed.evidenceDirectory, "state.json"), "utf8"));
+    const events = readFileSync(resolve(result.parsed.evidenceDirectory, "events.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+
+    expect(result.parsed.status).toBe("awaiting_user");
+    expect(result.parsed.approvalScope).toEqual(["operator_choice"]);
+    expect(state.windowNumber).toBe(2);
+    expect(state.cumulativeIterations).toBe(2);
+    expect(events.some((event) => event.type === "window_advanced")).toBe(true);
+  });
+
+  test("pauses at the finite automatic window ceiling", () => {
+    const paths = fixture();
+    const planPath = resolve(paths.workspace, "approved-plan.md");
+    writeFileSync(planPath, "# Plan\n\n### Task alpha: First\n");
+    const runDecision = {
+      action: "run", reason: "continue", requires_approval: false, approval_scope: [],
+      next_prompt: "Continue alpha", question: null, current_task_id: "alpha", completed_task_ids: [],
+    };
+    installFakeCodex(paths, [runDecision, runDecision]);
+
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: true, planPath, maxAutomaticWindows: 2 }, paths);
+
+    expect(result.parsed.status).toBe("awaiting_user");
+    expect(result.parsed.approvalScope).toEqual(["automatic_window_limit"]);
+    expect(result.parsed.question).toContain("2 automatic windows");
+  });
+
+  test("retains the iteration limit pause when automatic continuation is disabled", () => {
+    const paths = fixture();
+    installFakeCodex(paths, {
+      action: "run", reason: "continue", requires_approval: false, approval_scope: [],
+      next_prompt: "Continue", question: null, current_task_id: null, completed_task_ids: [],
+    });
+
+    const result = run({ ...baseConfig(paths.workspace, paths.additional), autoContinuePlan: false, maxAutomaticWindows: 2 }, paths);
 
     expect(result.parsed.status).toBe("awaiting_user");
     expect(result.parsed.approvalScope).toEqual(["iteration_limit"]);

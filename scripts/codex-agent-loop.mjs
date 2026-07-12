@@ -382,13 +382,14 @@ function pause(layout, state, question, approvalScope, kind) {
 }
 
 async function continueRun(layout, state, config, executable) {
-  while (state.iteration < config.maxIterations) {
-    if (state.phase === "executor") {
+  while (true) {
+    while (state.iteration < config.maxIterations) {
+      if (state.phase === "executor") {
       state.iteration += 1;
       state.cumulativeIterations += 1;
       state.status = "running";
       state.operatorAnswer = null;
-      const directory = iterationDirectory(layout, state.iteration);
+      const directory = iterationDirectory(layout, state.cumulativeIterations);
       writePrivate(resolve(directory, "executor-prompt.md"), `${state.currentPrompt.trim()}\n`);
       saveState(layout, state);
       appendEvent(layout, state, "executor_started");
@@ -410,8 +411,8 @@ async function continueRun(layout, state, config, executable) {
       }
     }
 
-    if (state.phase === "planner") {
-      const directory = iterationDirectory(layout, state.iteration);
+      if (state.phase === "planner") {
+      const directory = iterationDirectory(layout, state.cumulativeIterations);
       writePrivate(resolve(directory, "planner-input.md"), `${plannerPrompt(state, config)}\n`);
       appendEvent(layout, state, "planner_started");
       let planning;
@@ -456,9 +457,20 @@ async function continueRun(layout, state, config, executable) {
       state.operatorAnswer = null;
       state.phase = "executor";
       saveState(layout, state);
+      }
     }
+
+    if (!config.autoContinuePlan) {
+      return pause(layout, state, `The controller reached its ${config.maxIterations}-iteration limit. Authorize another run with a higher limit?`, ["iteration_limit"], "planner");
+    }
+    if (state.windowNumber >= config.maxAutomaticWindows) {
+      return pause(layout, state, `The controller reached its safety ceiling of ${config.maxAutomaticWindows} automatic windows. Authorize continuation?`, ["automatic_window_limit"], "planner");
+    }
+    state.windowNumber += 1;
+    state.iteration = 0;
+    appendEvent(layout, state, "window_advanced", { windowNumber: state.windowNumber });
+    saveState(layout, state);
   }
-  return pause(layout, state, `The controller reached its ${config.maxIterations}-iteration limit. Authorize another run with a higher limit?`, ["iteration_limit"], "planner");
 }
 
 function createState(prompt, config) {
