@@ -15,6 +15,8 @@ const GovernedUrl = z.string().refine((value) => {
 const AdvisoryDomain = z.enum(["content_decisions", "redirects", "canonicalization", "indexation"]);
 const AdvisoryTargetType = z.enum(["product", "collection", "page", "homepage", "blog_index", "redirect", "technical"]);
 const AdvisoryReason = z.enum(["homepage_not_governed", "blog_index_not_governed", "redirect_execution_unsupported", "canonicalization_execution_prohibited", "indexation_execution_prohibited", "draft_unavailable"]);
+const SourceReferences = z.array(z.object({ kind: z.enum(["rule", "command_center"]), id: z.string().min(1).max(200) }).strict()).max(25);
+const GenerationProvenance = z.enum(["deterministic", "bounded_ai_draft", "advisory_projection"]);
 const SeoBefore = z.object({ seoTitle: z.string().nullable().optional(), seoDescription: z.string().nullable().optional() }).strict();
 const SeoAfter = z.object({ seoTitle: z.string().min(1).max(70).optional(), seoDescription: z.string().min(1).max(160).optional() }).strict().refine((value) => value.seoTitle !== undefined || value.seoDescription !== undefined, "At least one SEO field is required");
 const BodyBefore = z.object({ bodyHtml: z.string() }).strict();
@@ -23,6 +25,7 @@ const BodyAfter = z.object({ bodyHtml: z.string().min(1).max(50_000) }).strict()
 const ExecutableSourceBase = {
   source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash,
   ruleIds: z.array(z.string().min(1)).min(1), targetType: TargetType, targetUrl: GovernedUrl,
+  sourceReferences: SourceReferences, generationProvenance: GenerationProvenance,
   observedAt: z.string().datetime().refine((value) => new Date(value).getTime() <= Date.now() + 5 * 60_000, "Observation cannot be in the future"), observedStateHash: Hash, recommendationId: z.string().min(1).optional(), executable: z.literal(true),
 };
 const ExecutableSourceSchema = z.discriminatedUnion("action", [
@@ -30,7 +33,7 @@ const ExecutableSourceSchema = z.discriminatedUnion("action", [
   z.object({ ...ExecutableSourceBase, action: z.literal("content_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
   z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), linkTargetUrl: GovernedUrl, linkAnchor: z.string().min(1) }).strict(),
 ]);
-const AdvisorySourceSchema = z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(AdvisoryDomain).min(1), targetType: AdvisoryTargetType, targetUrl: GovernedUrl, executable: z.literal(false), advisoryReason: AdvisoryReason }).strict();
+const AdvisorySourceSchema = z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(AdvisoryDomain).min(1), sourceReferences: SourceReferences, generationProvenance: GenerationProvenance, targetType: AdvisoryTargetType, targetUrl: GovernedUrl, executable: z.literal(false), advisoryReason: AdvisoryReason }).strict();
 export const TopicalMapStoreTaskSourceSchema = z.union([ExecutableSourceSchema, AdvisorySourceSchema]);
 
 export const TopicalMapStoreTaskProposedSchema = z.discriminatedUnion("action", [
@@ -50,13 +53,14 @@ const DraftResponse = z.object({ drafts: z.array(z.object({
 type Client = {
   topicalMapActivation: { findUnique(args: unknown): Promise<unknown> };
   storeTask: {
-    findUnique(args: { where: { dedupeKey: string } }): Promise<{ status: string } | null>;
+    findUnique(args: { where: { dedupeKey: string } }): Promise<{ id?: string; status: string; sourceData?: unknown } | null>;
     upsert(args: unknown): Promise<unknown>;
     update?(args: unknown): Promise<unknown>;
   };
   rawSnapshot?: { findFirst(args: unknown): Promise<{ id: string } | null> };
   recommendation?: {
     findFirst(args: unknown): Promise<{ id: string; status: string } | null>;
+    findUnique?(args: unknown): Promise<{ id: string; status: string } | null>;
     create(args: unknown): Promise<{ id: string; status: string }>;
   };
 };
@@ -79,6 +83,7 @@ function canonical(value: unknown): string {
   if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
   return JSON.stringify(value);
 }
+export function hashTopicalMapProposedState(value: unknown): string { return hash(canonical(TopicalMapStoreTaskProposedSchema.parse(value))); }
 function escapeHtml(value: string): string { return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
 function pageAction(page: CommandCenterPage): TopicalMapStoreAction {
   const decision = page.decision?.toLowerCase() ?? "";
@@ -119,7 +124,7 @@ function candidates(center: TopicalMapCommandCenter): Candidate[] {
 
 function advisory(center: TopicalMapCommandCenter, item: Candidate, reason: TaskAdvisoryReason): Persisted {
   return { targetType: item.targetType, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains,
-    sourceData: TopicalMapStoreTaskSourceSchema.parse({ source: "topical-map", strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, targetType: item.targetType, targetUrl: item.targetUrl, executable: false, advisoryReason: reason }),
+    sourceData: TopicalMapStoreTaskSourceSchema.parse({ source: "topical-map", strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceReferences: item.ruleIds.slice(0, 25).map((id) => ({ kind: "rule", id })), generationProvenance: "advisory_projection", targetType: item.targetType, targetUrl: item.targetUrl, executable: false, advisoryReason: reason }),
     proposedState: { action: "advisory", advisory: reason },
   };
 }
@@ -162,6 +167,8 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
       packageSha256: center.identity.packageSha256,
       ruleIds: item.ruleIds,
       ruleDomains: item.ruleDomains,
+      sourceReferences: item.ruleIds.slice(0, 25).map((id) => ({ kind: "rule", id })),
+      generationProvenance: item.action === "internal_link" ? "deterministic" : "bounded_ai_draft",
       targetType: resource.type,
       targetUrl: item.targetUrl,
       action: item.action,
@@ -186,10 +193,17 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
   for (const task of tasks) {
     const checkedSource = TopicalMapStoreTaskSourceSchema.parse(task.sourceData);
     const checkedProposed = TopicalMapStoreTaskProposedSchema.parse(task.proposedState);
-    const proposedHash = hash(canonical(checkedProposed));
+    const proposedHash = hashTopicalMapProposedState(checkedProposed);
     const dedupeKey = `store-task:topical-map:${hash(canonical([center.identity.versionId, center.identity.packageSha256, [...task.ruleIds].sort(), path(task.targetUrl), checkedProposed.action]))}`;
     const existing = await client.storeTask.findUnique({ where: { dedupeKey } });
     if (existing && !["pending", "failed"].includes(existing.status)) { summary.unchanged++; continue; }
+    if (existing?.sourceData && client.recommendation?.findUnique) {
+      const existingSource = TopicalMapStoreTaskSourceSchema.safeParse(existing.sourceData);
+      if (existingSource.success && existingSource.data.executable && existingSource.data.recommendationId) {
+        const linked = await client.recommendation.findUnique({ where: { id: existingSource.data.recommendationId }, select: { id: true, status: true } });
+        if (linked && ["approved", "override_approved", "executing"].includes(linked.status)) { summary.unchanged++; continue; }
+      }
+    }
     const sourceWithHash = checkedSource;
     const persisted = await client.storeTask.upsert({ where: { dedupeKey }, create: { taskType: "topical_map", targetType: task.targetType, targetId: null, targetUrl: task.targetUrl, title: checkedSource.executable ? `Review topical-map ${checkedProposed.action}` : "Review topical-map advisory", description: checkedSource.executable ? `Review the governed ${checkedProposed.action} for ${task.targetUrl}.` : checkedSource.advisoryReason, proposedState: checkedProposed, sourceData: sourceWithHash, priority: task.priority, status: "pending", dedupeKey }, update: { taskType: "topical_map", targetType: task.targetType, targetUrl: task.targetUrl, title: checkedSource.executable ? `Review topical-map ${checkedProposed.action}` : "Review topical-map advisory", description: checkedSource.executable ? `Review the governed ${checkedProposed.action} for ${task.targetUrl}.` : checkedSource.advisoryReason, proposedState: checkedProposed, sourceData: sourceWithHash, priority: task.priority, status: "pending", completionNote: null, completedAt: null } }) as { id?: string } | undefined;
     if (checkedSource.executable && persisted?.id && client.recommendation && client.rawSnapshot && client.storeTask.update) {

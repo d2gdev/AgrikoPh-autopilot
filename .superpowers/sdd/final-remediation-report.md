@@ -1,5 +1,19 @@
 # Final Remediation Report
 
+## Second broad-review remediation
+
+The second review exposed three architecture gaps in the first remediation: approved bytes were mutable, Store Task completion preceded Recommendation finalization, and locks/crash recovery were not durable. These are corrected in behavior before this documentation update:
+
+- approval evidence freezes the strict proposed-state hash; sync skips approved/override/executing linked work and dispatch rejects any mismatch before lock/Shopify;
+- the internal dispatcher requires an already claimed `executing` Recommendation and returns only a minimal hash receipt;
+- `execute-approved` atomically finalizes Store Task + Recommendation + two audits + receipt + lock release;
+- verified or uncertain Shopify outcomes whose local finalization is incomplete remain `reconciliation_needed`, never inconsistently completed/failed;
+- locks have owner/acquired/expiry fields with atomic stale takeover, and stale executing recovery reobserves exact after-state before joint completion or failure/release;
+- list/detail DTOs are explicit Zod projections with field/count/string/aggregate caps; failed/applying/reconciliation states are visible and retry re-syncs;
+- strict source provenance includes bounded references and generation provenance; advisory observation absence is explicit.
+
+Second-round fresh gates: focused 10-file gate 80/80, including real `execute-approved` → governed dispatcher mutation coverage; full `npm test` exit 0; typecheck exit 0; lint exit 0 with 0 errors and 85 pre-existing warnings; diff check clean; exact `autopilot_test` safe build exit 0. No production, deployment, push, or real Shopify/Meta access occurred.
+
 ## Result
 
 The broad-review remediation replaces direct route-to-Shopify execution with the existing Recommendation lifecycle. Synchronization creates/links a pending `shopify/apply_topical_map_store_task` Recommendation. Store Pilot confirmation returns `202 queued` after atomically approving that exact Recommendation. Only `execute-approved`, in live mode with an approved/override-approved Recommendation, dispatches the governed Store Task execution service.

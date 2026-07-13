@@ -22,6 +22,8 @@ vi.mock("@/lib/db", () => ({
       create: vi.fn(),
       update: vi.fn(),
     },
+    storeTask: { update: vi.fn(), updateMany: vi.fn() },
+    storeTaskExecutionLock: { deleteMany: vi.fn() },
   },
 }));
 
@@ -38,6 +40,9 @@ vi.mock("@/lib/connectors/meta", () => ({
   executeMetaAction: vi.fn(),
   fetchMetaEntityState: vi.fn().mockResolvedValue({}),
 }));
+
+const storeDispatch = vi.hoisted(() => ({ dispatch: vi.fn(), recover: vi.fn(), receiptJson: vi.fn((value) => value) }));
+vi.mock("@/lib/store-tasks/apply-topical-map", () => ({ dispatchClaimedTopicalMapStoreTask: storeDispatch.dispatch, reobserveTopicalMapReceipt: storeDispatch.recover, receiptJson: storeDispatch.receiptJson }));
 
 import { prisma } from "@/lib/db";
 import { checkGuardrails } from "@/lib/guardrails";
@@ -57,6 +62,8 @@ const mockPrisma = prisma as unknown as {
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
+  storeTask: { update: ReturnType<typeof vi.fn>; updateMany: ReturnType<typeof vi.fn> };
+  storeTaskExecutionLock: { deleteMany: ReturnType<typeof vi.fn> };
   $transaction: ReturnType<typeof vi.fn>;
 };
 
@@ -109,6 +116,9 @@ beforeEach(() => {
   mockPrisma.rawSnapshot.findUnique.mockResolvedValue(metaSnapshot);
   mockPrisma.jobRun.create.mockResolvedValue({ id: "job-run-1" });
   mockPrisma.jobRun.update.mockResolvedValue({});
+  mockPrisma.storeTask.update.mockResolvedValue({});
+  mockPrisma.storeTask.updateMany.mockResolvedValue({ count: 1 });
+  mockPrisma.storeTaskExecutionLock.deleteMany.mockResolvedValue({ count: 1 });
   mockPrisma.$transaction.mockImplementation(async (ops: unknown) => {
     if (Array.isArray(ops)) {
       return Promise.all(ops);
@@ -120,9 +130,48 @@ beforeEach(() => {
   });
   mockCheckGuardrails.mockResolvedValue({ status: "allow" });
   mockExecuteRecommendation.mockResolvedValue({ success: true });
+  storeDispatch.dispatch.mockResolvedValue({ taskId: "task-1", recommendationId: "rec-shopify", targetId: "gid://shopify/Product/1", targetUrl: "/products/rice", targetType: "product", strategyVersionId: "v1", packageSha256: "a".repeat(64), ruleIds: ["rule-1"], action: "seo_update", changedFields: ["seoTitle"], proposedStateHash: "b".repeat(64), shopifyReturnedStateHash: "c".repeat(64), verifiedAt: new Date().toISOString() });
+  storeDispatch.recover.mockResolvedValue(null);
 });
 
 describe("executeApprovedHandler", () => {
+  it("jointly finalizes governed Shopify task and recommendation from a minimal receipt", async () => {
+    const shopify = { ...baseRec, id: "rec-shopify", platform: "shopify", actionType: "apply_topical_map_store_task", targetEntityId: "task-1", targetEntityType: "store_task", status: "approved" };
+    mockPrisma.recommendation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([shopify]);
+    await executeLive();
+    expect(storeDispatch.dispatch).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({ id: "rec-shopify", status: "executing" }));
+    expect(mockPrisma.storeTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed", executionReceipt: expect.any(Object) }) }));
+    expect((mockPrisma.$transaction.mock.calls.at(-1)![0] as unknown[])).toHaveLength(5);
+  });
+
+  it("marks reconciliation needed when joint finalization fails after verified Shopify success", async () => {
+    const shopify = { ...baseRec, id: "rec-shopify", platform: "shopify", actionType: "apply_topical_map_store_task", targetEntityId: "task-1", targetEntityType: "store_task", status: "approved" };
+    mockPrisma.recommendation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([shopify]);
+    mockPrisma.$transaction.mockRejectedValueOnce(new Error("commit failed"));
+    await executeLive();
+    expect(mockPrisma.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "reconciliation_needed", executionReceipt: expect.any(Object) }) }));
+    expect(mockPrisma.recommendation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ executionResult: expect.any(Object) }) }));
+  });
+
+  it("reobserves stale governed execution and jointly finalizes when Shopify has the exact after-state", async () => {
+    const stale = { ...baseRec, id: "rec-stale", platform: "shopify", actionType: "apply_topical_map_store_task", targetEntityId: "task-1", status: "executing", updatedAt: new Date(0) };
+    const receipt = { taskId: "task-1", recommendationId: "rec-stale", targetUrl: "/products/rice" };
+    mockPrisma.recommendation.findMany.mockResolvedValueOnce([stale]).mockResolvedValueOnce([]);
+    storeDispatch.recover.mockResolvedValue(receipt);
+    await executeLive();
+    expect(storeDispatch.recover).toHaveBeenCalledWith(mockPrisma, stale);
+    expect(mockPrisma.storeTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) }));
+    expect(mockPrisma.storeTaskExecutionLock.deleteMany).toHaveBeenCalledWith({ where: { taskId: "task-1", ownerId: "rec-stale" } });
+  });
+
+  it("fails and releases stale governed execution when Shopify lacks the exact after-state", async () => {
+    const stale = { ...baseRec, id: "rec-stale", platform: "shopify", actionType: "apply_topical_map_store_task", targetEntityId: "task-1", status: "executing", updatedAt: new Date(0) };
+    mockPrisma.recommendation.findMany.mockResolvedValueOnce([stale]).mockResolvedValueOnce([]);
+    storeDispatch.recover.mockResolvedValue(null);
+    await executeLive();
+    expect(mockPrisma.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }));
+    expect(mockPrisma.storeTaskExecutionLock.deleteMany).toHaveBeenCalledWith({ where: { taskId: "task-1", ownerId: "rec-stale" } });
+  });
   it("requires both explicit live intent and the server gate", () => {
     expect(resolveExecutionMode()).toEqual({ liveEnabled: false, dryRun: true });
     expect(resolveExecutionMode(true)).toEqual({ liveEnabled: false, dryRun: true });

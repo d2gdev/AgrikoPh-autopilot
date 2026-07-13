@@ -91,7 +91,7 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
           <Text as="p">{rules.join(", ")}</Text>
         </BlockStack>
       ) : null}
-      {observedAt ? <Text as="p" variant="bodySm" tone="subdued">Evidence observed {new Date(observedAt).toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</Text> : null}
+      {observedAt ? <Text as="p" variant="bodySm" tone="subdued">Evidence observed {new Date(observedAt).toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</Text> : <Text as="p" variant="bodySm" tone="subdued">Observation time unavailable or not required for this advisory task.</Text>}
       {reason ? <Text as="p" tone="subdued">{reason}</Text> : null}
       {fields.length ? <Divider /> : null}
       {fields.map((field) => (

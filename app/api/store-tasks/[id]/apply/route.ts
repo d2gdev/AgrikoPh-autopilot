@@ -5,13 +5,15 @@ import { approveTopicalMapStoreTask, TopicalMapApplyError, type TopicalMapApplyE
 
 export const dynamic = "force-dynamic";
 const responses: Record<TopicalMapApplyErrorCode, { status: number; error: string }> = {
-  LIVE_DISABLED: { status: 403, error: "Live store task execution is disabled." },
   TASK_NOT_PENDING: { status: 409, error: "The task is no longer pending." },
   TASK_NOT_EXECUTABLE: { status: 409, error: "The task is not executable." },
   STRATEGY_CHANGED: { status: 409, error: "The active strategy has changed." },
   RULE_CHANGED: { status: 409, error: "The governing rules have changed." },
   OBSERVATION_CHANGED: { status: 409, error: "The task no longer matches the current store observation." },
+  APPROVED_BYTES_CHANGED: { status: 409, error: "The approved task bytes changed and require fresh confirmation." },
+  TARGET_LOCKED: { status: 409, error: "Another task is already changing this Shopify target." },
   SHOPIFY_FAILED: { status: 502, error: "Shopify could not verify the requested update." },
+  SHOPIFY_VERIFICATION_UNCERTAIN: { status: 502, error: "Shopify verification is uncertain and requires reconciliation." },
 };
 
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {

@@ -41,7 +41,7 @@ const center = () => ({
   },
 });
 
-function client(existing: Record<string, { status: string }> = {}) {
+function client(existing: Record<string, { status: string; id?: string; sourceData?: unknown }> = {}) {
   const rows = new Map(Object.entries(existing));
   let sequence = 0;
   return {
@@ -52,7 +52,7 @@ function client(existing: Record<string, { status: string }> = {}) {
       update: vi.fn(),
     },
     rawSnapshot: { findFirst: vi.fn().mockResolvedValue({ id: "seo-snapshot-1" }) },
-    recommendation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn(async () => ({ id: `rec-${sequence}`, status: "pending" })) },
+    recommendation: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(async () => ({ id: `rec-${sequence}`, status: "pending" })) },
   };
 }
 
@@ -95,7 +95,7 @@ describe("syncTopicalMapStoreTasks", () => {
     await syncTopicalMapStoreTasks(db as any);
     const tasks = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create);
     const link = tasks.find((task: any) => task.proposedState.action === "internal_link");
-    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:z"], ruleDomains: ["internal_links"], targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", linkTargetUrl: "/products/black-rice", linkAnchor: "shop black rice", observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
+    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:z"], ruleDomains: ["internal_links"], sourceReferences: [{ kind: "rule", id: "link:a" }, { kind: "rule", id: "link:z" }], generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", linkTargetUrl: "/products/black-rice", linkAnchor: "shop black rice", observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
     expect(link.proposedState).toEqual({ action: "internal_link", before: { bodyHtml: "<p>Existing Rice body.</p>" }, after: { bodyHtml: '<p>Existing Rice body.</p><p><a href="/products/black-rice">shop black rice</a></p>' } });
     expect(link.dedupeKey).toMatch(/^store-task:topical-map:[a-f0-9]{64}$/);
     expect(TopicalMapStoreTaskSourceSchema.parse(link.sourceData)).toEqual(link.sourceData);
@@ -112,6 +112,16 @@ describe("syncTopicalMapStoreTasks", () => {
     expect(db.storeTask.upsert.mock.calls.some((call: any) => [keys[0], keys[1]].includes(call[0].where.dedupeKey))).toBe(false);
     expect(db.storeTask.upsert.mock.calls.some((call: any) => call[0].where.dedupeKey === keys[2])).toBe(true);
     expect(db.storeTask.upsert.mock.calls.some((call: any) => call[0].where.dedupeKey === keys[3])).toBe(true);
+  });
+
+  it.each(["approved", "override_approved", "executing"])("does not overwrite bytes linked to a %s recommendation", async (status) => {
+    const seed = client(); await syncTopicalMapStoreTasks(seed as any);
+    const call = seed.storeTask.upsert.mock.calls.find((item: any) => item[0].create.sourceData.executable)!;
+    const frozenSource = { ...call[0].create.sourceData, recommendationId: "rec-frozen" };
+    const db = client({ [call[0].where.dedupeKey]: { id: "task-frozen", status: "pending", sourceData: frozenSource } });
+    db.recommendation.findUnique.mockResolvedValue({ id: "rec-frozen", status });
+    await syncTopicalMapStoreTasks(db as any);
+    expect(db.storeTask.upsert.mock.calls.some((item: any) => item[0].where.dedupeKey === call[0].where.dedupeKey)).toBe(false);
   });
 
   it("normalizes identity inputs so rule order and absolute target URLs produce the same dedupe key", async () => {
@@ -158,7 +168,7 @@ describe("syncTopicalMapStoreTasks", () => {
   });
 
   it("rejects arbitrary advisory source types, reasons, domains, hashes, and URLs", () => {
-    const valid = { source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], ruleDomains: ["redirects"], targetType: "redirect", targetUrl: "/old", executable: false, advisoryReason: "redirect_execution_unsupported" };
+    const valid = { source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], ruleDomains: ["redirects"], sourceReferences: [{ kind: "rule", id: "rule:1" }], generationProvenance: "advisory_projection", targetType: "redirect", targetUrl: "/old", executable: false, advisoryReason: "redirect_execution_unsupported" };
     expect(TopicalMapStoreTaskSourceSchema.safeParse(valid).success).toBe(true);
     for (const bad of [{ ...valid, targetType: "anything" }, { ...valid, advisoryReason: "anything" }, { ...valid, ruleDomains: ["anything"] }, { ...valid, packageSha256: "short" }, { ...valid, targetUrl: "javascript:alert(1)" }]) {
       expect(TopicalMapStoreTaskSourceSchema.safeParse(bad).success).toBe(false);

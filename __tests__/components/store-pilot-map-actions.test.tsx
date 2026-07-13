@@ -65,7 +65,7 @@ describe("Store Pilot topical-map workflow", () => {
     fireEvent.click(sync); fireEvent.click(sync);
     await screen.findByText("Topical-map tasks synchronized.");
     expect(authFetch.mock.calls.filter(([url]) => url === "/api/store-tasks/topical-map/sync")).toHaveLength(1);
-    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?status="))).toHaveLength(8);
+    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?status="))).toHaveLength(12);
   });
 
   it("opens Apply confirmation and calls apply only after confirmation", async () => {
@@ -78,7 +78,7 @@ describe("Store Pilot topical-map workflow", () => {
     fireEvent.click(confirm); fireEvent.click(confirm);
     await screen.findByText("The topical-map change was approved and queued.");
     expect(authFetch.mock.calls.filter(([url]) => url === "/api/store-tasks/map-1/apply")).toHaveLength(1);
-    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?status="))).toHaveLength(8);
+    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?status="))).toHaveLength(12);
   });
 
   it.each([

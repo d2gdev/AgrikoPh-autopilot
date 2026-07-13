@@ -70,7 +70,11 @@ pending -> applying -> completed
 
 The Apply button opens a confirmation modal that loads exact detail on demand. Confirming is the operator approval: the route requires `CONTENT_PUBLISH`, atomically approves the exact linked pending Recommendation, and returns `202 queued` without calling Shopify. `execute-approved` alone claims the approved Recommendation, checks `EXECUTE_APPROVED_LIVE_ENABLED=true`, revalidates strategy/rules/store state, acquires a persisted normalized-target lock, and dispatches the governed Store Task service.
 
+Approval freezes the strict proposed-state SHA-256 in Recommendation evidence. Synchronization cannot overwrite bytes linked to an `approved`, `override_approved`, or `executing` Recommendation, and execution compares the frozen hash before any task claim, Shopify observation, or write. A mismatch fails the old work and requires a newly synchronized pending Recommendation and fresh confirmation.
+
 Immediately before mutation, the executor refetches the exact Shopify object and compares its state hash with the task observation. Any changed object, active strategy, rule set, proposed field, or occupied target lock performs no write. Recommendation and Store Task terminal states are reconciled, and uncertain post-request verification is explicitly failed rather than completed.
+
+The mutation service returns only a bounded hash-based verified receipt and does not set a terminal task status. `execute-approved` commits Store Task completion, Recommendation execution, both audits, the minimal receipt, and target-lock release in one local transaction. If that final transaction fails after Shopify verification, both records remain recoverable with `reconciliation_needed` evidence. Expired locks have owners and expiries; stale executing recovery reobserves Shopify and jointly finalizes exact success or fails/releases safely.
 
 ### 4. Shopify mutation boundary
 

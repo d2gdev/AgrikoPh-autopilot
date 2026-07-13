@@ -5,15 +5,10 @@ import { NextResponse } from "next/server";
 import { requireAppAuth, getSessionShop } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { routeOpenStoreTaskOpportunities } from "@/lib/store-tasks/route-opportunities";
+import { toStoreTaskListDto } from "@/lib/store-tasks/dto";
 
-const VALID_STATUSES = ["pending", "failed", "completed", "dismissed"];
+const VALID_STATUSES = ["pending", "applying", "reconciliation_needed", "failed", "completed", "dismissed"];
 
-function previewJson(value: unknown): unknown {
-  if (typeof value === "string") return value.length > 400 ? `${value.slice(0, 400)}…` : value;
-  if (Array.isArray(value)) return value.slice(0, 25).map(previewJson);
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, previewJson(item)]));
-  return value;
-}
 
 export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
@@ -32,7 +27,8 @@ export async function GET(req: Request) {
     take: 250,
   });
 
-  return NextResponse.json({ tasks: tasks.map((task) => ({ ...task, proposedState: previewJson(task.proposedState) })), total: tasks.length });
+  const taskDtos = tasks.flatMap((task) => { try { return [toStoreTaskListDto(task)]; } catch { return []; } });
+  return NextResponse.json({ tasks: taskDtos, total: taskDtos.length });
 }
 
 export async function POST(req: Request) {

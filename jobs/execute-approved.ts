@@ -97,30 +97,33 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
       const staleThreshold = new Date(Date.now() - 10 * 60 * 1000);
       const staleRecs = await prisma.recommendation.findMany({
         where: { status: "executing", updatedAt: { lt: staleThreshold } },
-        select: { id: true },
       });
       if (staleRecs.length > 0) {
-        await prisma.$transaction([
-          prisma.recommendation.updateMany({
-            where: { id: { in: staleRecs.map((r) => r.id) } },
-            data: {
-              status: "failed",
-              executionResult: json({ error: "Execution timed out — process likely died" }),
-            },
-          }),
-          ...staleRecs.map((r) =>
-            prisma.auditLog.create({
-              data: {
-                actor: "system",
-                action: "execution_timeout_recovered",
-                entityType: "recommendation",
-                entityId: r.id,
-                after: { error: "Execution timed out — process likely died" },
-                meta: { dryRun: false, jobRunId: run.id },
-              },
-            })
-          ),
-        ]);
+        for (const stale of staleRecs) {
+          if (stale.platform === "shopify" && stale.actionType === "apply_topical_map_store_task") {
+            const { reobserveTopicalMapReceipt, receiptJson } = await import("@/lib/store-tasks/apply-topical-map");
+            const receipt = await reobserveTopicalMapReceipt(prisma, stale);
+            if (receipt) {
+              await prisma.$transaction([
+                prisma.storeTask.update({ where: { id: stale.targetEntityId }, data: { status: "completed", completedAt: new Date(), completionNote: "Recovered and verified after interrupted execution.", executionReceipt: receiptJson(receipt) } }),
+                prisma.recommendation.update({ where: { id: stale.id }, data: { status: "executed", executedAt: new Date(), executionResult: receiptJson(receipt) } }),
+                prisma.storeTaskExecutionLock.deleteMany({ where: { taskId: stale.targetEntityId, ownerId: stale.id } }),
+                prisma.auditLog.create({ data: { actor: "system", action: "execution_timeout_reconciled", entityType: "recommendation", entityId: stale.id, after: receiptJson(receipt), meta: { jobRunId: run.id } } }),
+              ]);
+            } else {
+              await prisma.$transaction([
+                prisma.storeTask.updateMany({ where: { id: stale.targetEntityId, status: { in: ["applying", "reconciliation_needed"] } }, data: { status: "failed", completedAt: new Date(), completionNote: "Interrupted execution was not present on Shopify. Re-sync before retrying." } }),
+                prisma.recommendation.update({ where: { id: stale.id }, data: { status: "failed", executionResult: json({ error: "Interrupted execution could not be verified" }) } }),
+                prisma.storeTaskExecutionLock.deleteMany({ where: { taskId: stale.targetEntityId, ownerId: stale.id } }),
+              ]);
+            }
+          } else {
+            await prisma.$transaction([
+              prisma.recommendation.update({ where: { id: stale.id }, data: { status: "failed", executionResult: json({ error: "Execution timed out — process likely died" }) } }),
+              prisma.auditLog.create({ data: { actor: "system", action: "execution_timeout_recovered", entityType: "recommendation", entityId: stale.id, after: { error: "Execution timed out — process likely died" }, meta: { dryRun: false, jobRunId: run.id } } }),
+            ]);
+          }
+        }
       }
     }
   } catch (err) {
@@ -156,6 +159,7 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
   const { executeRecommendation, isSupportedAction } = await import("@/lib/executor");
 
   for (const rec of approved) {
+    let verifiedShopifyReceipt: Record<string, unknown> | null = null;
     counters.considered++;
     if (rec.platform === "meta" && circuit.metaDisabled) {
       counters.skipped++;
@@ -236,11 +240,15 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
           await prisma.auditLog.create({ data: { actor: "system", action: "execution_dry_run_success", entityType: "recommendation", entityId: rec.id, after: { simulated: true, intendedChange: intendedChange(rec), result: "No Shopify call was made." }, meta: { dryRun: true, jobRunId: run.id } } });
           continue;
         }
-        const { executeTopicalMapStoreTask } = await import("@/lib/store-tasks/apply-topical-map");
-        const result = await executeTopicalMapStoreTask(prisma, { id: rec.targetEntityId, actor: "system", recommendationId: rec.id });
+        const { dispatchClaimedTopicalMapStoreTask, receiptJson } = await import("@/lib/store-tasks/apply-topical-map");
+        const receipt = await dispatchClaimedTopicalMapStoreTask(prisma, { ...rec, status: "executing" });
+        verifiedShopifyReceipt = receipt as unknown as Record<string, unknown>;
         await prisma.$transaction([
-          prisma.recommendation.update({ where: { id: rec.id }, data: { status: "executed", executedAt: new Date(), executionResult: json({ taskId: result.task.id, receipt: result.receipt }) } }),
-          prisma.auditLog.create({ data: { actor: "system", action: "execution_success", entityType: "recommendation", entityId: rec.id, after: json({ taskId: result.task.id, receipt: result.receipt }), meta: { dryRun: false, jobRunId: run.id } } }),
+          prisma.storeTask.update({ where: { id: receipt.taskId }, data: { status: "completed", completedAt: new Date(), completionNote: "Shopify update verified.", executionReceipt: receiptJson(receipt) } }),
+          prisma.recommendation.update({ where: { id: rec.id }, data: { status: "executed", executedAt: new Date(), executionResult: receiptJson(receipt) } }),
+          prisma.auditLog.create({ data: { actor: "system", action: "topical_map_store_task_applied", entityType: "StoreTask", entityId: receipt.taskId, after: receiptJson(receipt), meta: { jobRunId: run.id } } }),
+          prisma.auditLog.create({ data: { actor: "system", action: "execution_success", entityType: "recommendation", entityId: rec.id, after: receiptJson(receipt), meta: { dryRun: false, jobRunId: run.id } } }),
+          prisma.storeTaskExecutionLock.deleteMany({ where: { targetUrl: receipt.targetUrl, taskId: receipt.taskId, ownerId: rec.id } }),
         ]);
         counters.executed++;
         continue;
@@ -394,7 +402,24 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
         await audit;
       } else {
         if (rec.platform === "shopify" && rec.actionType === "apply_topical_map_store_task") {
-          await prisma.storeTask.updateMany({ where: { id: rec.targetEntityId, status: { in: ["pending", "applying"] } }, data: { status: "failed", completedAt: new Date(), completionNote: "Guarded execution failed before a verified Shopify receipt was persisted. Re-sync to reobserve and create fresh work." } });
+          const uncertain = err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "SHOPIFY_VERIFICATION_UNCERTAIN";
+          if (verifiedShopifyReceipt) {
+            await prisma.storeTask.updateMany({ where: { id: rec.targetEntityId, status: "applying" }, data: { status: "reconciliation_needed", completionNote: "Shopify was verified, but local joint finalization failed. Automatic reconciliation is required.", executionReceipt: json(verifiedShopifyReceipt) } }).catch(() => undefined);
+            await prisma.recommendation.updateMany({ where: { id: rec.id, status: "executing" }, data: { executionResult: json({ reconciliationNeeded: true, receipt: verifiedShopifyReceipt }) } }).catch(() => undefined);
+            continue;
+          }
+          if (uncertain) {
+            await prisma.storeTask.updateMany({ where: { id: rec.targetEntityId, status: "applying" }, data: { status: "reconciliation_needed", completionNote: "Shopify mutation outcome is uncertain. Automatic reobservation is required before any retry.", executionReceipt: json({ reconciliationNeeded: true, recommendationId: rec.id, taskId: rec.targetEntityId }) } }).catch(() => undefined);
+            await prisma.recommendation.updateMany({ where: { id: rec.id, status: "executing" }, data: { executionResult: json({ reconciliationNeeded: true, taskId: rec.targetEntityId }) } }).catch(() => undefined);
+            continue;
+          }
+          await prisma.$transaction([
+            prisma.storeTask.updateMany({ where: { id: rec.targetEntityId, status: { in: ["pending", "applying"] } }, data: { status: "failed", completedAt: new Date(), completionNote: "Guarded execution failed before a verified Shopify receipt. Re-sync to reobserve and create fresh work." } }),
+            prisma.recommendation.update({ where: { id: rec.id }, data: { status: "failed", executionResult: json({ error: safeError }) } }),
+            prisma.storeTaskExecutionLock.deleteMany({ where: { taskId: rec.targetEntityId, ownerId: rec.id } }),
+            audit,
+          ]);
+          continue;
         }
         await prisma.$transaction([
           prisma.recommendation.update({

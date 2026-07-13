@@ -37,7 +37,7 @@ interface StoreTask {
   proposedState: Record<string, unknown>;
   sourceData: Record<string, unknown>;
   priority: string;
-  status: "pending" | "failed" | "completed" | "dismissed";
+  status: "pending" | "applying" | "reconciliation_needed" | "failed" | "completed" | "dismissed";
   completedAt: string | null;
   completionNote: string | null;
 }
@@ -49,6 +49,8 @@ interface TaskBucket {
 
 const TASK_TABS = [
   { id: "pending", content: "Pending" },
+  { id: "applying", content: "Applying" },
+  { id: "reconciliation_needed", content: "Reconciliation" },
   { id: "failed", content: "Failed" },
   { id: "completed", content: "Completed" },
   { id: "dismissed", content: "Dismissed" },
@@ -82,6 +84,8 @@ export default function StorePilotReportPage() {
   const [taskTab, setTaskTab] = useState(0);
   const [taskBuckets, setTaskBuckets] = useState<Record<(typeof TASK_TABS)[number]["id"], TaskBucket>>({
     pending: { tasks: [], total: 0 },
+    applying: { tasks: [], total: 0 },
+    reconciliation_needed: { tasks: [], total: 0 },
     failed: { tasks: [], total: 0 },
     completed: { tasks: [], total: 0 },
     dismissed: { tasks: [], total: 0 },
@@ -252,6 +256,7 @@ export default function StorePilotReportPage() {
         <Text as="p" tone="subdued" variant="bodySm">{task.targetUrl}</Text>
       ) : null}
       {mapTask ? <MapTaskDetails task={task} compact /> : null}
+      {task.completionNote ? <Text as="p" tone={task.status === "failed" || task.status === "reconciliation_needed" ? "critical" : "subdued"} variant="bodySm">{task.completionNote}</Text> : null}
     </BlockStack>,
     formatDate(task.createdAt),
     activeTaskStatus === "pending" ? (
@@ -270,6 +275,8 @@ export default function StorePilotReportPage() {
           Dismiss
         </Button>
       </InlineStack>
+    ) : activeTaskStatus === "failed" ? (
+      <Button key={`${task.id}-retry`} size="slim" onClick={syncTopicalMap} loading={syncingMap} disabled={mutationBusy}>Re-sync/retry</Button>
     ) : (
       formatDate(task.completedAt)
     ),

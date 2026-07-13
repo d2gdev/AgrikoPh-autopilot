@@ -10,12 +10,14 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-13T21:47:00+08:00
+last_updated: 2026-07-13T22:11:00+08:00
 ---
 
 # Pilot Queue Usability
 
 For executable topical-map Store Tasks, keep list DTOs preview-only and fetch exact before/after detail from the authenticated task detail route when the operator confirms. The Apply label means approve-and-queue: it must approve the linked Recommendation and must not call Shopify. Show failed and uncertain-receipt notes, and retry only through re-sync/reobservation.
+
+Applying and reconciliation-needed work must remain visible. A failed row's recovery control always invokes synchronization/reobservation; never expose a blind replay endpoint.
 
 ## Context
 Backend dedupe is not enough. Operators need to see why a row exists, why a queue is empty, and whether rejected/published/executed history is being respected.

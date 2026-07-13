@@ -342,6 +342,7 @@ model StoreTask {
   reviewedAt     DateTime?
   completedAt    DateTime?
   completionNote String?
+  executionReceipt Json?
   opportunityId  String?
   dedupeKey      String    @unique
 
@@ -352,9 +353,13 @@ model StoreTask {
 }
 
 model StoreTaskExecutionLock {
-  targetUrl String   @id
-  taskId    String   @unique
-  claimedAt DateTime @default(now())
+  targetUrl  String   @id
+  taskId     String   @unique
+  ownerId    String
+  acquiredAt DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([expiresAt])
 }
 
 model ContentProposal {

@@ -1,266 +1,106 @@
 import { prisma } from "@/lib/db";
-import { Prisma, type StoreTask } from "@prisma/client";
+import { Prisma, type Recommendation } from "@prisma/client";
 import { applyGovernedStoreResourceChange, fetchGovernedStoreResource, resolveGovernedStoreUrl, type GovernedStoreResource } from "@/lib/shopify-governed-resources";
-import { TopicalMapStoreTaskProposedSchema, TopicalMapStoreTaskSourceSchema } from "@/lib/store-tasks/topical-map";
+import { hashTopicalMapProposedState, TopicalMapStoreTaskProposedSchema, TopicalMapStoreTaskSourceSchema } from "@/lib/store-tasks/topical-map";
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
-export type TopicalMapApplyErrorCode =
-  | "LIVE_DISABLED"
-  | "TASK_NOT_PENDING"
-  | "TASK_NOT_EXECUTABLE"
-  | "STRATEGY_CHANGED"
-  | "RULE_CHANGED"
-  | "OBSERVATION_CHANGED"
-  | "SHOPIFY_FAILED";
+export type TopicalMapApplyErrorCode = "TASK_NOT_PENDING" | "TASK_NOT_EXECUTABLE" | "APPROVED_BYTES_CHANGED" | "STRATEGY_CHANGED" | "RULE_CHANGED" | "OBSERVATION_CHANGED" | "TARGET_LOCKED" | "SHOPIFY_FAILED" | "SHOPIFY_VERIFICATION_UNCERTAIN";
 export class TopicalMapApplyError extends Error {
-  constructor(public readonly code: TopicalMapApplyErrorCode) {
-    super(code);
-    this.name = "TopicalMapApplyError";
-  }
+  constructor(public readonly code: TopicalMapApplyErrorCode) { super(code); this.name = "TopicalMapApplyError"; }
 }
 
 type Db = typeof prisma;
-type ApplyInput = { id: string; actor: string };
-type Receipt = {
-  strategyVersionId: string;
-  packageSha256: string;
-  ruleIds: string[];
-  targetUrl: string;
-  action: string;
-  before: Record<string, unknown>;
-  after: Record<string, unknown>;
+type ExecutableSource = Extract<ReturnType<typeof TopicalMapStoreTaskSourceSchema.parse>, { executable: true }>;
+type ExecutableProposed = Exclude<ReturnType<typeof TopicalMapStoreTaskProposedSchema.parse>, { action: "advisory" }>;
+export type MinimalStoreTaskReceipt = {
+  taskId: string; recommendationId: string; targetId: string; targetUrl: string; targetType: "product" | "collection" | "page";
+  strategyVersionId: string; packageSha256: string; ruleIds: string[]; action: string; changedFields: string[];
+  proposedStateHash: string; shopifyReturnedStateHash: string; verifiedAt: string;
 };
-
-function sameStrings(left: string[], right: string[]): boolean {
-  return [...left].sort().join("\0") === [...right].sort().join("\0");
-}
 
 function path(value: string): string {
   const normalized = normalizeGovernedUrl(value);
-  if (normalized.startsWith("/")) {
-    return normalized.length > 1 ? normalized.replace(/\/$/, "") : normalized;
-  }
-  const parsed = new URL(normalized);
-  const pathname = parsed.pathname.length > 1 ? parsed.pathname.replace(/\/$/, "") : parsed.pathname;
-  return `${pathname}${parsed.search}${parsed.hash}`;
+  if (normalized.startsWith("/")) return normalized.length > 1 ? normalized.replace(/\/$/, "") : normalized;
+  const parsed = new URL(normalized); return `${parsed.pathname.length > 1 ? parsed.pathname.replace(/\/$/, "") : parsed.pathname}${parsed.search}${parsed.hash}`;
 }
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+function sameStrings(a: string[], b: string[]) { return [...a].sort().join("\0") === [...b].sort().join("\0"); }
+function escapeHtml(value: string) { return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
+function approvedHash(rec: Pick<Recommendation, "proposedValue">): string | null {
+  try { const parsed = JSON.parse(rec.proposedValue ?? "null"); return typeof parsed?.approvedProposedStateHash === "string" ? parsed.approvedProposedStateHash : null; } catch { return null; }
 }
-
-function stillGoverned(
-  center: Awaited<ReturnType<typeof loadActiveTopicalMapCommandCenter>>,
-  source: Extract<ReturnType<typeof TopicalMapStoreTaskSourceSchema.parse>, { executable: true }>,
-  proposed: Exclude<ReturnType<typeof TopicalMapStoreTaskProposedSchema.parse>, { action: "advisory" }>,
-): boolean {
-  if (!center) return false;
-  if (source.action !== proposed.action) return false;
-  const resolvedTarget = resolveGovernedStoreUrl(source.targetUrl);
-  if (!resolvedTarget || resolvedTarget.type !== source.targetType) return false;
-  if (source.action === "internal_link" && proposed.action === "internal_link") {
-    return center.work.internalLinks.some((item) => {
-      const activeAnchor = item.recommendedAnchor ?? item.toUrl;
-      return path(item.fromUrl) === source.targetUrl
-        && path(item.toUrl) === source.linkTargetUrl
-        && activeAnchor === source.linkAnchor
-        && sameStrings(item.ruleIds, source.ruleIds);
-    });
-  }
-  const page = center.pages.find((item) => item.url === source.targetUrl);
-  const currentAction = /(seo|meta|title|description)/.test(page?.decision?.toLowerCase() ?? "") ? "seo_update" : "content_update";
-  return !!page && currentAction === source.action && sameStrings(page.ruleDomains.content_decisions ?? [], source.ruleIds);
+function stillGoverned(center: Awaited<ReturnType<typeof loadActiveTopicalMapCommandCenter>>, source: ExecutableSource, proposed: ExecutableProposed) {
+  if (!center || source.action !== proposed.action) return false;
+  const target = resolveGovernedStoreUrl(source.targetUrl); if (!target || target.type !== source.targetType) return false;
+  if (source.action === "internal_link") return center.work.internalLinks.some((item) => path(item.fromUrl) === source.targetUrl && path(item.toUrl) === source.linkTargetUrl && (item.recommendedAnchor ?? item.toUrl) === source.linkAnchor && sameStrings(item.ruleIds, source.ruleIds));
+  const page = center.pages.find((item) => path(item.url) === source.targetUrl);
+  const action = /(seo|meta|title|description)/.test(page?.decision?.toLowerCase() ?? "") ? "seo_update" : "content_update";
+  return !!page && action === source.action && sameStrings(page.ruleDomains.content_decisions ?? [], source.ruleIds);
 }
-
-function expectedInternalLinkBody(
-  currentBody: string,
-  source: Extract<ReturnType<typeof TopicalMapStoreTaskSourceSchema.parse>, { executable: true; action: "internal_link" }>,
-): string {
-  return `${currentBody}<p><a href="${escapeHtml(source.linkTargetUrl)}">${escapeHtml(source.linkAnchor)}</a></p>`;
-}
-
-function matchesFreshObservation(
-  resource: GovernedStoreResource,
-  source: Extract<ReturnType<typeof TopicalMapStoreTaskSourceSchema.parse>, { executable: true }>,
-  proposed: Exclude<ReturnType<typeof TopicalMapStoreTaskProposedSchema.parse>, { action: "advisory" }>,
-): boolean {
-  if (source.action !== proposed.action) return false;
-  if (proposed.action === "internal_link" && source.action === "internal_link") {
-    return proposed.before.bodyHtml === resource.bodyHtml
-      && proposed.after.bodyHtml === expectedInternalLinkBody(resource.bodyHtml, source);
-  }
-  if (proposed.action === "content_update") {
-    return proposed.before.bodyHtml === resource.bodyHtml;
-  }
-  return Object.entries(proposed.before).every(([key, value]) => {
-    return resource[key as "seoTitle" | "seoDescription"] === value;
-  });
-}
-
-function changes(
-  proposed: ReturnType<typeof TopicalMapStoreTaskProposedSchema.parse>,
-  current: GovernedStoreResource,
-  source: Extract<ReturnType<typeof TopicalMapStoreTaskSourceSchema.parse>, { executable: true }>,
-): Record<string, string> {
-  if (proposed.action === "advisory") {
-    throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
-  }
-  if (proposed.action === "internal_link" && source.action === "internal_link") {
-    return { bodyHtml: expectedInternalLinkBody(current.bodyHtml, source) };
-  }
+function expectedChanges(proposed: ExecutableProposed, current: GovernedStoreResource, source: ExecutableSource): Record<string, string> {
+  if (proposed.action === "internal_link" && source.action === "internal_link") return { bodyHtml: `${current.bodyHtml}<p><a href="${escapeHtml(source.linkTargetUrl)}">${escapeHtml(source.linkAnchor)}</a></p>` };
   return { ...proposed.after };
 }
-
-function verified(resource: GovernedStoreResource, expected: Record<string, string>): boolean {
-  return Object.entries(expected).every(([key, value]) => resource[key as keyof GovernedStoreResource] === value);
+function beforeMatches(proposed: ExecutableProposed, current: GovernedStoreResource) {
+  return Object.entries(proposed.before ?? {}).every(([key, value]) => current[key as keyof GovernedStoreResource] === value);
 }
+function afterMatches(expected: Record<string, string>, current: GovernedStoreResource) { return Object.entries(expected).every(([key, value]) => current[key as keyof GovernedStoreResource] === value); }
 
-export async function approveTopicalMapStoreTask(db: Db, input: ApplyInput): Promise<{ taskId: string; recommendationId: string; status: "queued" }> {
+export async function approveTopicalMapStoreTask(db: Db, input: { id: string; actor: string }) {
   const row = await db.storeTask.findUnique({ where: { id: input.id } });
   if (!row || row.status !== "pending") throw new TopicalMapApplyError("TASK_NOT_PENDING");
-  const source = TopicalMapStoreTaskSourceSchema.safeParse(row.sourceData);
-  const proposed = TopicalMapStoreTaskProposedSchema.safeParse(row.proposedState);
+  const source = TopicalMapStoreTaskSourceSchema.safeParse(row.sourceData); const proposed = TopicalMapStoreTaskProposedSchema.safeParse(row.proposedState);
   if (!source.success || !source.data.executable || !source.data.recommendationId || !proposed.success || proposed.data.action === "advisory") throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
-  const recommendationId = source.data.recommendationId;
+  const recommendationId = source.data.recommendationId; const approvedProposedStateHash = hashTopicalMapProposedState(proposed.data);
   const approved = await db.$transaction(async (tx) => {
-    const claimed = await tx.recommendation.updateMany({ where: { id: recommendationId, targetEntityId: row.id, platform: "shopify", actionType: "apply_topical_map_store_task", status: "pending" }, data: { status: "approved", reviewedBy: input.actor, reviewedAt: new Date() } });
+    const claimed = await tx.recommendation.updateMany({ where: { id: recommendationId, targetEntityId: row.id, platform: "shopify", actionType: "apply_topical_map_store_task", status: "pending" }, data: { status: "approved", reviewedBy: input.actor, reviewedAt: new Date(), proposedValue: JSON.stringify({ taskId: row.id, approvedProposedStateHash }) } });
     if (claimed.count !== 1) return false;
     await tx.storeTask.update({ where: { id: row.id }, data: { reviewedBy: input.actor, reviewedAt: new Date(), completionNote: "Approved and queued for guarded execution." } });
-    await tx.auditLog.create({ data: { actor: input.actor, action: "topical_map_store_task_approved", entityType: "StoreTask", entityId: row.id, after: { recommendationId, status: "queued" } } });
-    return true;
+    await tx.auditLog.create({ data: { actor: input.actor, action: "topical_map_store_task_approved", entityType: "StoreTask", entityId: row.id, after: { recommendationId, approvedProposedStateHash, status: "queued" } } }); return true;
   });
   if (!approved) throw new TopicalMapApplyError("TASK_NOT_PENDING");
-  return { taskId: row.id, recommendationId, status: "queued" };
+  return { taskId: row.id, recommendationId, status: "queued" as const };
 }
 
-export async function executeTopicalMapStoreTask(db: Db, input: ApplyInput & { recommendationId: string }): Promise<{ task: StoreTask; receipt: Receipt }> {
-  const row = await db.storeTask.findUnique({ where: { id: input.id } });
-  if (!row || row.status !== "pending") {
-    throw new TopicalMapApplyError("TASK_NOT_PENDING");
-  }
-  const sourceResult = TopicalMapStoreTaskSourceSchema.safeParse(row.sourceData);
-  const proposedResult = TopicalMapStoreTaskProposedSchema.safeParse(row.proposedState);
-  if (!sourceResult.success || !sourceResult.data.executable || !proposedResult.success || proposedResult.data.action === "advisory") {
-    throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
-  }
-  const source = sourceResult.data;
-  const proposed = proposedResult.data;
-  if (source.recommendationId && source.recommendationId !== input.recommendationId) throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
+export async function dispatchClaimedTopicalMapStoreTask(db: Db, rec: Recommendation): Promise<MinimalStoreTaskReceipt> {
+  if (rec.platform !== "shopify" || rec.actionType !== "apply_topical_map_store_task" || rec.status !== "executing") throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
+  const row = await db.storeTask.findUnique({ where: { id: rec.targetEntityId } });
+  if (!row || row.status !== "pending") throw new TopicalMapApplyError("TASK_NOT_PENDING");
+  const sourceResult = TopicalMapStoreTaskSourceSchema.safeParse(row.sourceData); const proposedResult = TopicalMapStoreTaskProposedSchema.safeParse(row.proposedState);
+  if (!sourceResult.success || !sourceResult.data.executable || sourceResult.data.recommendationId !== rec.id || !proposedResult.success || proposedResult.data.action === "advisory") throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
+  const source = sourceResult.data; const proposed = proposedResult.data; const proposedStateHash = hashTopicalMapProposedState(proposed);
+  if (approvedHash(rec) !== proposedStateHash) throw new TopicalMapApplyError("APPROVED_BYTES_CHANGED");
   const center = await loadActiveTopicalMapCommandCenter(db);
-  if (!center || center.identity.versionId !== source.strategyVersionId || center.identity.packageSha256 !== source.packageSha256) {
-    throw new TopicalMapApplyError("STRATEGY_CHANGED");
-  }
-  if (!stillGoverned(center, source, proposed)) {
-    throw new TopicalMapApplyError("RULE_CHANGED");
-  }
-  const executionLock = (db as Db & { storeTaskExecutionLock?: Db["storeTaskExecutionLock"] }).storeTaskExecutionLock;
+  if (!center || center.identity.versionId !== source.strategyVersionId || center.identity.packageSha256 !== source.packageSha256) throw new TopicalMapApplyError("STRATEGY_CHANGED");
+  if (!stillGoverned(center, source, proposed)) throw new TopicalMapApplyError("RULE_CHANGED");
+  const now = new Date(); const expiresAt = new Date(now.getTime() + 10 * 60_000);
   try {
-    await executionLock?.create({ data: { targetUrl: source.targetUrl, taskId: row.id } });
-  } catch {
-    throw new TopicalMapApplyError("TASK_NOT_PENDING");
-  }
-  try {
-  const current = await fetchGovernedStoreResource(source.targetUrl);
-  if (!current
-    || current.type !== source.targetType
-    || current.stateHash !== source.observedStateHash
-    || !matchesFreshObservation(current, source, proposed)) {
-    throw new TopicalMapApplyError("OBSERVATION_CHANGED");
-  }
-  const claimed = await db.$transaction((tx) => tx.storeTask.updateMany({
-    where: { id: input.id, status: "pending" },
-    data: { status: "applying", reviewedBy: input.actor, reviewedAt: new Date() },
-  }));
-  if (claimed.count !== 1) {
-    throw new TopicalMapApplyError("TASK_NOT_PENDING");
-  }
-
-  const expected = changes(proposed, current, source);
-  try {
-    const updated = await applyGovernedStoreResourceChange(current, expected);
-    if (!verified(updated, expected)) {
-      throw new Error("RETURNED_STATE_MISMATCH");
-    }
-    const receipt: Receipt = {
-      strategyVersionId: source.strategyVersionId,
-      packageSha256: source.packageSha256,
-      ruleIds: [...source.ruleIds].sort(),
-      targetUrl: source.targetUrl,
-      action: proposed.action,
-      before: { ...proposed.before },
-      after: expected,
-    };
-    const task = await db.$transaction(async (tx) => {
-      const completed = await tx.storeTask.update({
-        where: { id: input.id },
-        data: { status: "completed", completedAt: new Date(), completionNote: "Shopify update verified." },
-      });
-      await tx.auditLog.create({
-        data: {
-          actor: input.actor,
-          action: "topical_map_store_task_applied",
-          entityType: "StoreTask",
-          entityId: input.id,
-          before: receipt.before as Prisma.InputJsonValue,
-          after: receipt.after as Prisma.InputJsonValue,
-          meta: {
-            strategyVersionId: receipt.strategyVersionId,
-            packageSha256: receipt.packageSha256,
-            ruleIds: receipt.ruleIds,
-            targetUrl: receipt.targetUrl,
-            taskAction: receipt.action,
-          },
-        },
-      });
-      return completed;
-    });
-    return { task, receipt };
-  } catch {
     await db.$transaction(async (tx) => {
-      await tx.storeTask.update({
-        where: { id: input.id },
-        data: { status: "failed", completedAt: new Date(), completionNote: "Shopify may have accepted the request, but no verified receipt was persisted. Re-sync to reobserve before retrying." },
-      });
-      await tx.auditLog.create({
-        data: {
-          actor: input.actor,
-          action: "topical_map_store_task_failed",
-          entityType: "StoreTask",
-          entityId: input.id,
-          before: { ...proposed.before },
-          after: Prisma.JsonNull,
-          meta: {
-            strategyVersionId: source.strategyVersionId,
-            packageSha256: source.packageSha256,
-            ruleIds: [...source.ruleIds].sort(),
-            targetUrl: source.targetUrl,
-            taskAction: proposed.action,
-            code: "SHOPIFY_FAILED",
-          },
-        },
-      });
+      await tx.storeTaskExecutionLock.deleteMany({ where: { targetUrl: source.targetUrl, expiresAt: { lte: now } } });
+      await tx.storeTaskExecutionLock.create({ data: { targetUrl: source.targetUrl, taskId: row.id, ownerId: rec.id, acquiredAt: now, expiresAt } });
+      const claimed = await tx.storeTask.updateMany({ where: { id: row.id, status: "pending" }, data: { status: "applying", completionNote: "Shopify execution is in progress." } });
+      if (claimed.count !== 1) throw new TopicalMapApplyError("TASK_NOT_PENDING");
     });
-    throw new TopicalMapApplyError("SHOPIFY_FAILED");
-  }
-  } finally {
-    await executionLock?.deleteMany({ where: { targetUrl: source.targetUrl, taskId: row.id } }).catch(() => undefined);
-  }
+  } catch (error) { if (error instanceof TopicalMapApplyError) throw error; throw new TopicalMapApplyError("TARGET_LOCKED"); }
+  const current = await fetchGovernedStoreResource(source.targetUrl);
+  if (!current || current.type !== source.targetType || current.stateHash !== source.observedStateHash || !beforeMatches(proposed, current)) throw new TopicalMapApplyError("OBSERVATION_CHANGED");
+  const expected = expectedChanges(proposed, current, source);
+  let updated: GovernedStoreResource;
+  try { updated = await applyGovernedStoreResourceChange(current, expected); } catch { throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN"); }
+  if (!afterMatches(expected, updated)) throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN");
+  return { taskId: row.id, recommendationId: rec.id, targetId: updated.id, targetUrl: source.targetUrl, targetType: source.targetType, strategyVersionId: source.strategyVersionId, packageSha256: source.packageSha256, ruleIds: [...source.ruleIds].sort(), action: proposed.action, changedFields: Object.keys(expected).sort(), proposedStateHash, shopifyReturnedStateHash: updated.stateHash, verifiedAt: new Date().toISOString() };
 }
 
-/** @deprecated Test compatibility only; production dispatch must supply the exact approved recommendation identity. */
-export async function applyTopicalMapStoreTask(db: Db, input: ApplyInput): Promise<{ task: StoreTask; receipt: Receipt }> {
-  if (process.env.EXECUTE_APPROVED_LIVE_ENABLED !== "true") throw new TopicalMapApplyError("LIVE_DISABLED");
-  const row = await db.storeTask.findUnique({ where: { id: input.id } });
-  const source = TopicalMapStoreTaskSourceSchema.safeParse(row?.sourceData);
-  if (!source.success || !source.data.executable) {
-    if (!row || row.status !== "pending") throw new TopicalMapApplyError("TASK_NOT_PENDING");
-    throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
-  }
-  return executeTopicalMapStoreTask(db, { ...input, recommendationId: source.data.recommendationId ?? "legacy-test" });
+export async function reobserveTopicalMapReceipt(db: Db, rec: Recommendation): Promise<MinimalStoreTaskReceipt | null> {
+  const row = await db.storeTask.findUnique({ where: { id: rec.targetEntityId } }); if (!row) return null;
+  const source = TopicalMapStoreTaskSourceSchema.safeParse(row.sourceData); const proposed = TopicalMapStoreTaskProposedSchema.safeParse(row.proposedState);
+  if (!source.success || !source.data.executable || !proposed.success || proposed.data.action === "advisory") return null;
+  const current = await fetchGovernedStoreResource(source.data.targetUrl); if (!current) return null;
+  // For recovery, compare stored proposed after directly; internal links are already present and deterministic.
+  const directExpected = proposed.data.action === "internal_link" ? proposed.data.after : proposed.data.after;
+  if (!afterMatches(directExpected as Record<string, string>, current)) return null;
+  const proposedStateHash = hashTopicalMapProposedState(proposed.data);
+  return { taskId: row.id, recommendationId: rec.id, targetId: current.id, targetUrl: source.data.targetUrl, targetType: source.data.targetType, strategyVersionId: source.data.strategyVersionId, packageSha256: source.data.packageSha256, ruleIds: [...source.data.ruleIds].sort(), action: proposed.data.action, changedFields: Object.keys(directExpected).sort(), proposedStateHash, shopifyReturnedStateHash: current.stateHash, verifiedAt: new Date().toISOString() };
 }
+
+export function receiptJson(receipt: MinimalStoreTaskReceipt): Prisma.InputJsonValue { return receipt as unknown as Prisma.InputJsonValue; }

@@ -14,6 +14,8 @@
 - Every embedded route calls `await requireAppAuth(req)` as its first statement; Apply immediately requires `CONTENT_PUBLISH`, task synchronization requires `CONTENT_REVIEW`.
 - All database access uses `import { prisma } from "@/lib/db"`; never instantiate `PrismaClient`.
 - Reuse the existing Recommendation lifecycle, `StoreTask`, `execute-approved`, and `shopifyFetch`; the only schema addition is a narrow persisted normalized-target execution lock.
+- Freeze the strict proposed-state hash at approval. Never synchronize over approved/override-approved/executing bytes, and compare the frozen hash before executor claim or Shopify access.
+- Finalize Store Task, Recommendation, both audits, minimal receipt, and lock release atomically. Interrupted or uncertain execution remains visible and is reobserved by stale recovery.
 - Product and collection writes are limited to `seo` and `descriptionHtml`; page writes are limited to `title`, `body`, and `global.title_tag` / `global.description_tag` metafields.
 - Handles, publication state, price, product status, navigation, theme templates, redirects, canonicalization, and indexation are never executed by this feature.
 - Homepage and blog-index work is advisory-only. Blog articles remain exclusively in Content Pilot.
@@ -200,6 +202,7 @@ git commit -m "feat(store): synchronize topical-map tasks"
 - Sync route returns `{ executable, advisory, unchanged, suppressed }`.
 - Apply service returns `{ task, receipt }` or typed conflicts `LIVE_DISABLED`, `TASK_NOT_PENDING`, `TASK_NOT_EXECUTABLE`, `STRATEGY_CHANGED`, `RULE_CHANGED`, `OBSERVATION_CHANGED`, `SHOPIFY_FAILED`.
 - Apply route returns 202 for queued approval and never mutates Shopify; executor dispatch records verified completion or a safe failed/uncertain state.
+- List and detail APIs use explicit bounded Zod DTOs. Applying, reconciliation-needed, and failed states remain visible; retry is only a fresh synchronization/reobservation.
 
 - [ ] **Step 1: Write failing auth and sync route tests**
 

@@ -10,12 +10,14 @@ edges:
     condition: when changing the authenticated command-center projection or five-job UI
   - target: seo-pilot-proposal-actions.md
     condition: when changing governed Content Pilot proposal creation
-last_updated: 2026-07-13T21:47:00+08:00
+last_updated: 2026-07-13T22:11:00+08:00
 ---
 
 # Strategy-bound SEO Command Center
 
 Executable non-blog synchronization must create or link an exact pending Recommendation. Stable task identity excludes proposal bytes; keep the proposed hash as separate execution evidence. Confirmation only approves/queues, while `execute-approved` revalidates and serializes the normalized Shopify target before mutation.
+
+Once the linked Recommendation is approved, override-approved, or executing, synchronization must not overwrite task bytes. Approval freezes the strict hash, and dispatch compares it before any lock, observation, or mutation.
 
 ## Context
 
