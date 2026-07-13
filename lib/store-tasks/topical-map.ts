@@ -28,12 +28,14 @@ const ExecutableSourceBase = {
   sourceReferences: SourceReferences, generationProvenance: GenerationProvenance,
   observedAt: z.string().datetime().refine((value) => new Date(value).getTime() <= Date.now() + 5 * 60_000, "Observation cannot be in the future"), observedStateHash: Hash, recommendationId: z.string().min(1).optional(), executable: z.literal(true),
 };
+const CurrentInternalLinkSourceSchema = z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), links: z.array(z.object({ toUrl: GovernedUrl, anchor: z.string().min(1) }).strict()).min(1).max(100) }).strict();
 const ExecutableSourceSchema = z.discriminatedUnion("action", [
   z.object({ ...ExecutableSourceBase, action: z.literal("seo_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
   z.object({ ...ExecutableSourceBase, action: z.literal("content_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
-  z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), links: z.array(z.object({ toUrl: GovernedUrl, anchor: z.string().min(1) }).strict()).min(1).max(100) }).strict(),
+  CurrentInternalLinkSourceSchema,
 ]);
 const LegacyInternalLinkSourceSchema = z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), linkTargetUrl: GovernedUrl, linkAnchor: z.string().min(1) }).strict();
+const SupersedableInternalLinkSourceSchema = z.union([LegacyInternalLinkSourceSchema, CurrentInternalLinkSourceSchema]);
 const AdvisorySourceSchema = z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(AdvisoryDomain).min(1), sourceReferences: SourceReferences, generationProvenance: GenerationProvenance, targetType: AdvisoryTargetType, targetUrl: GovernedUrl, executable: z.literal(false), advisoryReason: AdvisoryReason }).strict();
 export const TopicalMapStoreTaskSourceSchema = z.union([ExecutableSourceSchema, AdvisorySourceSchema]);
 
@@ -161,7 +163,7 @@ async function supersedeObsoleteLinkTasks(client: Client, center: TopicalMapComm
   const rows = await client.storeTask.findMany({ where: { taskType: "topical_map", targetUrl: task.targetUrl, status: { in: ["pending", "failed"] } }, select: { id: true, status: true, sourceData: true } });
   for (const row of rows) {
     if (row.id === replacementId) continue;
-    const parsed = LegacyInternalLinkSourceSchema.safeParse(row.sourceData);
+    const parsed = SupersedableInternalLinkSourceSchema.safeParse(row.sourceData);
     if (!parsed.success || parsed.data.strategyVersionId !== center.identity.versionId || parsed.data.packageSha256 !== center.identity.packageSha256) continue;
     if (parsed.data.recommendationId && client.recommendation?.findUnique) {
       const recommendation = await client.recommendation.findUnique({ where: { id: parsed.data.recommendationId }, select: { id: true, status: true } });
@@ -246,7 +248,7 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     const checkedSource = TopicalMapStoreTaskSourceSchema.parse(task.sourceData);
     const checkedProposed = TopicalMapStoreTaskProposedSchema.parse(task.proposedState);
     const proposedHash = hashTopicalMapProposedState(checkedProposed);
-    const dedupeKey = `store-task:topical-map:${hash(canonical([center.identity.versionId, center.identity.packageSha256, [...task.ruleIds].sort(), path(task.targetUrl), checkedProposed.action]))}`;
+    const dedupeKey = `store-task:topical-map:${hash(canonical([center.identity.versionId, center.identity.packageSha256, checkedProposed.action === "internal_link" ? "grouped-links-v1" : "v1", [...task.ruleIds].sort(), path(task.targetUrl), checkedProposed.action]))}`;
     const existing = await client.storeTask.findUnique({ where: { dedupeKey } });
     if (existing && !["pending", "failed"].includes(existing.status)) { summary.unchanged++; continue; }
     if (existing?.sourceData && client.recommendation?.findUnique) {

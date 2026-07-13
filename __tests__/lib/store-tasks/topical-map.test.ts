@@ -127,14 +127,21 @@ describe("syncTopicalMapStoreTasks", () => {
       generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link",
       linkTargetUrl: "/products/black-rice", linkAnchor: "shop black rice", observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true,
     } });
-    const db = client({ old_pending: legacy("pending", "old-pending"), old_failed: legacy("failed", "old-failed"), old_completed: legacy("completed", "old-completed") });
+    const grouped = { status: "pending", id: "old-grouped", targetUrl: "/collections/rice", sourceData: {
+      source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64),
+      ruleIds: ["link:old-grouped"], ruleDomains: ["internal_links"], sourceReferences: [{ kind: "rule", id: "link:old-grouped" }],
+      generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link",
+      links: [{ toUrl: "/products/old", anchor: "old" }], observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true,
+    } };
+    const db = client({ old_pending: legacy("pending", "old-pending"), old_failed: legacy("failed", "old-failed"), old_completed: legacy("completed", "old-completed"), old_grouped: grouped });
     await syncTopicalMapStoreTasks(db as any);
-    expect(db.storeTask.updateMany).toHaveBeenCalledTimes(2);
+    expect(db.storeTask.updateMany).toHaveBeenCalledTimes(3);
     expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: "old-pending", status: { in: ["pending", "failed"] } },
       data: expect.objectContaining({ status: "dismissed", completionNote: expect.stringContaining("Superseded by grouped topical-map internal-link task") }),
     }));
-    expect(db.auditLog.create).toHaveBeenCalledTimes(2);
+    expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: "old-grouped" }) }));
+    expect(db.auditLog.create).toHaveBeenCalledTimes(3);
     expect(db.storeTask.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: "old-completed" }) }));
   });
 
