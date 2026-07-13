@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { StrategyPackagePanel, type StrategyPackageOverview } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/StrategyPackagePanel";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { extname, join } from "node:path";
+
+function readRuntimeSources(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) return readRuntimeSources(path);
+    return [".ts", ".tsx"].includes(extname(entry.name)) ? [readFileSync(path, "utf8")] : [];
+  });
+}
 
 const activePackage: StrategyPackageOverview = {
   state: "ready",
@@ -64,6 +73,16 @@ describe("topical-map command center", () => {
   const work = read("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/MapWorkPanel.tsx");
   const gaps = read("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/ContentGapsPanel.tsx");
   const evidence = read("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/OpportunitiesPanel.tsx");
+
+  it("has no runtime fallback to the legacy June strategy", () => {
+    const runtimeSeoSources = [
+      ...readRuntimeSources("app/(embedded)/(seo-pillar)/seo-pillar"),
+      ...readRuntimeSources("lib/seo"),
+    ];
+    const forbidden = ["KEYWORD_CLUSTERS", "PRIMARY_TARGETS", "SECONDARY_BANK", "ROADMAP", "June 2026 keyword research report", "keyword-strategy"];
+
+    for (const token of forbidden) expect(runtimeSeoSources.join("\n")).not.toContain(token);
+  });
 
   it("rebuilds navigation around the five operator jobs", () => {
     expect(page).toContain('label: "Map overview"');

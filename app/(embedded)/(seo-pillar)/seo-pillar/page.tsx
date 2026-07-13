@@ -4,29 +4,24 @@ import {
   Page, Layout, Card, Text, Badge, InlineStack, BlockStack, Banner,
   Button, TextField, Spinner, Tooltip, List, Select,
 } from "@shopify/polaris";
-import { useState, useCallback, useEffect, type Dispatch, type SetStateAction } from "react";
+import { useState, useCallback, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
-import { KEYWORD_CLUSTERS, PRIMARY_TARGETS, SECONDARY_BANK, ROADMAP, ALL_PRIMARY_KEYWORDS, type PrimaryTarget } from "@/lib/seo/keyword-strategy";
 import { timeAgo } from "@/lib/format";
 import type {
   Query, PageRow, Totals, Mover, Trends, Opportunity, OpportunityCluster,
   PageHealthRow, GscPage, QueryPagePair,
   ContentGap, HealthTotals, HealthOffender,
 } from "./components/types";
-import { analysisCompletionToast, gapKey, mergeTrackedKeywordPlaceholder, opportunityKey, fmtPct } from "./components/types";
-import { trackedKeywordSet } from "./components/types";
+import { analysisCompletionToast, gapKey, opportunityKey, fmtPct } from "./components/types";
 import { useSeoData } from "./components/useSeoData";
 import { OverviewPanel } from "./components/panels/OverviewPanel";
 import { OpportunitiesPanel } from "./components/panels/OpportunitiesPanel";
 import { ContentGapsPanel } from "./components/panels/ContentGapsPanel";
 import { OnPageHealthPanel } from "./components/panels/OnPageHealthPanel";
-import { KeywordsPanel } from "./components/panels/KeywordsPanel";
 import { PillarClustersPanel } from "./components/panels/PillarClustersPanel";
 import { PageHealthPanel } from "./components/panels/PageHealthPanel";
 import { OpportunityClustersPanel } from "./components/panels/OpportunityClustersPanel";
-import { StrategyPanel } from "./components/panels/StrategyPanel";
-import { StrategyPackagePanel } from "./components/StrategyPackagePanel";
 import { SeoPilotNavigation } from "./components/SeoPilotNavigation";
 import { MapOverviewPanel } from "./components/panels/MapOverviewPanel";
 import { MapPagesPanel } from "./components/panels/MapPagesPanel";
@@ -67,8 +62,8 @@ export default function SeoPillarReportPage() {
   const {
     data, loading,
     analysis, setAnalysis, analysisAt, setAnalysisAt,
-    health, keywords, setKeywords, clusters, trend, trendFirst, trendLast,
-    refreshing, loadError, setLoadError, toast, setToast, strategyPackage, mapState, mapAnalysisState,
+    health, clusters, trend, trendFirst, trendLast,
+    refreshing, loadError, setLoadError, toast, setToast, mapState, mapAnalysisState,
     refreshData,
   } = useSeoData();
   const [tab, setTab] = useState(0);
@@ -88,15 +83,6 @@ export default function SeoPillarReportPage() {
   const [promotedRec, setPromotedRec] = useState<Set<number>>(new Set());
   const [promotingQw, setPromotingQw] = useState<Set<number>>(new Set());
   const [promotedQw, setPromotedQw] = useState<Set<number>>(new Set());
-  // Strategy tab — keyword tracking + plan-it state (keyed by keyword string).
-  const [trackingKw, setTrackingKw] = useState<Set<string>>(new Set());
-  const [trackedKw, setTrackedKw] = useState<Set<string>>(new Set());
-  const [trackingAll, setTrackingAll] = useState(false);
-  const [untrackingKw, setUntrackingKw] = useState<Set<string>>(new Set());
-  const [planningKw, setPlanningKw] = useState<Set<string>>(new Set());
-  const [plannedKw, setPlannedKw] = useState<Set<string>>(new Set());
-  const [newKeyword, setNewKeyword] = useState("");
-  useEffect(() => { setTrackedKw(trackedKeywordSet(keywords)); }, [keywords]);
   // AI SEO brief (ported from the retired /seo page)
   const [brief, setBrief] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
@@ -249,112 +235,6 @@ export default function SeoPillarReportPage() {
     } catch { setToast("Could not plan this item."); }
     finally { setBusy((s) => { const n = new Set(s); n.delete(index); return n; }); }
   }, [authFetch]);
-
-  // ── Strategy tab actions ──
-  const untrackKeyword = useCallback(async (keyword: string): Promise<boolean> => {
-    const normalized = keyword.trim().toLowerCase();
-    setUntrackingKw((s) => new Set([...s, normalized]));
-    try {
-      const res = await authFetch("/api/seo/keywords", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: normalized }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        setToast(res.status === 404 ? "Keyword is not currently tracked." : (d.error ?? "Could not untrack keyword."));
-        return false;
-      }
-      setTrackedKw((s) => {
-        const next = new Set(s);
-        next.delete(normalized);
-        return next;
-      });
-      setKeywords((current) => current.filter((row) => row.keyword.toLowerCase() !== normalized));
-      setToast(`Stopped tracking “${normalized}”.`);
-      return true;
-    } catch {
-      setToast("Could not untrack keyword.");
-      return false;
-    } finally {
-      setUntrackingKw((s) => {
-        const next = new Set(s);
-        next.delete(normalized);
-        return next;
-      });
-    }
-  }, [authFetch]);
-
-  const trackKeyword = useCallback(async (keyword: string): Promise<boolean> => {
-    const normalized = keyword.trim().toLowerCase();
-    setTrackingKw((s) => new Set([...s, normalized]));
-    try {
-      const res = await authFetch("/api/seo/keywords", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: normalized }),
-      });
-      if (res.ok) { setTrackedKw((s) => new Set([...s, normalized])); return true; }
-      const d = await res.json().catch(() => ({}));
-      setToast(d.error ?? "Could not track keyword.");
-      return false;
-    } catch { setToast("Could not track keyword."); return false; }
-    finally { setTrackingKw((s) => { const n = new Set(s); n.delete(normalized); return n; }); }
-  }, [authFetch]);
-
-  const trackAllPrimary = useCallback(async () => {
-    setTrackingAll(true);
-    let ok = 0;
-    try {
-      // Sequential to respect the 20/min keyword rate limit.
-      for (const kw of ALL_PRIMARY_KEYWORDS) {
-        if (trackedKw.has(kw.trim().toLowerCase())) { ok++; continue; }
-        if (await trackKeyword(kw)) ok++;
-      }
-      setToast(`Tracking ${ok}/${ALL_PRIMARY_KEYWORDS.length} primary keywords against GSC.`);
-    } finally { setTrackingAll(false); }
-  }, [trackKeyword, trackedKw]);
-
-  // Turn a strategy target into a Content Pilot proposal. Deterministic: creates
-  // a new-content proposal (topic = keyword, brief carries page-type/intent) so
-  // it always produces something reviewable in Content Pilot.
-  const planTarget = useCallback(async (key: string, topic: string, brief: string) => {
-    setPlanningKw((s) => new Set([...s, key]));
-    try {
-      const res = await authFetch("/api/content-pilot/proposals/manual", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, brief }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (res.ok && d.proposal) {
-        setPlannedKw((s) => new Set([...s, key]));
-        setToast(d.existed ? "Already in Content Pilot." : "Created a proposal in Content Pilot.");
-      } else setToast(d.error ?? "Could not plan this target.");
-    } catch { setToast("Could not plan this target."); }
-    finally { setPlanningKw((s) => { const n = new Set(s); n.delete(key); return n; }); }
-  }, [authFetch]);
-
-  const addKeyword = useCallback(async () => {
-    const kw = newKeyword.trim();
-    if (!kw) return;
-    setNewKeyword("");
-    try {
-      const res = await authFetch("/api/seo/keywords", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keyword: kw }) });
-      if (res.ok) {
-        setKeywords((current) => mergeTrackedKeywordPlaceholder(current, kw));
-        setToast(`Now tracking “${kw}”.`);
-        try {
-          const r = await authFetch("/api/seo/keywords");
-          if (!r.ok) throw new Error("Keyword refresh failed");
-          const refreshed = await r.json();
-          setKeywords(mergeTrackedKeywordPlaceholder(refreshed.keywords ?? [], kw));
-        } catch {
-          setToast(`Now tracking “${kw}”. Latest position data will load on the next refresh.`);
-        }
-      } else setToast("Could not add keyword.");
-    } catch { setToast("Could not add keyword."); }
-  }, [authFetch, newKeyword]);
 
   // ── derived metrics ──
   const t = data?.trends;
@@ -555,23 +435,6 @@ export default function SeoPillarReportPage() {
                     />
                   )}
 
-                  {tab === 8 && (
-                    <BlockStack gap="500">
-                    <StrategyPackagePanel strategy={strategyPackage} />
-                    <StrategyPanel
-                      trackingAll={trackingAll}
-                      trackAllPrimary={trackAllPrimary}
-                      trackedKw={trackedKw}
-                      trackingKw={trackingKw}
-                      trackKeyword={trackKeyword}
-                      untrackingKw={untrackingKw}
-                      untrackKeyword={untrackKeyword}
-                      plannedKw={plannedKw}
-                      planningKw={planningKw}
-                      planTarget={planTarget}
-                    />
-                    </BlockStack>
-                  )}
                 </>
               )}
             </div>
