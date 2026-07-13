@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMapAwareSeoGaps, buildProgrammaticSeoGaps, readAnalysisForStrategy } from "@/lib/seo/analysis";
+import { analysisEvidenceState, buildMapAwareSeoGaps, buildProgrammaticSeoGaps, readAnalysisForStrategy } from "@/lib/seo/analysis";
 import type { TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 
 describe("buildProgrammaticSeoGaps", () => {
@@ -129,17 +129,41 @@ describe("map-aware SEO analysis", () => {
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", query: "source topic", priority: "medium", mapEvidence: "Preserve the winning intent while improving clarity.", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
   });
 
+  it("requires exact inspected link absence and blocks present or uninspectable pairs", () => {
+    const base = { strategy: identity, commandCenter, queries: [], queryPagePairs: [], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {} }] };
+    const absent = buildMapAwareSeoGaps({ ...base, linkInspections: new Map([["/blogs/news/source", { capturedAt: new Date(), targets: new Set<string>() }]]) });
+    expect(absent.gaps).toContainEqual(expect.objectContaining({ kind: "link", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped" }));
+    const present = buildMapAwareSeoGaps({ ...base, linkInspections: new Map([["/blogs/news/source", { capturedAt: new Date(), targets: new Set(["/blogs/news/mapped"]) }]]) });
+    expect(present.gaps).not.toEqual(expect.arrayContaining([expect.objectContaining({ kind: "link" })]));
+    const unavailable = buildMapAwareSeoGaps({ ...base, linkInspections: new Map() });
+    expect(unavailable.suppressed).toContainEqual(expect.objectContaining({ reason: expect.stringContaining("observation_unavailable"), ruleIds: ["rule:link:1"] }));
+  });
+
+  it("does not claim unverified non-blog page absence", () => {
+    const map: TopicalMapCommandCenter = { ...commandCenter, pages: [{ url: "/pages/unknown", decision: "create", priority: "high", ruleIds: ["opaque"], ruleDomains: { content_decisions: ["opaque"] } }], prohibited: [] };
+    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: map, queries: [], queryPagePairs: [], articles: [], verifiedAbsentUrls: new Set() });
+    expect(result.gaps).toEqual(expect.not.arrayContaining([expect.objectContaining({ page: "/pages/unknown" })]));
+    expect(result.suppressed).toContainEqual(expect.objectContaining({ page: "/pages/unknown", reason: expect.stringContaining("observation_unavailable") }));
+  });
+
   it("accepts cached analysis only for the exact active identity", () => {
     const analysis = { gaps: [], observations: [], suppressed: [] };
-    const envelope = { schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis };
+    const envelope = { schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis, evidence: { gscCapturedAt: "2026-07-13T00:00:00.000Z", storeCapturedAt: "2026-07-13T00:00:00.000Z", linkCapturedAt: "2026-07-13T00:00:00.000Z", maxAgeHours: 72 } };
     expect(readAnalysisForStrategy(envelope, identity)).toEqual(analysis);
     expect(readAnalysisForStrategy(envelope, { ...identity, versionId: "v4" })).toBeNull();
     expect(readAnalysisForStrategy(envelope, { ...identity, packageSha256: "b".repeat(64) })).toBeNull();
   });
 
+  it("enforces the 72-hour evidence boundary and unavailable observations", () => {
+    const payload = (capturedAt: string | null) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [], observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: capturedAt, linkCapturedAt: capturedAt, maxAgeHours: 72 } });
+    expect(analysisEvidenceState(payload("2026-07-10T00:00:00.000Z"), new Date("2026-07-13T00:00:00.000Z"))).toBe("current");
+    expect(analysisEvidenceState(payload("2026-07-09T23:59:59.999Z"), new Date("2026-07-13T00:00:00.000Z"))).toBe("evidence_stale");
+    expect(analysisEvidenceState(payload(null), new Date("2026-07-13T00:00:00.000Z"))).toBe("observation_unavailable");
+  });
+
   it("rejects a malformed cached gap and a per-gap identity mismatch", () => {
     const validGap = { kind: "content", strategyVersionId: "v3", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], state: "candidate", action: "create", query: "mapped", suggestedTitle: "Mapped guide", page: "/blogs/news/mapped", priority: "high", mapEvidence: null, observedEvidence: [{ query: "mapped", impressions: 12, position: 8 }] };
-    const envelope = (gap: unknown) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [gap], observations: [], suppressed: [] } });
+    const envelope = (gap: unknown) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [gap], observations: [], suppressed: [] }, evidence: { gscCapturedAt: "2026-07-13T00:00:00.000Z", storeCapturedAt: "2026-07-13T00:00:00.000Z", linkCapturedAt: "2026-07-13T00:00:00.000Z", maxAgeHours: 72 } });
     expect(readAnalysisForStrategy(envelope({ ...validGap, ruleIds: [] }), identity)).toBeNull();
     expect(readAnalysisForStrategy(envelope({ ...validGap, strategyVersionId: "v4" }), identity)).toBeNull();
     expect(readAnalysisForStrategy(envelope({ ...validGap, packageSha256: "b".repeat(64) }), identity)).toBeNull();

@@ -210,13 +210,31 @@ describe("SEO Pilot route regressions", () => {
     const body = await res.json();
 
     expect(body).toEqual({
-      state: "stale",
+      state: "strategy_identity_stale",
       analysis: null,
       generatedAt: null,
       strategy: expect.objectContaining({ versionId: "v3", packageSha256: "a".repeat(64) }),
       cachedStrategy: { versionId: "v2", packageSha256: "b".repeat(64) },
     });
     expect(JSON.stringify(body)).not.toContain("stale finding");
+  });
+
+  it("round-trips the POST schema-v2 map analysis through the GET reader", async () => {
+    const capturedAt = new Date();
+    mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "mapped topic", clicks: 0, impressions: 40, ctr: "0%", position: "8" }], pages: [], queryPagePairs: [], fetchedAt: capturedAt, source: "normalized", window: null });
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, linksData: { internal: [] }, indexedAt: capturedAt }]);
+    const { POST } = await import("@/app/api/seo/analyze/route");
+    const post = await POST(jsonRequest("/api/seo/analyze", {}));
+    expect(post.status).toBe(200);
+    const posted = await post.json();
+    expect(mockPrisma.articleRecord.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { handle: { in: expect.arrayContaining(["mapped", "black-rice-benefits", "source"]) } } }));
+    const payload = mockPrisma.rawSnapshot.upsert.mock.calls.at(-1)?.[0]?.update?.payload;
+    expect(payload.analysis).toEqual(posted.mapAnalysis);
+    expect(payload.analysis).toEqual({ gaps: expect.any(Array), observations: expect.any(Array), suppressed: expect.any(Array) });
+    mockGetLatestSnapshot.mockResolvedValue({ payload, fetchedAt: new Date(posted.generatedAt) });
+    const { GET } = await import("@/app/api/seo/analysis/route");
+    const get = await GET(new Request("http://test.local/api/seo/analysis") as NextRequest);
+    expect(await get.json()).toEqual(expect.objectContaining({ state: "ready", analysis: posted.mapAnalysis }));
   });
 
   it("rejects arbitrary non-SEO history sources", async () => {
@@ -446,7 +464,8 @@ describe("SEO Pilot route regressions", () => {
       articlesAnalyzed: 1,
       articlesTruncated: false,
     });
-    expect(body.analysis.contentGaps).toEqual(expect.arrayContaining([expect.objectContaining({ page: "/blogs/news/mapped", ruleIds: ["rule:mapped"] }), expect.objectContaining({ kind: "link", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", ruleIds: ["rule:link"] })]));
+    expect(body.analysis.contentGaps).toEqual(expect.arrayContaining([expect.objectContaining({ page: "/blogs/news/mapped", ruleIds: ["rule:mapped"] })]));
+    expect(body.analysis.suppressedGaps).toContainEqual(expect.objectContaining({ page: "/blogs/news/source", reason: expect.stringContaining("observation_unavailable"), ruleIds: ["rule:link"] }));
     expect(body.analysis.observations).toEqual([expect.objectContaining({ query: "moringa tea recipe" })]);
     expect(body.analysis.contentGaps).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ query: "black rice benefits" })])
@@ -534,7 +553,7 @@ describe("SEO Pilot route regressions", () => {
     ]));
     expect(body.analysis.quickWinEvidence).toHaveLength(body.analysis.quickWins.length);
     expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      update: expect.objectContaining({ payload: expect.objectContaining({ schemaVersion: "2", strategy: { versionId: "v3", packageSha256: "a".repeat(64) }, analysis: expect.objectContaining({ aiStatus: "partial" }) }), fetchedAt: new Date(body.generatedAt) }),
+      update: expect.objectContaining({ payload: expect.objectContaining({ schemaVersion: "2", strategy: { versionId: "v3", packageSha256: "a".repeat(64) }, analysis: expect.objectContaining({ gaps: expect.any(Array), observations: expect.any(Array), suppressed: expect.any(Array) }), presentation: expect.objectContaining({ aiStatus: "partial" }) }), fetchedAt: new Date(body.generatedAt) }),
       create: expect.objectContaining({ fetchedAt: new Date(body.generatedAt) }),
     }));
   });

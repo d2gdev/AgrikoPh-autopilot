@@ -5,7 +5,7 @@ import { requireAppAuth } from "@/lib/auth";
 import { getLatestSnapshot } from "@/lib/seo/snapshot";
 import { prisma } from "@/lib/db";
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
-import { readAnalysisForStrategy, readAnalysisStrategyIdentity } from "@/lib/seo/analysis";
+import { analysisEvidenceState, readAnalysisForStrategy, readAnalysisStrategyIdentity } from "@/lib/seo/analysis";
 
 export async function GET(req: NextRequest) {
   const authError = await requireAppAuth(req);
@@ -16,10 +16,11 @@ export async function GET(req: NextRequest) {
   const cachedStrategy = snap ? readAnalysisStrategyIdentity(snap.payload) : null;
   const analysis = commandCenter && snap ? readAnalysisForStrategy(snap.payload, commandCenter.identity) : null;
   const stale = cachedStrategy !== null && (cachedStrategy.versionId !== commandCenter.identity.versionId || cachedStrategy.packageSha256 !== commandCenter.identity.packageSha256);
+  const evidenceState = snap ? analysisEvidenceState(snap.payload) : "observation_unavailable";
   return NextResponse.json({
-    state: stale ? "stale" : analysis ? "ready" : "empty",
-    analysis,
-    generatedAt: analysis ? snap?.fetchedAt ?? null : null,
+    state: stale ? "strategy_identity_stale" : analysis && evidenceState === "current" ? "ready" : analysis ? evidenceState : "empty",
+    analysis: stale || evidenceState !== "current" ? null : analysis,
+    generatedAt: !stale && analysis && evidenceState === "current" ? snap?.fetchedAt ?? null : null,
     strategy: commandCenter.identity,
     ...(stale ? { cachedStrategy } : {}),
   });

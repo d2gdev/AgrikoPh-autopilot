@@ -1,206 +1,124 @@
-# Task 7 Report — Docs + Push half (Steps 1-3 only)
+# Task 7 Report — Verification and GROW preparation
 
-Status: DONE (Steps 1-3 only; Steps 4-6 explicitly NOT attempted)
+Status: **DONE_WITH_CONCERNS**
 
-## Step 1: docs/CRON.md diff
+Production deployment was deliberately not run. The required whole-branch review gate must complete first. No production host, database data, environment authorization flags, Shopify/Meta write surface, or remote branch was changed.
 
-Added schedule row (after the `Mon 05:50 fetch-gsc-data` row, before `06:00 execute-approved`):
+## Verification evidence
 
-```diff
- | Mon 05:50 | `/api/cron/fetch-gsc-data` | Captures query+page GSC rows into `GscQuery` for historical search analytics |
-+| 04:15 | `/api/cron/fetch-orders` | Ingests yesterday's Shopify orders into DailySales (+28-day backfill on first run) |
- | 06:00 | `/api/cron/execute-approved` | Dry-runs approved execution queue unless live execution is explicitly enabled |
+### Focused gate
+
+Command:
+
+```bash
+npm test -- __tests__/lib/topical-map/command-center.test.ts __tests__/api/topical-map-command-center-route.test.ts __tests__/lib/seo/analysis.test.ts __tests__/api/seo-pilot-routes.test.ts __tests__/components/use-seo-data.test.ts __tests__/components/topical-map-strategy-panel.test.ts __tests__/components/seo-pilot-responsive.test.ts __tests__/lib/topical-map/proposal-integration.test.ts
 ```
 
-Added detail section (before the `### /api/cron/execute-approved` section):
+Result: exit 0; 8 files passed, 97 tests passed.
 
-```markdown
-### `/api/cron/fetch-orders`
-Calls `lib/connectors/shopify-orders.ts` (paginated Admin API) to pull yesterday's Shopify orders, excluding cancelled orders from revenue. Requires the `read_orders` scope on the client-credentials token — verified once via `scripts/check-order-scopes.ts` before this job was enabled, not re-checked per run. Writes a `shopify_orders` `RawSnapshot` per run and upserts one `DailySales` row per calendar day (compound-unique on date, so re-running the same day is idempotent — no duplicate rows). On the very first run (no existing `DailySales` rows), it backfills the trailing 28 days instead of just yesterday.
+### Lint
+
+Command: `npm run lint`
+
+Result: exit 0; 0 errors, 87 warnings. The warnings span existing repository files; Task 7 did not auto-fix or broaden scope to them. Two warnings are in the changed SEO Pilot page (`react-hooks/exhaustive-deps`) and one is in `MapPagesPanel.tsx` (unused `Button` import), so they remain a review concern despite the passing gate.
+
+### Build
+
+The first safe-local attempt used:
+
+```bash
+DATABASE_URL='postgresql://test:test@127.0.0.1:5432/autopilot_test' npm run build
 ```
 
-Note: checked the actual job code (`jobs/fetch-orders.ts`) and scope-gate script (`scripts/check-order-scopes.ts`) before writing this — the real implementation is a one-time pre-flight gate script run before the job was wired up (Task 1), not a runtime `disabledSources` check inside `fetch-orders.ts`. Worded the doc to match actual behavior.
+It failed during page-data collection because repository DB validation requires Prisma pool parameters. No database connection or data mutation was attempted by this correction.
 
-## Step 2: .mex/ROUTER.md diff
+The documented safe-local retry was:
 
-Bumped `last_updated: 2026-07-03T22:30:00Z` → `2026-07-04T00:00:00Z`.
-
-Added new bullet at the top of "Current Project State → Working":
-
-```markdown
-- **Shopify Orders Ingestion (Phase 4, 2026-07-04, docs/gate done — deploy pending operator go-ahead)**: new additive `DailySales` model (migration `20260703..._add_daily_sales`, NOT yet applied to prod — no local dev DB either) stores one row per calendar day with revenue as `Float`, not `Decimal` (house precedent for money fields on this project, documented as a deliberate choice, not an oversight). `lib/connectors/shopify-orders.ts` pulls paginated Shopify orders; `jobs/fetch-orders.ts` + `/api/cron/fetch-orders` (04:15 UTC, own job rather than folded into the 01:00 `daily` route because Shopify's day isn't meaningfully complete by 01:00 and that route is already crowded) upserts `DailySales` idempotently per day (compound-unique key — re-running the same day never duplicates), backfills 28 days on first run else just yesterday, excludes cancelled orders from revenue, and snapshots raw pages as `shopify_orders` `RawSnapshot`s. `read_orders` scope was verified once via `scripts/check-order-scopes.ts` (Task 1 hard gate) before any of this was wired up. Dashboard Performance row gained a `revenueVsMeta` card comparing Shopify revenue against Meta ad spend over the same aligned window; `check-outcomes`' KB context gained an advisory (non-blocking) `storeRevenue` field so skill runs can see revenue trend without it affecting outcome verdicts. See `docs/CRON.md` for the job description. **Deploy (migration + cron install + live acceptance) is explicitly deferred to operator go-ahead — do not run `db:migrate` on prod or install the `/etc/cron.d/autopilot` entry until told to.**
+```bash
+DATABASE_URL='postgresql://test:test@127.0.0.1:5432/autopilot_test?connection_limit=10&pool_timeout=10' npm run build
 ```
 
-## Step 3: Final gate
+Result: exit 0; Next.js 15.5.19 compiled, generated 24/24 static pages, emitted `/api/topical-map/command-center` and `/seo-pillar`, and completed build traces. Production credentials were not sourced.
 
-- `npx tsc --noEmit` → `TypeScript: No errors found`
-- `npm test` → `Test Files 117 passed (117)`, `Tests 713 passed (713)`, Duration 11.05s
-- `npm run build` → completed clean, full route manifest emitted, no errors
+### Full suite
 
-All three gates clean/green.
+Command: `npm test`
 
-## Commit + push
+Result: exit 0; 197 files passed, 3 skipped; 1,358 tests passed, 8 skipped; duration 60.73s.
 
-```
-git add docs/CRON.md .mex/ROUTER.md
-git commit -m "docs: fetch-orders cron + ROUTER state for Phase 4"
-git push origin main
-```
+### Diff gate
 
-Commit SHA: `d062806`
-Push result: `a33246b..d062806  main -> main` — pushed successfully to `https://github.com/d2gdev/AgrikoPh-autopilot.git`, remote `main` now at `d062806`.
+Command: `git diff --check`
 
-## Confirmation: Steps 4-6 NOT touched
+Result: exit 0 before the operational-record commit.
 
-- No `ssh` to prod was run.
-- No deploy script (`node scripts/linode-deploy.mjs`) was run.
-- No `npm run db:migrate` was run anywhere (local or prod).
-- `/etc/cron.d/autopilot` was not touched.
-- No live acceptance curl against the cron endpoint was run.
+## Authenticated/read-only workflow evidence
 
-Stopping here per instructions — operator go-ahead required before Steps 4-6.
+No live authenticated browser/DB fixture was available within the no-production/no-data-mutation boundary, so workflow verification used the focused authenticated route and UI regression harness:
 
----
+- command-center auth runs before Prisma and unauthenticated requests stop at that boundary;
+- ready response identity is the active version projection, every one of the eleven domains is present, and source bytes are excluded;
+- the UI exposes exactly five operator jobs and explicit loading/no-strategy/unavailable/stale/empty states;
+- mismatched cached strategy identity returns `stale` with `analysis: null` and does not expose stale findings;
+- exact map-derived content refresh and internal-link candidates persist strategy version and rule IDs through governed proposal creation;
+- stale identity, unrelated rules, altered map evidence, incomplete link pairs, and transaction-time strategy changes fail closed;
+- unmapped search evidence remains observational and has no legacy promotion handler;
+- canonical and indexation copy explicitly says live execution is prohibited;
+- recursive runtime-source tests exclude the June report, legacy constants/module, retired panels/handlers, and hidden tabs 5–8.
 
-**Note:** This file previously held a report for an unrelated earlier task also numbered "Task 7" (outcome badges on the Recommendations page, commit `acf17ee`). That work is untouched on disk/in git history — only this report file was overwritten to reflect the current Phase 4 dispatch.
+## GROW record
 
----
+- Ground: verified the completed five-job topical-map command center, strategy-bound analysis freshness, governed proposal controls, and legacy cutover.
+- Record: updated `.mex/ROUTER.md`, `.mex/context/architecture.md`, and `docs/DEPLOYMENT.md` with exact local evidence and pending-deployment state.
+- Orient: added `.mex/patterns/strategy-bound-seo-command-center.md` and indexed it.
+- Write: bumped changed scaffold timestamps and recorded the rationale with `mex log --type decision`.
 
-# Task 7 Report — Organic priority scoring (2026-07-09)
-
-Status: DONE
-
-## Implementation notes
-
-- `lib/content-pilot/generate-proposals.ts`
-  - Applied `scoreOrganicOpportunity()` to GSC CTR-gap proposals, GSC new-content gaps, and market-intel keyword-gap proposals.
-  - Stored scorer output at `sourceData.organicPriority`.
-  - Emitted scorer-derived `priorityScore`, `priority`, `impact`, and `effort` for those proposal types.
-  - Kept existing local scoring for non-organic proposal types and left dedupe/routing behavior unchanged.
-- `lib/opportunities/generate.ts`
-  - `opportunityFromProposal()` now prefers persisted `sourceData.organicPriority` for `score`, `priority`, `impact`, and `effort`.
-  - Preserved the original proposal score at `evidence.score`.
-- `lib/opportunities/route.ts`
-  - No behavior change required; existing `P0 -> P1` ContentProposal mapping remains the routing contract.
-- Tests
-  - Added/updated regressions covering proposal ordering, proposal evidence persistence, opportunity score mapping, preserved original score, and router priority mapping.
-
-## Exact command outputs
-
-### `npm test -- generate-proposals`
+Operational-record commit:
 
 ```text
-> agriko-autopilot@0.1.0 test
-> vitest run generate-proposals
-
- RUN  v4.1.8 /home/sean/Agriko/auto-pilot
-
-
- Test Files  1 passed (1)
-      Tests  13 passed (13)
-   Start at  04:46:49
-   Duration  766ms (transform 264ms, setup 0ms, import 390ms, tests 40ms, environment 0ms)
+2526418990834ae3a63a2378157ff4f9105fe5de docs(seo): record topical map command center
 ```
 
-### `npm test -- content-pilot`
+The report itself is intentionally outside that `.mex docs` commit scope.
 
-```text
-> agriko-autopilot@0.1.0 test
-> vitest run content-pilot
+## Exact deployment and production-verification checklist
 
- RUN  v4.1.8 /home/sean/Agriko/auto-pilot
+Run only after the required whole-branch review approves the intended main commit:
 
+1. Confirm the reviewed commit is on local `main`, the worktree is clean, and local/main/origin identities match.
+2. Re-run focused tests, full `npm test`, lint, the safe local build, and `git diff --check` against that exact commit.
+3. Run the established workflow: `node scripts/git-deploy.mjs`. Do not change `EXECUTE_APPROVED_LIVE_ENABLED`, `TOPICAL_MAP_ACTIVATION_ENABLED`, database data, credentials, or strategy activation.
+4. Record the deploy script's `DEPLOY_COMPLETE` commit, build-ID mtime, PM2 start time, and health status.
+5. Independently verify `/opt/autopilot` `HEAD` equals the intended main commit.
+6. Verify active `.next/BUILD_ID` exists and its artifact timestamp follows deployment of that commit.
+7. Verify PM2 `autopilot` restarted after the build and is online/healthy; inspect bounded recent logs for startup failure.
+8. Verify `https://autopilot.agrikoph.com/api/health` returns healthy.
+9. Through authenticated read-only app access, verify command-center version `cmriak0gt00y8s66lxrfkstp6`, unless a newer separately authorized activation is evidenced.
+10. Verify SEO Pilot contains exactly five jobs, no June strategy copy, all eleven domain counts, and no stale pre-map analysis.
+11. Verify canonical/indexation remain non-executable and that UI/API verification caused no Shopify live change.
+12. Persist server commit, build identity/time, PM2 restart time, endpoint result, active map identity, legacy absence, stale-analysis absence, and no-live-write evidence in the established deployment record, then commit that evidence through the approved workflow.
 
- Test Files  9 passed (9)
-      Tests  57 passed (57)
-   Start at  04:47:04
-   Duration  4.99s (transform 2.64s, setup 0ms, import 5.73s, tests 1.29s, environment 16ms)
-```
+## Concerns
 
-### `npm test -- opportunities`
+- ESLint passes but reports 87 warnings, including three in changed SEO Pilot files.
+- Authenticated workflow evidence is hermetic route/UI regression coverage, not a live local browser session backed by a populated test database.
+- Production acceptance is intentionally pending and must not be inferred from this local verification.
 
-```text
-> agriko-autopilot@0.1.0 test
-> vitest run opportunities
+## Whole-branch merge-blocker correction (2026-07-13)
 
- RUN  v4.1.8 /home/sean/Agriko/auto-pilot
+- POST and GET now share the exported strict schema-v2 envelope. `analysis` contains exactly `{ gaps, observations, suppressed }`; optional AI/presentation fields live under `presentation`.
+- A writer-to-reader route integration captures the exact `rawSnapshot.upsert` payload from POST and feeds it through GET, which returns `ready` with byte-equivalent map gaps.
+- Successful AI analysis awaits `reloadCommandCenter()` before selecting Content gaps, so newly persisted candidates are immediately visible/actionable.
+- Governed blog handles and internal-link source handles are fetched directly with `where.handle.in`, independently of the newest-200 presentation sample. Non-blog page existence remains `observation_unavailable` rather than being inferred absent.
+- Internal links require a current inspected source. Exact normalized present pairs are suppressed, exact absent pairs become candidates, and uninspectable sources become `observation_unavailable` blockers.
+- The shared envelope records GSC, store, and link-inspection timestamps with a 72-hour policy. GET distinguishes `strategy_identity_stale`, `evidence_stale`, and `observation_unavailable`; Content gaps renders distinct operator copy.
 
- Test Files  4 passed (4)
-      Tests  34 passed (34)
-   Start at  04:46:55
-   Duration  1.42s (transform 1.04s, setup 0ms, import 1.52s, tests 135ms, environment 2ms)
-```
+Verification:
 
-### `npx tsc --noEmit`
-
-```text
-(no output; exit code 0)
-```
-
-## Follow-up fix: clamp direct ContentProposal priority to UI contract (2026-07-09)
-
-Status: DONE
-
-### Fix notes
-
-- `lib/content-pilot/generate-proposals.ts`
-  - Added a proposal-facing priority clamp for organic-scored proposals so generated `ContentProposal.priority` never exceeds the existing UI contract.
-  - `organicProposalFields()` now maps scorer `P0 -> P1` while leaving `priorityScore`, `impact`, `effort`, and the preserved `sourceData.organicPriority` payload unchanged.
-- `__tests__/lib/content-pilot/generate-proposals.test.ts`
-  - Added a regression covering the direct generation path: a high-scoring GSC CTR-gap proposal now asserts returned `priority: "P1"` while `sourceData.organicPriority.priority` remains `"P0"`.
-
-### Exact command outputs
-
-#### `npm test -- generate-proposals`
-
-```text
-> agriko-autopilot@0.1.0 test
-> vitest run generate-proposals
-
-
- RUN  v4.1.8 /home/sean/Agriko/auto-pilot
-
-
- Test Files  1 passed (1)
-      Tests  14 passed (14)
-   Start at  04:53:45
-   Duration  971ms (transform 333ms, setup 0ms, import 541ms, tests 48ms, environment 0ms)
-```
-
-#### `npm test -- content-pilot`
-
-```text
-> agriko-autopilot@0.1.0 test
-> vitest run content-pilot
-
-
- RUN  v4.1.8 /home/sean/Agriko/auto-pilot
-
-
- Test Files  9 passed (9)
-      Tests  58 passed (58)
-   Start at  04:53:55
-   Duration  4.01s (transform 1.98s, setup 0ms, import 4.34s, tests 1.01s, environment 3ms)
-```
-
-#### `npm test -- opportunities`
-
-```text
-> agriko-autopilot@0.1.0 test
-> vitest run opportunities
-
-
- RUN  v4.1.8 /home/sean/Agriko/auto-pilot
-
-
- Test Files  4 passed (4)
-      Tests  34 passed (34)
-   Start at  04:53:55
-   Duration  2.42s (transform 1.86s, setup 0ms, import 2.74s, tests 228ms, environment 1ms)
-```
-
-#### `npx tsc --noEmit`
-
-```text
-(no output; exit code 0)
-```
+- Focused command: `npm test -- __tests__/lib/seo/analysis.test.ts __tests__/api/seo-pilot-routes.test.ts __tests__/components/use-seo-data.test.ts __tests__/components/topical-map-strategy-panel.test.ts __tests__/components/seo-pilot-responsive.test.ts __tests__/lib/topical-map/proposal-integration.test.ts __tests__/lib/topical-map/evaluator.test.ts` → 7 files passed, 101 tests passed.
+- `npx tsc --noEmit` → exit 0.
+- `npm run lint` → exit 0.
+- `git diff --check` → exit 0.
+- `npm test` → 197 files passed, 3 skipped; 1,363 tests passed, 8 skipped.
+- `DATABASE_URL='postgresql://test:test@127.0.0.1:5432/autopilot_test?connection_limit=10&pool_timeout=10' npm run build` → exit 0; compiled successfully and generated 24/24 static pages.
+- No deployment or production mutation was performed.

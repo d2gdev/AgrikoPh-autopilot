@@ -25,12 +25,15 @@ export function isMapAnalysisEnvelope(value: unknown): value is MapAnalysisEnvel
   if (!isMapIdentity(value.strategy)) return false;
   if (value.state === "ready") return isAnalysis(value.analysis) && typeof value.generatedAt === "string";
   if (value.state === "empty") return value.analysis === null && value.generatedAt === null;
+  if (value.state === "strategy_identity_stale") return value.analysis === null && value.generatedAt === null && object(value.cachedStrategy) && typeof value.cachedStrategy.versionId === "string" && value.cachedStrategy.versionId.length > 0 && hash(value.cachedStrategy.packageSha256);
   if (value.state === "stale") return value.analysis === null && value.generatedAt === null && object(value.cachedStrategy) && typeof value.cachedStrategy.versionId === "string" && value.cachedStrategy.versionId.length > 0 && hash(value.cachedStrategy.packageSha256);
+  if (value.state === "evidence_stale" || value.state === "observation_unavailable") return value.analysis === null && value.generatedAt === null;
   return false;
 }
 
 export function resolveMapAnalysisState(input: { active: MapIdentity | null; envelope: MapAnalysisEnvelope }): MapAnalysisState {
   if (!input.active) return { state: "no_active_strategy", analysis: null };
+  if (input.envelope.state === "strategy_identity_stale" || input.envelope.state === "evidence_stale" || input.envelope.state === "observation_unavailable") return { state: input.envelope.state, analysis: null };
   if (input.envelope.state === "stale") return { state: "stale", analysis: null };
   if (!input.envelope.strategy || input.envelope.strategy.versionId !== input.active.versionId || input.envelope.strategy.packageSha256 !== input.active.packageSha256) {
     return { state: "stale", analysis: null };

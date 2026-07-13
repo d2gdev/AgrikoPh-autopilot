@@ -47,7 +47,7 @@ export default function SeoPillarReportPage() {
     analysis, setAnalysis, setAnalysisAt,
     trend, trendFirst, trendLast,
     refreshing, loadError, setLoadError, toast, setToast, mapState, mapAnalysisState,
-    refreshData,
+    refreshData, reloadCommandCenter,
   } = useSeoData();
   const [tab, setTab] = useState(0);
 
@@ -74,12 +74,13 @@ export default function SeoPillarReportPage() {
       if (res.ok) {
         setAnalysis(d.analysis);
         setAnalysisAt(d.generatedAt ?? null);
+        await reloadCommandCenter();
         setTab(2);
         setToast(analysisCompletionToast(d.analysis));
       } else setAnalysisError(d.error ?? "AI analysis failed.");
     } catch { setAnalysisError("AI analysis failed. Please try again."); }
     finally { setAnalyzing(false); }
-  }, [authFetch]);
+  }, [authFetch, reloadCommandCenter, setAnalysis, setAnalysisAt, setToast]);
 
   const proposeMapGap = useCallback(async (gap: MapAwareSeoGap) => {
     const key = gap.ruleIds.join("|");

@@ -82,6 +82,11 @@ describe("SEO Pilot responsive layout contract", () => {
     expect(overview).toContain("fallback snapshot");
   });
 
+  it("reloads persisted map candidates before opening content gaps after analysis", () => {
+    const page = read(pagePath);
+    expect(page).toMatch(/await reloadCommandCenter\(\);\s*setTab\(2\)/);
+  });
+
   it("renders every Page Health finding for a row", () => {
     const pageHealth = read("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/PageHealthPanel.tsx");
 

@@ -9,9 +9,11 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { chatCompletionWithFailover } from "@/lib/ai/client";
 import { parseJsonObject } from "@/lib/seo/ai-output";
 import { getLatestGscData } from "@/lib/seo/data";
-import { buildMapAwareSeoGaps, type SeoAnalysisLimits } from "@/lib/seo/analysis";
+import { buildMapAwareSeoGaps, createMapAnalysisEnvelope, SEO_ANALYSIS_MAX_AGE_HOURS, type SeoAnalysisLimits } from "@/lib/seo/analysis";
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { hasMissingMeta } from "@/lib/seo/meta";
+import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
+import type { Prisma } from "@prisma/client";
 
 const SeoAnalysisSchema = z.object({
   summary: z.string().trim().min(1).max(2_000).optional(),
@@ -102,19 +104,31 @@ export async function POST(req: NextRequest) {
   }
 
   const ARTICLE_LIMIT = 200;
-  const [gscData, articleCandidates, commandCenter] = await Promise.all([
+  const commandCenter = await loadActiveTopicalMapCommandCenter(prisma);
+  if (!commandCenter) return NextResponse.json({ error: "Active topical-map strategy is unavailable", code: "ACTIVE_STRATEGY_UNAVAILABLE" }, { status: 409 });
+  const governedPageHandles = [...new Set(commandCenter.pages.map(page => /^\/blogs\/[^/]+\/([^/]+)$/.exec(page.url)?.[1]).filter((value): value is string => Boolean(value)))];
+  const governedBlogHandles = [...new Set([...governedPageHandles, ...commandCenter.work.internalLinks.map(link => /^\/blogs\/[^/]+\/([^/]+)$/.exec(link.fromUrl)?.[1]).filter((value): value is string => Boolean(value))])];
+  const [gscData, articleCandidates, governedArticles] = await Promise.all([
     getLatestGscData(),
     prisma.articleRecord.findMany({
-      select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true },
+      select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, indexedAt: true },
       orderBy: [{ indexedAt: "desc" }, { handle: "asc" }],
       take: ARTICLE_LIMIT + 1,
     }),
-    loadActiveTopicalMapCommandCenter(prisma),
+    prisma.articleRecord.findMany({ where: { handle: { in: governedBlogHandles } }, select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, linksData: true, indexedAt: true } }),
   ]);
-  if (!commandCenter) return NextResponse.json({ error: "Active topical-map strategy is unavailable", code: "ACTIVE_STRATEGY_UNAVAILABLE" }, { status: 409 });
 
   const topQueries = gscData.queries.slice(0, 30);
   const articleRecords = articleCandidates.slice(0, ARTICLE_LIMIT);
+  const mapArticles = [...new Map([...governedArticles, ...articleRecords].map(article => [article.handle, article])).values()];
+  const verifiedAbsentUrls = new Set(governedPageHandles.filter(handle => !governedArticles.some(article => article.handle === handle)).flatMap(handle => commandCenter.pages.filter(page => page.url.endsWith(`/${handle}`)).map(page => page.url)));
+  const linkInspections = new Map<string, { capturedAt: Date; targets: Set<string> }>();
+  for (const article of governedArticles) {
+    const source = commandCenter.work.internalLinks.find(link => link.fromUrl.endsWith(`/${article.handle}`))?.fromUrl;
+    if (!source || !(article.indexedAt instanceof Date)) continue;
+    const internal = article.linksData && typeof article.linksData === "object" && Array.isArray((article.linksData as { internal?: unknown }).internal) ? (article.linksData as { internal: Array<{ href?: unknown }> }).internal : [];
+    linkInspections.set(source, { capturedAt: article.indexedAt, targets: new Set(internal.flatMap(link => typeof link.href === "string" ? [normalizeGovernedUrl(link.href)] : [])) });
+  }
   const limits: SeoAnalysisLimits = {
     queriesTotal: gscData.queries.length,
     queriesAnalyzed: Math.min(gscData.queries.length, 30),
@@ -137,7 +151,9 @@ export async function POST(req: NextRequest) {
     commandCenter,
     queries: gscData.queries,
     queryPagePairs: gscData.queryPagePairs,
-    articles: articleRecords,
+    articles: mapArticles,
+    verifiedAbsentUrls,
+    linkInspections,
   });
   const programmaticGaps = mapAnalysis.gaps;
 
@@ -163,19 +179,28 @@ export async function POST(req: NextRequest) {
     recommendations: [], recommendationEvidence: [],
     contentGaps: programmaticGaps, observations: mapAnalysis.observations, suppressedGaps: mapAnalysis.suppressed, limits, aiStatus: "partial" as const, aiError,
   });
-  const persistAnalysis = async (analysis: object, generatedAt: Date) => prisma.rawSnapshot.upsert({
+  const persistAnalysis = async (presentation: Record<string, unknown>, generatedAt: Date) => {
+    const storeCapturedAt = mapArticles.reduce<Date | null>((latest, article) => article.indexedAt instanceof Date && (!latest || article.indexedAt > latest) ? article.indexedAt : latest, null);
+    const linkCapturedAt = [...linkInspections.values()].reduce<Date | null>((latest, item) => !latest || item.capturedAt > latest ? item.capturedAt : latest, null);
+    const payload = createMapAnalysisEnvelope({
+      strategy: commandCenter.identity, generatedAt, analysis: mapAnalysis,
+      evidence: { gscCapturedAt: gscData.fetchedAt?.toISOString() ?? null, storeCapturedAt: storeCapturedAt?.toISOString() ?? null, linkCapturedAt: linkCapturedAt?.toISOString() ?? null, maxAgeHours: SEO_ANALYSIS_MAX_AGE_HOURS },
+      presentation,
+    });
+    return prisma.rawSnapshot.upsert({
     where: { source_dateRangeStart_dateRangeEnd: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0) } },
-    update: { payload: { schemaVersion: "2", strategy: { versionId: commandCenter.identity.versionId, packageSha256: commandCenter.identity.packageSha256 }, generatedAt: generatedAt.toISOString(), analysis }, fetchedAt: generatedAt },
-    create: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0), payload: { schemaVersion: "2", strategy: { versionId: commandCenter.identity.versionId, packageSha256: commandCenter.identity.packageSha256 }, generatedAt: generatedAt.toISOString(), analysis }, fetchedAt: generatedAt },
-  });
-  const persistAndRespond = async (analysis: object) => {
+    update: { payload: payload as unknown as Prisma.InputJsonValue, fetchedAt: generatedAt },
+    create: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0), payload: payload as unknown as Prisma.InputJsonValue, fetchedAt: generatedAt },
+    });
+  };
+  const persistAndRespond = async (analysis: Record<string, unknown>) => {
     const generatedAt = new Date();
     try {
       await persistAnalysis(analysis, generatedAt);
     } catch {
       throw new AnalysisPersistenceError("Analysis snapshot could not be saved");
     }
-    return NextResponse.json({ analysis, generatedAt: generatedAt.toISOString(), gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source });
+    return NextResponse.json({ analysis, mapAnalysis, generatedAt: generatedAt.toISOString(), gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source });
   };
 
   const aiTimeout = AbortSignal.timeout(25_000);

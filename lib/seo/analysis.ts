@@ -77,19 +77,37 @@ const MapGapSchema = z.object({
 }).strict();
 const ObservationSchema = z.object({ query: z.string().min(1), impressions: z.number().nonnegative(), position: z.number(), suggestedTitle: z.string().min(1), issue: z.enum(["missing-meta", "thin-content"]).optional(), articleHandle: z.string().min(1).optional(), wordCount: z.number().nullable().optional() }).strict();
 const SuppressedSchema = z.object({ strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/), page: z.string().min(1), reason: z.string().min(1), ruleIds: z.array(z.string().min(1)).min(1) }).strict();
-const EnvelopeSchema = z.object({
+export const SEO_ANALYSIS_MAX_AGE_HOURS = 72;
+export const AnalysisEvidenceSchema = z.object({
+  gscCapturedAt: z.string().datetime().nullable(), storeCapturedAt: z.string().datetime().nullable(), linkCapturedAt: z.string().datetime().nullable(), maxAgeHours: z.literal(SEO_ANALYSIS_MAX_AGE_HOURS),
+}).strict();
+export const MapAnalysisEnvelopeSchema = z.object({
   schemaVersion: z.literal("2"),
   strategy: IdentitySchema,
   generatedAt: z.string().datetime(),
   analysis: z.object({ gaps: z.array(MapGapSchema), observations: z.array(ObservationSchema), suppressed: z.array(SuppressedSchema) }).strict(),
+  evidence: AnalysisEvidenceSchema,
+  presentation: z.record(z.string(), z.unknown()).optional(),
 }).strict().superRefine((value, ctx) => {
   for (const item of [...value.analysis.gaps, ...value.analysis.suppressed]) if (item.strategyVersionId !== value.strategy.versionId || item.packageSha256 !== value.strategy.packageSha256) ctx.addIssue({ code: "custom", message: "Analysis item strategy identity mismatch" });
 });
 
 export function readAnalysisForStrategy(payload: unknown, active: StrategyIdentity): MapAwareSeoAnalysis | null {
-  const parsed = EnvelopeSchema.safeParse(payload);
+  const parsed = MapAnalysisEnvelopeSchema.safeParse(payload);
   return parsed.success && parsed.data.strategy.versionId === active.versionId && parsed.data.strategy.packageSha256 === active.packageSha256
     ? parsed.data.analysis as MapAwareSeoAnalysis : null;
+}
+
+export function createMapAnalysisEnvelope(input: { strategy: StrategyIdentity; generatedAt: Date; analysis: MapAwareSeoAnalysis; evidence: z.infer<typeof AnalysisEvidenceSchema>; presentation?: Record<string, unknown> }) {
+  return MapAnalysisEnvelopeSchema.parse({ schemaVersion: "2", strategy: { versionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256 }, generatedAt: input.generatedAt.toISOString(), analysis: input.analysis, evidence: input.evidence, ...(input.presentation ? { presentation: input.presentation } : {}) });
+}
+
+export function analysisEvidenceState(payload: unknown, now = new Date()): "current" | "evidence_stale" | "observation_unavailable" {
+  const parsed = MapAnalysisEnvelopeSchema.safeParse(payload);
+  if (!parsed.success) return "observation_unavailable";
+  const timestamps = [parsed.data.evidence.gscCapturedAt, parsed.data.evidence.storeCapturedAt, parsed.data.evidence.linkCapturedAt].filter((value): value is string => value !== null);
+  if (timestamps.length < 2) return "observation_unavailable";
+  return timestamps.some(value => now.getTime() - new Date(value).getTime() > parsed.data.evidence.maxAgeHours * 3_600_000) ? "evidence_stale" : "current";
 }
 
 export function buildMapAwareSeoGaps(input: {
@@ -98,6 +116,8 @@ export function buildMapAwareSeoGaps(input: {
   queries: GscQueryRow[];
   queryPagePairs: GscQueryPageRow[];
   articles: SeoAnalysisArticle[];
+  verifiedAbsentUrls?: Set<string>;
+  linkInspections?: Map<string, { capturedAt: Date; targets: Set<string> }>;
 }): MapAwareSeoAnalysis {
   const existing = new Set(input.articles.map((article) => `/blogs/news/${article.handle.toLowerCase()}`));
   const observations = buildProgrammaticSeoGaps(input);
@@ -114,6 +134,15 @@ export function buildMapAwareSeoGaps(input: {
   for (const page of input.commandCenter.pages) {
     if (!page.decision) continue;
     const exists = existing.has(page.url);
+    const isBlog = /^\/blogs\/[^/]+\/[^/]+$/.test(page.url);
+    if (!exists && !isBlog) {
+      suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: page.url, reason: "observation_unavailable: no verified Shopify-backed page observation", ruleIds: [...page.ruleIds] });
+      continue;
+    }
+    if (!exists && input.verifiedAbsentUrls && !input.verifiedAbsentUrls.has(page.url)) {
+      suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: page.url, reason: "observation_unavailable: governed blog URL was not directly inspected", ruleIds: [...page.ruleIds] });
+      continue;
+    }
     const create = !exists && /(create|publish|new)/i.test(page.decision);
     const refresh = exists && /(refresh|update|improve|optimi[sz]e|expand)/i.test(page.decision);
     if (!create && !refresh) continue;
@@ -127,6 +156,12 @@ export function buildMapAwareSeoGaps(input: {
   }
   for (const link of input.commandCenter.work.internalLinks) {
     if (!/(absent|missing|not present|add)/i.test(`${link.currentBodyState ?? ""} ${link.requiredAction ?? ""}`)) continue;
+    const inspection = input.linkInspections?.get(link.fromUrl);
+    if (input.linkInspections && !inspection) {
+      suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: link.fromUrl, reason: "observation_unavailable: link source was not inspected", ruleIds: [...link.ruleIds] });
+      continue;
+    }
+    if (inspection?.targets.has(normalizeGovernedUrl(link.toUrl))) continue;
     const query = link.recommendedAnchor ?? link.toUrl;
     gaps.push({ kind: "link", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...link.ruleIds], state: "candidate", action: "update", query, suggestedTitle: `Add internal link from ${link.fromUrl} to ${link.toUrl}`, page: link.fromUrl, fromUrl: link.fromUrl, toUrl: link.toUrl, type: "internal-link", priority: link.priority ?? "unspecified", mapEvidence: null, observedEvidence: evidenceFor(query) });
   }
