@@ -33,6 +33,7 @@ const ExecutableSourceSchema = z.discriminatedUnion("action", [
   z.object({ ...ExecutableSourceBase, action: z.literal("content_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
   z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), links: z.array(z.object({ toUrl: GovernedUrl, anchor: z.string().min(1) }).strict()).min(1).max(100) }).strict(),
 ]);
+const LegacyInternalLinkSourceSchema = z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), linkTargetUrl: GovernedUrl, linkAnchor: z.string().min(1) }).strict();
 const AdvisorySourceSchema = z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(AdvisoryDomain).min(1), sourceReferences: SourceReferences, generationProvenance: GenerationProvenance, targetType: AdvisoryTargetType, targetUrl: GovernedUrl, executable: z.literal(false), advisoryReason: AdvisoryReason }).strict();
 export const TopicalMapStoreTaskSourceSchema = z.union([ExecutableSourceSchema, AdvisorySourceSchema]);
 
@@ -54,9 +55,13 @@ type Client = {
   topicalMapActivation: { findUnique(args: unknown): Promise<unknown> };
   storeTask: {
     findUnique(args: { where: { dedupeKey: string } }): Promise<{ id?: string; status: string; sourceData?: unknown } | null>;
+    findMany?(args: unknown): Promise<Array<{ id: string; status: string; sourceData: unknown }>>;
     upsert(args: unknown): Promise<unknown>;
     update?(args: unknown): Promise<unknown>;
+    updateMany?(args: unknown): Promise<{ count: number }>;
   };
+  auditLog?: { create(args: unknown): Promise<unknown> };
+  $transaction?<T>(run: (tx: Client) => Promise<T>): Promise<T>;
   rawSnapshot?: { findFirst(args: unknown): Promise<{ id: string } | null> };
   recommendation?: {
     findFirst(args: unknown): Promise<{ id: string; status: string } | null>;
@@ -85,6 +90,12 @@ function canonical(value: unknown): string {
 }
 export function hashTopicalMapProposedState(value: unknown): string { return hash(canonical(TopicalMapStoreTaskProposedSchema.parse(value))); }
 function escapeHtml(value: string): string { return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
+export function appendInternalLinkMarkup(bodyHtml: string, targetUrl: string, links: Array<{ toUrl: string; anchor: string }>): string {
+  const linkMarkup = links.length === 1
+    ? `<p><a href="${escapeHtml(links[0]!.toUrl)}">${escapeHtml(links[0]!.anchor)}</a></p>`
+    : `<section class="ag-related-recipes" aria-labelledby="ag-related-recipes-title"><h2 id="ag-related-recipes-title">${targetUrl === "/pages/red-rice-recipes" ? "Explore More Red Rice Recipes" : "Explore Related Resources"}</h2><ul>${links.map((link) => `<li><a href="${escapeHtml(link.toUrl)}">${escapeHtml(link.anchor)}</a></li>`).join("")}</ul></section>`;
+  return `${bodyHtml}${linkMarkup}`;
+}
 function pageAction(page: CommandCenterPage): TopicalMapStoreAction {
   const decision = page.decision?.toLowerCase() ?? "";
   return /(seo|meta|title|description)/.test(decision) ? "seo_update" : "content_update";
@@ -136,6 +147,26 @@ function advisory(center: TopicalMapCommandCenter, item: Candidate, reason: Task
     sourceData: TopicalMapStoreTaskSourceSchema.parse({ source: "topical-map", strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceReferences: item.ruleIds.slice(0, 25).map((id) => ({ kind: "rule", id })), generationProvenance: "advisory_projection", targetType: item.targetType, targetUrl: item.targetUrl, executable: false, advisoryReason: reason }),
     proposedState: { action: "advisory", advisory: reason },
   };
+}
+
+async function supersedeObsoleteLinkTasks(client: Client, center: TopicalMapCommandCenter, task: Persisted, replacementId: string): Promise<void> {
+  if (task.proposedState.action !== "internal_link" || !client.storeTask.findMany || !client.storeTask.updateMany || !client.auditLog || !client.$transaction) return;
+  const rows = await client.storeTask.findMany({ where: { taskType: "topical_map", targetUrl: task.targetUrl, status: { in: ["pending", "failed"] } }, select: { id: true, status: true, sourceData: true } });
+  for (const row of rows) {
+    if (row.id === replacementId) continue;
+    const parsed = LegacyInternalLinkSourceSchema.safeParse(row.sourceData);
+    if (!parsed.success || parsed.data.strategyVersionId !== center.identity.versionId || parsed.data.packageSha256 !== center.identity.packageSha256) continue;
+    if (parsed.data.recommendationId && client.recommendation?.findUnique) {
+      const recommendation = await client.recommendation.findUnique({ where: { id: parsed.data.recommendationId }, select: { id: true, status: true } });
+      if (recommendation && ["approved", "override_approved", "executing"].includes(recommendation.status)) continue;
+    }
+    await client.$transaction(async (tx) => {
+      const note = `Superseded by grouped topical-map internal-link task ${replacementId}`;
+      const updated = await tx.storeTask.updateMany!({ where: { id: row.id, status: { in: ["pending", "failed"] } }, data: { status: "dismissed", completionNote: note, completedAt: new Date() } });
+      if (updated.count !== 1) return;
+      await tx.auditLog!.create({ data: { actor: "topical-map-sync", action: "topical_map_store_task_superseded", entityType: "StoreTask", entityId: row.id, before: { status: row.status }, after: { status: "dismissed", replacementTaskId: replacementId }, meta: { strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, targetUrl: task.targetUrl } } });
+    });
+  }
 }
 
 export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary> {
@@ -191,10 +222,7 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
       executable: true,
     });
     if (item.action === "internal_link") {
-      const linkMarkup = item.links!.length === 1
-        ? `<p><a href="${escapeHtml(item.links![0]!.toUrl)}">${escapeHtml(item.links![0]!.anchor)}</a></p>`
-        : `<section class="ag-related-recipes" aria-labelledby="ag-related-recipes-title"><h2 id="ag-related-recipes-title">${item.targetUrl === "/pages/red-rice-recipes" ? "Explore More Red Rice Recipes" : "Explore Related Resources"}</h2><ul>${item.links!.map((link) => `<li><a href="${escapeHtml(link.toUrl)}">${escapeHtml(link.anchor)}</a></li>`).join("")}</ul></section>`;
-      const bodyHtml = `${resource.bodyHtml}${linkMarkup}`;
+      const bodyHtml = appendInternalLinkMarkup(resource.bodyHtml, item.targetUrl, item.links!);
       if (bodyHtml.length > 50_000) return advisory(center, item, "draft_unavailable");
       return { targetType: resource.type, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceData, proposedState: { action: item.action, before: { bodyHtml: resource.bodyHtml }, after: { bodyHtml } } };
     }
@@ -230,6 +258,7 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
       if (!recommendation) { summary.suppressed++; continue; }
       await client.storeTask.update({ where: { id: persisted.id }, data: { sourceData: { ...sourceWithHash, recommendationId: recommendation.id } } });
     }
+    if (checkedSource.executable && checkedProposed.action === "internal_link" && persisted?.id) await supersedeObsoleteLinkTasks(client, center, task, persisted.id);
     if (checkedSource.executable) summary.executable++; else summary.advisory++;
   }
   return summary;

@@ -43,19 +43,29 @@ const center = () => ({
   },
 });
 
-function client(existing: Record<string, { status: string; id?: string; sourceData?: unknown }> = {}) {
-  const rows = new Map(Object.entries(existing));
+function client(existing: Record<string, { status: string; id?: string; targetUrl?: string; sourceData?: unknown }> = {}) {
+  const rows = new Map(Object.entries(existing).map(([dedupeKey, row]) => [dedupeKey, { dedupeKey, ...row }]));
   let sequence = 0;
-  return {
+  const db: any = {
     topicalMapActivation: { findUnique: vi.fn() },
     storeTask: {
       findUnique: vi.fn(async ({ where }: any) => rows.get(where.dedupeKey) ?? null),
+      findMany: vi.fn(async ({ where }: any) => [...rows.values()].filter((row: any) => row.targetUrl === where.targetUrl && where.status.in.includes(row.status))),
       upsert: vi.fn(async ({ where, create, update }: any) => { const prior = rows.get(where.dedupeKey) as any; rows.set(where.dedupeKey, { id: prior?.id ?? `task-${++sequence}`, ...create, ...update, status: "pending" }); return rows.get(where.dedupeKey); }),
       update: vi.fn(),
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        const entry = [...rows.entries()].find(([, row]: any) => row.id === where.id && where.status.in.includes(row.status));
+        if (!entry) return { count: 0 };
+        rows.set(entry[0], { ...entry[1], ...data });
+        return { count: 1 };
+      }),
     },
+    auditLog: { create: vi.fn() },
+    $transaction: vi.fn(async (run: any) => run(db)),
     rawSnapshot: { findFirst: vi.fn().mockResolvedValue({ id: "seo-snapshot-1" }) },
     recommendation: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(async () => ({ id: `rec-${sequence}`, status: "pending" })) },
   };
+  return db;
 }
 
 beforeEach(() => {
@@ -90,6 +100,24 @@ describe("syncTopicalMapStoreTasks", () => {
     expect(links[0].proposedState.after.bodyHtml).toContain('<section class="ag-related-recipes"');
     expect(links[0].proposedState.after.bodyHtml.match(/<section/g)).toHaveLength(1);
     expect(links[0].proposedState.after.bodyHtml.match(/<li>/g)).toHaveLength(3);
+  });
+
+  it("supersedes obsolete unapproved per-link tasks after creating the grouped replacement", async () => {
+    const legacy = (status: string, id: string) => ({ status, id, targetUrl: "/collections/rice", sourceData: {
+      source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64),
+      ruleIds: ["link:legacy"], ruleDomains: ["internal_links"], sourceReferences: [{ kind: "rule", id: "link:legacy" }],
+      generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link",
+      linkTargetUrl: "/products/black-rice", linkAnchor: "shop black rice", observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true,
+    } });
+    const db = client({ old_pending: legacy("pending", "old-pending"), old_failed: legacy("failed", "old-failed"), old_completed: legacy("completed", "old-completed") });
+    await syncTopicalMapStoreTasks(db as any);
+    expect(db.storeTask.updateMany).toHaveBeenCalledTimes(2);
+    expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "old-pending", status: { in: ["pending", "failed"] } },
+      data: expect.objectContaining({ status: "dismissed", completionNote: expect.stringContaining("Superseded by grouped topical-map internal-link task") }),
+    }));
+    expect(db.auditLog.create).toHaveBeenCalledTimes(2);
+    expect(db.storeTask.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: "old-completed" }) }));
   });
 
   it("projects only governed non-blog resources, keeps technical work advisory, and suppresses missing observations", async () => {

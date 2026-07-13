@@ -41,4 +41,21 @@ describe("topical-map approval and internal dispatch", () => {
     await expect(dispatchClaimedTopicalMapStoreTask(client as any, rec as any)).rejects.toBeInstanceOf(TopicalMapApplyError);
     expect(adapter.apply).not.toHaveBeenCalled();
   });
+  it("revalidates and applies every rule in a grouped internal-link task", async () => {
+    const bodyHtml = '<p>Existing.</p><section class="ag-related-recipes" aria-labelledby="ag-related-recipes-title"><h2 id="ag-related-recipes-title">Explore Related Resources</h2><ul><li><a href="/products/black-rice">black rice</a></li><li><a href="/products/red-rice">red rice</a></li></ul></section>';
+    const groupedSource = { ...source, targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", ruleDomains: ["internal_links"], ruleIds: ["link:black", "link:red"], sourceReferences: [{ kind: "rule", id: "link:black" }, { kind: "rule", id: "link:red" }], generationProvenance: "deterministic", links: [{ toUrl: "/products/black-rice", anchor: "black rice" }, { toUrl: "/products/red-rice", anchor: "red rice" }] };
+    const groupedProposed = { action: "internal_link", before: { bodyHtml: "<p>Existing.</p>" }, after: { bodyHtml } };
+    const groupedResource = { ...resource, type: "collection", url: "/collections/rice", bodyHtml: "<p>Existing.</p>" };
+    const groupedRec = { ...rec, proposedValue: JSON.stringify({ taskId: "task-1", approvedProposedStateHash: hashTopicalMapProposedState(groupedProposed) }) };
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: groupedSource, proposedState: groupedProposed });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [
+      { fromUrl: "/collections/rice", toUrl: "/products/black-rice", recommendedAnchor: "black rice", ruleIds: ["link:black"] },
+      { fromUrl: "/collections/rice", toUrl: "/products/red-rice", recommendedAnchor: "red rice", ruleIds: ["link:red"] },
+    ] } });
+    adapter.fetch.mockResolvedValue(groupedResource);
+    adapter.apply.mockResolvedValue({ ...groupedResource, bodyHtml, stateHash: "c".repeat(64) });
+    await dispatchClaimedTopicalMapStoreTask(client as any, groupedRec as any);
+    expect(adapter.apply).toHaveBeenCalledWith(groupedResource, { bodyHtml });
+  });
 });

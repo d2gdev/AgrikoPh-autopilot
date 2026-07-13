@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { Prisma, type Recommendation } from "@prisma/client";
 import { applyGovernedStoreResourceChange, fetchGovernedStoreResource, resolveGovernedStoreUrl, type GovernedStoreResource } from "@/lib/shopify-governed-resources";
-import { hashTopicalMapProposedState, TopicalMapStoreTaskProposedSchema, TopicalMapStoreTaskSourceSchema } from "@/lib/store-tasks/topical-map";
+import { appendInternalLinkMarkup, hashTopicalMapProposedState, TopicalMapStoreTaskProposedSchema, TopicalMapStoreTaskSourceSchema } from "@/lib/store-tasks/topical-map";
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
@@ -25,20 +25,23 @@ function path(value: string): string {
   const parsed = new URL(normalized); return `${parsed.pathname.length > 1 ? parsed.pathname.replace(/\/$/, "") : parsed.pathname}${parsed.search}${parsed.hash}`;
 }
 function sameStrings(a: string[], b: string[]) { return [...a].sort().join("\0") === [...b].sort().join("\0"); }
-function escapeHtml(value: string) { return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
 function approvedHash(rec: Pick<Recommendation, "proposedValue">): string | null {
   try { const parsed = JSON.parse(rec.proposedValue ?? "null"); return typeof parsed?.approvedProposedStateHash === "string" ? parsed.approvedProposedStateHash : null; } catch { return null; }
 }
 function stillGoverned(center: Awaited<ReturnType<typeof loadActiveTopicalMapCommandCenter>>, source: ExecutableSource, proposed: ExecutableProposed) {
   if (!center || source.action !== proposed.action) return false;
   const target = resolveGovernedStoreUrl(source.targetUrl); if (!target || target.type !== source.targetType) return false;
-  if (source.action === "internal_link") return center.work.internalLinks.some((item) => path(item.fromUrl) === source.targetUrl && path(item.toUrl) === source.linkTargetUrl && (item.recommendedAnchor ?? item.toUrl) === source.linkAnchor && sameStrings(item.ruleIds, source.ruleIds));
+  if (source.action === "internal_link") {
+    const governed = center.work.internalLinks.filter((item) => path(item.fromUrl) === source.targetUrl && source.links.some((link) => link.toUrl === path(item.toUrl) && link.anchor === (item.recommendedAnchor ?? item.toUrl)));
+    const governedLinks = new Set(governed.map((item) => `${path(item.toUrl)}\u0000${item.recommendedAnchor ?? item.toUrl}`));
+    return governedLinks.size === source.links.length && source.links.every((link) => governedLinks.has(`${link.toUrl}\u0000${link.anchor}`)) && sameStrings(governed.flatMap((item) => item.ruleIds), source.ruleIds);
+  }
   const page = center.pages.find((item) => path(item.url) === source.targetUrl);
   const action = /(seo|meta|title|description)/.test(page?.decision?.toLowerCase() ?? "") ? "seo_update" : "content_update";
   return !!page && action === source.action && sameStrings(page.ruleDomains.content_decisions ?? [], source.ruleIds);
 }
 function expectedChanges(proposed: ExecutableProposed, current: GovernedStoreResource, source: ExecutableSource): Record<string, string> {
-  if (proposed.action === "internal_link" && source.action === "internal_link") return { bodyHtml: `${current.bodyHtml}<p><a href="${escapeHtml(source.linkTargetUrl)}">${escapeHtml(source.linkAnchor)}</a></p>` };
+  if (proposed.action === "internal_link" && source.action === "internal_link") return { bodyHtml: appendInternalLinkMarkup(current.bodyHtml, source.targetUrl, source.links) };
   return { ...proposed.after };
 }
 function beforeMatches(proposed: ExecutableProposed, current: GovernedStoreResource) {
