@@ -104,7 +104,8 @@ describe("governed Shopify mutations", () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ data: { pageUpdate: { page: { id: "g1" }, userErrors: [] } } }) }) as unknown as typeof fetch;
     await updatePageSeoAndBody("g1", { title: "About Agriko", seoTitle: "About Agriko", seoDescription: "...", bodyHtml: "<p>...</p>" });
     const body = JSON.parse((vi.mocked(global.fetch).mock.calls[0]![1] as RequestInit).body as string);
-    expect(body.variables).toEqual({ page: { id: "g1", title: "About Agriko", body: "<p>...</p>", metafields: [
+    expect(body.query).toContain("pageUpdate(id: $id, page: $page)");
+    expect(body.variables).toEqual({ id: "g1", page: { title: "About Agriko", body: "<p>...</p>", metafields: [
       { namespace: "global", key: "title_tag", type: "single_line_text_field", value: "About Agriko" },
       { namespace: "global", key: "description_tag", type: "single_line_text_field", value: "..." },
     ] } });

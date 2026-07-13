@@ -294,16 +294,15 @@ export async function updatePageSeoAndBody(
     change.seoDescription === undefined ? null : { namespace: "global", key: "description_tag", type: "single_line_text_field", value: change.seoDescription },
   ].filter((value): value is NonNullable<typeof value> => value !== null);
   const page = {
-    id: pageId,
     ...(change.title === undefined ? {} : { title: change.title }),
     ...(change.bodyHtml === undefined ? {} : { body: change.bodyHtml }),
     ...(metafields.length ? { metafields } : {}),
   };
   const data = await shopifyFetch<{ pageUpdate: { page: { id: string } | null; userErrors: Array<{ message: string }> } }>(`
-    mutation UpdatePageSeoAndBody($page: PageUpdateInput!) {
-      pageUpdate(page: $page) { page { id } userErrors { field message } }
+    mutation UpdatePageSeoAndBody($id: ID!, $page: PageUpdateInput!) {
+      pageUpdate(id: $id, page: $page) { page { id } userErrors { field message } }
     }
-  `, { page });
+  `, { id: pageId, page });
   if (data.pageUpdate.userErrors?.length) throw new Error(data.pageUpdate.userErrors[0]!.message);
   if (!data.pageUpdate.page) throw new Error("Shopify returned no page in pageUpdate response");
   return data.pageUpdate.page;
