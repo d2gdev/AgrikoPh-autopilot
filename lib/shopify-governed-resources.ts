@@ -1,0 +1,98 @@
+import { createHash } from "node:crypto";
+import { parseArticleHtml } from "@/lib/analyzers/html-parser";
+import { shopifyFetch, updateCollectionSeoAndBody, updatePageSeoAndBody, updateProductSeo } from "@/lib/shopify-admin";
+import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
+
+export type GovernedStoreTargetType = "product" | "collection" | "page";
+
+export interface GovernedStoreResource {
+  id: string;
+  type: GovernedStoreTargetType;
+  url: string;
+  handle: string;
+  title: string;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  bodyHtml: string;
+  updatedAt: Date;
+  stateHash: string;
+  internalTargets: string[];
+}
+
+export type GovernedStoreResourceChange = Partial<Pick<GovernedStoreResource, "seoTitle" | "seoDescription" | "title" | "bodyHtml">>;
+
+export function resolveGovernedStoreUrl(value: string): { type: GovernedStoreTargetType; handle: string } | null {
+  let normalized: string;
+  try { normalized = normalizeGovernedUrl(value); } catch { return null; }
+  const pathname = normalized.startsWith("/") ? new URL(normalized, "https://agrikoph.com").pathname : new URL(normalized).pathname;
+  const match = pathname.match(/^\/(products|collections|pages)\/([^/]+)$/);
+  if (!match) return null;
+  const types = { products: "product", collections: "collection", pages: "page" } as const;
+  return { type: types[match[1] as keyof typeof types], handle: decodeURIComponent(match[2]!) };
+}
+
+type Node = { id: string; handle: string; title: string; updatedAt: string; descriptionHtml?: string; body?: string; seo?: { title?: string | null; description?: string | null }; seoTitle?: { value: string | null } | null; seoDescription?: { value: string | null } | null };
+type Connection = { pageInfo: { hasNextPage: boolean; endCursor: string | null }; edges: Array<{ node: Node }> };
+
+const queries = {
+  product: `query GovernedProducts($after: String) { products(first: 100, after: $after) { pageInfo { hasNextPage endCursor } edges { node { id handle title descriptionHtml updatedAt seo { title description } } } } }`,
+  collection: `query GovernedCollections($after: String) { collections(first: 100, after: $after) { pageInfo { hasNextPage endCursor } edges { node { id handle title descriptionHtml updatedAt seo { title description } } } } }`,
+  page: `query GovernedPages($after: String) { pages(first: 100, after: $after) { pageInfo { hasNextPage endCursor } edges { node { id handle title body updatedAt seoTitle: metafield(namespace: "global", key: "title_tag") { value } seoDescription: metafield(namespace: "global", key: "description_tag") { value } } } } }`,
+} as const;
+
+function resource(type: GovernedStoreTargetType, node: Node): GovernedStoreResource {
+  const plural = type === "product" ? "products" : type === "collection" ? "collections" : "pages";
+  const url = `/${plural}/${node.handle}`;
+  const bodyHtml = node.descriptionHtml ?? node.body ?? "";
+  const updatedAt = new Date(node.updatedAt);
+  const seoTitle = type === "page" ? node.seoTitle?.value ?? null : node.seo?.title ?? null;
+  const seoDescription = type === "page" ? node.seoDescription?.value ?? null : node.seo?.description ?? null;
+  const canonical = JSON.stringify({ id: node.id, type, url, title: node.title, seoTitle, seoDescription, bodyHtml, updatedAt: updatedAt.toISOString() });
+  const internalTargets = parseArticleHtml(bodyHtml).anchors.flatMap(({ href }) => {
+    try {
+      const normalized = normalizeGovernedUrl(href);
+      if (normalized.startsWith("/")) return [normalized];
+      const parsed = new URL(normalized);
+      return [`${parsed.pathname}${parsed.search}${parsed.hash}`];
+    } catch { return []; }
+  });
+  return { id: node.id, type, url, handle: node.handle, title: node.title, seoTitle, seoDescription, bodyHtml, updatedAt, stateHash: createHash("sha256").update(canonical).digest("hex"), internalTargets };
+}
+
+export async function fetchGovernedStoreResources(urls: string[]): Promise<Map<string, GovernedStoreResource>> {
+  const requested = new Set(urls.map((url) => resolveGovernedStoreUrl(url)).filter((value): value is NonNullable<typeof value> => value !== null).map(({ type, handle }) => `${type}:${handle}`));
+  const result = new Map<string, GovernedStoreResource>();
+  for (const type of ["product", "collection", "page"] as const) {
+    if (![...requested].some((key) => key.startsWith(`${type}:`))) continue;
+    let after: string | null = null;
+    do {
+      const key = type === "product" ? "products" : type === "collection" ? "collections" : "pages";
+      const data = await shopifyFetch<Record<typeof key, Connection>>(queries[type], { after });
+      for (const { node } of data[key].edges) {
+        if (!node.handle || !requested.has(`${type}:${node.handle}`)) continue;
+        const item = resource(type, node);
+        result.set(item.url, item);
+      }
+      after = data[key].pageInfo.hasNextPage ? data[key].pageInfo.endCursor : null;
+    } while (after);
+  }
+  return result;
+}
+
+export async function fetchGovernedStoreResource(url: string): Promise<GovernedStoreResource | null> {
+  const resolved = resolveGovernedStoreUrl(url);
+  if (!resolved) return null;
+  const canonical = `/${resolved.type === "product" ? "products" : resolved.type === "collection" ? "collections" : "pages"}/${resolved.handle}`;
+  return (await fetchGovernedStoreResources([canonical])).get(canonical) ?? null;
+}
+
+export async function applyGovernedStoreResourceChange(resource: GovernedStoreResource, proposed: GovernedStoreResourceChange): Promise<GovernedStoreResource> {
+  const allowed = new Set(["seoTitle", "seoDescription", "title", "bodyHtml"]);
+  for (const key of Object.keys(proposed)) if (!allowed.has(key)) throw new Error(`Governed resource change key is not allowed: ${key}`);
+  if (resource.type === "product") await updateProductSeo(resource.id, { ...(proposed.seoTitle === undefined ? {} : { title: proposed.seoTitle ?? "" }), ...(proposed.seoDescription === undefined ? {} : { description: proposed.seoDescription ?? "" }) }, { ...(proposed.title === undefined ? {} : { title: proposed.title }), ...(proposed.bodyHtml === undefined ? {} : { descriptionHtml: proposed.bodyHtml }) });
+  else if (resource.type === "collection") await updateCollectionSeoAndBody(resource.id, { ...(proposed.seoTitle === undefined ? {} : { title: proposed.seoTitle ?? "" }), ...(proposed.seoDescription === undefined ? {} : { description: proposed.seoDescription ?? "" }) }, { ...(proposed.title === undefined ? {} : { title: proposed.title }), ...(proposed.bodyHtml === undefined ? {} : { descriptionHtml: proposed.bodyHtml }) });
+  else await updatePageSeoAndBody(resource.id, proposed);
+  const updated = await fetchGovernedStoreResource(resource.url);
+  if (!updated) throw new Error("Shopify did not return updated governed resource after mutation");
+  return updated;
+}

@@ -192,8 +192,10 @@ export async function updateProductMediaAlt(
 
 export async function updateProductSeo(
   productId: string,
-  seo: { title?: string; description?: string }
+  seo: { title?: string; description?: string },
+  content: { title?: string; descriptionHtml?: string } = {}
 ): Promise<{ id: string; seo: { title: string | null; description: string | null } }> {
+  validateGovernedFields(seo.title, seo.description, content.descriptionHtml);
   const mutation = `
     mutation UpdateProductSeo($product: ProductUpdateInput!) {
       productUpdate(product: $product) {
@@ -216,13 +218,60 @@ export async function updateProductSeo(
       product: { id: string; seo: { title: string | null; description: string | null } } | null;
       userErrors: Array<{ field: string[] | null; message: string }>;
     };
-  }>(mutation, { product: { id: productId, seo } });
+  }>(mutation, { product: { id: productId, seo, ...content } });
 
   const errors = data.productUpdate.userErrors;
   if (errors?.length) throw new Error(errors[0]!.message);
   const product = data.productUpdate.product;
   if (!product) throw new Error("Shopify returned no product in productUpdate response");
   return product;
+}
+
+function validateGovernedFields(title?: string, description?: string, html?: string): void {
+  if (title !== undefined && title.length > 70) throw new Error("SEO title must be 70 characters or fewer");
+  if (description !== undefined && description.length > 160) throw new Error("SEO description must be 160 characters or fewer");
+  if (html !== undefined && html.length > 50_000) throw new Error("HTML must be 50,000 characters or fewer");
+}
+
+export async function updateCollectionSeoAndBody(
+  collectionId: string,
+  seo: { title?: string; description?: string },
+  content: { title?: string; descriptionHtml?: string } = {}
+): Promise<{ id: string; seo: { title: string | null; description: string | null } }> {
+  validateGovernedFields(seo.title, seo.description, content.descriptionHtml);
+  const data = await shopifyFetch<{ collectionUpdate: { collection: { id: string; seo: { title: string | null; description: string | null } } | null; userErrors: Array<{ message: string }> } }>(`
+    mutation UpdateCollectionSeoAndBody($input: CollectionInput!) {
+      collectionUpdate(input: $input) { collection { id seo { title description } } userErrors { field message } }
+    }
+  `, { input: { id: collectionId, seo, ...content } });
+  if (data.collectionUpdate.userErrors?.length) throw new Error(data.collectionUpdate.userErrors[0]!.message);
+  if (!data.collectionUpdate.collection) throw new Error("Shopify returned no collection in collectionUpdate response");
+  return data.collectionUpdate.collection;
+}
+
+export async function updatePageSeoAndBody(
+  pageId: string,
+  change: { title?: string; seoTitle?: string; seoDescription?: string; bodyHtml?: string }
+): Promise<{ id: string }> {
+  validateGovernedFields(change.seoTitle, change.seoDescription, change.bodyHtml);
+  const metafields = [
+    change.seoTitle === undefined ? null : { namespace: "global", key: "title_tag", type: "single_line_text_field", value: change.seoTitle },
+    change.seoDescription === undefined ? null : { namespace: "global", key: "description_tag", type: "single_line_text_field", value: change.seoDescription },
+  ].filter((value): value is NonNullable<typeof value> => value !== null);
+  const page = {
+    id: pageId,
+    ...(change.title === undefined ? {} : { title: change.title }),
+    ...(change.bodyHtml === undefined ? {} : { body: change.bodyHtml }),
+    ...(metafields.length ? { metafields } : {}),
+  };
+  const data = await shopifyFetch<{ pageUpdate: { page: { id: string } | null; userErrors: Array<{ message: string }> } }>(`
+    mutation UpdatePageSeoAndBody($page: PageUpdateInput!) {
+      pageUpdate(page: $page) { page { id } userErrors { field message } }
+    }
+  `, { page });
+  if (data.pageUpdate.userErrors?.length) throw new Error(data.pageUpdate.userErrors[0]!.message);
+  if (!data.pageUpdate.page) throw new Error("Shopify returned no page in pageUpdate response");
+  return data.pageUpdate.page;
 }
 
 export interface CatalogProductVariant {
