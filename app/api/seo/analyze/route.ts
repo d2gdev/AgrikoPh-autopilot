@@ -121,7 +121,8 @@ export async function POST(req: NextRequest) {
   const topQueries = gscData.queries.slice(0, 30);
   const articleRecords = articleCandidates.slice(0, ARTICLE_LIMIT);
   const mapArticles = [...new Map([...governedArticles, ...articleRecords].map(article => [article.handle, article])).values()];
-  const verifiedAbsentUrls = new Set(governedPageHandles.filter(handle => !governedArticles.some(article => article.handle === handle)).flatMap(handle => commandCenter.pages.filter(page => page.url.endsWith(`/${handle}`)).map(page => page.url)));
+  const analysisAsOf = new Date();
+  const verifiedAbsentUrls = new Map(governedPageHandles.filter(handle => !governedArticles.some(article => article.handle === handle)).flatMap(handle => commandCenter.pages.filter(page => page.url.endsWith(`/${handle}`)).map(page => [page.url, analysisAsOf] as const)));
   const linkInspections = new Map<string, { capturedAt: Date; targets: Set<string> }>();
   for (const article of governedArticles) {
     const source = commandCenter.work.internalLinks.find(link => link.fromUrl.endsWith(`/${article.handle}`))?.fromUrl;
@@ -154,6 +155,7 @@ export async function POST(req: NextRequest) {
     articles: mapArticles,
     verifiedAbsentUrls,
     linkInspections,
+    asOf: analysisAsOf,
   });
   const programmaticGaps = mapAnalysis.gaps;
 
@@ -180,8 +182,10 @@ export async function POST(req: NextRequest) {
     contentGaps: programmaticGaps, observations: mapAnalysis.observations, suppressedGaps: mapAnalysis.suppressed, limits, aiStatus: "partial" as const, aiError,
   });
   const persistAnalysis = async (presentation: Record<string, unknown>, generatedAt: Date) => {
-    const storeCapturedAt = mapArticles.reduce<Date | null>((latest, article) => article.indexedAt instanceof Date && (!latest || article.indexedAt > latest) ? article.indexedAt : latest, null);
-    const linkCapturedAt = [...linkInspections.values()].reduce<Date | null>((latest, item) => !latest || item.capturedAt > latest ? item.capturedAt : latest, null);
+    const candidateTimes = mapAnalysis.gaps.map(gap => ({ source: gap.observation.source, capturedAt: new Date(gap.observation.capturedAt) }));
+    const oldest = (source: "store" | "link_inspection") => candidateTimes.filter(item => item.source === source).reduce<Date | null>((value, item) => !value || item.capturedAt < value ? item.capturedAt : value, null);
+    const storeCapturedAt = oldest("store");
+    const linkCapturedAt = oldest("link_inspection");
     const payload = createMapAnalysisEnvelope({
       strategy: commandCenter.identity, generatedAt, analysis: mapAnalysis,
       evidence: { gscCapturedAt: gscData.fetchedAt?.toISOString() ?? null, storeCapturedAt: storeCapturedAt?.toISOString() ?? null, linkCapturedAt: linkCapturedAt?.toISOString() ?? null, maxAgeHours: SEO_ANALYSIS_MAX_AGE_HOURS },
@@ -194,7 +198,7 @@ export async function POST(req: NextRequest) {
     });
   };
   const persistAndRespond = async (analysis: Record<string, unknown>) => {
-    const generatedAt = new Date();
+    const generatedAt = analysisAsOf;
     try {
       await persistAnalysis(analysis, generatedAt);
     } catch {

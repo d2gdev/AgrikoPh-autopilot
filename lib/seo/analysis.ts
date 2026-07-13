@@ -23,6 +23,7 @@ export interface SeoAnalysisArticle {
   wordCount: number | null;
   internalLinkCount: number | null;
   seoData: unknown;
+  indexedAt?: Date;
 }
 
 export interface ProgrammaticSeoGap {
@@ -61,6 +62,7 @@ export type MapAwareSeoGap = {
   priority: string;
   mapEvidence: string | null;
   observedEvidence: Array<{ query: string; impressions: number; position: number | null }>;
+  observation: { source: "store" | "link_inspection"; capturedAt: string; provenance: string };
 };
 export type MapAwareSeoAnalysis = {
   gaps: MapAwareSeoGap[];
@@ -74,6 +76,7 @@ const MapGapSchema = z.object({
   ruleIds: z.array(z.string().min(1)).min(1), state: z.literal("candidate"), action: z.enum(["create", "update", "refresh"]), query: z.string().min(1), suggestedTitle: z.string().min(1),
   page: z.string().min(1).optional(), fromUrl: z.string().min(1).optional(), toUrl: z.string().min(1).optional(), type: z.string().min(1).optional(),
   priority: z.string().min(1), mapEvidence: z.string().min(1).nullable(), observedEvidence: z.array(z.object({ query: z.string().min(1), impressions: z.number().nonnegative(), position: z.number().nullable() }).strict()).max(20),
+  observation: z.object({ source: z.enum(["store", "link_inspection"]), capturedAt: z.string().datetime(), provenance: z.string().min(1).max(200) }).strict(),
 }).strict();
 const ObservationSchema = z.object({ query: z.string().min(1), impressions: z.number().nonnegative(), position: z.number(), suggestedTitle: z.string().min(1), issue: z.enum(["missing-meta", "thin-content"]).optional(), articleHandle: z.string().min(1).optional(), wordCount: z.number().nullable().optional() }).strict();
 const SuppressedSchema = z.object({ strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/), page: z.string().min(1), reason: z.string().min(1), ruleIds: z.array(z.string().min(1)).min(1) }).strict();
@@ -90,6 +93,7 @@ export const MapAnalysisEnvelopeSchema = z.object({
   presentation: z.record(z.string(), z.unknown()).optional(),
 }).strict().superRefine((value, ctx) => {
   for (const item of [...value.analysis.gaps, ...value.analysis.suppressed]) if (item.strategyVersionId !== value.strategy.versionId || item.packageSha256 !== value.strategy.packageSha256) ctx.addIssue({ code: "custom", message: "Analysis item strategy identity mismatch" });
+  for (const gap of value.analysis.gaps) if ((gap.kind === "content" && gap.observation.source !== "store") || (gap.kind === "link" && gap.observation.source !== "link_inspection")) ctx.addIssue({ code: "custom", message: "Analysis observation source mismatch" });
 });
 
 export function readAnalysisForStrategy(payload: unknown, active: StrategyIdentity): MapAwareSeoAnalysis | null {
@@ -107,6 +111,7 @@ export function analysisEvidenceState(payload: unknown, now = new Date()): "curr
   if (!parsed.success) return "observation_unavailable";
   const timestamps = [parsed.data.evidence.gscCapturedAt, parsed.data.evidence.storeCapturedAt, parsed.data.evidence.linkCapturedAt].filter((value): value is string => value !== null);
   if (timestamps.length < 2) return "observation_unavailable";
+  if (timestamps.some(value => new Date(value).getTime() > now.getTime() + 5 * 60_000)) return "observation_unavailable";
   return timestamps.some(value => now.getTime() - new Date(value).getTime() > parsed.data.evidence.maxAgeHours * 3_600_000) ? "evidence_stale" : "current";
 }
 
@@ -116,9 +121,12 @@ export function buildMapAwareSeoGaps(input: {
   queries: GscQueryRow[];
   queryPagePairs: GscQueryPageRow[];
   articles: SeoAnalysisArticle[];
-  verifiedAbsentUrls?: Set<string>;
+  verifiedAbsentUrls?: Map<string, Date>;
   linkInspections?: Map<string, { capturedAt: Date; targets: Set<string> }>;
+  asOf?: Date;
 }): MapAwareSeoAnalysis {
+  const asOf = input.asOf ?? new Date();
+  const usable = (capturedAt: Date) => capturedAt.getTime() <= asOf.getTime() + 5 * 60_000 && asOf.getTime() - capturedAt.getTime() <= SEO_ANALYSIS_MAX_AGE_HOURS * 3_600_000;
   const existing = new Set(input.articles.map((article) => `/blogs/news/${article.handle.toLowerCase()}`));
   const observations = buildProgrammaticSeoGaps(input);
   const queries = new Map(input.queries.map(item => [item.query.toLowerCase(), item]));
@@ -143,6 +151,9 @@ export function buildMapAwareSeoGaps(input: {
       suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: page.url, reason: "observation_unavailable: governed blog URL was not directly inspected", ruleIds: [...page.ruleIds] });
       continue;
     }
+    const article = input.articles.find(item => `/blogs/news/${item.handle.toLowerCase()}` === page.url);
+    const capturedAt = exists ? article?.indexedAt : input.verifiedAbsentUrls?.get(page.url);
+    if (!capturedAt || !usable(capturedAt)) { suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: page.url, reason: "observation_unavailable: store observation is stale, future-dated, or missing", ruleIds: [...page.ruleIds] }); continue; }
     const create = !exists && /(create|publish|new)/i.test(page.decision);
     const refresh = exists && /(refresh|update|improve|optimi[sz]e|expand)/i.test(page.decision);
     if (!create && !refresh) continue;
@@ -152,7 +163,7 @@ export function buildMapAwareSeoGaps(input: {
       continue;
     }
     const query = page.primaryKeywordOrTheme ?? page.url;
-    gaps.push({ kind: "content", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate", action: refresh ? "refresh" : "create", query, suggestedTitle: query, page: page.url, priority: page.priority ?? "unspecified", mapEvidence: page.evidence ?? null, observedEvidence: evidenceFor(query, page.url) });
+    gaps.push({ kind: "content", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate", action: refresh ? "refresh" : "create", query, suggestedTitle: query, page: page.url, priority: page.priority ?? "unspecified", mapEvidence: page.evidence ?? null, observedEvidence: evidenceFor(query, page.url), observation: { source: "store", capturedAt: capturedAt.toISOString(), provenance: exists ? `ArticleRecord:${article!.handle}` : `ArticleRecord:absence:${page.url}` } });
   }
   for (const link of input.commandCenter.work.internalLinks) {
     if (!/(absent|missing|not present|add)/i.test(`${link.currentBodyState ?? ""} ${link.requiredAction ?? ""}`)) continue;
@@ -161,9 +172,10 @@ export function buildMapAwareSeoGaps(input: {
       suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: link.fromUrl, reason: "observation_unavailable: link source was not inspected", ruleIds: [...link.ruleIds] });
       continue;
     }
+    if (!inspection || !usable(inspection.capturedAt)) { suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: link.fromUrl, reason: "observation_unavailable: link inspection is stale, future-dated, or missing", ruleIds: [...link.ruleIds] }); continue; }
     if (inspection?.targets.has(normalizeGovernedUrl(link.toUrl))) continue;
     const query = link.recommendedAnchor ?? link.toUrl;
-    gaps.push({ kind: "link", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...link.ruleIds], state: "candidate", action: "update", query, suggestedTitle: `Add internal link from ${link.fromUrl} to ${link.toUrl}`, page: link.fromUrl, fromUrl: link.fromUrl, toUrl: link.toUrl, type: "internal-link", priority: link.priority ?? "unspecified", mapEvidence: null, observedEvidence: evidenceFor(query) });
+    gaps.push({ kind: "link", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...link.ruleIds], state: "candidate", action: "update", query, suggestedTitle: `Add internal link from ${link.fromUrl} to ${link.toUrl}`, page: link.fromUrl, fromUrl: link.fromUrl, toUrl: link.toUrl, type: "internal-link", priority: link.priority ?? "unspecified", mapEvidence: null, observedEvidence: evidenceFor(query), observation: { source: "link_inspection", capturedAt: inspection.capturedAt.toISOString(), provenance: `ArticleRecord.linksData:${link.fromUrl}` } });
   }
   return { gaps, observations, suppressed };
 }

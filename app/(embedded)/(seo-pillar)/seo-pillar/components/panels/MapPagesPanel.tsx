@@ -1,4 +1,4 @@
-import { Badge, BlockStack, Button, InlineStack, Select, Text } from "@shopify/polaris";
+import { Badge, BlockStack, InlineStack, Select, Text } from "@shopify/polaris";
 import { useMemo, useState } from "react";
 import type { TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import styles from "../seo-pilot-responsive.module.css";

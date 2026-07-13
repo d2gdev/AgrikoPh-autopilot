@@ -13,6 +13,11 @@ import { articleHandleFromBlogPage, classifySeoPromotion } from "@/lib/seo/promo
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 import type { StrategyProposalCandidate } from "@/lib/topical-map/proposal-context";
+import { SEO_ANALYSIS_MAX_AGE_HOURS } from "@/lib/seo/analysis";
+
+class ObservationConflictError extends Error {
+  constructor(readonly code: "OBSERVATION_CHANGED" | "OBSERVATION_STALE") { super(code); }
+}
 
 const GapInputSchema = z.object({
   query: z.string().trim().min(1).max(160),
@@ -35,7 +40,10 @@ const GapInputSchema = z.object({
   priority: z.string().trim().min(1).max(40),
   mapEvidence: z.string().trim().min(1).max(2_000).nullable(),
   observedEvidence: z.array(z.object({ query: z.string().trim().min(1).max(160), impressions: z.number().nonnegative(), position: z.number().nullable() }).strict()).max(20),
-}).strict();
+  observation: z.object({ source: z.enum(["store", "link_inspection"]), capturedAt: z.string().datetime(), provenance: z.string().min(1).max(200) }).strict(),
+}).strict().superRefine((gap, ctx) => {
+  if ((gap.kind === "content" && gap.observation.source !== "store") || (gap.kind === "link" && gap.observation.source !== "link_inspection")) ctx.addIssue({ code: "custom", message: "Observation source does not match candidate kind" });
+});
 const PromoteGapsBodySchema = z.object({
   strategyVersionId: z.string().trim().min(1),
   packageSha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -115,7 +123,7 @@ export async function POST(req: NextRequest) {
             ...(candidateHandles.length > 0 ? [{ handle: { in: candidateHandles } }] : []),
           ],
         },
-        select: { handle: true, title: true, wordCount: true },
+        select: { handle: true, title: true, wordCount: true, indexedAt: true, linksData: true },
       });
 
     const articleByHandle = new Map(existingArticles.map((a) => [a.handle.toLowerCase(), a]));
@@ -125,12 +133,20 @@ export async function POST(req: NextRequest) {
     const rows: Array<{ data: Record<string, unknown>; candidate: StrategyProposalCandidate }> = [];
 
     for (const [gapIndex, gap] of gaps.entries()) {
+      const observedAt = new Date(gap.observation.capturedAt);
+      const now = new Date();
+      if (observedAt.getTime() > now.getTime() + 5 * 60_000 || now.getTime() - observedAt.getTime() > SEO_ANALYSIS_MAX_AGE_HOURS * 3_600_000) throw new ObservationConflictError("OBSERVATION_STALE");
       if (gap.kind === "link") {
         const fromUrl = normalizeGovernedUrl(gap.fromUrl!);
         const toUrl = normalizeGovernedUrl(gap.toUrl!);
         const governedLink = commandCenter.work.internalLinks.find((link) => link.fromUrl === fromUrl && link.toUrl === toUrl)!;
         const fromArticle = articleHandleFromBlogPage(fromUrl) ?? fromUrl;
         const toArticle = articleHandleFromBlogPage(toUrl) ?? toUrl;
+        const currentSource = await tx.articleRecord.findUnique({ where: { handle: fromArticle }, select: { indexedAt: true, linksData: true } });
+        if (!currentSource || !(currentSource.indexedAt instanceof Date)) throw new ObservationConflictError("OBSERVATION_CHANGED");
+        if (currentSource.indexedAt.toISOString() !== gap.observation.capturedAt) throw new ObservationConflictError("OBSERVATION_CHANGED");
+        const internal = currentSource.linksData && typeof currentSource.linksData === "object" && Array.isArray((currentSource.linksData as { internal?: unknown }).internal) ? (currentSource.linksData as { internal: Array<{ href?: unknown }> }).internal : [];
+        if (internal.some(item => typeof item.href === "string" && normalizeGovernedUrl(item.href) === toUrl)) throw new ObservationConflictError("OBSERVATION_CHANGED");
         rows.push({
           data: {
             proposalType: "internal-link", changeType: "internal_link", articleHandle: fromArticle,
@@ -149,9 +165,11 @@ export async function POST(req: NextRequest) {
       const position = gap.position ?? (knownQuery ? Number(knownQuery.position) : undefined);
       const inputTitle = gap.suggestedTitle;
       const requestedHandle = gap.articleHandle ?? articleHandleFromBlogPage(gap.page);
-      const matchedArticle =
-        (requestedHandle ? articleByHandle.get(requestedHandle.toLowerCase()) : undefined) ??
-        articleByTitle.get(inputTitle.toLowerCase());
+      const matchedArticle = requestedHandle
+        ? articleByHandle.get(requestedHandle.toLowerCase())
+        : articleByTitle.get(inputTitle.toLowerCase());
+      if (gap.action === "create" && matchedArticle) throw new ObservationConflictError("OBSERVATION_CHANGED");
+      if (gap.action === "refresh" && (!matchedArticle || !(matchedArticle.indexedAt instanceof Date) || matchedArticle.indexedAt.toISOString() !== gap.observation.capturedAt)) throw new ObservationConflictError("OBSERVATION_CHANGED");
       const decision = gap.kind === "content" && gap.action === "create"
         ? { kind: "promote" as const, proposalType: "new-content" as const }
         : gap.kind === "content" && gap.action === "refresh"
@@ -268,6 +286,7 @@ export async function POST(req: NextRequest) {
     return results;
   });
   } catch (error) {
+    if (error instanceof ObservationConflictError) return NextResponse.json({ error: "Source observation changed", code: error.code }, { status: 409 });
     if (error instanceof StrategyChangedError) return NextResponse.json({ error: "Active strategy changed", code: "STRATEGY_CHANGED" }, { status: 409 });
     throw error;
   }

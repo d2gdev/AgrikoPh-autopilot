@@ -5,7 +5,8 @@ import type { TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { Provenance } from "./MapPagesPanel";
 import styles from "../seo-pilot-responsive.module.css";
 
-export function workRowMatchesFilters(row: { priority?: string; state: "candidate" | "blocked"; blocker: "clear" | "evidence" | "review" }, filters: { priority: string; state: string; blocker: string }) { return (filters.priority === "all" || row.priority?.toLowerCase() === filters.priority) && (filters.state === "all" || row.state === filters.state) && (filters.blocker === "all" || row.blocker === filters.blocker); }
+export function priorityBand(priority?: string) { return /^(p0|p1|critical|highest|high)$/i.test(priority ?? "") ? "high" : /^(p2|medium)$/i.test(priority ?? "") ? "medium" : /^(p3|low)$/i.test(priority ?? "") ? "low" : "unspecified"; }
+export function workRowMatchesFilters(row: { priority?: string; state: "candidate" | "blocked"; blocker: "clear" | "evidence" | "review" }, filters: { priority: string; state: string; blocker: string }) { return (filters.priority === "all" || priorityBand(row.priority) === filters.priority) && (filters.state === "all" || row.state === filters.state) && (filters.blocker === "all" || row.blocker === filters.blocker); }
 export function globalBlockersVisible(filters: { family: string; priority: string; state: string; blocker: string }) { return filters.family === "all" && filters.priority === "all" && (filters.state === "all" || filters.state === "blocked") && filters.blocker !== "clear"; }
 
 export function MapWorkPanel({ map, gaps, busy, done, onPropose }: { map: TopicalMapCommandCenter; gaps: MapAwareSeoGap[]; busy: Set<string>; done: Set<string>; onPropose: (gap: MapAwareSeoGap) => void }) {

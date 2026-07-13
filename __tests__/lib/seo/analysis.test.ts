@@ -110,10 +110,13 @@ describe("map-aware SEO analysis", () => {
   };
 
   it("keeps unmapped search demand as an observation but only maps governed candidates", () => {
+    const asOf = new Date("2026-07-13T00:00:00.000Z");
     const result = buildMapAwareSeoGaps({
       strategy: identity, commandCenter,
       queries: [{ query: "unmapped popular query", clicks: 0, impressions: 900, ctr: "0%", position: "8" }],
-      queryPagePairs: [], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {} }],
+      queryPagePairs: [], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, indexedAt: asOf }],
+      verifiedAbsentUrls: new Map([["/blogs/news/mapped", asOf], ["/blogs/news/prohibited", asOf]]),
+      linkInspections: new Map([["/blogs/news/source", { capturedAt: asOf, targets: new Set<string>() }]]), asOf,
     });
     expect(result.observations).toEqual([expect.objectContaining({ query: "unmapped popular query" })]);
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", strategyVersionId: "v3", ruleIds: ["rule:decision:1"], state: "candidate" }));
@@ -125,7 +128,8 @@ describe("map-aware SEO analysis", () => {
 
   it("emits an existing mapped page with a refresh decision as an actionable refresh with page evidence", () => {
     const refreshMap: TopicalMapCommandCenter = { ...commandCenter, pages: [{ url: "/blogs/news/source", decision: "optimize", evidence: "Preserve the winning intent while improving clarity.", primaryKeywordOrTheme: "source topic", priority: "medium", ruleIds: ["opaque-42"], ruleDomains: { content_decisions: ["opaque-42"] } }], prohibited: [] };
-    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {} }] });
+    const asOf = new Date("2026-07-13T00:00:00.000Z");
+    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, indexedAt: asOf }], asOf });
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", query: "source topic", priority: "medium", mapEvidence: "Preserve the winning intent while improving clarity.", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
   });
 
@@ -141,7 +145,7 @@ describe("map-aware SEO analysis", () => {
 
   it("does not claim unverified non-blog page absence", () => {
     const map: TopicalMapCommandCenter = { ...commandCenter, pages: [{ url: "/pages/unknown", decision: "create", priority: "high", ruleIds: ["opaque"], ruleDomains: { content_decisions: ["opaque"] } }], prohibited: [] };
-    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: map, queries: [], queryPagePairs: [], articles: [], verifiedAbsentUrls: new Set() });
+    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: map, queries: [], queryPagePairs: [], articles: [], verifiedAbsentUrls: new Map() });
     expect(result.gaps).toEqual(expect.not.arrayContaining([expect.objectContaining({ page: "/pages/unknown" })]));
     expect(result.suppressed).toContainEqual(expect.objectContaining({ page: "/pages/unknown", reason: expect.stringContaining("observation_unavailable") }));
   });
@@ -159,10 +163,36 @@ describe("map-aware SEO analysis", () => {
     expect(analysisEvidenceState(payload("2026-07-10T00:00:00.000Z"), new Date("2026-07-13T00:00:00.000Z"))).toBe("current");
     expect(analysisEvidenceState(payload("2026-07-09T23:59:59.999Z"), new Date("2026-07-13T00:00:00.000Z"))).toBe("evidence_stale");
     expect(analysisEvidenceState(payload(null), new Date("2026-07-13T00:00:00.000Z"))).toBe("observation_unavailable");
+    expect(analysisEvidenceState(payload("2026-07-14T00:00:00.000Z"), new Date("2026-07-13T00:00:00.000Z"))).toBe("observation_unavailable");
+  });
+
+  it("emits only candidates whose exact store and link observations are fresh", () => {
+    const asOf = new Date("2026-07-13T00:00:00.000Z");
+    const fresh = new Date("2026-07-12T00:00:00.000Z");
+    const stale = new Date("2026-07-09T23:59:59.999Z");
+    const mixed: TopicalMapCommandCenter = {
+      ...commandCenter,
+      prohibited: [],
+      pages: [
+        { ...commandCenter.pages[0]!, url: "/blogs/news/fresh" },
+        { ...commandCenter.pages[0]!, url: "/blogs/news/stale", ruleIds: ["rule:stale"] },
+        { ...commandCenter.pages[0]!, url: "/blogs/news/future", ruleIds: ["rule:future"] },
+      ],
+      work: { ...commandCenter.work, internalLinks: [
+        { ...commandCenter.work.internalLinks[0]!, fromUrl: "/blogs/news/fresh-source", toUrl: "/blogs/news/fresh" },
+        { ...commandCenter.work.internalLinks[0]!, fromUrl: "/blogs/news/stale-source", toUrl: "/blogs/news/fresh", ruleIds: ["rule:stale-link"] },
+      ] },
+    };
+    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: mixed, queries: [], queryPagePairs: [], articles: [], asOf,
+      verifiedAbsentUrls: new Map([["/blogs/news/fresh", fresh], ["/blogs/news/stale", stale], ["/blogs/news/future", new Date("2026-07-14T00:00:00.000Z")]]),
+      linkInspections: new Map([["/blogs/news/fresh-source", { capturedAt: fresh, targets: new Set() }], ["/blogs/news/stale-source", { capturedAt: stale, targets: new Set() }]]),
+    });
+    expect(result.gaps.map(gap => gap.page)).toEqual(["/blogs/news/fresh", "/blogs/news/fresh-source"]);
+    expect(result.suppressed).toEqual(expect.arrayContaining([expect.objectContaining({ page: "/blogs/news/stale" }), expect.objectContaining({ page: "/blogs/news/future" }), expect.objectContaining({ page: "/blogs/news/stale-source" })]));
   });
 
   it("rejects a malformed cached gap and a per-gap identity mismatch", () => {
-    const validGap = { kind: "content", strategyVersionId: "v3", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], state: "candidate", action: "create", query: "mapped", suggestedTitle: "Mapped guide", page: "/blogs/news/mapped", priority: "high", mapEvidence: null, observedEvidence: [{ query: "mapped", impressions: 12, position: 8 }] };
+    const validGap = { kind: "content", strategyVersionId: "v3", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], state: "candidate", action: "create", query: "mapped", suggestedTitle: "Mapped guide", page: "/blogs/news/mapped", priority: "high", mapEvidence: null, observedEvidence: [{ query: "mapped", impressions: 12, position: 8 }], observation: { source: "store", capturedAt: "2026-07-13T00:00:00.000Z", provenance: "ArticleRecord:absence:/blogs/news/mapped" } };
     const envelope = (gap: unknown) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [gap], observations: [], suppressed: [] }, evidence: { gscCapturedAt: "2026-07-13T00:00:00.000Z", storeCapturedAt: "2026-07-13T00:00:00.000Z", linkCapturedAt: "2026-07-13T00:00:00.000Z", maxAgeHours: 72 } });
     expect(readAnalysisForStrategy(envelope({ ...validGap, ruleIds: [] }), identity)).toBeNull();
     expect(readAnalysisForStrategy(envelope({ ...validGap, strategyVersionId: "v4" }), identity)).toBeNull();

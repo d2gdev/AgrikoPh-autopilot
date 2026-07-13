@@ -122,3 +122,22 @@ Verification:
 - `npm test` → 197 files passed, 3 skipped; 1,363 tests passed, 8 skipped.
 - `DATABASE_URL='postgresql://test:test@127.0.0.1:5432/autopilot_test?connection_limit=10&pool_timeout=10' npm run build` → exit 0; compiled successfully and generated 24/24 static pages.
 - No deployment or production mutation was performed.
+
+## Candidate-observation and promotion revalidation correction (2026-07-13)
+
+- Every actionable content/link gap now carries a strict candidate-specific observation: source kind, exact capture timestamp, and ArticleRecord/store provenance. Candidate construction rejects missing, older-than-72-hour, or future-dated observations independently, so a mixed snapshot cannot make stale rows actionable.
+- Aggregate envelope evidence conservatively records the oldest actionable candidate observation per source instead of the newest row in the sample.
+- Promotion re-queries exact current ArticleRecord state inside the proposal transaction. It returns typed `OBSERVATION_CHANGED`/`OBSERVATION_STALE` conflicts without creating a proposal when a create target now exists, a refresh source changed or disappeared, or an inspected link source changed/disappeared/already contains the target.
+- Priority filtering recognizes P0/P1/high, P2/medium, and P3/low consistently; the unused pages-panel Button import was removed.
+
+Fresh verification:
+
+- Focused: 4 files passed, 63 tests passed.
+- Full suite: 197 files passed, 3 skipped; 1,366 tests passed, 8 skipped.
+- `npx tsc --noEmit`: exit 0.
+- `npm run lint`: exit 0 with 85 pre-existing warnings and no errors.
+- Safe local production build with only `autopilot_test` URLs and Prisma pool parameters: exit 0; compiled successfully and generated 24/24 static pages.
+- `git diff --check`: exit 0.
+- No deployment, production access, database mutation, Shopify write, or Meta write occurred.
+
+GROW: Grounded exact per-candidate freshness and transaction-time source-state enforcement; recorded the behavior here and in the router; the existing strategy-bound command-center runbook already covers this recurring boundary, so no new pattern was necessary.

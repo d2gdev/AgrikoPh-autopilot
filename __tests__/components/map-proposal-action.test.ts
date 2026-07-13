@@ -4,8 +4,8 @@ import type { MapAwareSeoGap } from "@/lib/seo/analysis";
 import { ContentGapsPanel } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/panels/ContentGapsPanel";
 
 const identity = { strategyVersionId: "v3", packageSha256: "a".repeat(64) };
-const content = { ...identity, kind: "content", state: "candidate", action: "create", ruleIds: ["content:1"], query: "mapped", suggestedTitle: "Mapped guide", page: "/mapped", priority: "high", mapEvidence: null, observedEvidence: [] } satisfies MapAwareSeoGap;
-const link = { ...identity, kind: "link", state: "candidate", action: "update", ruleIds: ["link:1"], query: "anchor", suggestedTitle: "Add internal link", page: "/from", fromUrl: "/from", toUrl: "/to", priority: "medium", mapEvidence: null, observedEvidence: [] } satisfies MapAwareSeoGap;
+const content = { ...identity, kind: "content", state: "candidate", action: "create", ruleIds: ["content:1"], query: "mapped", suggestedTitle: "Mapped guide", page: "/mapped", priority: "high", mapEvidence: null, observedEvidence: [], observation: { source: "store", capturedAt: "2026-07-13T00:00:00.000Z", provenance: "ArticleRecord:absence:/mapped" } } satisfies MapAwareSeoGap;
+const link = { ...identity, kind: "link", state: "candidate", action: "update", ruleIds: ["link:1"], query: "anchor", suggestedTitle: "Add internal link", page: "/from", fromUrl: "/from", toUrl: "/to", priority: "medium", mapEvidence: null, observedEvidence: [], observation: { source: "link_inspection", capturedAt: "2026-07-13T00:00:00.000Z", provenance: "ArticleRecord.linksData:/from" } } satisfies MapAwareSeoGap;
 
 describe.each([["content", content], ["internal link", link]])("map proposal action: %s", (_label, gap) => {
   it("submits exact strategy identity and reports created feedback", async () => {
