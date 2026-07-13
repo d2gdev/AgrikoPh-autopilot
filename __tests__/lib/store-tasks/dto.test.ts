@@ -14,7 +14,14 @@ describe("Store Task DTOs", () => {
     expect(() => toStoreTaskDetailDto(base)).not.toThrow();
     expect(() => toStoreTaskDetailDto({ ...base, proposedState: { ...base.proposedState, after: { bodyHtml: "x".repeat(50_001) } } })).toThrow();
   });
-  it("rejects excessive source array counts", () => {
-    expect(() => toStoreTaskDetailDto({ ...base, sourceData: { ...base.sourceData, ruleIds: Array.from({ length: 26 }, (_, index) => `r-${index}`) } })).toThrow();
+  it("allows grouped-link detail while keeping source arrays bounded", () => {
+    const grouped = toStoreTaskDetailDto({ ...base, sourceData: {
+      ...base.sourceData,
+      ruleIds: Array.from({ length: 26 }, (_, index) => `r-${index}`),
+      links: Array.from({ length: 25 }, (_, index) => ({ toUrl: `/blogs/recipes/red-rice-${index}`, anchor: `Red rice recipe ${index}` })),
+    } });
+    expect(grouped.sourceData.ruleIds).toHaveLength(26);
+    expect(grouped.sourceData.links).toHaveLength(25);
+    expect(() => toStoreTaskDetailDto({ ...base, sourceData: { ...base.sourceData, ruleIds: Array.from({ length: 101 }, (_, index) => `r-${index}`) } })).toThrow();
   });
 });
