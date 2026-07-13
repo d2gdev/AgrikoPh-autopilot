@@ -25,6 +25,7 @@ const mockPrisma = vi.hoisted(() => ({
   rawSnapshot: {
     upsert: vi.fn(),
   },
+  topicalMapActivation: { findUnique: vi.fn() },
   auditLog: {
     create: vi.fn(),
   },
@@ -94,6 +95,14 @@ vi.mock("@/lib/dashboard/jobs-status", () => ({
 }));
 
 function jsonRequest(path: string, body: Record<string, unknown>, method = "POST") {
+  if (path === "/api/seo/gaps/promote") {
+    body = {
+      strategyVersionId: "v3",
+      packageSha256: "a".repeat(64),
+      ...body,
+      gaps: Array.isArray(body.gaps) ? body.gaps.map((gap) => ({ ruleIds: ["rule:test"], ...(gap as object) })) : body.gaps,
+    };
+  }
   return new Request(`http://test.local${path}`, {
     method,
     body: JSON.stringify(body),
@@ -118,6 +127,10 @@ describe("SEO Pilot route regressions", () => {
     mockPrisma.contentProposal.createMany.mockImplementation(async ({ data }) => { const p = await mockPrisma.contentProposal.create({ data: data[0] }); mockPrisma.contentProposal.findUnique.mockResolvedValue(p); return { count: 1 }; });
     mockPrisma.contentProposal.findUnique.mockResolvedValue({ id: "proposal-1" });
     mockPrisma.articleRecord.findMany.mockResolvedValue([]);
+    mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: {
+      id: "v3", strategyVersion: "3", contractRevision: 3, packageSha256: "a".repeat(64), activatedAt: new Date("2026-07-13T00:00:00Z"), lifecycle: "active", validationStatus: "valid",
+      compiledRules: [{ ruleId: "rule:test", ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: {}, sourceReferences: [] } }],
+    } });
     mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
     mockPrisma.auditLog.create.mockResolvedValue({});
     mockPrisma.keywordResearchResult.findMany.mockResolvedValue([]);
@@ -289,6 +302,17 @@ describe("SEO Pilot route regressions", () => {
     expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
   });
 
+  it("rejects promotion when the submitted strategy identity is stale", async () => {
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+    const res = await POST(jsonRequest("/api/seo/gaps/promote", {
+      strategyVersionId: "stale-version",
+      gaps: [{ query: "mapped topic", suggestedTitle: "Mapped topic guide", page: "/blogs/news/mapped" }],
+    }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual(expect.objectContaining({ code: "STRATEGY_CHANGED" }));
+    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+  });
+
   it("does not report already-covered GSC queries as new content gaps", async () => {
     mockSeoData.getLatestGscData.mockResolvedValue({
       queries: [
@@ -331,12 +355,8 @@ describe("SEO Pilot route regressions", () => {
       articlesAnalyzed: 1,
       articlesTruncated: false,
     });
-    expect(body.analysis.contentGaps).toEqual([
-      expect.objectContaining({
-        query: "moringa tea recipe",
-        suggestedTitle: "Moringa tea recipe: Benefits, Uses & Complete Guide",
-      }),
-    ]);
+    expect(body.analysis.contentGaps).toEqual([]);
+    expect(body.analysis.observations).toEqual([expect.objectContaining({ query: "moringa tea recipe" })]);
     expect(body.analysis.contentGaps).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ query: "black rice benefits" })])
     );
@@ -423,7 +443,7 @@ describe("SEO Pilot route regressions", () => {
     ]));
     expect(body.analysis.quickWinEvidence).toHaveLength(body.analysis.quickWins.length);
     expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      update: expect.objectContaining({ payload: expect.objectContaining({ aiStatus: "partial" }), fetchedAt: new Date(body.generatedAt) }),
+      update: expect.objectContaining({ payload: expect.objectContaining({ schemaVersion: "2", strategy: { versionId: "v3", packageSha256: "a".repeat(64) }, analysis: expect.objectContaining({ aiStatus: "partial" }) }), fetchedAt: new Date(body.generatedAt) }),
       create: expect.objectContaining({ fetchedAt: new Date(body.generatedAt) }),
     }));
   });

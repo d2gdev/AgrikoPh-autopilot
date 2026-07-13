@@ -62,3 +62,14 @@ export function projectTopicalMapCommandCenter(input: ProjectionInput): TopicalM
   const literal = (domain: "evidence_gates" | "high_stakes_reviews") => rules(domain).map((r) => { const p = object(r.payload); return { name: text(p, "name") ?? "", text: text(p, "literalText") ?? "", ruleIds: [r.ruleId] }; }).sort((a, b) => a.name.localeCompare(b.name) || a.ruleIds[0]!.localeCompare(b.ruleIds[0]!));
   return { identity: { versionId: input.strategy.id, strategyVersion: input.strategy.strategyVersion, contractRevision: input.strategy.contractRevision, packageSha256: input.strategy.packageSha256, activatedAt: input.strategy.activatedAt === null ? null : new Date(input.strategy.activatedAt).toISOString() }, domainCounts, clusters, pages, prohibited, work: { internalLinks, redirects, canonicalization: technical("canonicalization"), indexation: technical("indexation") }, blockers: { evidence: literal("evidence_gates"), reviews: literal("high_stakes_reviews") }, provenance };
 }
+
+type CommandCenterStoredRule = { ruleId: string; ruleType: string; sourceArtifactId: string; compiledPayload: unknown };
+type CommandCenterActivation = { strategyVersion: { id: string; strategyVersion: string; contractRevision: number | string | null; packageSha256: string; activatedAt: Date | string | null; lifecycle: string; validationStatus: string; compiledRules: CommandCenterStoredRule[] } } | null;
+
+export async function loadActiveTopicalMapCommandCenter(db: { topicalMapActivation: { findUnique(args: unknown): Promise<unknown> } }): Promise<TopicalMapCommandCenter | null> {
+  const activation = await db.topicalMapActivation.findUnique({ where: { siteHost: "agrikoph.com" }, select: { strategyVersion: { select: { id: true, strategyVersion: true, contractRevision: true, packageSha256: true, activatedAt: true, lifecycle: true, validationStatus: true, compiledRules: { select: { ruleId: true, ruleType: true, sourceArtifactId: true, compiledPayload: true } } } } } });
+  if (!activation) return null;
+  const active = (activation as CommandCenterActivation)!.strategyVersion;
+  if (active.lifecycle !== "active" || active.validationStatus !== "valid" || active.contractRevision === null) return null;
+  return projectTopicalMapCommandCenter({ strategy: { ...active, contractRevision: String(active.contractRevision) }, rules: active.compiledRules.map((rule) => { const compiled = object(rule.compiledPayload); return { ruleId: rule.ruleId, ruleType: rule.ruleType, sourceArtifactId: rule.sourceArtifactId, payload: compiled.payload, sourceReferences: Array.isArray(compiled.sourceReferences) ? compiled.sourceReferences : [] }; }) });
+}

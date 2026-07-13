@@ -9,7 +9,8 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { chatCompletionWithFailover } from "@/lib/ai/client";
 import { parseJsonObject } from "@/lib/seo/ai-output";
 import { getLatestGscData } from "@/lib/seo/data";
-import { buildProgrammaticSeoGaps, type SeoAnalysisLimits } from "@/lib/seo/analysis";
+import { buildMapAwareSeoGaps, type SeoAnalysisLimits } from "@/lib/seo/analysis";
+import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { hasMissingMeta } from "@/lib/seo/meta";
 
 const SeoAnalysisSchema = z.object({
@@ -101,14 +102,16 @@ export async function POST(req: NextRequest) {
   }
 
   const ARTICLE_LIMIT = 200;
-  const [gscData, articleCandidates] = await Promise.all([
+  const [gscData, articleCandidates, commandCenter] = await Promise.all([
     getLatestGscData(),
     prisma.articleRecord.findMany({
       select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true },
       orderBy: [{ indexedAt: "desc" }, { handle: "asc" }],
       take: ARTICLE_LIMIT + 1,
     }),
+    loadActiveTopicalMapCommandCenter(prisma),
   ]);
+  if (!commandCenter) return NextResponse.json({ error: "Active topical-map strategy is unavailable", code: "ACTIVE_STRATEGY_UNAVAILABLE" }, { status: 409 });
 
   const topQueries = gscData.queries.slice(0, 30);
   const articleRecords = articleCandidates.slice(0, ARTICLE_LIMIT);
@@ -129,11 +132,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No GSC data or articles available — run fetch-seo-data and fetch-blog-content crons first" }, { status: 400 });
   }
 
-  const programmaticGaps = buildProgrammaticSeoGaps({
+  const mapAnalysis = buildMapAwareSeoGaps({
+    strategy: commandCenter.identity,
+    commandCenter,
     queries: gscData.queries,
     queryPagePairs: gscData.queryPagePairs,
     articles: articleRecords,
   });
+  const programmaticGaps = mapAnalysis.gaps;
 
   const deterministicQuickWins = [
     missingMeta.length > 0 ? {
@@ -155,12 +161,12 @@ export async function POST(req: NextRequest) {
     quickWins: deterministicQuickWins.map((entry) => entry.item),
     quickWinEvidence: deterministicQuickWins.map((entry) => entry.evidence),
     recommendations: [], recommendationEvidence: [],
-    contentGaps: programmaticGaps, limits, aiStatus: "partial" as const, aiError,
+    contentGaps: programmaticGaps, observations: mapAnalysis.observations, suppressedGaps: mapAnalysis.suppressed, limits, aiStatus: "partial" as const, aiError,
   });
   const persistAnalysis = async (analysis: object, generatedAt: Date) => prisma.rawSnapshot.upsert({
     where: { source_dateRangeStart_dateRangeEnd: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0) } },
-    update: { payload: analysis, fetchedAt: generatedAt },
-    create: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0), payload: analysis, fetchedAt: generatedAt },
+    update: { payload: { schemaVersion: "2", strategy: { versionId: commandCenter.identity.versionId, packageSha256: commandCenter.identity.packageSha256 }, generatedAt: generatedAt.toISOString(), analysis }, fetchedAt: generatedAt },
+    create: { source: "seo_analysis", dateRangeStart: new Date(0), dateRangeEnd: new Date(0), payload: { schemaVersion: "2", strategy: { versionId: commandCenter.identity.versionId, packageSha256: commandCenter.identity.packageSha256 }, generatedAt: generatedAt.toISOString(), analysis }, fetchedAt: generatedAt },
   });
   const persistAndRespond = async (analysis: object) => {
     const generatedAt = new Date();
@@ -229,6 +235,8 @@ Sample article titles: ${existingTitles.slice(0, 20).join(", ")}`,
       quickWins: quickWins.items,
       quickWinEvidence: quickWins.evidence,
       contentGaps: programmaticGaps,
+      observations: mapAnalysis.observations,
+      suppressedGaps: mapAnalysis.suppressed,
       recommendations: recommendations.items,
       recommendationEvidence: recommendations.evidence,
       limits,

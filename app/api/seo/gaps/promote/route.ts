@@ -10,6 +10,7 @@ import { classifyPriority, findingToImpact, changeTypeToEffort } from "@/lib/con
 import { getLatestGscData } from "@/lib/seo/data";
 import { withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 import { articleHandleFromBlogPage, classifySeoPromotion } from "@/lib/seo/promotion";
+import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 
 const GapInputSchema = z.object({
   query: z.string().trim().min(1).max(160),
@@ -21,10 +22,13 @@ const GapInputSchema = z.object({
   wordCount: z.coerce.number().int().nonnegative().max(100_000).optional(),
   page: z.string().trim().max(500).optional(),
   type: z.string().trim().max(80).optional(),
+  ruleIds: z.array(z.string().trim().min(1)).min(1).max(50),
 });
 const PromoteGapsBodySchema = z.object({
+  strategyVersionId: z.string().trim().min(1),
+  packageSha256: z.string().regex(/^[a-f0-9]{64}$/),
   gaps: z.array(GapInputSchema).min(1).max(50),
-});
+}).strict();
 
 export async function POST(req: NextRequest) {
   const appAuthError = await requireAppAuth(req);
@@ -42,7 +46,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { gaps } = parsed.data;
+  const { gaps, strategyVersionId, packageSha256 } = parsed.data;
+  const commandCenter = await loadActiveTopicalMapCommandCenter(prisma);
+  if (!commandCenter || commandCenter.identity.versionId !== strategyVersionId || commandCenter.identity.packageSha256 !== packageSha256) {
+    return NextResponse.json({ error: "Active strategy changed", code: "STRATEGY_CHANGED" }, { status: 409 });
+  }
+  const activeRuleIds = new Set(Object.keys(commandCenter.provenance));
+  if (gaps.some((gap) => gap.ruleIds.some((ruleId) => !activeRuleIds.has(ruleId)))) {
+    return NextResponse.json({ error: "Gap rule context is not active", code: "STRATEGY_CHANGED" }, { status: 409 });
+  }
 
   // Pull GSC keyword context to enrich proposals
   const gscData = await getLatestGscData();
@@ -157,7 +169,7 @@ export async function POST(req: NextRequest) {
                 gscPosition: position ?? null,
                 gscImpressions: impressions ?? 0,
               },
-      sourceData: { source: "seo-pilot", query: gap.query, impressions: impressions ?? 0, position: position ?? null, issue: gap.issue ?? null, page: gap.page ?? null },
+      sourceData: { source: "seo-pilot", query: gap.query, impressions: impressions ?? 0, position: position ?? null, issue: gap.issue ?? null, page: gap.page ?? null, strategyVersionId, packageSha256, ruleIds: gap.ruleIds },
     };
     const keyed = withContentProposalDedupeKey(data as any);
     if (seenInBatch.has(keyed.dedupeKey)) {

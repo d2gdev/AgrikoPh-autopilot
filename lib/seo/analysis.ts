@@ -1,5 +1,7 @@
 import { hasMissingMeta } from "@/lib/seo/meta";
 import type { GscQueryPageRow, GscQueryRow } from "@/lib/seo/types";
+import { z } from "zod";
+import type { TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 
 const STOP_WORDS = new Set([
   "the", "and", "for", "with", "from", "that", "this", "are", "was", "how", "why",
@@ -30,6 +32,67 @@ export interface ProgrammaticSeoGap {
   issue?: "missing-meta" | "thin-content";
   articleHandle?: string;
   wordCount?: number | null;
+}
+
+export type StrategyIdentity = { versionId: string; packageSha256: string };
+export type MapAwareSeoGap = {
+  kind: "content" | "link";
+  strategyVersionId: string;
+  packageSha256: string;
+  ruleIds: string[];
+  state: "candidate";
+  query: string;
+  suggestedTitle: string;
+  page?: string;
+  fromUrl?: string;
+  toUrl?: string;
+  type?: string;
+};
+export type MapAwareSeoAnalysis = {
+  gaps: MapAwareSeoGap[];
+  observations: ProgrammaticSeoGap[];
+  suppressed: Array<{ page: string; reason: string; ruleIds: string[] }>;
+};
+
+const EnvelopeSchema = z.object({
+  schemaVersion: z.literal("2"),
+  strategy: z.object({ versionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+  generatedAt: z.string().datetime(),
+  analysis: z.object({ gaps: z.array(z.unknown()), observations: z.array(z.unknown()), suppressed: z.array(z.unknown()) }).passthrough(),
+}).strict();
+
+export function readAnalysisForStrategy(payload: unknown, active: StrategyIdentity): MapAwareSeoAnalysis | null {
+  const parsed = EnvelopeSchema.safeParse(payload);
+  return parsed.success && parsed.data.strategy.versionId === active.versionId && parsed.data.strategy.packageSha256 === active.packageSha256
+    ? parsed.data.analysis as MapAwareSeoAnalysis : null;
+}
+
+export function buildMapAwareSeoGaps(input: {
+  strategy: StrategyIdentity;
+  commandCenter: TopicalMapCommandCenter;
+  queries: GscQueryRow[];
+  queryPagePairs: GscQueryPageRow[];
+  articles: SeoAnalysisArticle[];
+}): MapAwareSeoAnalysis {
+  const existing = new Set(input.articles.map((article) => `/blogs/news/${article.handle.toLowerCase()}`));
+  const observations = buildProgrammaticSeoGaps(input);
+  const prohibitedByUrl = new Map(input.commandCenter.prohibited.map((item) => [item.url, item]));
+  const gaps: MapAwareSeoGap[] = [];
+  const suppressed: MapAwareSeoAnalysis["suppressed"] = [];
+  for (const page of input.commandCenter.pages) {
+    if (existing.has(page.url) || !page.decision || !/(create|publish|new)/i.test(page.decision)) continue;
+    const prohibited = prohibitedByUrl.get(page.url);
+    if (prohibited) {
+      suppressed.push({ page: page.url, reason: prohibited.item, ruleIds: [...page.ruleIds, ...prohibited.ruleIds].sort() });
+      continue;
+    }
+    gaps.push({ kind: "content", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate", query: page.primaryKeywordOrTheme ?? page.url, suggestedTitle: page.primaryKeywordOrTheme ?? page.url, page: page.url });
+  }
+  for (const link of input.commandCenter.work.internalLinks) {
+    if (!/(absent|missing|not present|add)/i.test(`${link.currentBodyState ?? ""} ${link.requiredAction ?? ""}`)) continue;
+    gaps.push({ kind: "link", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...link.ruleIds], state: "candidate", query: link.recommendedAnchor ?? link.toUrl, suggestedTitle: `Add internal link from ${link.fromUrl} to ${link.toUrl}`, page: link.fromUrl, fromUrl: link.fromUrl, toUrl: link.toUrl, type: "internal-link" });
+  }
+  return { gaps, observations, suppressed };
 }
 
 function articleHandleFromBlogPage(page: string | undefined): string | null {

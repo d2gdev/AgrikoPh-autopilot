@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProgrammaticSeoGaps } from "@/lib/seo/analysis";
+import { buildMapAwareSeoGaps, buildProgrammaticSeoGaps, readAnalysisForStrategy } from "@/lib/seo/analysis";
 
 describe("buildProgrammaticSeoGaps", () => {
   it("keeps thin-content and missing-meta findings for the same article", () => {
@@ -89,5 +89,39 @@ describe("buildProgrammaticSeoGaps", () => {
     expect(gaps).toEqual(expect.arrayContaining([
       expect.objectContaining({ query: "black rice price philippines" }),
     ]));
+  });
+});
+
+describe("map-aware SEO analysis", () => {
+  const identity = { versionId: "v3", packageSha256: "a".repeat(64) };
+  const commandCenter = {
+    identity: { ...identity, strategyVersion: "3", contractRevision: "3", activatedAt: null },
+    pages: [
+      { url: "/blogs/news/mapped", decision: "create", primaryKeywordOrTheme: "mapped topic", ruleIds: ["rule:decision:1"] },
+      { url: "/blogs/news/prohibited", decision: "create", primaryKeywordOrTheme: "medical cure", ruleIds: ["rule:decision:2"] },
+    ],
+    prohibited: [{ url: "/blogs/news/prohibited", item: "Do not publish medical cure claims", ruleIds: ["rule:prohibited:1"] }],
+    work: { internalLinks: [{ fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", currentBodyState: "absent", ruleIds: ["rule:link:1"] }], redirects: [], canonicalization: [], indexation: [] },
+  } as any;
+
+  it("keeps unmapped search demand as an observation but only maps governed candidates", () => {
+    const result = buildMapAwareSeoGaps({
+      strategy: identity, commandCenter,
+      queries: [{ query: "unmapped popular query", clicks: 0, impressions: 900, ctr: "0%", position: "8" }],
+      queryPagePairs: [], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {} }],
+    });
+    expect(result.observations).toEqual([expect.objectContaining({ query: "unmapped popular query" })]);
+    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", strategyVersionId: "v3", ruleIds: ["rule:decision:1"], state: "candidate" }));
+    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "link", ruleIds: ["rule:link:1"], state: "candidate" }));
+    expect(result.gaps).not.toEqual(expect.arrayContaining([expect.objectContaining({ query: "unmapped popular query" })]));
+    expect(result.suppressed).toContainEqual(expect.objectContaining({ ruleIds: ["rule:decision:2", "rule:prohibited:1"], reason: "Do not publish medical cure claims" }));
+  });
+
+  it("accepts cached analysis only for the exact active identity", () => {
+    const analysis = { gaps: [], observations: [], suppressed: [] };
+    const envelope = { schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis };
+    expect(readAnalysisForStrategy(envelope, identity)).toEqual(analysis);
+    expect(readAnalysisForStrategy(envelope, { ...identity, versionId: "v4" })).toBeNull();
+    expect(readAnalysisForStrategy(envelope, { ...identity, packageSha256: "b".repeat(64) })).toBeNull();
   });
 });
