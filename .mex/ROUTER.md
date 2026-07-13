@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-13T13:36:00+08:00
+last_updated: 2026-07-13T13:46:00+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **Topical-map SEO command center production release (2026-07-13):** The reviewed command center is deployed on production commit `1655651353135a51b8ca04320af6f0385f9e7e6d`. The active build, PM2 restart chronology, public health, authenticated active-map identity, all eleven domain counts, five client job labels, legacy-source absence, empty/non-stale analysis state, and zero verification-time recommendation/proposal writes were independently observed. Direct embedded HTML correctly redirects to Shopify authentication, so bundle/API evidence is recorded without claiming an unauthenticated browser-session visual check. No authorization flag, strategy activation, production data, Shopify object, or Meta object changed during this UI release.
 - **SEO inspection-completeness evidence (2026-07-13):** Analysis readiness is independent of actionable gap count. The strict envelope declares required store/link families, required-versus-inspected source counts, and oldest successful timestamps across all relevant inspections, including satisfied/preserve/already-linked observations. Fully inspected zero-gap maps are ready; unknown or missing inspections fail unavailable, and stale/future evidence remains withheld.
 - **Candidate-specific SEO observation enforcement (2026-07-13):** Every actionable mapped content/link candidate carries exact store or ArticleRecord link-inspection provenance and capture time, is independently rejected when missing, future-dated, or older than 72 hours, and is revalidated against exact current ArticleRecord state inside the governed proposal transaction. Create targets that now exist, refresh sources that changed/disappeared, and link sources that changed/disappeared/already contain the target return typed conflicts without proposal persistence. Aggregate evidence uses the oldest actionable candidate timestamp per source.
 - **Strategy-bound SEO analysis evidence envelope (2026-07-13):** SEO analysis POST/GET share one strict schema-v2 persisted envelope with map gaps isolated from AI presentation, exact active identity, and 72-hour GSC/store/link observation timestamps. Governed blog and link-source handles are directly inspected outside the 200-article presentation cap; non-blog or uninspectable sources fail closed as observation-unavailable. Link candidates require a fresh inspected source and exact normalized destination absence. The UI reloads persisted map analysis before opening Content gaps and distinguishes strategy-identity stale, evidence stale, and unavailable observations.

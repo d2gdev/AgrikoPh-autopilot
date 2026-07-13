@@ -130,7 +130,7 @@ After deploying:
 
 ## Topical-map command-center deployment preparation (2026-07-13)
 
-Status: **locally verified; not deployed**. Production deployment is intentionally deferred until the required whole-branch review gate completes. This preparation did not access production, change database data, change environment authorization flags, write to Shopify/Meta, or update remote branches.
+Status: **deployed and verified on 2026-07-13**. The required whole-branch review passed with no Critical or Important findings before deployment. `node scripts/git-deploy.mjs` deployed reviewed `main`; no environment authorization flag, strategy activation, production data, Shopify object, or Meta object was changed as part of the release.
 
 Fresh local evidence from branch `feat/seo-pilot-topical-map-command-center`:
 
@@ -144,12 +144,12 @@ Fresh local evidence from branch `feat/seo-pilot-topical-map-command-center`:
 
 After whole-branch review, deploy only the reviewed main commit through `node scripts/git-deploy.mjs`. Do not change `EXECUTE_APPROVED_LIVE_ENABLED`, `TOPICAL_MAP_ACTIVATION_ENABLED`, database data, or strategy activation as part of this UI release. Fresh production acceptance must record:
 
-- [ ] intended local/main/origin commit and `/opt/autopilot` `HEAD` are identical;
-- [ ] active `.next/BUILD_ID` exists and its artifact timestamp follows deployment of that commit;
-- [ ] PM2 `autopilot` restart timestamp follows the build and the process is online/healthy;
-- [ ] public `GET https://autopilot.agrikoph.com/api/health` returns healthy;
-- [ ] authenticated command-center API reports active version `cmriak0gt00y8s66lxrfkstp6`, unless a newer separately authorized activation is evidenced;
-- [ ] authenticated SEO Pilot renders exactly five jobs, no June strategy copy, and all eleven domain counts;
-- [ ] stale pre-map analysis content is absent;
-- [ ] canonical/indexation remain explicitly non-executable and no Shopify live write occurs during verification;
-- [ ] deployment evidence records server commit, build identity/time, PM2 restart time, health response, active map identity, legacy-content absence, and no-live-write observation.
+- [x] reviewed local/main/origin commit and `/opt/autopilot` `HEAD` matched `1655651353135a51b8ca04320af6f0385f9e7e6d` for the runtime deployment;
+- [x] active build ID `iOjJUEzO5VD2twnzveFnB` existed with artifact time `2026-07-13T05:41:53Z`;
+- [x] PM2 `autopilot` restarted at `2026-07-13T05:42:22.330Z`, after the build, and reported `online`;
+- [x] public health returned `{"status":"ok","degradedReasons":[]}` at `2026-07-13T05:45:11Z`;
+- [x] authenticated command-center API returned `ready`, active version `cmriak0gt00y8s66lxrfkstp6`, package `f2a39fabd27a1dcb7ffb29e44695d18a39325186443137dd15762126a8d1bf1c`, and all eleven domain counts;
+- [x] the deployed client bundle contained exactly the five job labels and the remote runtime/bundle scan contained no June strategy module, constants, or report copy; direct HTML rendering correctly redirected to Shopify authentication and therefore was not falsely claimed as a browser-session visual check;
+- [x] authenticated SEO analysis returned `empty` with the active version and no cached strategy or stale analysis content;
+- [x] canonical/indexation remained explicitly non-executable; database verification found zero new `Recommendation` and zero new `ContentProposal` rows since the build timestamp;
+- [x] deployment evidence recorded server commit, build identity/time, PM2 restart time, health response, active map identity, legacy-content absence, and no-live-write observation.
