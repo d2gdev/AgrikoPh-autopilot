@@ -44,3 +44,33 @@ Status: DONE_WITH_CONCERNS
 ## Concern
 
 The only completion concern is the environment-blocked build page-data phase. Compilation, typecheck, lint exit status, focused tests, and the runtime scan all have fresh passing evidence.
+
+## Review-finding follow-up (2026-07-13)
+
+Status: DONE
+
+### Ground
+
+- Removed unreachable tab branches 5–7 and every page-level import, state value, handler, and derived projection used only by the retired pillar-cluster, page-health, opportunity-cluster, legacy gap-promotion, on-page-promotion, and recommendation-decomposition paths.
+- Removed the dead section loads for `/api/seo/health`, `/api/seo/keywords`, `/api/content-pilot/topic-clusters`, and `/api/topical-map/packages`; refresh still reloads SEO core data, the active command center/analysis, and trend history used by reachable tabs.
+- Removed retired tracking/promotion identity helpers that had no runtime consumers.
+- Preserved active tabs 0–4, `proposeMapGap`, observed search-evidence filtering/sorting, AI analysis, manual refresh, and SEO brief generation. No route, persistence, permission, guardrail, or execution code changed.
+- Consolidated the router's command-center/cutover state, removed contradictory current-state claims about the deleted `StrategyPanel`, marked the historical page split superseded, and updated the operator-surface runbook.
+
+### TDD and regression evidence
+
+- RED 1: the new source-boundary assertion failed on `PillarClustersPanel` before the hidden branches were removed.
+- GREEN 1: `topical-map-strategy-panel.test.ts` passed 8/8 after page cleanup.
+- RED 2: the extended data-hook boundary failed on `/api/seo/health` before dead section loads were removed.
+- GREEN 2: the complete focused suite passed 6 files, 88 tests.
+- Updated stale tests that expected the retired promotion state or attempted to read the deleted `StrategyPanel`; they now assert observational raw opportunities and only the reachable responsive panels.
+
+### Verification evidence
+
+- `npm test -- __tests__/components/topical-map-strategy-panel.test.ts __tests__/components/use-seo-data.test.ts __tests__/components/seo-pilot-responsive.test.ts __tests__/components/pilot-usability-helpers.test.ts __tests__/api/seo-pilot-routes.test.ts __tests__/lib/seo/analysis.test.ts`: 88/88 passed.
+- `npm run typecheck`: passed.
+- `npm run lint`: exited 0 with 87 repository warnings and 0 errors, down from 128 warnings before the dead page paths were removed.
+- `git diff --check`: passed.
+- `npm run typecheck:test` was also attempted as an extra gate; it remains blocked by the existing test-config CSS-module declaration gap for `ContentGapsPanel`, `MapPagesPanel`, and `MapWorkPanel`. Production typecheck and runtime tests resolve those same modules successfully.
+
+No production deployment, database change, strategy activation, or live Shopify/Meta write occurred.

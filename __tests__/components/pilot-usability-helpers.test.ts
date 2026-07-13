@@ -3,17 +3,12 @@ import { describe, expect, it } from "vitest";
 import { proposalEvidenceLines } from "@/app/(embedded)/(content-pilot)/content-pilot/components/proposal-evidence";
 import { contentGapReason } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/content-gap-reason";
 import { onPageHealthActions } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/on-page-health-actions";
-import { analysisCompletionToast, mergeTrackedKeywordPlaceholder, trackedKeywordSet } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/types";
+import { analysisCompletionToast } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/types";
 
 describe("pilot usability helper regressions", () => {
   it("does not call a partial analysis complete", () => {
     expect(analysisCompletionToast({ aiStatus: "partial", contentGaps: [{ query: "rice", impressions: 1, position: 8, suggestedTitle: "Rice guide" }] })).toMatch(/partial/i);
     expect(analysisCompletionToast({ aiStatus: "complete", contentGaps: [] })).toBe("Analysis complete — no content gaps found with current data.");
-  });
-
-  it("keeps a successfully added keyword visible when report reload fails", () => {
-    expect(mergeTrackedKeywordPlaceholder([], " Black Rice ")).toEqual([{ keyword: "black rice", position: null, clicks: 0, impressions: 0, positionDelta: null, status: "tracked", alert: false }]);
-    expect(mergeTrackedKeywordPlaceholder([{ keyword: "black rice", position: 2, clicks: 1, impressions: 4, positionDelta: null, status: "tracked", alert: false }], "black rice")).toHaveLength(1);
   });
 
   it("keeps compact Opportunities and Keywords sorting controlled by page state", () => {
@@ -34,9 +29,6 @@ describe("pilot usability helper regressions", () => {
     expect(panelSource).toContain("Manual review");
   });
 
-  it("normalizes persisted tracked keyword identity", () => {
-    expect(trackedKeywordSet([{ keyword: " Black Rice Benefits ", position: null, clicks: 0, impressions: 0, positionDelta: null, status: "tracked", alert: false }])).toEqual(new Set(["black rice benefits"]));
-  });
   it("summarizes proposal source evidence from existing sourceData", () => {
     expect(proposalEvidenceLines({
       articleHandle: "black-rice",

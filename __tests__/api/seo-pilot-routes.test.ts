@@ -744,28 +744,13 @@ describe("SEO Pilot route regressions", () => {
   });
 
 
-  it("keys opportunity promotion state by query, page, and type", () => {
-    // opportunityKey's definition moved to components/types.ts during the
-    // Phase 8c page split; page.tsx now imports and calls it.
-    const typesSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/components/types.ts", "utf8");
+  it("keeps raw search opportunities observational after the governed-map cutover", () => {
     const pageSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/page.tsx", "utf8");
 
-    expect(typesSource).toContain("export const opportunityKey =");
-    expect(typesSource).toContain(`o.query, o.page ?? "", o.type`);
-    expect(pageSource).toContain("opportunityKey(o)");
-    expect(pageSource).not.toContain("promotedOpp.has(o.query)");
-    expect(pageSource).not.toContain("promotingOpp.has(o.query)");
-  });
-
-  it("removes skipped SEO promote results from the actionable UI queues", () => {
-    const pageSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/page.tsx", "utf8");
-
-    expect(pageSource).toContain("d.created > 0 || d.skipped > 0");
-    expect(pageSource).toContain("const visibleOpportunities = (data?.opportunities ?? []).filter((o) => !promotedOpp.has(opportunityKey(o)))");
-    expect(pageSource).toContain("const gaps = (analysis?.contentGaps ?? []).filter((g) => !promoted.has(gapKey(g)))");
-    expect(pageSource).toContain("removed from this view");
-    expect(pageSource).not.toContain("d.skippedReasons?.duplicate > 0");
-    expect(pageSource).not.toContain("const unpromotedGaps =");
+    expect(pageSource).toContain("const visibleOpportunities = data?.opportunities ?? []");
+    expect(pageSource).toContain("No map rule association");
+    expect(pageSource).not.toContain("promoteOpportunity");
+    expect(pageSource).not.toContain("opportunityKey(o)");
   });
 
   it("returns retryable error when SEO brief output is blank", async () => {

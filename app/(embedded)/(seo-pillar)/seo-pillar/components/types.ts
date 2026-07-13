@@ -59,12 +59,6 @@ export interface HealthOffender { handle: string; title: string; wordCount: numb
 export interface HealthLimits { articlesTotalLowerBound: number; articlesAnalyzed: number; articlesTruncated: boolean }
 export interface Health { totals: HealthTotals; worstOffenders: HealthOffender[]; limits?: HealthLimits }
 export interface KeywordRow { keyword: string; position: number | null; clicks: number; impressions: number; positionDelta: number | null; status: string; alert: boolean }
-export const trackedKeywordSet = (keywords: KeywordRow[]) => new Set(keywords.map((row) => row.keyword.trim().toLowerCase()));
-export function mergeTrackedKeywordPlaceholder(keywords: KeywordRow[], keyword: string): KeywordRow[] {
-  const normalized = keyword.trim().toLowerCase().replace(/\s+/g, " ");
-  if (!normalized || keywords.some((row) => row.keyword.trim().toLowerCase().replace(/\s+/g, " ") === normalized)) return keywords;
-  return [...keywords, { keyword: normalized, position: null, clicks: 0, impressions: 0, positionDelta: null, status: "tracked", alert: false }];
-}
 export function analysisCompletionToast(analysis: Pick<Analysis, "aiStatus" | "contentGaps">): string {
   const gapCount = analysis.contentGaps?.length ?? 0;
   if (analysis.aiStatus === "partial") {
@@ -103,9 +97,6 @@ export interface StrategyPackageOverview {
     lifecycleControls: { canActivate: boolean; canRollback: boolean; reason: string };
   }>;
 }
-
-export const gapKey = (g: { query: string; suggestedTitle: string }) => `${g.query}::${g.suggestedTitle}`;
-export const opportunityKey = (o: Pick<Opportunity, "query" | "page" | "type">) => JSON.stringify([o.query, o.page ?? "", o.type]);
 
 // fractions 0–1 → "x.x%", null → "—"
 export const fmtPct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(1)}%`);

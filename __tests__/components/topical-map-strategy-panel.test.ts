@@ -73,6 +73,7 @@ describe("topical-map command center", () => {
   const work = read("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/MapWorkPanel.tsx");
   const gaps = read("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/ContentGapsPanel.tsx");
   const evidence = read("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/OpportunitiesPanel.tsx");
+  const dataHook = read("app/(embedded)/(seo-pillar)/seo-pillar/components/useSeoData.ts");
 
   it("has no runtime fallback to the legacy June strategy", () => {
     const runtimeSeoSources = [
@@ -82,6 +83,25 @@ describe("topical-map command center", () => {
     const forbidden = ["KEYWORD_CLUSTERS", "PRIMARY_TARGETS", "SECONDARY_BANK", "ROADMAP", "June 2026 keyword research report", "keyword-strategy"];
 
     for (const token of forbidden) expect(runtimeSeoSources.join("\n")).not.toContain(token);
+  });
+
+  it("contains no unreachable panels or handlers beyond the five-tab cutover", () => {
+    for (const token of [
+      "PillarClustersPanel",
+      "PageHealthPanel",
+      "OpportunityClustersPanel",
+      "promoteGaps",
+      "promoteOnPage",
+      "planStrategy",
+      "tab === 5",
+      "tab === 6",
+      "tab === 7",
+    ]) {
+      expect(page).not.toContain(token);
+    }
+    for (const endpoint of ["/api/seo/health", "/api/seo/keywords", "/api/content-pilot/topic-clusters", "/api/topical-map/packages"]) {
+      expect(dataHook).not.toContain(endpoint);
+    }
   });
 
   it("rebuilds navigation around the five operator jobs", () => {

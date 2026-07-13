@@ -2,26 +2,15 @@
 
 import {
   Page, Layout, Card, Text, Badge, InlineStack, BlockStack, Banner,
-  Button, TextField, Spinner, Tooltip, List, Select,
+  Button, Spinner, Tooltip,
 } from "@shopify/polaris";
-import { useState, useCallback, type Dispatch, type SetStateAction } from "react";
-import { useRouter } from "next/navigation";
-import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
-import { timeAgo } from "@/lib/format";
-import type {
-  Query, PageRow, Totals, Mover, Trends, Opportunity, OpportunityCluster,
-  PageHealthRow, GscPage, QueryPagePair,
-  ContentGap, HealthTotals, HealthOffender,
-} from "./components/types";
-import { analysisCompletionToast, gapKey, opportunityKey, fmtPct } from "./components/types";
+import { useState, useCallback } from "react";
+import { useAuthFetch } from "@/hooks/use-auth-fetch";
+import { analysisCompletionToast } from "./components/types";
 import { useSeoData } from "./components/useSeoData";
 import { OverviewPanel } from "./components/panels/OverviewPanel";
 import { OpportunitiesPanel } from "./components/panels/OpportunitiesPanel";
 import { ContentGapsPanel } from "./components/panels/ContentGapsPanel";
-import { OnPageHealthPanel } from "./components/panels/OnPageHealthPanel";
-import { PillarClustersPanel } from "./components/panels/PillarClustersPanel";
-import { PageHealthPanel } from "./components/panels/PageHealthPanel";
-import { OpportunityClustersPanel } from "./components/panels/OpportunityClustersPanel";
 import { SeoPilotNavigation } from "./components/SeoPilotNavigation";
 import { MapOverviewPanel } from "./components/panels/MapOverviewPanel";
 import { MapPagesPanel } from "./components/panels/MapPagesPanel";
@@ -40,11 +29,6 @@ const pagePath = (p: string | null | undefined) => {
   }
 };
 
-const PAGE_HEALTH_FLAG: Record<string, { tone: "warning" | "critical"; label: string }> = {
-  "high-impressions-high-bounce": { tone: "warning", label: "High bounce" },
-  "high-impressions-low-conversion": { tone: "critical", label: "Low conversion" },
-};
-
 const OPP_LABEL: Record<string, string> = {
   low_ctr: "Low CTR",
   striking_distance: "Striking distance",
@@ -56,13 +40,12 @@ const diffBand = (d: number): { tone: "success" | "warning" | "critical"; label:
   d < 34 ? { tone: "success", label: "Low" } : d < 67 ? { tone: "warning", label: "Med" } : { tone: "critical", label: "High" };
 
 export default function SeoPillarReportPage() {
-  const router = useRouter();
   const authFetch = useAuthFetch();
 
   const {
     data, loading,
-    analysis, setAnalysis, analysisAt, setAnalysisAt,
-    health, clusters, trend, trendFirst, trendLast,
+    analysis, setAnalysis, setAnalysisAt,
+    trend, trendFirst, trendLast,
     refreshing, loadError, setLoadError, toast, setToast, mapState, mapAnalysisState,
     refreshData,
   } = useSeoData();
@@ -71,18 +54,8 @@ export default function SeoPillarReportPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  const [promoting, setPromoting] = useState<Set<string>>(new Set());
-  const [promoted, setPromoted] = useState<Set<string>>(new Set());
-  const [promotingOpp, setPromotingOpp] = useState<Set<string>>(new Set());
-  const [promotedOpp, setPromotedOpp] = useState<Set<string>>(new Set());
   const [promotingMap, setPromotingMap] = useState<Set<string>>(new Set());
   const [promotedMap, setPromotedMap] = useState<Set<string>>(new Set());
-  const [promotingOnPage, setPromotingOnPage] = useState<Set<string>>(new Set());
-  const [promotedOnPage, setPromotedOnPage] = useState<Set<string>>(new Set());
-  const [promotingRec, setPromotingRec] = useState<Set<number>>(new Set());
-  const [promotedRec, setPromotedRec] = useState<Set<number>>(new Set());
-  const [promotingQw, setPromotingQw] = useState<Set<number>>(new Set());
-  const [promotedQw, setPromotedQw] = useState<Set<number>>(new Set());
   // AI SEO brief (ported from the retired /seo page)
   const [brief, setBrief] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
@@ -91,8 +64,6 @@ export default function SeoPillarReportPage() {
   const [oppSearch, setOppSearch] = useState("");
   const [oppType, setOppType] = useState("all");
   const [oppSort, setOppSort] = useState<{ index: number; dir: "ascending" | "descending" } | null>(null);
-  const [kwSearch, setKwSearch] = useState("");
-  const [kwSort, setKwSort] = useState<{ index: number; dir: "ascending" | "descending" } | null>(null);
 
   const runSeoAnalysis = useCallback(async () => {
     setAnalyzing(true);
@@ -110,32 +81,6 @@ export default function SeoPillarReportPage() {
     finally { setAnalyzing(false); }
   }, [authFetch]);
 
-  const promoteGaps = useCallback(async (gaps: ContentGap[]) => {
-    const keys = new Set(gaps.map(gapKey));
-    setPromoting((s) => new Set([...s, ...keys]));
-    try {
-      const res = await authFetch("/api/seo/gaps/promote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gaps }),
-      });
-      const d = await res.json();
-      if (res.ok) {
-        if (d.created > 0 || d.skipped > 0) {
-          setPromoted((s) => new Set([...s, ...keys]));
-        }
-        if (d.created > 0) {
-          setToast(`Created ${d.created} draft proposal${d.created === 1 ? "" : "s"} in Content Pilot${d.skipped ? ` (${d.skipped} already handled or not promotable)` : ""}.`);
-        } else if (d.skipped > 0) {
-          setToast(`${d.skipped} gap${d.skipped === 1 ? "" : "s"} already handled or not promotable — removed from this view.`);
-        } else {
-          setToast("No proposals created.");
-        }
-      } else setToast(d.error ?? "Could not create proposals.");
-    } catch { setToast("Could not create proposals."); }
-    finally { setPromoting((s) => { const n = new Set(s); keys.forEach((k) => n.delete(k)); return n; }); }
-  }, [authFetch]);
-
   const proposeMapGap = useCallback(async (gap: MapAwareSeoGap) => {
     const key = gap.ruleIds.join("|");
     setPromotingMap(current => new Set([...current, key]));
@@ -145,95 +90,6 @@ export default function SeoPillarReportPage() {
       setToast(result.message);
     } catch { setToast("Could not create governed proposal."); }
     finally { setPromotingMap(current => { const next = new Set(current); next.delete(key); return next; }); }
-  }, [authFetch]);
-
-  const promoteOpportunity = useCallback(async (o: Opportunity) => {
-    const key = opportunityKey(o);
-    setPromotingOpp((s) => new Set([...s, key]));
-    try {
-      const suggestedTitle = `${o.query.charAt(0).toUpperCase() + o.query.slice(1)}: A Complete Guide`;
-      const res = await authFetch("/api/seo/gaps/promote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gaps: [{ query: o.query, impressions: o.impressions, position: o.position, suggestedTitle, page: o.page, type: o.type }] }),
-      });
-      const d = await res.json();
-      if (res.ok) {
-        if (d.created > 0 || d.skipped > 0) {
-          setPromotedOpp((s) => new Set([...s, key]));
-        }
-        if (d.created > 0) {
-          setToast("Created draft proposal in Content Pilot.");
-        } else if (d.skipped > 0) {
-          setToast("Already handled or not promotable — removed from this view.");
-        } else {
-          setToast("No proposal created.");
-        }
-      } else setToast(d.error ?? "Could not create proposal.");
-    } catch { setToast("Could not create proposal."); }
-    finally { setPromotingOpp((s) => { const n = new Set(s); n.delete(key); return n; }); }
-  }, [authFetch]);
-
-  const promoteOnPage = useCallback(async (
-    handle: string,
-    title: string,
-    issue: "missing-meta" | "thin-content" | "missing-h1",
-    wordCount?: number,
-  ) => {
-    const key = `${handle}:${issue}`;
-    setPromotingOnPage((s) => new Set([...s, key]));
-    try {
-      const res = await authFetch("/api/seo/promote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle, title, issue, wordCount }),
-      });
-      const d = await res.json();
-      if (res.ok) {
-        setPromotedOnPage((s) => new Set([...s, key]));
-        setToast(d.existed ? "Proposal already exists in Content Pilot." : "Proposal created in Content Pilot.");
-      } else {
-        setToast(d.error ?? "Could not create proposal.");
-      }
-    } catch {
-      setToast("Could not create proposal.");
-    } finally {
-      setPromotingOnPage((s) => { const n = new Set(s); n.delete(key); return n; });
-    }
-  }, [authFetch]);
-
-  const planStrategy = useCallback(async (
-    index: number,
-    text: string,
-    setBusy: Dispatch<SetStateAction<Set<number>>>,
-    setDone: Dispatch<SetStateAction<Set<number>>>,
-  ) => {
-    setBusy((s) => new Set([...s, index]));
-    try {
-      const res = await authFetch("/api/seo/recommendations/decompose", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recommendation: text }),
-      });
-      const d = await res.json();
-      if (res.ok) {
-        if (d.created > 0) {
-          setDone((s) => new Set([...s, index]));
-          const extras = [
-            d.skipped ? `${d.skipped} already existed` : "",
-            d.dropped ? `${d.dropped} skipped` : "",
-          ].filter(Boolean).join(", ");
-          setToast(`Created ${d.created} proposal${d.created === 1 ? "" : "s"} in Content Pilot${extras ? ` (${extras})` : ""}.`);
-        } else if (d.skipped > 0) {
-          // Already handled previously — reflect that in the UI instead of looking like a no-op.
-          setDone((s) => new Set([...s, index]));
-          setToast(`Already planned — ${d.skipped} proposal${d.skipped === 1 ? "" : "s"} already in Content Pilot.`);
-        } else {
-          setToast("No concrete tasks could be derived from this item.");
-        }
-      } else setToast(d.error ?? "Could not plan this item.");
-    } catch { setToast("Could not plan this item."); }
-    finally { setBusy((s) => { const n = new Set(s); n.delete(index); return n; }); }
   }, [authFetch]);
 
   // ── derived metrics ──
@@ -259,7 +115,7 @@ export default function SeoPillarReportPage() {
     { label: "All types", value: "all" },
     ...Array.from(new Set((data?.opportunities ?? []).map((o) => o.type))).map((t) => ({ label: OPP_LABEL[t] ?? t, value: t })),
   ];
-  const visibleOpportunities = (data?.opportunities ?? []).filter((o) => !promotedOpp.has(opportunityKey(o)));
+  const visibleOpportunities = data?.opportunities ?? [];
   const filteredOpps = visibleOpportunities
     .filter((o) => oppType === "all" || o.type === oppType)
     .filter((o) => {
@@ -292,35 +148,6 @@ export default function SeoPillarReportPage() {
     <Tooltip key={`t-${o.query}`} content={o.reason}><Text as="span" fontWeight="semibold">+{o.potentialClicks}</Text></Tooltip>,
     <Button key={`a-${o.query}`} size="slim" disabled accessibilityLabel={`No map rule association for ${o.query}`}>No map rule association</Button>,
   ]);
-
-  // page health — already sorted by severity desc; flagged rows lead
-  const pageHealth = data?.pageHealth ?? [];
-  const flaggedPageHealth = pageHealth.filter((p) => p.flags.length > 0);
-
-  const gaps = (analysis?.contentGaps ?? []).filter((g) => !promoted.has(gapKey(g)));
-
-  // ── panel props derived from the promoted*/promoting* Sets ──
-  // Booleans (not raw Sets) are threaded down so a single item's membership
-  // change doesn't force every row in a panel to re-render.
-  const anyPromoting = promoting.size > 0;
-  const gapFlags = gaps.map((g) => ({ isPromoted: promoted.has(gapKey(g)), isPromoting: promoting.has(gapKey(g)) }));
-  const quickWinFlags = (analysis?.quickWins ?? []).map((_, i) => ({ isPlanned: promotedQw.has(i), isPlanning: promotingQw.has(i) }));
-  const recFlags = (analysis?.recommendations ?? []).map((_, i) => ({ isPlanned: promotedRec.has(i), isPlanning: promotingRec.has(i) }));
-  const offenderFlags: Record<string, {
-    isPromotedMeta: boolean; isPromotingMeta: boolean;
-    isPromotedH1: boolean; isPromotingH1: boolean;
-    isPromotedThin: boolean; isPromotingThin: boolean;
-  }> = {};
-  (health?.worstOffenders ?? []).forEach((a) => {
-    offenderFlags[a.handle] = {
-      isPromotedMeta: promotedOnPage.has(`${a.handle}:missing-meta`),
-      isPromotingMeta: promotingOnPage.has(`${a.handle}:missing-meta`),
-      isPromotedH1: promotedOnPage.has(`${a.handle}:missing-h1`),
-      isPromotingH1: promotingOnPage.has(`${a.handle}:missing-h1`),
-      isPromotedThin: promotedOnPage.has(`${a.handle}:thin-content`),
-      isPromotingThin: promotingOnPage.has(`${a.handle}:thin-content`),
-    };
-  });
 
   async function generateBrief() {
     setBriefLoading(true);
@@ -412,28 +239,6 @@ export default function SeoPillarReportPage() {
 
                   {/* ── KEYWORDS ── */}
                   {tab === 4 && <BlockStack gap="500"><OverviewPanel brief={brief} cur={cur} prev={prev} gscFetchedAt={data?.gscFetchedAt} gscFreshness={data?.gscFreshness} ga4FetchedAt={data?.ga4FetchedAt} ga4Freshness={data?.ga4Freshness} previousFetchedAt={t?.previousFetchedAt} trend={trend} trendFirst={trendFirst} trendLast={trendLast} moverRows={moverRows} pageRows={pageRows} queryRows={queryRows} gscPages={data?.gscPages ?? []} queryPagePairs={data?.queryPagePairs ?? []}/><OpportunitiesPanel oppCount={visibleOpportunities.length} oppSearch={oppSearch} setOppSearch={setOppSearch} oppType={oppType} setOppType={setOppType} oppTypeOptions={oppTypeOptions} oppRows={oppRows} oppSort={oppSort} setOppSort={setOppSort}/></BlockStack>}
-
-                  {/* ── PILLAR CLUSTERS ── */}
-                  {tab === 5 && (
-                    <PillarClustersPanel clusters={clusters} />
-                  )}
-
-                  {/* ── PAGE HEALTH ── */}
-                  {tab === 6 && (
-                    <PageHealthPanel
-                      pageHealth={pageHealth}
-                      flaggedPageHealth={flaggedPageHealth}
-                      pageHealthFlag={PAGE_HEALTH_FLAG}
-                    />
-                  )}
-
-                  {/* ── OPPORTUNITY CLUSTERS ── */}
-                  {tab === 7 && (
-                    <OpportunityClustersPanel
-                      clusters={data?.clusters ?? []}
-                      pagePath={pagePath}
-                    />
-                  )}
 
                 </>
               )}

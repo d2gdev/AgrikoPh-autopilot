@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
-import type { SeoData, Analysis, Health, KeywordRow, Cluster, SnapshotTrendPoint, StrategyPackageOverview } from "./types";
+import type { SeoData, Analysis, SnapshotTrendPoint } from "./types";
 import type { MapAnalysisEnvelope, MapAnalysisState, MapIdentity, MapLoadState } from "./map-types";
 import type { MapAwareSeoAnalysis } from "@/lib/seo/analysis";
 
@@ -165,11 +165,7 @@ export function useSeoData() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [analysisAt, setAnalysisAt] = useState<string | null>(null);
 
-  const [health, setHealth] = useState<Health | null>(null);
-  const [keywords, setKeywords] = useState<KeywordRow[]>([]);
-  const [clusters, setClusters] = useState<Cluster[]>([]);
   const [trend, setTrend] = useState<SnapshotTrendPoint[]>([]);
-  const [strategyPackage, setStrategyPackage] = useState<StrategyPackageOverview>({ state: "loading" });
   const [mapState, setMapState] = useState<MapLoadState>({ state: "loading" });
   const [mapAnalysisState, setMapAnalysisState] = useState<MapAnalysisState>({ state: "loading", analysis: null });
   const trendFirst = trend[0];
@@ -206,14 +202,7 @@ export function useSeoData() {
     await Promise.allSettled([
       track(loadCore(), "SEO data", () => setData(null)),
       track(reloadCommandCenter(), "Strategy command center", () => { setMapState({ state: "error", message: "Strategy command center is unavailable." }); setMapAnalysisState({ state: "error", analysis: null, message: "Strategy command center is unavailable." }); }),
-      track(okJson("/api/seo/health", "On-page health").then((d) => setHealth(d?.totals ? d : null)), "On-page health", () => setHealth(null)),
-      track(okJson("/api/seo/keywords", "Keywords").then((d) => setKeywords(d.keywords ?? [])), "Keywords", () => setKeywords([])),
-      track(okJson("/api/content-pilot/topic-clusters", "Pillar clusters").then((d) => setClusters(d.clusters ?? [])), "Pillar clusters", () => setClusters([])),
       track(okJson("/api/seo/history", "Trend").then((d) => setTrend(d.trend ?? [])), "Trend", () => setTrend([])),
-      track(okJson("/api/topical-map/packages", "Strategy governance").then((d) => {
-        const packages = Array.isArray(d.packages) ? d.packages : [];
-        setStrategyPackage({ state: packages.length ? "ready" : "empty", activeVersionId: typeof d.activeVersionId === "string" ? d.activeVersionId : null, packages });
-      }), "Strategy governance", () => setStrategyPackage({ state: "unavailable", message: "Strategy governance data is unavailable. Existing SEO data remains available." })),
     ]);
     setLoadError(failed.length ? `Some sections failed to load: ${failed.join(", ")}. Try Refresh data.` : null);
   }, [authFetch, loadCore, reloadCommandCenter]);
@@ -258,11 +247,7 @@ export function useSeoData() {
     loading,
     analysis, setAnalysis,
     analysisAt, setAnalysisAt,
-    health, setHealth,
-    keywords, setKeywords,
-    clusters, setClusters,
     trend, trendFirst, trendLast,
-    strategyPackage,
     mapState,
     mapAnalysisState,
     reloadCommandCenter,
