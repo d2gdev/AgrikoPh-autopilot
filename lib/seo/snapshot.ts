@@ -13,7 +13,7 @@ export interface SnapshotRecord {
 export async function getLatestSnapshot(source: string): Promise<SnapshotRecord | null> {
   const snap = await prisma.rawSnapshot.findFirst({
     where: { source },
-    orderBy: [{ dateRangeEnd: "desc" }, { fetchedAt: "desc" }],
+    orderBy: source === "seo_analysis" ? { fetchedAt: "desc" } : [{ dateRangeEnd: "desc" }, { fetchedAt: "desc" }],
   });
   if (!snap) return null;
   return {

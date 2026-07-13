@@ -38,6 +38,17 @@ describe("getLatestSnapshot", () => {
       orderBy: [{ dateRangeEnd: "desc" }, { fetchedAt: "desc" }],
     });
   });
+
+  it("selects timeless SEO analysis snapshots by fetchedAt", async () => {
+    mockPrisma.rawSnapshot.findFirst.mockResolvedValue(snapshot({ id: "analysis" }));
+
+    await getLatestSnapshot("seo_analysis");
+
+    expect(mockPrisma.rawSnapshot.findFirst).toHaveBeenCalledWith({
+      where: { source: "seo_analysis" },
+      orderBy: { fetchedAt: "desc" },
+    });
+  });
 });
 
 describe("getComparisonSnapshot", () => {
