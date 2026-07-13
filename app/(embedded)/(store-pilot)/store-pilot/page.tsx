@@ -1,13 +1,15 @@
 "use client";
 
 import {
-  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, ProgressBar, DataTable, Tabs, Button, Banner,
+  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, ProgressBar, DataTable, Tabs, Button, Banner, Toast,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import { priorityTone } from "@/lib/ui/tones";
+import { ApplyMapTaskModal } from "./components/ApplyMapTaskModal";
+import { isTopicalMapTask, MapTaskDetails } from "./components/MapTaskDetails";
 
 interface ProductImage {
   id: string;
@@ -85,6 +87,10 @@ export default function StorePilotReportPage() {
   const [tasksLoading, setTasksLoading] = useState(true);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
+  const [syncingMap, setSyncingMap] = useState(false);
+  const [applyingTaskId, setApplyingTaskId] = useState<string | null>(null);
+  const [selectedMapTask, setSelectedMapTask] = useState<StoreTask | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
@@ -135,6 +141,40 @@ export default function StorePilotReportPage() {
     }
   }
 
+  async function syncTopicalMap() {
+    setSyncingMap(true);
+    setTaskError(null);
+    try {
+      const res = await authFetch("/api/store-tasks/topical-map/sync", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Topical-map synchronization failed.");
+      await loadTasks();
+      setToastMessage("Topical-map tasks synchronized.");
+    } catch (err) {
+      setTaskError(err instanceof Error ? err.message : "Topical-map synchronization failed.");
+    } finally {
+      setSyncingMap(false);
+    }
+  }
+
+  async function applySelectedMapTask() {
+    if (!selectedMapTask) return;
+    setApplyingTaskId(selectedMapTask.id);
+    setTaskError(null);
+    try {
+      const res = await authFetch(`/api/store-tasks/${selectedMapTask.id}/apply`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Topical-map change could not be applied.");
+      setSelectedMapTask(null);
+      await loadTasks();
+      setToastMessage("The topical-map change was applied.");
+    } catch (err) {
+      setTaskError(err instanceof Error ? err.message : "Topical-map change could not be applied.");
+    } finally {
+      setApplyingTaskId(null);
+    }
+  }
+
   const total = data?.total ?? 0;
   const missing = data?.missingAltText ?? 0;
   const optimized = total - missing;
@@ -165,7 +205,10 @@ export default function StorePilotReportPage() {
     ),
   ]);
 
-  const taskRows = activeTasks.map((task) => [
+  const taskRows = activeTasks.map((task) => {
+    const mapTask = isTopicalMapTask(task);
+    const executable = mapTask && task.sourceData.executable === true;
+    return [
     <BlockStack key={`${task.id}-task`} gap="100">
       <InlineStack gap="200" wrap>
         <PriorityBadge priority={task.priority} />
@@ -177,23 +220,21 @@ export default function StorePilotReportPage() {
       {task.targetUrl ? (
         <Text as="p" tone="subdued" variant="bodySm">{task.targetUrl}</Text>
       ) : null}
+      {mapTask ? <MapTaskDetails task={task} compact /> : null}
     </BlockStack>,
     formatDate(task.createdAt),
     activeTaskStatus === "pending" ? (
       <InlineStack key={`${task.id}-actions`} gap="200" wrap={false}>
-        <Button
-          size="slim"
-          onClick={() => updateTask(task.id, "completed")}
-          loading={updatingTaskId === task.id}
-        >
-          Complete
-        </Button>
+        {mapTask ? (executable ? <Button size="slim" onClick={() => setSelectedMapTask(task)} disabled={Boolean(updatingTaskId || applyingTaskId || syncingMap)}>Apply</Button> : null) : (
+          <Button size="slim" onClick={() => updateTask(task.id, "completed")} loading={updatingTaskId === task.id}>Complete</Button>
+        )}
         <Button
           size="slim"
           tone="critical"
           variant="plain"
           onClick={() => updateTask(task.id, "dismissed")}
-          disabled={Boolean(updatingTaskId)}
+          loading={updatingTaskId === task.id}
+          disabled={Boolean(updatingTaskId || applyingTaskId || syncingMap)}
         >
           Dismiss
         </Button>
@@ -201,7 +242,8 @@ export default function StorePilotReportPage() {
     ) : (
       formatDate(task.completedAt)
     ),
-  ]);
+    ];
+  });
 
   return (
     <Page
@@ -267,7 +309,10 @@ export default function StorePilotReportPage() {
                   <Text variant="headingMd" as="h2">Store Task Queue</Text>
                   <Text as="p" tone="subdued">Review routed market and store opportunities before changing Shopify or pricing decisions.</Text>
                 </BlockStack>
-                <Button onClick={loadTasks} loading={tasksLoading}>Refresh</Button>
+                <InlineStack gap="200" wrap>
+                  <Button onClick={syncTopicalMap} loading={syncingMap} disabled={tasksLoading || Boolean(updatingTaskId || applyingTaskId)}>Sync topical map</Button>
+                  <Button onClick={loadTasks} loading={tasksLoading} disabled={syncingMap || Boolean(updatingTaskId || applyingTaskId)}>Refresh</Button>
+                </InlineStack>
               </InlineStack>
               {taskError ? (
                 <Banner tone="critical">{taskError}</Banner>
@@ -326,6 +371,14 @@ export default function StorePilotReportPage() {
           </Card>
         </Layout.Section>
       </Layout>
+      <ApplyMapTaskModal
+        open={Boolean(selectedMapTask)}
+        task={selectedMapTask}
+        loading={Boolean(selectedMapTask && applyingTaskId === selectedMapTask.id)}
+        onClose={() => setSelectedMapTask(null)}
+        onConfirm={applySelectedMapTask}
+      />
+      {toastMessage ? <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} /> : null}
     </Page>
   );
 }
