@@ -13,7 +13,7 @@ The first release supports:
 - required internal-link insertion into product, collection, and page HTML;
 - exact topical-map identity and rule provenance on every Store Task;
 - read-only advisory tasks for homepage and blog-index work, because Shopify does not expose their theme-controlled body layout through the product, collection, page, blog, or article resource mutations;
-- explicit approval and a second confirmation before every supported Shopify write.
+- one explicit, confirmed Apply action before every supported Shopify write.
 
 This release does not execute redirects, canonicalization, indexation, theme-template edits, navigation edits, price changes, product status changes, handles, or publishing-state changes. Blog articles continue through Content Pilot and are not duplicated in Store Pilot.
 
@@ -51,24 +51,24 @@ Its `proposedState` stores only allowlisted fields and exact before/after values
 
 Tasks use a deterministic dedupe key derived from strategy identity, rule IDs, target URL, action type, and proposed-state hash. Regeneration updates a still-pending matching task but never reopens completed or dismissed work silently.
 
-### 3. Approval and execution state machine
+### 3. Confirmed execution state machine
 
 Map tasks use these states:
 
 ```text
-pending -> approved -> applying -> completed
-   |          |           |
-   +------> dismissed      +-> failed
+pending -> applying -> completed
+   |           |
+   +------> dismissed
+               +-> failed
 ```
 
 - `pending`: generated and awaiting operator review.
-- `approved`: the operator approved the exact proposed state.
 - `applying`: claimed atomically by one request.
 - `completed`: Shopify returned the expected updated fields and an audit receipt was stored.
 - `failed`: no success is claimed; the task retains a safe error message and can be reviewed again.
 - `dismissed`: closed without a write.
 
-Approval and Apply are separate UI actions. Apply opens a confirmation modal that shows the exact current-to-proposed fields. The apply route requires `CONTENT_PUBLISH`, `EXECUTE_APPROVED_LIVE_ENABLED=true`, an `approved` task, and the active strategy to match the stored identity.
+The Apply button opens a confirmation modal that shows the exact current-to-proposed fields; confirming is the operator approval. The apply route requires `CONTENT_PUBLISH`, `EXECUTE_APPROVED_LIVE_ENABLED=true`, a `pending` executable task, and the active strategy to match the stored identity. No schema migration or parallel proposal model is introduced; the existing Store Task status and review fields record the transition.
 
 Immediately before mutation, the server refetches the exact Shopify object and compares its state hash with the task observation. Any changed object, active strategy, rule set, or proposed field returns `409` and performs no write. The request atomically claims the task before the external call, prevents duplicate execution, and records an audit entry for success or failure.
 
@@ -90,12 +90,11 @@ Every mutation checks Shopify `userErrors`. A transport error, user error, missi
 Store Pilot gains map-specific task filters and clear capability labels:
 
 - `Ready to review` for executable pending tasks;
-- `Approved` for tasks ready to apply;
 - `Advisory only` for homepage/blog-index or insufficiently exact rules;
 - `Failed` with a retry/review path;
 - existing completed and dismissed history.
 
-Each row expands to show strategy version, rule IDs, evidence timestamp, target URL, exact before/after fields, and why a task is advisory. Approve, Apply, and Dismiss use confirmation dialogs and surface API failures. “Complete” is not shown for executable map tasks; only a verified Shopify response can complete them.
+Each row expands to show strategy version, rule IDs, evidence timestamp, target URL, exact before/after fields, and why a task is advisory. Apply and Dismiss use confirmation dialogs and surface API failures. “Complete” is not shown for executable map tasks; only a verified Shopify response can complete them.
 
 ## Security and governance
 
@@ -133,4 +132,3 @@ Automated coverage must prove:
 - Store Pilot exposes the exact before/after review and confirmation flow.
 
 Production acceptance requires matching local/origin/server commits, an active build produced after that commit, PM2 online after the build, public health `ok`, authenticated task generation, one explicitly approved test action applied and verified against Shopify, zero unrelated Shopify/Meta writes, and a durable audit receipt. The operator chooses the acceptance action in the UI; deployment itself does not approve or execute one.
-
