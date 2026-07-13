@@ -33,6 +33,7 @@ const GapInputSchema = z.object({
   fromUrl: z.string().trim().min(1).max(500).optional(),
   toUrl: z.string().trim().min(1).max(500).optional(),
   priority: z.string().trim().min(1).max(40),
+  mapEvidence: z.string().trim().min(1).max(2_000).nullable(),
   observedEvidence: z.array(z.object({ query: z.string().trim().min(1).max(160), impressions: z.number().nonnegative(), position: z.number().nullable() }).strict()).max(20),
 }).strict();
 const PromoteGapsBodySchema = z.object({
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
     if (gap.strategyVersionId !== strategyVersionId || gap.packageSha256 !== packageSha256) return null;
     if (gap.kind === "content" && gap.page) {
       const page = commandCenter.pages.find((item) => item.url === gap.page && item.decision && (gap.action === "create" ? /(create|publish|new)/i : /(update|refresh|improve|optimi[sz]e|expand)/i).test(item.decision));
-      return page && gap.priority === (page.priority ?? "unspecified") && sameRules(gap.ruleIds, page.ruleIds) ? [...page.ruleIds] : null;
+      return page && gap.priority === (page.priority ?? "unspecified") && gap.mapEvidence === (page.evidence ?? null) && sameRules(gap.ruleIds, page.ruleIds) ? [...page.ruleIds] : null;
     }
     if (gap.kind === "link" && gap.action === "update" && gap.fromUrl && gap.toUrl) {
       const fromUrl = normalizeGovernedUrl(gap.fromUrl);
@@ -182,6 +183,7 @@ export async function POST(req: NextRequest) {
       const governedPage = commandCenter.pages.find((page) => page.url === targetUrl);
       const mapRefresh = gap.action === "refresh";
       const mapDecision = mapRefresh ? governedPage?.decision : undefined;
+      const mapEvidence = mapRefresh ? governedPage?.evidence ?? null : undefined;
       const proposalTitle =
         proposalType === "seo-fix"
           ? `Improve SERP snippet: ${title}`
@@ -224,7 +226,7 @@ export async function POST(req: NextRequest) {
         proposalType === "seo-fix"
           ? { articleHandle, articleTitle: title, targetQuery: gap.query, issue: gap.issue ?? gap.type ?? "serp-snippet" }
           : mapRefresh
-            ? { action: "refresh", articleHandle, articleTitle: title, targetUrl, mapDecision, priority: gap.priority, observedEvidence: gap.observedEvidence }
+            ? { action: "refresh", articleHandle, articleTitle: title, targetUrl, mapDecision, mapEvidence, priority: gap.priority, observedEvidence: gap.observedEvidence }
           : proposalType === "content-refresh"
             ? { action: "expand", articleHandle, articleTitle: title, currentWordCount: wordCount, targetWordCount: target, issue: gap.issue }
             : {
@@ -238,7 +240,7 @@ export async function POST(req: NextRequest) {
                 gscPosition: position ?? null,
                 gscImpressions: impressions ?? 0,
               },
-      sourceData: { source: "seo-pilot", query: gap.query, impressions: impressions ?? 0, position: position ?? null, issue: gap.issue ?? null, page: gap.page ?? null, strategyVersionId, packageSha256, ruleIds: governedRuleIds[gapIndex]!, ...(mapRefresh ? { mapDecision, priority: gap.priority, observedEvidence: gap.observedEvidence } : {}) },
+      sourceData: { source: "seo-pilot", query: gap.query, impressions: impressions ?? 0, position: position ?? null, issue: gap.issue ?? null, page: gap.page ?? null, strategyVersionId, packageSha256, ruleIds: governedRuleIds[gapIndex]!, ...(mapRefresh ? { mapDecision, mapEvidence, priority: gap.priority, observedEvidence: gap.observedEvidence } : {}) },
     };
     const keyed = withContentProposalDedupeKey(data as any);
     if (seenInBatch.has(keyed.dedupeKey)) {

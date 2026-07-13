@@ -77,3 +77,10 @@ Follow-up verification:
 - The refresh route regression asserts the persisted proposal contains no `thin` wording and no `targetWordCount`, while retaining evaluator context `{ type: "content", action: "update", targetUrl }`.
 - The refresh analysis fixture now uses the complete projected page contract without a call-site `as any` cast.
 - Final affected verification: 11 files passed, 113 tests passed; `npx tsc --noEmit`, `npm run lint`, and `git diff --check` exited 0.
+
+## Final map-evidence correspondence correction (2026-07-13)
+
+- Map-aware candidates now carry strict `mapEvidence` separately from bounded current `observedEvidence`; the UI labels both evidence sources independently.
+- Promotion compares submitted map evidence to the active server projection and rejects altered values before persistence. Successful refresh proposals persist the server-selected map evidence in both `proposedState` and `sourceData` alongside current observations.
+- Analysis tests now use a fully typed `TopicalMapCommandCenter` fixture with complete domain counts, rule-domain mappings, work, blockers, and provenance. No `as any` bypass remains in the refresh analysis contract.
+- Final affected verification: 9 files passed, 104 tests passed; `npx tsc --noEmit`, `npm run lint`, and `git diff --check` exited 0.

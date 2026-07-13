@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildMapAwareSeoGaps, buildProgrammaticSeoGaps, readAnalysisForStrategy } from "@/lib/seo/analysis";
+import type { TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 
 describe("buildProgrammaticSeoGaps", () => {
   it("keeps thin-content and missing-meta findings for the same article", () => {
@@ -94,15 +95,19 @@ describe("buildProgrammaticSeoGaps", () => {
 
 describe("map-aware SEO analysis", () => {
   const identity = { versionId: "v3", packageSha256: "a".repeat(64) };
-  const commandCenter = {
+  const commandCenter: TopicalMapCommandCenter = {
     identity: { ...identity, strategyVersion: "3", contractRevision: "3", activatedAt: null },
+    domainCounts: { clusters: 0, page_roles: 0, url_intent_ownership: 0, content_decisions: 2, prohibited_content: 1, internal_links: 1, redirects: 0, canonicalization: 0, indexation: 0, evidence_gates: 0, high_stakes_reviews: 0 },
+    clusters: [],
     pages: [
-      { url: "/blogs/news/mapped", decision: "create", primaryKeywordOrTheme: "mapped topic", priority: "high", ruleIds: ["rule:decision:1"] },
-      { url: "/blogs/news/prohibited", decision: "create", primaryKeywordOrTheme: "medical cure", ruleIds: ["rule:decision:2"] },
+      { url: "/blogs/news/mapped", decision: "create", primaryKeywordOrTheme: "mapped topic", priority: "high", ruleIds: ["rule:decision:1"], ruleDomains: { content_decisions: ["rule:decision:1"] } },
+      { url: "/blogs/news/prohibited", decision: "create", primaryKeywordOrTheme: "medical cure", ruleIds: ["rule:decision:2"], ruleDomains: { content_decisions: ["rule:decision:2"] } },
     ],
     prohibited: [{ url: "/blogs/news/prohibited", item: "Do not publish medical cure claims", ruleIds: ["rule:prohibited:1"] }],
     work: { internalLinks: [{ fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", currentBodyState: "absent", ruleIds: ["rule:link:1"] }], redirects: [], canonicalization: [], indexation: [] },
-  } as any;
+    blockers: { evidence: [], reviews: [] },
+    provenance: {},
+  };
 
   it("keeps unmapped search demand as an observation but only maps governed candidates", () => {
     const result = buildMapAwareSeoGaps({
@@ -119,9 +124,9 @@ describe("map-aware SEO analysis", () => {
   });
 
   it("emits an existing mapped page with a refresh decision as an actionable refresh with page evidence", () => {
-    const refreshMap = { ...commandCenter, pages: [{ url: "/blogs/news/source", decision: "optimize", primaryKeywordOrTheme: "source topic", priority: "medium", ruleIds: ["opaque-42"] }], prohibited: [] };
+    const refreshMap: TopicalMapCommandCenter = { ...commandCenter, pages: [{ url: "/blogs/news/source", decision: "optimize", evidence: "Preserve the winning intent while improving clarity.", primaryKeywordOrTheme: "source topic", priority: "medium", ruleIds: ["opaque-42"], ruleDomains: { content_decisions: ["opaque-42"] } }], prohibited: [] };
     const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {} }] });
-    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", query: "source topic", priority: "medium", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
+    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", query: "source topic", priority: "medium", mapEvidence: "Preserve the winning intent while improving clarity.", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
   });
 
   it("accepts cached analysis only for the exact active identity", () => {
@@ -133,7 +138,7 @@ describe("map-aware SEO analysis", () => {
   });
 
   it("rejects a malformed cached gap and a per-gap identity mismatch", () => {
-    const validGap = { kind: "content", strategyVersionId: "v3", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], state: "candidate", action: "create", query: "mapped", suggestedTitle: "Mapped guide", page: "/blogs/news/mapped", priority: "high", observedEvidence: [{ query: "mapped", impressions: 12, position: 8 }] };
+    const validGap = { kind: "content", strategyVersionId: "v3", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], state: "candidate", action: "create", query: "mapped", suggestedTitle: "Mapped guide", page: "/blogs/news/mapped", priority: "high", mapEvidence: null, observedEvidence: [{ query: "mapped", impressions: 12, position: 8 }] };
     const envelope = (gap: unknown) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [gap], observations: [], suppressed: [] } });
     expect(readAnalysisForStrategy(envelope({ ...validGap, ruleIds: [] }), identity)).toBeNull();
     expect(readAnalysisForStrategy(envelope({ ...validGap, strategyVersionId: "v4" }), identity)).toBeNull();

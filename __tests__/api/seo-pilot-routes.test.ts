@@ -107,7 +107,7 @@ function jsonRequest(path: string, body: Record<string, unknown>, method = "POST
 
 const strategyIdentity = { strategyVersionId: "v3", packageSha256: "a".repeat(64) };
 function governedPromotionRequest(body: { gaps: Array<Record<string, unknown>> } & Record<string, unknown>) {
-  return jsonRequest("/api/seo/gaps/promote", { ...strategyIdentity, ...body, gaps: body.gaps.map(gap => ({ priority: "high", observedEvidence: [], ...gap })) });
+  return jsonRequest("/api/seo/gaps/promote", { ...strategyIdentity, ...body, gaps: body.gaps.map(gap => ({ priority: "high", mapEvidence: Array.isArray(gap.ruleIds) && gap.ruleIds.includes("rule:black") ? "Refresh using current search performance." : null, observedEvidence: [], ...gap })) });
 }
 
 describe("SEO Pilot route regressions", () => {
@@ -134,7 +134,7 @@ describe("SEO Pilot route regressions", () => {
         ["rule:mapped", "/blogs/news/mapped", "create"], ["rule:black", "/blogs/news/black-rice-benefits", "update"],
         ["rule:ghost", "/blogs/news/ghost-handle", "update"], ["rule:target", "/blogs/news/target-article", "update"],
         ["rule:collection", "/collections/black-rice", "update"],
-      ].map(([ruleId, currentUrl, decision]) => ({ ruleId, ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl, decision, priority: "high" }, sourceReferences: [] } })),
+      ].map(([ruleId, currentUrl, decision]) => ({ ruleId, ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl, decision, priority: "high", ...(ruleId === "rule:black" ? { evidence: "Refresh using current search performance." } : {}) }, sourceReferences: [] } })),
         { ruleId: "rule:link", ruleType: "internal_links", sourceArtifactId: "internal-links", compiledPayload: { payload: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", currentBodyState: "absent", requiredAction: "add", recommendedAnchor: "mapped topic", linkPurpose: "supporting context", priority: "high" }, sourceReferences: [] } },
       ],
     } });
@@ -358,14 +358,21 @@ describe("SEO Pilot route regressions", () => {
     mockPrisma.contentProposal.create.mockResolvedValue({ id: "refresh-1", title: "Refresh content: Black Rice Benefits" });
     mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "black rice benefits", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], pages: [], queryPagePairs: [{ query: "black rice benefits", page: "/blogs/news/black-rice-benefits", clicks: 4, impressions: 120, position: "9" }], fetchedAt: new Date(), source: "normalized", window: null });
     const { POST } = await import("@/app/api/seo/gaps/promote/route");
-    const gap = { ...strategyIdentity, kind: "content", state: "candidate", action: "refresh", ruleIds: ["rule:black"], query: "black rice benefits", suggestedTitle: "Black Rice Benefits", page: "/blogs/news/black-rice-benefits", priority: "high", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] };
+    const gap = { ...strategyIdentity, kind: "content", state: "candidate", action: "refresh", ruleIds: ["rule:black"], query: "black rice benefits", suggestedTitle: "Black Rice Benefits", page: "/blogs/news/black-rice-benefits", priority: "high", mapEvidence: "Refresh using current search performance.", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] };
     const res = await POST(governedPromotionRequest({ gaps: [gap] }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(expect.objectContaining({ created: 1 }));
-    expect(mockCreateGovernedContentProposal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ data: expect.objectContaining({ proposalType: "content-refresh", articleHandle: "black-rice-benefits", title: "Refresh content: Black Rice Benefits", description: expect.stringContaining("update"), proposedState: { action: "refresh", articleHandle: "black-rice-benefits", articleTitle: "Black Rice Benefits", targetUrl: "/blogs/news/black-rice-benefits", mapDecision: "update", priority: "high", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] }, sourceData: expect.objectContaining({ strategyVersionId: "v3", ruleIds: ["rule:black"], mapDecision: "update", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] }) }), candidate: { type: "content", action: "update", targetUrl: "/blogs/news/black-rice-benefits" } }));
+    expect(mockCreateGovernedContentProposal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ data: expect.objectContaining({ proposalType: "content-refresh", articleHandle: "black-rice-benefits", title: "Refresh content: Black Rice Benefits", description: expect.stringContaining("update"), proposedState: { action: "refresh", articleHandle: "black-rice-benefits", articleTitle: "Black Rice Benefits", targetUrl: "/blogs/news/black-rice-benefits", mapDecision: "update", mapEvidence: "Refresh using current search performance.", priority: "high", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] }, sourceData: expect.objectContaining({ strategyVersionId: "v3", ruleIds: ["rule:black"], mapDecision: "update", mapEvidence: "Refresh using current search performance.", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] }) }), candidate: { type: "content", action: "update", targetUrl: "/blogs/news/black-rice-benefits" } }));
     const persisted = mockCreateGovernedContentProposal.mock.calls[0]?.[1]?.data;
     expect(JSON.stringify(persisted)).not.toMatch(/thin/i);
     expect(persisted?.proposedState).not.toHaveProperty("targetWordCount");
+  });
+
+  it("rejects client-authored map evidence that differs from the active projection", async () => {
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+    const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "content", state: "candidate", action: "refresh", ruleIds: ["rule:black"], query: "black rice benefits", suggestedTitle: "Black Rice Benefits", page: "/blogs/news/black-rice-benefits", priority: "high", mapEvidence: "Altered by client", observedEvidence: [] }] }));
+    expect(res.status).toBe(409);
+    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
   });
 
   it("maps a transaction-time strategy change to STRATEGY_CHANGED", async () => {
