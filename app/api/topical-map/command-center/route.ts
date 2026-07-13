@@ -27,6 +27,8 @@ export async function GET(req: Request) {
             contractRevision: true,
             packageSha256: true,
             activatedAt: true,
+            lifecycle: true,
+            validationStatus: true,
             compiledRules: {
               select: {
                 ruleId: true,
@@ -43,7 +45,7 @@ export async function GET(req: Request) {
     if (!activation) return response({ state: "no_active_strategy", generatedAt, commandCenter: null });
 
     const active = activation.strategyVersion;
-    if (active.contractRevision === null) throw new Error("INVALID_ACTIVE_STRATEGY");
+    if (active.lifecycle !== "active" || active.validationStatus !== "valid" || active.contractRevision === null) throw new Error("INVALID_ACTIVE_STRATEGY");
 
     return response({
       state: "ready",
