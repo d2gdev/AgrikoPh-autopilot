@@ -23,7 +23,7 @@ export interface SeoAnalysisArticle {
   wordCount: number | null;
   internalLinkCount: number | null;
   seoData: unknown;
-  indexedAt?: Date;
+  updatedAt?: Date;
 }
 
 export interface ProgrammaticSeoGap {
@@ -172,7 +172,7 @@ export function buildMapAwareSeoGaps(input: {
       continue;
     }
     const article = input.articles.find(item => `/blogs/news/${item.handle.toLowerCase()}` === page.url);
-    const capturedAt = exists ? article?.indexedAt : input.verifiedAbsentUrls?.get(page.url);
+    const capturedAt = exists ? article?.updatedAt : input.verifiedAbsentUrls?.get(page.url);
     if (!capturedAt || !usable(capturedAt)) { suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: page.url, reason: "observation_unavailable: store observation is stale, future-dated, or missing", ruleIds: [...page.ruleIds] }); continue; }
     const create = !exists && /(create|publish|new)/i.test(page.decision);
     const refresh = exists && /(refresh|update|improve|optimi[sz]e|expand)/i.test(page.decision);

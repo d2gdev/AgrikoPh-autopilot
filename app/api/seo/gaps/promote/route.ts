@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
             ...(candidateHandles.length > 0 ? [{ handle: { in: candidateHandles } }] : []),
           ],
         },
-        select: { handle: true, title: true, wordCount: true, indexedAt: true, linksData: true },
+        select: { handle: true, title: true, wordCount: true, updatedAt: true, linksData: true },
       });
 
     const articleByHandle = new Map(existingArticles.map((a) => [a.handle.toLowerCase(), a]));
@@ -142,9 +142,9 @@ export async function POST(req: NextRequest) {
         const governedLink = commandCenter.work.internalLinks.find((link) => link.fromUrl === fromUrl && link.toUrl === toUrl)!;
         const fromArticle = articleHandleFromBlogPage(fromUrl) ?? fromUrl;
         const toArticle = articleHandleFromBlogPage(toUrl) ?? toUrl;
-        const currentSource = await tx.articleRecord.findUnique({ where: { handle: fromArticle }, select: { indexedAt: true, linksData: true } });
-        if (!currentSource || !(currentSource.indexedAt instanceof Date)) throw new ObservationConflictError("OBSERVATION_CHANGED");
-        if (currentSource.indexedAt.toISOString() !== gap.observation.capturedAt) throw new ObservationConflictError("OBSERVATION_CHANGED");
+        const currentSource = await tx.articleRecord.findUnique({ where: { handle: fromArticle }, select: { updatedAt: true, linksData: true } });
+        if (!currentSource || !(currentSource.updatedAt instanceof Date)) throw new ObservationConflictError("OBSERVATION_CHANGED");
+        if (currentSource.updatedAt.toISOString() !== gap.observation.capturedAt) throw new ObservationConflictError("OBSERVATION_CHANGED");
         const internal = currentSource.linksData && typeof currentSource.linksData === "object" && Array.isArray((currentSource.linksData as { internal?: unknown }).internal) ? (currentSource.linksData as { internal: Array<{ href?: unknown }> }).internal : [];
         if (internal.some(item => typeof item.href === "string" && normalizeGovernedUrl(item.href) === toUrl)) throw new ObservationConflictError("OBSERVATION_CHANGED");
         rows.push({
@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
         ? articleByHandle.get(requestedHandle.toLowerCase())
         : articleByTitle.get(inputTitle.toLowerCase());
       if (gap.action === "create" && matchedArticle) throw new ObservationConflictError("OBSERVATION_CHANGED");
-      if (gap.action === "refresh" && (!matchedArticle || !(matchedArticle.indexedAt instanceof Date) || matchedArticle.indexedAt.toISOString() !== gap.observation.capturedAt)) throw new ObservationConflictError("OBSERVATION_CHANGED");
+      if (gap.action === "refresh" && (!matchedArticle || !(matchedArticle.updatedAt instanceof Date) || matchedArticle.updatedAt.toISOString() !== gap.observation.capturedAt)) throw new ObservationConflictError("OBSERVATION_CHANGED");
       const decision = gap.kind === "content" && gap.action === "create"
         ? { kind: "promote" as const, proposalType: "new-content" as const }
         : gap.kind === "content" && gap.action === "refresh"

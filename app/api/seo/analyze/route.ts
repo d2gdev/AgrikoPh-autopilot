@@ -111,11 +111,11 @@ export async function POST(req: NextRequest) {
   const [gscData, articleCandidates, governedArticles] = await Promise.all([
     getLatestGscData(),
     prisma.articleRecord.findMany({
-      select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, indexedAt: true },
-      orderBy: [{ indexedAt: "desc" }, { handle: "asc" }],
+      select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, updatedAt: true },
+      orderBy: [{ updatedAt: "desc" }, { handle: "asc" }],
       take: ARTICLE_LIMIT + 1,
     }),
-    prisma.articleRecord.findMany({ where: { handle: { in: governedBlogHandles } }, select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, linksData: true, indexedAt: true } }),
+    prisma.articleRecord.findMany({ where: { handle: { in: governedBlogHandles } }, select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, linksData: true, updatedAt: true } }),
   ]);
 
   const topQueries = gscData.queries.slice(0, 30);
@@ -126,9 +126,9 @@ export async function POST(req: NextRequest) {
   const linkInspections = new Map<string, { capturedAt: Date; targets: Set<string> }>();
   for (const article of governedArticles) {
     const source = commandCenter.work.internalLinks.find(link => link.fromUrl.endsWith(`/${article.handle}`))?.fromUrl;
-    if (!source || !(article.indexedAt instanceof Date)) continue;
+    if (!source || !(article.updatedAt instanceof Date)) continue;
     const internal = article.linksData && typeof article.linksData === "object" && Array.isArray((article.linksData as { internal?: unknown }).internal) ? (article.linksData as { internal: Array<{ href?: unknown }> }).internal : [];
-    linkInspections.set(source, { capturedAt: article.indexedAt, targets: new Set(internal.flatMap(link => typeof link.href === "string" ? [normalizeGovernedUrl(link.href)] : [])) });
+    linkInspections.set(source, { capturedAt: article.updatedAt, targets: new Set(internal.flatMap(link => typeof link.href === "string" ? [normalizeGovernedUrl(link.href)] : [])) });
   }
   const limits: SeoAnalysisLimits = {
     queriesTotal: gscData.queries.length,
@@ -187,7 +187,7 @@ export async function POST(req: NextRequest) {
       const match = /^\/blogs\/[^/]+\/([^/]+)$/.exec(url);
       if (!match) return [];
       const article = governedArticles.find(item => item.handle === match[1]);
-      const capturedAt = article?.indexedAt instanceof Date ? article.indexedAt : verifiedAbsentUrls.get(url);
+      const capturedAt = article?.updatedAt instanceof Date ? article.updatedAt : verifiedAbsentUrls.get(url);
       return capturedAt ? [capturedAt] : [];
     });
     const requiredLinkSources = [...new Set(commandCenter.work.internalLinks.map(link => link.fromUrl))];

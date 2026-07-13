@@ -129,7 +129,7 @@ describe("SEO Pilot route regressions", () => {
     mockPrisma.contentProposal.createMany.mockImplementation(async ({ data }) => { const p = await mockPrisma.contentProposal.create({ data: data[0] }); mockPrisma.contentProposal.findUnique.mockResolvedValue(p); return { count: 1 }; });
     mockPrisma.contentProposal.findUnique.mockResolvedValue({ id: "proposal-1" });
     mockPrisma.articleRecord.findMany.mockResolvedValue([]);
-    mockPrisma.articleRecord.findUnique.mockResolvedValue({ indexedAt: new Date(), linksData: { internal: [] } });
+    mockPrisma.articleRecord.findUnique.mockResolvedValue({ updatedAt: new Date(), linksData: { internal: [] } });
     mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: {
       id: "v3", strategyVersion: "3", contractRevision: 3, packageSha256: "a".repeat(64), activatedAt: new Date("2026-07-13T00:00:00Z"), lifecycle: "active", validationStatus: "valid",
       compiledRules: [...[
@@ -226,7 +226,7 @@ describe("SEO Pilot route regressions", () => {
     mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { ...active.strategyVersion, compiledRules: active.strategyVersion.compiledRules.filter((rule: { ruleId: string }) => rule.ruleId !== "rule:collection") } });
     const capturedAt = new Date();
     mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "mapped topic", clicks: 0, impressions: 40, ctr: "0%", position: "8" }], pages: [], queryPagePairs: [], fetchedAt: capturedAt, source: "normalized", window: null });
-    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, linksData: { internal: [] }, indexedAt: capturedAt }]);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, linksData: { internal: [] }, updatedAt: capturedAt }]);
     const { POST } = await import("@/app/api/seo/analyze/route");
     const post = await POST(jsonRequest("/api/seo/analyze", {}));
     expect(post.status).toBe(200);
@@ -245,10 +245,11 @@ describe("SEO Pilot route regressions", () => {
     const active = await mockPrisma.topicalMapActivation.findUnique();
     mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { ...active.strategyVersion, compiledRules: active.strategyVersion.compiledRules.filter((rule: { ruleId: string }) => rule.ruleId !== "rule:collection") } });
     const capturedAt = new Date();
+    const createdAt = new Date("2025-01-01T00:00:00.000Z");
     mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "mapped topic", clicks: 1, impressions: 40, ctr: "2%", position: "8" }], pages: [], queryPagePairs: [], fetchedAt: capturedAt, source: "normalized", window: null });
     mockPrisma.articleRecord.findMany.mockResolvedValue([
-      { handle: "mapped", title: "Mapped", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: {}, indexedAt: capturedAt },
-      { handle: "source", title: "Source", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: { internal: [{ href: "/blogs/news/mapped" }] }, indexedAt: capturedAt },
+      { handle: "mapped", title: "Mapped", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: {}, indexedAt: createdAt, updatedAt: capturedAt },
+      { handle: "source", title: "Source", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: { internal: [{ href: "/blogs/news/mapped" }] }, indexedAt: createdAt, updatedAt: capturedAt },
     ]);
     const { POST } = await import("@/app/api/seo/analyze/route");
     const post = await POST(jsonRequest("/api/seo/analyze", {}));
@@ -266,7 +267,7 @@ describe("SEO Pilot route regressions", () => {
   it("withholds a persisted zero-gap map when a required link inspection is missing", async () => {
     const capturedAt = new Date();
     mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "mapped topic", clicks: 1, impressions: 40, ctr: "2%", position: "8" }], pages: [], queryPagePairs: [], fetchedAt: capturedAt, source: "normalized", window: null });
-    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "mapped", title: "Mapped", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: {}, indexedAt: capturedAt }]);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "mapped", title: "Mapped", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: {}, updatedAt: capturedAt }]);
     const { POST } = await import("@/app/api/seo/analyze/route");
     const post = await POST(jsonRequest("/api/seo/analyze", {}));
     expect(post.status).toBe(200);
@@ -414,7 +415,7 @@ describe("SEO Pilot route regressions", () => {
 
   it("promotes an exact existing mapped refresh candidate as governed content refresh", async () => {
     const indexedAt = new Date();
-    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 400, indexedAt }]);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 400, updatedAt: indexedAt }]);
     mockPrisma.contentProposal.create.mockResolvedValue({ id: "refresh-1", title: "Refresh content: Black Rice Benefits" });
     mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "black rice benefits", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], pages: [], queryPagePairs: [{ query: "black rice benefits", page: "/blogs/news/black-rice-benefits", clicks: 4, impressions: 120, position: "9" }], fetchedAt: new Date(), source: "normalized", window: null });
     const { POST } = await import("@/app/api/seo/gaps/promote/route");
@@ -447,7 +448,7 @@ describe("SEO Pilot route regressions", () => {
 
   it("promotes a required internal link through the governed internal_link candidate", async () => {
     const indexedAt = new Date();
-    mockPrisma.articleRecord.findUnique.mockResolvedValue({ indexedAt, linksData: { internal: [] } });
+    mockPrisma.articleRecord.findUnique.mockResolvedValue({ updatedAt: indexedAt, linksData: { internal: [] } });
     mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-link", title: "Add internal link from source to mapped" });
     const { POST } = await import("@/app/api/seo/gaps/promote/route");
     const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "link", state: "candidate", action: "update", ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add internal link from source to mapped", type: "internal-link", page: "/blogs/news/source", fromUrl: "/blogs/news/source/../source", toUrl: "/blogs/news/mapped", observation: { source: "link_inspection", capturedAt: indexedAt.toISOString(), provenance: "ArticleRecord.linksData:/blogs/news/source" } }] }));
@@ -460,7 +461,7 @@ describe("SEO Pilot route regressions", () => {
   });
 
   it("rejects a create candidate when the page now exists inside the proposal transaction", async () => {
-    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "mapped", title: "Mapped topic guide", wordCount: 400, indexedAt: new Date() }]);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "mapped", title: "Mapped topic guide", wordCount: 400, updatedAt: new Date() }]);
     const { POST } = await import("@/app/api/seo/gaps/promote/route");
     const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "content", state: "candidate", action: "create", ruleIds: ["rule:mapped"], query: "mapped topic", suggestedTitle: "Mapped topic guide", page: "/blogs/news/mapped" }] }));
     expect(res.status).toBe(409);
@@ -470,7 +471,7 @@ describe("SEO Pilot route regressions", () => {
 
   it("rejects a link candidate when its exact inspected source changed or now contains the target", async () => {
     const capturedAt = new Date();
-    mockPrisma.articleRecord.findUnique.mockResolvedValue({ indexedAt: capturedAt, linksData: { internal: [{ href: "/blogs/news/mapped" }] } });
+    mockPrisma.articleRecord.findUnique.mockResolvedValue({ updatedAt: capturedAt, linksData: { internal: [{ href: "/blogs/news/mapped" }] } });
     const { POST } = await import("@/app/api/seo/gaps/promote/route");
     const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "link", state: "candidate", action: "update", ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add internal link from source to mapped", type: "internal-link", page: "/blogs/news/source", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", observation: { source: "link_inspection", capturedAt: capturedAt.toISOString(), provenance: "ArticleRecord.linksData:/blogs/news/source" } }] }));
     expect(res.status).toBe(409);

@@ -121,7 +121,7 @@ describe("map-aware SEO analysis", () => {
     const result = buildMapAwareSeoGaps({
       strategy: identity, commandCenter,
       queries: [{ query: "unmapped popular query", clicks: 0, impressions: 900, ctr: "0%", position: "8" }],
-      queryPagePairs: [], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, indexedAt: asOf }],
+      queryPagePairs: [], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, updatedAt: asOf }],
       verifiedAbsentUrls: new Map([["/blogs/news/mapped", asOf], ["/blogs/news/prohibited", asOf]]),
       linkInspections: new Map([["/blogs/news/source", { capturedAt: asOf, targets: new Set<string>() }]]), asOf,
     });
@@ -136,7 +136,7 @@ describe("map-aware SEO analysis", () => {
   it("emits an existing mapped page with a refresh decision as an actionable refresh with page evidence", () => {
     const refreshMap: TopicalMapCommandCenter = { ...commandCenter, pages: [{ url: "/blogs/news/source", decision: "optimize", evidence: "Preserve the winning intent while improving clarity.", primaryKeywordOrTheme: "source topic", priority: "medium", ruleIds: ["opaque-42"], ruleDomains: { content_decisions: ["opaque-42"] } }], prohibited: [] };
     const asOf = new Date("2026-07-13T00:00:00.000Z");
-    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, indexedAt: asOf }], asOf });
+    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, updatedAt: asOf }], asOf });
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", query: "source topic", priority: "medium", mapEvidence: "Preserve the winning intent while improving clarity.", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
   });
 
