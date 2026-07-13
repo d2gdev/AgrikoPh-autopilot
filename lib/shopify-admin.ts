@@ -195,8 +195,18 @@ export async function updateProductSeo(
   seo: { title?: string; description?: string },
   content: { descriptionHtml?: string } = {}
 ): Promise<{ id: string; seo: { title: string | null; description: string | null } }> {
-  if ("title" in content) throw new Error("title is not allowed for product mutations");
+  validateGovernedBodyContent("product", content);
+  validateGovernedSeo(seo);
   validateGovernedFields(seo.title, seo.description, content.descriptionHtml);
+  const seoInput = {
+    ...(seo.title === undefined ? {} : { title: seo.title }),
+    ...(seo.description === undefined ? {} : { description: seo.description }),
+  };
+  const productInput = {
+    id: productId,
+    seo: seoInput,
+    ...(content.descriptionHtml === undefined ? {} : { descriptionHtml: content.descriptionHtml }),
+  };
   const mutation = `
     mutation UpdateProductSeo($product: ProductUpdateInput!) {
       productUpdate(product: $product) {
@@ -219,7 +229,7 @@ export async function updateProductSeo(
       product: { id: string; seo: { title: string | null; description: string | null } } | null;
       userErrors: Array<{ field: string[] | null; message: string }>;
     };
-  }>(mutation, { product: { id: productId, seo, ...content } });
+  }>(mutation, { product: productInput });
 
   const errors = data.productUpdate.userErrors;
   if (errors?.length) throw new Error(errors[0]!.message);
@@ -234,18 +244,40 @@ function validateGovernedFields(title?: string, description?: string, html?: str
   if (html !== undefined && html.length > 50_000) throw new Error("HTML must be 50,000 characters or fewer");
 }
 
+function validateGovernedBodyContent(resourceType: "product" | "collection", content: object): void {
+  for (const key of Object.keys(content)) {
+    if (key !== "descriptionHtml") throw new Error(`${key} is not allowed for ${resourceType} mutations`);
+  }
+}
+
+function validateGovernedSeo(seo: object): void {
+  for (const key of Object.keys(seo)) {
+    if (key !== "title" && key !== "description") throw new Error(`${key} is not allowed in governed SEO mutations`);
+  }
+}
+
 export async function updateCollectionSeoAndBody(
   collectionId: string,
   seo: { title?: string; description?: string },
   content: { descriptionHtml?: string } = {}
 ): Promise<{ id: string; seo: { title: string | null; description: string | null } }> {
-  if ("title" in content) throw new Error("title is not allowed for collection mutations");
+  validateGovernedBodyContent("collection", content);
+  validateGovernedSeo(seo);
   validateGovernedFields(seo.title, seo.description, content.descriptionHtml);
+  const seoInput = {
+    ...(seo.title === undefined ? {} : { title: seo.title }),
+    ...(seo.description === undefined ? {} : { description: seo.description }),
+  };
+  const input = {
+    id: collectionId,
+    seo: seoInput,
+    ...(content.descriptionHtml === undefined ? {} : { descriptionHtml: content.descriptionHtml }),
+  };
   const data = await shopifyFetch<{ collectionUpdate: { collection: { id: string; seo: { title: string | null; description: string | null } } | null; userErrors: Array<{ message: string }> } }>(`
     mutation UpdateCollectionSeoAndBody($input: CollectionInput!) {
       collectionUpdate(input: $input) { collection { id seo { title description } } userErrors { field message } }
     }
-  `, { input: { id: collectionId, seo, ...content } });
+  `, { input });
   if (data.collectionUpdate.userErrors?.length) throw new Error(data.collectionUpdate.userErrors[0]!.message);
   if (!data.collectionUpdate.collection) throw new Error("Shopify returned no collection in collectionUpdate response");
   return data.collectionUpdate.collection;

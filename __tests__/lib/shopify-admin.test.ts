@@ -119,6 +119,32 @@ describe("governed Shopify mutations", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["product", { handle: "forged" }],
+    ["product", { status: "ACTIVE" }],
+    ["product", { price: "1.00" }],
+    ["collection", { handle: "forged" }],
+    ["collection", { title: "Forged title" }],
+    ["collection", { status: "ACTIVE" }],
+  ] as const)("rejects forged %s mutation content before transport", async (resourceType, forged) => {
+    global.fetch = vi.fn() as unknown as typeof fetch;
+    const mutation = resourceType === "product"
+      ? updateProductSeo("p1", {}, forged as any)
+      : updateCollectionSeoAndBody("c1", {}, forged as any);
+    await expect(mutation).rejects.toThrow(/not allowed/i);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["product", "collection"] as const)("rejects forged %s SEO keys before transport", async (resourceType) => {
+    global.fetch = vi.fn() as unknown as typeof fetch;
+    const forgedSeo = { title: "Valid SEO", status: "ACTIVE" } as any;
+    const mutation = resourceType === "product"
+      ? updateProductSeo("p1", forgedSeo)
+      : updateCollectionSeoAndBody("c1", forgedSeo);
+    await expect(mutation).rejects.toThrow(/status.*not allowed/i);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it("throws user errors and missing returned objects", async () => {
     global.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ data: { collectionUpdate: { collection: null, userErrors: [{ message: "Bad collection" }] } } }) })
