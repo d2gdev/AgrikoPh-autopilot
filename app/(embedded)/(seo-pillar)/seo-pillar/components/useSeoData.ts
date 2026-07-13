@@ -2,6 +2,36 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import type { SeoData, Analysis, Health, KeywordRow, Cluster, SnapshotTrendPoint, StrategyPackageOverview } from "./types";
+import type { MapAnalysisEnvelope, MapAnalysisState, MapIdentity, MapLoadState } from "./map-types";
+
+export function resolveMapAnalysisState(input: { active: MapIdentity | null; envelope: MapAnalysisEnvelope }): MapAnalysisState {
+  if (!input.active) return { state: "no_active_strategy", analysis: null };
+  if (!input.envelope.strategy || input.envelope.strategy.versionId !== input.active.versionId || input.envelope.strategy.packageSha256 !== input.active.packageSha256) {
+    return { state: "stale", analysis: null };
+  }
+  if (!input.envelope.analysis) return { state: "empty", analysis: null, generatedAt: input.envelope.generatedAt };
+  return { state: "ready", analysis: input.envelope.analysis };
+}
+
+export async function loadCommandCenterAndAnalysis(authFetch: AuthFetch): Promise<{ mapState: MapLoadState; mapAnalysisState: MapAnalysisState }> {
+  const governance = await authFetch("/api/topical-map/command-center");
+  if (!governance.ok) {
+    const message = "Strategy command center is unavailable.";
+    return { mapState: { state: "error", message }, mapAnalysisState: { state: "error", analysis: null, message } };
+  }
+  const body = await governance.json();
+  if (body.state === "no_active_strategy" || !body.commandCenter) {
+    return { mapState: { state: "no_active_strategy" }, mapAnalysisState: { state: "no_active_strategy", analysis: null } };
+  }
+  const mapState: MapLoadState = { state: "ready", generatedAt: body.generatedAt, commandCenter: body.commandCenter };
+  const response = await authFetch("/api/seo/analysis");
+  if (!response.ok) {
+    const message = "Strategy analysis is unavailable.";
+    return { mapState, mapAnalysisState: { state: "error", analysis: null, message } };
+  }
+  const envelope = await response.json() as MapAnalysisEnvelope;
+  return { mapState, mapAnalysisState: resolveMapAnalysisState({ active: body.commandCenter.identity, envelope }) };
+}
 
 export async function loadSeoCoreRequest(
   authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
@@ -105,6 +135,8 @@ export function useSeoData() {
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [trend, setTrend] = useState<SnapshotTrendPoint[]>([]);
   const [strategyPackage, setStrategyPackage] = useState<StrategyPackageOverview>({ state: "loading" });
+  const [mapState, setMapState] = useState<MapLoadState>({ state: "loading" });
+  const [mapAnalysisState, setMapAnalysisState] = useState<MapAnalysisState>({ state: "loading", analysis: null });
   const trendFirst = trend[0];
   const trendLast = trend[trend.length - 1];
 
@@ -115,6 +147,14 @@ export function useSeoData() {
   const loadCore = useCallback(async () => {
     await loadSeoCoreRequest(authFetch, (d) => { setCache(cacheKey, d); setData(d); });
   }, [authFetch, cacheKey]);
+
+  const reloadCommandCenter = useCallback(async () => {
+    setMapState({ state: "loading" });
+    setMapAnalysisState({ state: "loading", analysis: null });
+    const result = await loadCommandCenterAndAnalysis(authFetch);
+    setMapState(result.mapState);
+    setMapAnalysisState(result.mapAnalysisState);
+  }, [authFetch]);
 
   // Shared by the initial mount load and a manual refresh, so a refresh
   // re-pulls every tab's data — not just the Overview/Opportunities `data`
@@ -130,7 +170,7 @@ export function useSeoData() {
       p.catch((e) => { clear(); failed.push(section); throw e; });
     await Promise.allSettled([
       track(loadCore(), "SEO data", () => setData(null)),
-      track(okJson("/api/seo/analysis", "AI analysis").then((d) => { setAnalysis(d.analysis ?? null); setAnalysisAt(d.generatedAt ?? null); }), "AI analysis", () => { setAnalysis(null); setAnalysisAt(null); }),
+      track(reloadCommandCenter(), "Strategy command center", () => { setMapState({ state: "error", message: "Strategy command center is unavailable." }); setMapAnalysisState({ state: "error", analysis: null, message: "Strategy command center is unavailable." }); }),
       track(okJson("/api/seo/health", "On-page health").then((d) => setHealth(d?.totals ? d : null)), "On-page health", () => setHealth(null)),
       track(okJson("/api/seo/keywords", "Keywords").then((d) => setKeywords(d.keywords ?? [])), "Keywords", () => setKeywords([])),
       track(okJson("/api/content-pilot/topic-clusters", "Pillar clusters").then((d) => setClusters(d.clusters ?? [])), "Pillar clusters", () => setClusters([])),
@@ -141,7 +181,7 @@ export function useSeoData() {
       }), "Strategy governance", () => setStrategyPackage({ state: "unavailable", message: "Strategy governance data is unavailable. Existing SEO data remains available." })),
     ]);
     setLoadError(failed.length ? `Some sections failed to load: ${failed.join(", ")}. Try Refresh data.` : null);
-  }, [authFetch, loadCore]);
+  }, [authFetch, loadCore, reloadCommandCenter]);
 
   useEffect(() => {
     setLoading(true);
@@ -188,6 +228,9 @@ export function useSeoData() {
     clusters, setClusters,
     trend, trendFirst, trendLast,
     strategyPackage,
+    mapState,
+    mapAnalysisState,
+    reloadCommandCenter,
     refreshing,
     loadError, setLoadError,
     toast, setToast,

@@ -52,6 +52,7 @@ export interface Analysis {
   recommendationEvidence?: string[];
   limits?: SeoAnalysisLimits;
 }
+export type { MapAnalysisEnvelope, MapAnalysisState, MapIdentity, MapLoadState } from "./map-types";
 export interface SeoAnalysisLimits { queriesTotal: number; queriesAnalyzed: number; articlesTotalLowerBound: number; articlesAnalyzed: number; articlesTruncated: boolean }
 export interface HealthTotals { total: number; missingMeta: number; thinContent: number; noInternalLinks: number; lowHeadings: number; orphan: number; titleLengthOff?: number; descLengthOff?: number; missingDesc?: number; missingH1?: number; duplicateTitle?: number }
 export interface HealthOffender { handle: string; title: string; wordCount: number; issues: string[] }

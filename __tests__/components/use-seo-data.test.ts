@@ -1,5 +1,42 @@
 import { describe, expect, it, vi } from "vitest";
-import { loadSeoCoreRequest, refreshResultToast, seoCoreCacheKey, waitForSeoRefresh } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/useSeoData";
+import { loadCommandCenterAndAnalysis, loadSeoCoreRequest, refreshResultToast, resolveMapAnalysisState, seoCoreCacheKey, waitForSeoRefresh } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/useSeoData";
+
+const identityV3 = { versionId: "v3", strategyVersion: "3", contractRevision: "2", packageSha256: "a".repeat(64), activatedAt: null };
+const analysis = { gaps: [], observations: [], suppressed: [] };
+const envelopeV2 = { analysis, generatedAt: "2026-07-12T00:00:00.000Z", strategy: { ...identityV3, versionId: "v2" } };
+const envelopeV3 = { analysis, generatedAt: "2026-07-13T00:00:00.000Z", strategy: identityV3 };
+
+describe("active topical-map loading", () => {
+  it("rejects analysis for a different active strategy as stale", () => {
+    expect(resolveMapAnalysisState({ active: identityV3, envelope: envelopeV2 })).toEqual({ state: "stale", analysis: null });
+    expect(resolveMapAnalysisState({ active: identityV3, envelope: envelopeV3 })).toEqual({ state: "ready", analysis });
+  });
+
+  it("distinguishes no active strategy from empty findings", () => {
+    expect(resolveMapAnalysisState({ active: null, envelope: envelopeV3 })).toEqual({ state: "no_active_strategy", analysis: null });
+    expect(resolveMapAnalysisState({ active: identityV3, envelope: envelopeV3 })).toEqual({ state: "ready", analysis });
+  });
+
+  it("loads command-center identity before requesting cached analysis", async () => {
+    const calls: string[] = [];
+    const authFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input); calls.push(url);
+      if (url.includes("command-center")) return new Response(JSON.stringify({ state: "ready", generatedAt: "now", commandCenter: { identity: identityV3 } }), { status: 200 });
+      return new Response(JSON.stringify(envelopeV3), { status: 200 });
+    });
+    const result = await loadCommandCenterAndAnalysis(authFetch);
+    expect(calls).toEqual(["/api/topical-map/command-center", "/api/seo/analysis"]);
+    expect(result.mapAnalysisState.state).toBe("ready");
+  });
+
+  it("does not request or expose old analysis when governance fails", async () => {
+    const authFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "unavailable" }), { status: 500 }));
+    const result = await loadCommandCenterAndAnalysis(authFetch);
+    expect(authFetch).toHaveBeenCalledOnce();
+    expect(result.mapState).toEqual({ state: "error", message: "Strategy command center is unavailable." });
+    expect(result.mapAnalysisState).toEqual({ state: "error", analysis: null, message: "Strategy command center is unavailable." });
+  });
+});
 
 const valid = { topQueries: [], topPages: [], gscFetchedAt: null, ga4FetchedAt: null, trends: null, opportunities: [], gscPages: [], queryPagePairs: [] };
 
