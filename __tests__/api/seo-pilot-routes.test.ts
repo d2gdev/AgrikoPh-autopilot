@@ -128,11 +128,13 @@ describe("SEO Pilot route regressions", () => {
     mockPrisma.articleRecord.findMany.mockResolvedValue([]);
     mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: {
       id: "v3", strategyVersion: "3", contractRevision: 3, packageSha256: "a".repeat(64), activatedAt: new Date("2026-07-13T00:00:00Z"), lifecycle: "active", validationStatus: "valid",
-      compiledRules: [
+      compiledRules: [...[
         ["rule:mapped", "/blogs/news/mapped", "create"], ["rule:black", "/blogs/news/black-rice-benefits", "update"],
         ["rule:ghost", "/blogs/news/ghost-handle", "update"], ["rule:target", "/blogs/news/target-article", "update"],
         ["rule:collection", "/collections/black-rice", "update"],
       ].map(([ruleId, currentUrl, decision]) => ({ ruleId, ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl, decision }, sourceReferences: [] } })),
+        { ruleId: "rule:link", ruleType: "internal_links", sourceArtifactId: "internal-links", compiledPayload: { payload: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", currentBodyState: "absent", requiredAction: "add", recommendedAnchor: "mapped topic", linkPurpose: "supporting context", priority: "high" }, sourceReferences: [] } },
+      ],
     } });
     mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
     mockPrisma.auditLog.create.mockResolvedValue({});
@@ -333,6 +335,25 @@ describe("SEO Pilot route regressions", () => {
     expect(mockCreateGovernedContentProposal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ expectedStrategy: { versionId: "v3", packageSha256: "a".repeat(64) } }));
   });
 
+  it("promotes a required internal link through the governed internal_link candidate", async () => {
+    mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-link", title: "Add internal link from source to mapped" });
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+    const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "link", state: "candidate", action: "update", ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add internal link from source to mapped", type: "internal-link", page: "/blogs/news/source", fromUrl: "/blogs/news/source/../source", toUrl: "/blogs/news/mapped" }] }));
+    expect(res.status).toBe(200);
+    expect(mockCreateGovernedContentProposal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      candidate: { type: "internal_link", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped" },
+      data: expect.objectContaining({ proposalType: "internal-link", changeType: "internal_link", sourceData: expect.objectContaining({ ruleIds: ["rule:link"], strategyVersionId: "v3" }) }),
+    }));
+    expect(await res.json()).toEqual(expect.objectContaining({ created: 1 }));
+  });
+
+  it("rejects an internal-link gap without its exact source and target", async () => {
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+    const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "link", state: "candidate", action: "update", ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add internal link from source to mapped", type: "internal-link", page: "/blogs/news/source", fromUrl: "/blogs/news/source" }] }));
+    expect(res.status).toBe(409);
+    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
+  });
+
   it("does not report already-covered GSC queries as new content gaps", async () => {
     mockSeoData.getLatestGscData.mockResolvedValue({
       queries: [
@@ -375,7 +396,7 @@ describe("SEO Pilot route regressions", () => {
       articlesAnalyzed: 1,
       articlesTruncated: false,
     });
-    expect(body.analysis.contentGaps).toEqual([expect.objectContaining({ page: "/blogs/news/mapped", ruleIds: ["rule:mapped"] })]);
+    expect(body.analysis.contentGaps).toEqual(expect.arrayContaining([expect.objectContaining({ page: "/blogs/news/mapped", ruleIds: ["rule:mapped"] }), expect.objectContaining({ kind: "link", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", ruleIds: ["rule:link"] })]));
     expect(body.analysis.observations).toEqual([expect.objectContaining({ query: "moringa tea recipe" })]);
     expect(body.analysis.contentGaps).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ query: "black rice benefits" })])

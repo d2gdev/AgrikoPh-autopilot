@@ -11,6 +11,8 @@ import { getLatestGscData } from "@/lib/seo/data";
 import { withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 import { articleHandleFromBlogPage, classifySeoPromotion } from "@/lib/seo/promotion";
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
+import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
+import type { StrategyProposalCandidate } from "@/lib/topical-map/proposal-context";
 
 const GapInputSchema = z.object({
   query: z.string().trim().min(1).max(160),
@@ -66,8 +68,10 @@ export async function POST(req: NextRequest) {
       return page && sameRules(gap.ruleIds, page.ruleIds) ? [...page.ruleIds] : null;
     }
     if (gap.kind === "link" && gap.action === "update" && gap.fromUrl && gap.toUrl) {
-      const link = commandCenter.work.internalLinks.find((item) => item.fromUrl === gap.fromUrl && item.toUrl === gap.toUrl && /(absent|missing|not present|add)/i.test(`${item.currentBodyState ?? ""} ${item.requiredAction ?? ""}`));
-      return link && gap.page === gap.fromUrl && sameRules(gap.ruleIds, link.ruleIds) ? [...link.ruleIds] : null;
+      const fromUrl = normalizeGovernedUrl(gap.fromUrl);
+      const toUrl = normalizeGovernedUrl(gap.toUrl);
+      const link = commandCenter.work.internalLinks.find((item) => item.fromUrl === fromUrl && item.toUrl === toUrl && /(absent|missing|not present|add)/i.test(`${item.currentBodyState ?? ""} ${item.requiredAction ?? ""}`));
+      return link && normalizeGovernedUrl(gap.page ?? "") === fromUrl && sameRules(gap.ruleIds, link.ruleIds) ? [...link.ruleIds] : null;
     }
     return null;
   });
@@ -83,8 +87,9 @@ export async function POST(req: NextRequest) {
   let skipped = 0;
 
   // Candidate titles/handles from the input (deduped, valid gaps only).
-  const candidateTitles = Array.from(new Set(gaps.map((g) => g.suggestedTitle)));
-  const gapHandles = gaps.map((g) => g.articleHandle ?? articleHandleFromBlogPage(g.page)).filter((h): h is string => Boolean(h));
+  const contentGaps = gaps.filter((gap) => gap.kind === "content");
+  const candidateTitles = Array.from(new Set(contentGaps.map((g) => g.suggestedTitle)));
+  const gapHandles = contentGaps.map((g) => g.articleHandle ?? articleHandleFromBlogPage(g.page)).filter((h): h is string => Boolean(h));
   const candidateHandles = Array.from(new Set(gapHandles));
   const skippedReasons = { duplicate: 0, missingArticle: 0, nonBlogExistingPage: 0, missingGovernedContext: 0 };
 
@@ -105,9 +110,28 @@ export async function POST(req: NextRequest) {
     const articleByTitle = new Map(existingArticles.map((a) => [a.title.toLowerCase(), a]));
 
     const seenInBatch = new Set<string>();
-    const rows: Array<{ data: Record<string, unknown>; candidate: { type: "content" | "seo_metadata"; action?: "create" | "update"; targetUrl: string } }> = [];
+    const rows: Array<{ data: Record<string, unknown>; candidate: StrategyProposalCandidate }> = [];
 
     for (const [gapIndex, gap] of gaps.entries()) {
+      if (gap.kind === "link") {
+        const fromUrl = normalizeGovernedUrl(gap.fromUrl!);
+        const toUrl = normalizeGovernedUrl(gap.toUrl!);
+        const governedLink = commandCenter.work.internalLinks.find((link) => link.fromUrl === fromUrl && link.toUrl === toUrl)!;
+        const fromArticle = articleHandleFromBlogPage(fromUrl) ?? fromUrl;
+        const toArticle = articleHandleFromBlogPage(toUrl) ?? toUrl;
+        rows.push({
+          data: {
+            proposalType: "internal-link", changeType: "internal_link", articleHandle: fromArticle,
+            priority: /critical|highest|high/i.test(governedLink.priority ?? "") ? "P1" : /low/i.test(governedLink.priority ?? "") ? "P3" : "P2", impact: "medium", effort: "low",
+            title: `Add internal link from ${fromArticle} to ${toArticle}`,
+            description: governedLink.linkPurpose ? `Add the required internal link for ${governedLink.linkPurpose}.` : `Add the required internal link from ${fromUrl} to ${toUrl}.`,
+            proposedState: { fromArticle, toArticle, suggestedAnchorText: governedLink.recommendedAnchor ?? gap.query, fromUrl, toUrl },
+            sourceData: { source: "seo-pilot", strategyVersionId, packageSha256, ruleIds: governedRuleIds[gapIndex]!, fromUrl, toUrl, recommendedAnchor: governedLink.recommendedAnchor ?? null, linkPurpose: governedLink.linkPurpose ?? null, priority: governedLink.priority ?? null },
+          },
+          candidate: { type: "internal_link", fromUrl, toUrl },
+        });
+        continue;
+      }
       const knownQuery = knownQueries.get(gap.query.toLowerCase());
       const impressions = gap.impressions ?? knownQuery?.impressions ?? 0;
       const position = gap.position ?? (knownQuery ? Number(knownQuery.position) : undefined);

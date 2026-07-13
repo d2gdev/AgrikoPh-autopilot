@@ -1,6 +1,6 @@
 # Task 3 report
 
-Status: DONE_WITH_CONCERNS
+Status: DONE
 
 ## Ground
 
@@ -56,3 +56,11 @@ Implementation commit: `694c7f20aed0af5636bda39e0e63394108393c82`.
 - `npx tsc --noEmit` — passed.
 - Targeted ESLint across all changed production/tests — passed with no findings.
 - `git diff --check` — passed.
+
+## Internal-link promotion correction
+
+- Corrected the earlier overbroad claim that all map gaps promoted through an authoritative candidate: required-link gaps now have a dedicated `internal-link` proposal row and `{ type: "internal_link", fromUrl, toUrl }` evaluator candidate.
+- The path normalizes and validates exact source/destination against the active required-link rule, bypasses unrelated article/title lookup, retains server-selected anchor/purpose/priority and exact rule provenance, and continues through the governed transaction and proposal dedupe key.
+- Added successful normalized internal-link promotion coverage plus fail-closed missing-target coverage. Existing `createContentProposalOnce`/internal-link dedupe tests cover persistence idempotency.
+- RED: focused route test returned 409 because the required-link gap fell through the content-oriented path instead of producing a link row.
+- GREEN/final: six suites (`analysis`, SEO routes, proposal integration, evaluator, proposal creation, proposal dedupe) passed 75/75 tests; `npx tsc --noEmit`, targeted ESLint, and `git diff --check` all passed.
