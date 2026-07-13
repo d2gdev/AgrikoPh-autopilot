@@ -1,10 +1,11 @@
 import { BlockStack, Modal, Text } from "@shopify/polaris";
 import { MapTaskDetails, type StoreTaskView } from "./MapTaskDetails";
 
-export function ApplyMapTaskModal({ open, task, loading, onClose, onConfirm }: {
+export function ApplyMapTaskModal({ open, task, loading, disabled = false, onClose, onConfirm }: {
   open: boolean;
   task: StoreTaskView | null;
   loading: boolean;
+  disabled?: boolean;
   onClose: () => void;
   onConfirm: () => void;
 }) {
@@ -13,8 +14,8 @@ export function ApplyMapTaskModal({ open, task, loading, onClose, onConfirm }: {
       open={open && Boolean(task)}
       onClose={onClose}
       title="Apply topical-map change"
-      primaryAction={{ content: "Apply change", onAction: onConfirm, loading, disabled: loading }}
-      secondaryActions={[{ content: "Cancel", onAction: onClose, disabled: loading }]}
+      primaryAction={{ content: "Apply change", onAction: onConfirm, loading, disabled: disabled || loading }}
+      secondaryActions={[{ content: "Cancel", onAction: onClose, disabled: disabled || loading }]}
     >
       <Modal.Section>
         {task ? (

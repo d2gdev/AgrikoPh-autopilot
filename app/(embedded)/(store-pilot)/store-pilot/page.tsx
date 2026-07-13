@@ -3,7 +3,7 @@
 import {
   Page, Layout, Card, Text, Badge, InlineStack, BlockStack, ProgressBar, DataTable, Tabs, Button, Banner, Toast,
 } from "@shopify/polaris";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
@@ -91,6 +91,18 @@ export default function StorePilotReportPage() {
   const [applyingTaskId, setApplyingTaskId] = useState<string | null>(null);
   const [selectedMapTask, setSelectedMapTask] = useState<StoreTask | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const mutationBusyRef = useRef(false);
+  const mutationBusy = Boolean(syncingMap || applyingTaskId || updatingTaskId);
+
+  function beginMutation(): boolean {
+    if (mutationBusyRef.current) return false;
+    mutationBusyRef.current = true;
+    return true;
+  }
+
+  function endMutation() {
+    mutationBusyRef.current = false;
+  }
 
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
@@ -124,6 +136,7 @@ export default function StorePilotReportPage() {
   }, [loadTasks]);
 
   async function updateTask(id: string, status: "completed" | "dismissed") {
+    if (!beginMutation()) return;
     setUpdatingTaskId(id);
     setTaskError(null);
     try {
@@ -138,10 +151,12 @@ export default function StorePilotReportPage() {
       setTaskError(err instanceof Error ? err.message : "Task update failed.");
     } finally {
       setUpdatingTaskId(null);
+      endMutation();
     }
   }
 
   async function syncTopicalMap() {
+    if (!beginMutation()) return;
     setSyncingMap(true);
     setTaskError(null);
     try {
@@ -154,11 +169,12 @@ export default function StorePilotReportPage() {
       setTaskError(err instanceof Error ? err.message : "Topical-map synchronization failed.");
     } finally {
       setSyncingMap(false);
+      endMutation();
     }
   }
 
   async function applySelectedMapTask() {
-    if (!selectedMapTask) return;
+    if (!selectedMapTask || !beginMutation()) return;
     setApplyingTaskId(selectedMapTask.id);
     setTaskError(null);
     try {
@@ -172,6 +188,7 @@ export default function StorePilotReportPage() {
       setTaskError(err instanceof Error ? err.message : "Topical-map change could not be applied.");
     } finally {
       setApplyingTaskId(null);
+      endMutation();
     }
   }
 
@@ -217,7 +234,7 @@ export default function StorePilotReportPage() {
       </InlineStack>
       <Text as="p" fontWeight="semibold">{task.title}</Text>
       <Text as="p" tone="subdued" variant="bodySm">{task.description}</Text>
-      {task.targetUrl ? (
+      {!mapTask && task.targetUrl ? (
         <Text as="p" tone="subdued" variant="bodySm">{task.targetUrl}</Text>
       ) : null}
       {mapTask ? <MapTaskDetails task={task} compact /> : null}
@@ -225,8 +242,8 @@ export default function StorePilotReportPage() {
     formatDate(task.createdAt),
     activeTaskStatus === "pending" ? (
       <InlineStack key={`${task.id}-actions`} gap="200" wrap={false}>
-        {mapTask ? (executable ? <Button size="slim" onClick={() => setSelectedMapTask(task)} disabled={Boolean(updatingTaskId || applyingTaskId || syncingMap)}>Apply</Button> : null) : (
-          <Button size="slim" onClick={() => updateTask(task.id, "completed")} loading={updatingTaskId === task.id}>Complete</Button>
+        {mapTask ? (executable ? <Button size="slim" onClick={() => setSelectedMapTask(task)} disabled={mutationBusy}>Apply</Button> : null) : (
+          <Button size="slim" onClick={() => updateTask(task.id, "completed")} loading={updatingTaskId === task.id} disabled={mutationBusy}>Complete</Button>
         )}
         <Button
           size="slim"
@@ -234,7 +251,7 @@ export default function StorePilotReportPage() {
           variant="plain"
           onClick={() => updateTask(task.id, "dismissed")}
           loading={updatingTaskId === task.id}
-          disabled={Boolean(updatingTaskId || applyingTaskId || syncingMap)}
+          disabled={mutationBusy}
         >
           Dismiss
         </Button>
@@ -310,8 +327,8 @@ export default function StorePilotReportPage() {
                   <Text as="p" tone="subdued">Review routed market and store opportunities before changing Shopify or pricing decisions.</Text>
                 </BlockStack>
                 <InlineStack gap="200" wrap>
-                  <Button onClick={syncTopicalMap} loading={syncingMap} disabled={tasksLoading || Boolean(updatingTaskId || applyingTaskId)}>Sync topical map</Button>
-                  <Button onClick={loadTasks} loading={tasksLoading} disabled={syncingMap || Boolean(updatingTaskId || applyingTaskId)}>Refresh</Button>
+                  <Button onClick={syncTopicalMap} loading={syncingMap} disabled={tasksLoading || mutationBusy}>Sync topical map</Button>
+                  <Button onClick={loadTasks} loading={tasksLoading} disabled={mutationBusy}>Refresh</Button>
                 </InlineStack>
               </InlineStack>
               {taskError ? (
@@ -375,6 +392,7 @@ export default function StorePilotReportPage() {
         open={Boolean(selectedMapTask)}
         task={selectedMapTask}
         loading={Boolean(selectedMapTask && applyingTaskId === selectedMapTask.id)}
+        disabled={mutationBusy}
         onClose={() => setSelectedMapTask(null)}
         onConfirm={applySelectedMapTask}
       />

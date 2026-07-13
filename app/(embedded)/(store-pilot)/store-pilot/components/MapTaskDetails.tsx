@@ -1,4 +1,5 @@
-import { Badge, BlockStack, Box, Divider, InlineStack, Text } from "@shopify/polaris";
+import { Badge, BlockStack, Box, Button, Divider, InlineStack, Text } from "@shopify/polaris";
+import { useState } from "react";
 
 export interface StoreTaskView {
   id: string;
@@ -31,6 +32,24 @@ function displayValue(value: unknown): string {
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : "Unavailable";
 }
 
+const PREVIEW_LENGTH = 400;
+
+function ValuePreview({ value, kind }: { value: string; kind: "current" | "proposed" }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = value.length > PREVIEW_LENGTH;
+  const shown = long && !expanded ? `${value.slice(0, PREVIEW_LENGTH)}…` : value;
+  return (
+    <BlockStack gap="100">
+      <Text as="p">{shown}</Text>
+      {long ? (
+        <Button variant="plain" textAlign="left" onClick={() => setExpanded((current) => !current)} ariaExpanded={expanded}>
+          {expanded ? `Show preview of ${kind} value` : `Show full ${kind} value`}
+        </Button>
+      ) : null}
+    </BlockStack>
+  );
+}
+
 export function changedFields(task: StoreTaskView) {
   const before = record(task.proposedState.before);
   const after = record(task.proposedState.after);
@@ -57,8 +76,10 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
     <BlockStack gap={compact ? "200" : "300"}>
       <InlineStack gap="200" wrap>
         <Badge tone={executable ? "success" : "attention"}>{executable ? "Executable" : "Advisory only"}</Badge>
-        {typeof task.sourceData.strategyVersionId === "string" ? <Badge>{task.sourceData.strategyVersionId}</Badge> : null}
-        {typeof task.sourceData.packageSha256 === "string" ? <Badge>{`Package ${task.sourceData.packageSha256.slice(0, 12)}`}</Badge> : null}
+      </InlineStack>
+      <InlineStack gap="300" wrap>
+        {typeof task.sourceData.strategyVersionId === "string" ? <Text as="p" variant="bodySm"><strong>Strategy version:</strong> {task.sourceData.strategyVersionId}</Text> : null}
+        {typeof task.sourceData.packageSha256 === "string" ? <Text as="p" variant="bodySm"><strong>Package:</strong> {task.sourceData.packageSha256.slice(0, 12)}</Text> : null}
       </InlineStack>
       <BlockStack gap="100">
         <Text as="p" variant="bodySm" tone="subdued">Target</Text>
@@ -77,8 +98,8 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
         <BlockStack key={field.key} gap="100">
           <Text as="p" fontWeight="semibold">{field.label}</Text>
           <InlineStack gap="300" wrap>
-            <Box minWidth="200px"><Text as="p" variant="bodySm" tone="subdued">Before</Text><Text as="p">{field.before}</Text></Box>
-            <Box minWidth="200px"><Text as="p" variant="bodySm" tone="subdued">After</Text><Text as="p">{field.after}</Text></Box>
+            <Box minWidth="200px"><Text as="p" variant="bodySm" tone="subdued">Before</Text><ValuePreview value={field.before} kind="current" /></Box>
+            <Box minWidth="200px"><Text as="p" variant="bodySm" tone="subdued">After</Text><ValuePreview value={field.after} kind="proposed" /></Box>
           </InlineStack>
         </BlockStack>
       ))}
