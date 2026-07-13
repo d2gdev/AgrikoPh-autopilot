@@ -28,6 +28,10 @@ import { OpportunityClustersPanel } from "./components/panels/OpportunityCluster
 import { StrategyPanel } from "./components/panels/StrategyPanel";
 import { StrategyPackagePanel } from "./components/StrategyPackagePanel";
 import { SeoPilotNavigation } from "./components/SeoPilotNavigation";
+import { MapOverviewPanel } from "./components/panels/MapOverviewPanel";
+import { MapPagesPanel } from "./components/panels/MapPagesPanel";
+import { MapWorkPanel } from "./components/panels/MapWorkPanel";
+import type { MapAwareSeoGap } from "@/lib/seo/analysis";
 
 // render a page path/url as a subdued span (or link when it looks like a path/url)
 const pagePath = (p: string | null | undefined) => {
@@ -63,7 +67,7 @@ export default function SeoPillarReportPage() {
     data, loading,
     analysis, setAnalysis, analysisAt, setAnalysisAt,
     health, keywords, setKeywords, clusters, trend, trendFirst, trendLast,
-    refreshing, loadError, setLoadError, toast, setToast, strategyPackage,
+    refreshing, loadError, setLoadError, toast, setToast, strategyPackage, mapState, mapAnalysisState,
     refreshData,
   } = useSeoData();
   const [tab, setTab] = useState(0);
@@ -75,6 +79,8 @@ export default function SeoPillarReportPage() {
   const [promoted, setPromoted] = useState<Set<string>>(new Set());
   const [promotingOpp, setPromotingOpp] = useState<Set<string>>(new Set());
   const [promotedOpp, setPromotedOpp] = useState<Set<string>>(new Set());
+  const [promotingMap, setPromotingMap] = useState<Set<string>>(new Set());
+  const [promotedMap, setPromotedMap] = useState<Set<string>>(new Set());
   const [promotingOnPage, setPromotingOnPage] = useState<Set<string>>(new Set());
   const [promotedOnPage, setPromotedOnPage] = useState<Set<string>>(new Set());
   const [promotingRec, setPromotingRec] = useState<Set<number>>(new Set());
@@ -141,6 +147,18 @@ export default function SeoPillarReportPage() {
       } else setToast(d.error ?? "Could not create proposals.");
     } catch { setToast("Could not create proposals."); }
     finally { setPromoting((s) => { const n = new Set(s); keys.forEach((k) => n.delete(k)); return n; }); }
+  }, [authFetch]);
+
+  const proposeMapGap = useCallback(async (gap: MapAwareSeoGap) => {
+    const key = gap.ruleIds.join("|");
+    setPromotingMap(current => new Set([...current, key]));
+    try {
+      const response = await authFetch("/api/seo/gaps/promote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gaps: [gap] }) });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok && (result.created > 0 || result.skipped > 0)) { setPromotedMap(current => new Set([...current, key])); setToast(result.created > 0 ? "Created governed proposal in Content Pilot." : "This governed proposal is already handled."); }
+      else setToast(result.error ?? "Could not create governed proposal.");
+    } catch { setToast("Could not create governed proposal."); }
+    finally { setPromotingMap(current => { const next = new Set(current); next.delete(key); return next; }); }
   }, [authFetch]);
 
   const promoteOpportunity = useCallback(async (o: Opportunity) => {
@@ -392,9 +410,7 @@ export default function SeoPillarReportPage() {
       ? <Text key={`d-${o.query}`} as="span" tone="subdued">—</Text>
       : <Badge key={`d-${o.query}`} tone={diffBand(o.difficulty).tone}>{`${o.difficulty} · ${diffBand(o.difficulty).label}`}</Badge>,
     <Tooltip key={`t-${o.query}`} content={o.reason}><Text as="span" fontWeight="semibold">+{o.potentialClicks}</Text></Tooltip>,
-    promotedOpp.has(opportunityKey(o))
-      ? <Badge key={`a-${o.query}`} tone="success">Created</Badge>
-      : <Button key={`a-${o.query}`} size="slim" loading={promotingOpp.has(opportunityKey(o))} onClick={() => promoteOpportunity(o)}>Create brief</Button>,
+    <Button key={`a-${o.query}`} size="slim" disabled accessibilityLabel={`No map rule association for ${o.query}`}>No map rule association</Button>,
   ]);
 
   // page health — already sorted by severity desc; flagged rows lead
@@ -448,15 +464,11 @@ export default function SeoPillarReportPage() {
   }
 
   const tabs = [
-    { id: "overview", content: "Overview" },
-    { id: "opps", content: `Opportunities${data?.opportunities?.length ? ` (${data.opportunities.length})` : ""}` },
-    { id: "gaps", content: "Content Gaps" },
-    { id: "health", content: "On-Page Health" },
-    { id: "keywords", content: "Keywords" },
-    { id: "clusters", content: "Pillar Clusters" },
-    { id: "pagehealth", content: `Page Health${flaggedPageHealth.length ? ` (${flaggedPageHealth.length})` : ""}` },
-    { id: "oppclusters", content: `Opportunity Clusters${data?.clusters?.length ? ` (${data.clusters.length})` : ""}` },
-    { id: "strategy", content: "Strategy" },
+    { id: "overview", content: "Map overview", label: "Map overview" },
+    { id: "pages", content: "Pages & ownership", label: "Pages & ownership" },
+    { id: "gaps", content: "Content gaps", label: "Content gaps" },
+    { id: "work", content: "Links & technical", label: "Links & technical" },
+    { id: "evidence", content: "Search evidence", label: "Search evidence" },
   ];
 
   return (
@@ -505,86 +517,21 @@ export default function SeoPillarReportPage() {
               ) : (
                 <>
                   {/* ── OVERVIEW ── */}
-                  {tab === 0 && (
-                    <OverviewPanel
-                      brief={brief}
-                      cur={cur}
-                       prev={prev}
-                       gscFetchedAt={data?.gscFetchedAt}
-                       gscFreshness={data?.gscFreshness}
-                       ga4FetchedAt={data?.ga4FetchedAt}
-                      ga4Freshness={data?.ga4Freshness}
-                      previousFetchedAt={t?.previousFetchedAt}
-                      trend={trend}
-                      trendFirst={trendFirst}
-                      trendLast={trendLast}
-                      moverRows={moverRows}
-                      pageRows={pageRows}
-                      queryRows={queryRows}
-                      gscPages={data?.gscPages ?? []}
-                      queryPagePairs={data?.queryPagePairs ?? []}
-                    />
-                  )}
+                  {tab === 0 && (mapState.state === "ready" ? <MapOverviewPanel mapState={mapState}/> : <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} busy={promotingMap} done={promotedMap} onPropose={proposeMapGap}/>)}
 
                   {/* ── OPPORTUNITIES ── */}
-                  {tab === 1 && (
-                    <OpportunitiesPanel
-                      oppCount={visibleOpportunities.length}
-                      oppSearch={oppSearch}
-                      setOppSearch={setOppSearch}
-                      oppType={oppType}
-                      setOppType={setOppType}
-                      oppTypeOptions={oppTypeOptions}
-                      oppRows={oppRows}
-                      oppSort={oppSort}
-                      setOppSort={setOppSort}
-                    />
-                  )}
+                  {tab === 1 && (mapState.state === "ready" ? <MapPagesPanel map={mapState.commandCenter}/> : <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} busy={promotingMap} done={promotedMap} onPropose={proposeMapGap}/>)}
 
                   {/* ── CONTENT GAPS ── */}
                   {tab === 2 && (
-                    <ContentGapsPanel
-                      gaps={gaps}
-                      gapFlags={gapFlags}
-                      unpromotedCount={gaps.length}
-                      anyPromoting={anyPromoting}
-                      onPromoteAll={() => promoteGaps(gaps)}
-                      onPromoteGap={(g) => promoteGaps([g])}
-                      analysis={analysis}
-                      analysisAt={analysisAt}
-                      quickWinFlags={quickWinFlags}
-                      onPlanQuickWin={(i, w) => planStrategy(i, w, setPromotingQw, setPromotedQw)}
-                      recFlags={recFlags}
-                      onPlanRecommendation={(i, r) => planStrategy(i, r, setPromotingRec, setPromotedRec)}
-                      onOpenContentPilot={() => router.push(withShopifyContextUrl("/content-pilot"))}
-                    />
+                    <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} busy={promotingMap} done={promotedMap} onPropose={proposeMapGap}/>
                   )}
 
                   {/* ── ON-PAGE HEALTH ── */}
-                  {tab === 3 && (
-                    <OnPageHealthPanel
-                      health={health}
-                      offenderFlags={offenderFlags}
-                      onPromote={promoteOnPage}
-                      onOpenContentPilot={() => router.push(withShopifyContextUrl("/content-pilot"))}
-                    />
-                  )}
+                  {tab === 3 && (mapState.state === "ready" ? <MapWorkPanel map={mapState.commandCenter} gaps={mapAnalysisState.state === "ready" ? mapAnalysisState.analysis.gaps : []} busy={promotingMap} done={promotedMap} onPropose={proposeMapGap}/> : <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} busy={promotingMap} done={promotedMap} onPropose={proposeMapGap}/>)}
 
                   {/* ── KEYWORDS ── */}
-                  {tab === 4 && (
-                    <KeywordsPanel
-                      keywords={keywords}
-                      newKeyword={newKeyword}
-                      setNewKeyword={setNewKeyword}
-                      addKeyword={addKeyword}
-                      untrackingKw={untrackingKw}
-                      untrackKeyword={untrackKeyword}
-                      kwSearch={kwSearch}
-                      setKwSearch={setKwSearch}
-                      kwSort={kwSort}
-                      setKwSort={setKwSort}
-                    />
-                  )}
+                  {tab === 4 && <BlockStack gap="500"><OverviewPanel brief={brief} cur={cur} prev={prev} gscFetchedAt={data?.gscFetchedAt} gscFreshness={data?.gscFreshness} ga4FetchedAt={data?.ga4FetchedAt} ga4Freshness={data?.ga4Freshness} previousFetchedAt={t?.previousFetchedAt} trend={trend} trendFirst={trendFirst} trendLast={trendLast} moverRows={moverRows} pageRows={pageRows} queryRows={queryRows} gscPages={data?.gscPages ?? []} queryPagePairs={data?.queryPagePairs ?? []}/><OpportunitiesPanel oppCount={visibleOpportunities.length} oppSearch={oppSearch} setOppSearch={setOppSearch} oppType={oppType} setOppType={setOppType} oppTypeOptions={oppTypeOptions} oppRows={oppRows} oppSort={oppSort} setOppSort={setOppSort}/></BlockStack>}
 
                   {/* ── PILLAR CLUSTERS ── */}
                   {tab === 5 && (

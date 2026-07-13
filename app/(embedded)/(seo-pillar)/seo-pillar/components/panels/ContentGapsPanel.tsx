@@ -1,132 +1,18 @@
-import { Button, Text, Badge, InlineStack, BlockStack } from "@shopify/polaris";
-import { ResponsiveDataTable } from "@/app/(embedded)/components/ResponsiveDataTable";
-import { timeAgo } from "@/lib/format";
-import { contentGapReason } from "../content-gap-reason";
-import { gapKey } from "../types";
-import type { Analysis, ContentGap } from "../types";
+import { Badge, BlockStack, Button, InlineStack, Text } from "@shopify/polaris";
+import type { MapAwareSeoGap } from "@/lib/seo/analysis";
+import type { MapAnalysisState, MapLoadState } from "../map-types";
+import { Provenance } from "./MapPagesPanel";
 import styles from "../seo-pilot-responsive.module.css";
 
-type Flag = { isPromoted: boolean; isPromoting: boolean };
-type PlanFlag = { isPlanned: boolean; isPlanning: boolean };
-
-export function ContentGapsPanel({
-  gaps,
-  gapFlags,
-  unpromotedCount,
-  anyPromoting,
-  onPromoteAll,
-  onPromoteGap,
-  analysis,
-  analysisAt,
-  quickWinFlags,
-  onPlanQuickWin,
-  recFlags,
-  onPlanRecommendation,
-  onOpenContentPilot,
-}: {
-  gaps: ContentGap[];
-  gapFlags: Flag[];
-  unpromotedCount: number;
-  anyPromoting: boolean;
-  onPromoteAll: () => void;
-  onPromoteGap: (gap: ContentGap) => void;
-  analysis: Analysis | null;
-  analysisAt: string | null;
-  quickWinFlags: PlanFlag[];
-  onPlanQuickWin: (index: number, text: string) => void;
-  recFlags: PlanFlag[];
-  onPlanRecommendation: (index: number, text: string) => void;
-  onOpenContentPilot: () => void;
-}) {
-  return (
-    <BlockStack gap="400">
-      <InlineStack align="space-between" blockAlign="center" wrap>
-        <Text variant="headingMd" as="h2">AI content-gap analysis</Text>
-        {gaps.length > 0 && (
-          <Button variant="primary" loading={anyPromoting} disabled={unpromotedCount === 0}
-            onClick={onPromoteAll}>
-            {`Create ${unpromotedCount} draft${unpromotedCount === 1 ? "" : "s"}`}
-          </Button>
-        )}
-      </InlineStack>
-      {!analysis ? (
-        <Text as="p" tone="subdued">No analysis yet. Click <b>AI Analysis</b> (top-right) to generate one from your latest GSC data.</Text>
-      ) : (
-        <>
-          {analysisAt && <Text as="p" tone="subdued" variant="bodySm">Generated {timeAgo(analysisAt)}</Text>}
-          {analysis.limits?.articlesTruncated && (
-            <Text as="p" tone="caution">
-              This analysis inspected {analysis.limits.articlesAnalyzed} of at least {analysis.limits.articlesTotalLowerBound} articles. Results may not represent the full corpus.
-            </Text>
-          )}
-          {analysis.summary && <Text as="p">{analysis.summary}</Text>}
-          {(analysis.quickWins ?? []).length > 0 && (
-            <BlockStack gap="100">
-              <Text variant="headingSm" as="h3">Quick wins</Text>
-              {analysis.quickWins!.map((w, i) => (
-                <InlineStack key={i} gap="200" align="space-between" blockAlign="start" wrap>
-                  <div className={styles.actionContent}><BlockStack gap="050">
-                    <Text as="p">• {w}</Text>
-                    {analysis.quickWinEvidence?.[i] && (
-                      <Text as="p" tone="subdued" variant="bodySm">{analysis.quickWinEvidence[i]}</Text>
-                    )}
-                  </BlockStack></div>
-                  {quickWinFlags[i]?.isPlanned
-                    ? <Badge tone="success">Planned</Badge>
-                    : <Button size="slim" loading={quickWinFlags[i]?.isPlanning} onClick={() => onPlanQuickWin(i, w)}>Plan it</Button>}
-                </InlineStack>
-              ))}
-            </BlockStack>
-          )}
-          {gaps.length > 0 && (
-            <BlockStack gap="200">
-              <Text variant="headingSm" as="h3">Content gaps → draft proposals</Text>
-              <ResponsiveDataTable
-                columnContentTypes={["text", "numeric", "numeric", "text", "text", "text"]}
-                headings={["Query", "Impr.", "Position", "Reason", "Suggested title", "Action"]}
-                rows={gaps.map((g, i) => [
-                  g.query,
-                  Number(g.impressions ?? 0).toLocaleString(),
-                  Number(g.position ?? 0).toFixed(1),
-                  contentGapReason(g),
-                  g.suggestedTitle,
-                  gapFlags[i]?.isPromoted
-                    ? <Badge key={`${gapKey(g)}-${i}`} tone="success">Created</Badge>
-                    : <Button key={`${gapKey(g)}-${i}`} size="slim" loading={gapFlags[i]?.isPromoting} onClick={() => onPromoteGap(g)}>Create draft</Button>,
-                ])}
-              />
-              <InlineStack>
-                <Button variant="plain" onClick={onOpenContentPilot}>Open Content Pilot to review &amp; publish drafts →</Button>
-              </InlineStack>
-            </BlockStack>
-          )}
-          {gaps.length === 0 && (
-            <Text as="p" tone="subdued">
-              {analysis.limits?.articlesTruncated
-                ? "No actionable content gaps were found in the inspected subset. Existing, rejected, published, and already handled ideas are filtered out of this queue."
-                : "No actionable content gaps remain. Existing, rejected, published, and already handled ideas are filtered out of this queue."}
-            </Text>
-          )}
-          {(analysis.recommendations ?? []).length > 0 && (
-            <BlockStack gap="100">
-              <Text variant="headingSm" as="h3">Recommendations</Text>
-              {analysis.recommendations!.map((r, i) => (
-                <InlineStack key={i} gap="200" align="space-between" blockAlign="start" wrap>
-                  <div className={styles.actionContent}><BlockStack gap="050">
-                    <Text as="p">• {r}</Text>
-                    {analysis.recommendationEvidence?.[i] && (
-                      <Text as="p" tone="subdued" variant="bodySm">{analysis.recommendationEvidence[i]}</Text>
-                    )}
-                  </BlockStack></div>
-                  {recFlags[i]?.isPlanned
-                    ? <Badge tone="success">Planned</Badge>
-                    : <Button size="slim" loading={recFlags[i]?.isPlanning} onClick={() => onPlanRecommendation(i, r)}>Plan it</Button>}
-                </InlineStack>
-              ))}
-            </BlockStack>
-          )}
-        </>
-      )}
-    </BlockStack>
-  );
+export function ContentGapsPanel({ mapState, analysisState, busy, done, onPropose }: { mapState: MapLoadState; analysisState: MapAnalysisState; busy: Set<string>; done: Set<string>; onPropose: (gap: MapAwareSeoGap) => void }) {
+  if (mapState.state === "loading" || analysisState.state === "loading") return <Text as="p">Loading the active topical map…</Text>;
+  if (mapState.state === "no_active_strategy" || analysisState.state === "no_active_strategy") return <Text as="p">No active topical map. Activate a validated strategy before creating governed work.</Text>;
+  if (mapState.state === "error" || analysisState.state === "error") return <Text as="p" tone="critical">Strategy command center unavailable. No proposal actions are enabled.</Text>;
+  if (analysisState.state === "stale") return <Text as="p" tone="caution">Analysis belongs to an earlier strategy. Refresh analysis before creating proposals.</Text>;
+  if (analysisState.state === "empty") return <Text as="p" tone="subdued">No map-bound analysis yet. Run AI Analysis to compare current evidence with the active map.</Text>;
+  if (mapState.state !== "ready") return null;
+  const gaps = analysisState.analysis.gaps.filter(g => g.kind === "content");
+  return <div className={styles.commandCenter}><BlockStack gap="400"><BlockStack gap="100"><Text as="h2" variant="headingLg">Content gaps</Text><Text as="p" tone="subdued">Only active-map requirements can become proposals. Each proposal retains strategy identity and rule provenance.</Text></BlockStack>
+    {gaps.length === 0 ? <Text as="p" tone="subdued">No governed content gaps remain for the active strategy.</Text> : <div className={styles.compactList}>{gaps.map(gap => { const key = gap.ruleIds.join("|"); return <section className={styles.listRow} key={key}><BlockStack gap="200"><InlineStack align="space-between" wrap><Text as="h3" variant="headingSm">{gap.suggestedTitle}</Text><Badge tone="info">{gap.action === "create" ? "New content" : "Refresh content"}</Badge></InlineStack><Text as="p"><b>Map requirement:</b> {gap.page ?? gap.query}</Text><Text as="p" tone="subdued"><b>Observed evidence:</b> {gap.query} · Priority inherited from active rules</Text><InlineStack align="space-between" blockAlign="center" wrap><Provenance ruleIds={gap.ruleIds} map={mapState.commandCenter}/>{done.has(key) ? <Badge tone="success">Proposal created</Badge> : <Button variant="primary" size="slim" loading={busy.has(key)} onClick={() => onPropose(gap)}>Create proposal</Button>}</InlineStack></BlockStack></section>; })}</div>}
+  </BlockStack></div>;
 }

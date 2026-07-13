@@ -1,75 +1,47 @@
-# Task 5 Report — Content Pilot publishing
+# Task 5 report: SEO Pilot topical-map command center
 
-## Status
+Status: DONE_WITH_CONCERNS
 
-Implemented and committed after fresh red-green service tests.
+## Ground
 
-## What changed
+- Replaced the nine legacy navigation destinations with five operator jobs: Map overview, Pages & ownership, Content gaps, Links & technical, and Search evidence.
+- Added active-package identity and health totals covering all eleven topical-map rule domains.
+- Added page ownership and technical work lists with labelled filters and expandable rule/source provenance.
+- Connected active-strategy content and missing-internal-link candidates to the governed `/api/seo/gaps/promote` proposal route, with busy and created/already-handled feedback.
+- Kept redirect, canonicalization, and indexation execution unavailable, with explicit explanatory disabled controls.
+- Kept raw GSC observations separate and disabled their proposal controls when no map rule association exists.
+- Added distinct loading, no-active-strategy, command-center error, stale-analysis, and empty-analysis copy.
+- Added narrow-layout list styling, overflow containment, keyboard-visible disclosure focus, and non-color status text.
 
-- Added a shared publish service that claims an operation, re-reads the claimed proposal, records Shopify success before bookkeeping, and finalizes audit/Opportunity work retry-safely.
-- Migrated manual and scheduled publishing to it; scheduled publishing retries incomplete bookkeeping without calling Shopify.
-- Added a `CONTENT_PUBLISH`-protected reconciliation endpoint and operator warning/reconciliation copy.
-- Added auth-first embedded publishing and cron locking for the reindex route.
+## TDD evidence
 
-## Verification
+Red command:
 
-- `npm test -- --run __tests__/lib/content-pilot/publish-service.test.ts __tests__/api/content-pilot-publish-failure.test.ts __tests__/lib/content-pilot/publish-draft.test.ts __tests__/components/pilot-usability-helpers.test.ts` — 32 passed.
-- `npm run typecheck` — passed.
-- `npm run typecheck:test` — passed.
-- `git diff --check` — passed.
+`npm test -- __tests__/components/topical-map-strategy-panel.test.ts __tests__/components/seo-pilot-responsive.test.ts`
+
+Observed: 2 test files failed. The failures named missing `MapOverviewPanel.tsx`, `MapPagesPanel.tsx`, `MapWorkPanel.tsx`, `.commandCenter`, and `.compactList` contracts.
+
+Green command:
+
+`npm test -- __tests__/components/topical-map-strategy-panel.test.ts __tests__/components/seo-pilot-responsive.test.ts __tests__/components/use-seo-data.test.ts __tests__/a11y/no-raw-hex.test.ts`
+
+Observed: 4 files passed, 30 tests passed, 0 failed.
+
+Additional verification:
+
+- `npx tsc --noEmit`: exit 0.
+- `git diff --check`: exit 0.
+- `npm run lint`: exit 0 with 140 existing/project warnings and no errors. Several warnings now surface legacy SEO Pilot state/imports that became unreachable after the navigation cutover; they do not block compilation but should be removed in a later focused cleanup rather than broadening this task.
+
+## Self-review
+
+- Live execution authority was not broadened. Only the already governed proposal route is called.
+- Raw strategy source bytes and compiled payloads are not rendered.
+- Rule IDs, source artifact identity, bounded source-reference coverage IDs, blockers, and active package identity remain visible.
+- Technical controls accurately distinguish operator-visible required work from unavailable live execution.
+- No nested cards, raw colors, or horizontal scrolling were added.
 
 ## Concerns
 
-- Shopify inspection helpers do not yet expose a proposal-type-specific read API. Reconciliation is intentionally conservative: it finalizes a durable published receipt, returns ready only for an operation with no recorded Shopify ID, and otherwise leaves an ambiguous state for operator inspection. No live Shopify mutation is issued.
-
-## Final specification follow-up (2026-07-10)
-
-- Added a guarded, read-only Shopify inspection adapter for new-content, body refresh/thin-content, SEO metafield, and internal-link marker operations. Reconciliation records an inspected receipt as `applied`; it returns a proposal to `ready` only after the inspector proves `not_applied`; missing or uncertain reads remain `ambiguous`.
-- Added explicit QueueTab stages/pills for `publishing` and `publish-error`, preserving the existing approval gate while making ProposalRow’s Reconcile action reachable.
-- Queue feedback now renders `Published with warning: ...` and includes the server warning for `published_with_warnings` results.
-- Verification: focused Task 5 suite — 7 files / 32 tests; `npm run typecheck`; `npm run typecheck:test`; `git diff --check`.
-
-## Specification follow-up — 2026-07-10
-
-### Red evidence
-
-- `npm test -- --run __tests__/lib/content-pilot/publish-service.test.ts __tests__/lib/content-pilot/publish-reconciliation.test.ts __tests__/api/content-pilot-publish-failure.test.ts` initially failed three regressions: local SEO context could throw after Shopify success before receipt persistence; a receipt-less `publishing` row was reset to `ready`; and the scheduled path reindexed each item rather than the batch.
-
-### Green evidence
-
-- Local SEO/blog-context lookup failures after Shopify success now record the minimal receipt first and return `published_with_warnings`; no post-success path invokes ordinary recovery.
-- Receipt write failures remain `reconciliation_required`; no recovery update resets the operation to `ready`.
-- Reconciliation never treats a missing local receipt as proof of non-application. It remains an explicit ambiguous, reconciliation-required state unless future authenticated proposal-type Shopify inspection proves not-applied.
-- `publishActor` and `publishTrigger` are persisted in migration `20260710190000_content_proposal_publish_audit_metadata`; finalizer audit `action`, `actor`, and `meta.trigger` therefore remain correct for manual, scheduled, and delayed-finalizer work.
-- Scheduled publishing passes IDs to the shared service with per-item reindex disabled, then runs one reindex after the batch and reports a batch-level warning while preserving truthful per-item outcomes.
-- Queue and draft review expose a `CONTENT_PUBLISH`-protected Reconcile action for `publishing` and `publish-error` states.
-- Final focused run: `npm test -- --run __tests__/lib/content-pilot/publish-service.test.ts __tests__/lib/content-pilot/publish-reconciliation.test.ts __tests__/api/content-pilot-publish-failure.test.ts __tests__/lib/content-pilot/publish-draft.test.ts __tests__/components/pilot-usability-helpers.test.ts` — 36 passed.
-- `npm run typecheck` — passed; `npm run typecheck:test` — passed; `git diff --check` — passed.
-
-## Final specification completion — 2026-07-10
-
-### Red evidence
-
-- The new receipt-order test failed with the receipt update after the local SEO enrichment call (`2` was not less than `1`), proving a Shopify-success exception could precede durable receipt storage.
-
-### Green evidence
-
-- Receipt persistence now occurs immediately after `publishDraft`; all SEO/blog context enrichment follows it and turns failures into a published warning.
-- The receipt preserves the resolved existing article handle for baseline and 14-day follow-up-score eligibility.
-- Manual and scheduled paths have receipt parity and truthful trigger-specific audit metadata; stale scheduled rows still reach `publishDraft` only through the claimed fresh read.
-- Opportunity, audit, and reindex failure matrix keeps published state; scheduled reindex failure additionally writes the warning to every successfully published row.
-- A `CONTENT_PUBLISH`-protected `retry-bookkeeping` route and queue/draft action call only the idempotent finalizer. Two retries create exactly one audit.
-- Final focused run: 43 passing tests across Task 5 service/reconciliation/publish-failure/publish-draft/UI helper suites; `npm run typecheck`, `npm run typecheck:test`, and `git diff --check` pass.
-
-## Reconciliation/warning correction — 2026-07-10
-
-### Red evidence
-
-- A `202` reconciliation-required response passed the queue’s generic success path and optimistically showed `published`.
-- The scheduled cron route dropped a `PublishResult.warning` when decorating results after a failed batch reindex, and overwrote the durable row warning with only the batch error.
-
-### Green evidence
-
-- Queue publication now parses the response before its status branch; `202` or `reconciliationRequired` retains the non-success state, displays a critical reconciliation error, and reloads the authoritative row.
-- Cron result decoration retains each per-item warning and combines it with the batch reindex warning in the returned outcome and the durable `publishWarning`.
-- Final focused run: 54 tests across 8 Task 5 suites; `npm run typecheck`, `npm run typecheck:test`, and `git diff --check` pass.
+- The existing page still contains unreachable legacy panel handlers and imports after the five-tab cutover, producing lint warnings. Removing that dead code is desirable but was intentionally not mixed into the command-center behavior change.
+- Page/work filter facets are intentionally bounded to projected fields. Some work filter values have limited utility until the command-center projection exposes normalized lifecycle and blocker associations per row.

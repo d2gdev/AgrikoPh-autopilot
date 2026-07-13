@@ -5,6 +5,16 @@
   padding: var(--p-space-300) var(--p-space-400) 0;
 }
 
+.commandCenter { min-width: 0; max-width: 100%; overflow-x: clip; }
+.domainGrid, .filterGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--p-space-300); min-width: 0; }
+.domainMetric { padding-block: var(--p-space-200); border-block-end: var(--p-border-width-025) solid var(--p-color-border-secondary); }
+.compactList { display: grid; gap: var(--p-space-200); min-width: 0; max-width: 100%; }
+.listRow { padding: var(--p-space-300) 0; border-block-end: var(--p-border-width-025) solid var(--p-color-border-secondary); min-width: 0; overflow-wrap: anywhere; }
+.disclosure { min-width: 0; max-width: 100%; }
+.disclosure summary { cursor: pointer; color: var(--p-color-text-brand); border-radius: var(--p-border-radius-200); }
+.disclosure summary:focus-visible, .listRow button:focus-visible { outline: var(--p-border-width-050) solid var(--p-color-border-focus); outline-offset: var(--p-space-050); }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
 .controlRow,
 .actionRow {
   display: flex;

@@ -29,8 +29,8 @@ export function OpportunitiesPanel({
 }) {
   return (
     <BlockStack gap="300">
-      <Text variant="headingMd" as="h2">CTR & ranking opportunities</Text>
-      <Text as="p" tone="subdued">Queries where a title/meta rewrite or a small ranking push could win clicks you&apos;re already close to. &ldquo;Potential&rdquo; estimates extra monthly clicks at benchmark CTR.</Text>
+      <Text variant="headingMd" as="h2">Search evidence observations</Text>
+      <Text as="p" tone="subdued">Raw GSC evidence is kept separate from the active strategy. It can inform a future map revision, but cannot silently become strategy. No map rule association means proposal actions stay unavailable.</Text>
       {oppCount > 0 && (
         <div className={styles.controlRow}>
           <div className={styles.control}>

@@ -17,6 +17,9 @@ const panelPaths = [
   "PageHealthPanel.tsx",
   "OpportunityClustersPanel.tsx",
   "StrategyPanel.tsx",
+  "MapOverviewPanel.tsx",
+  "MapPagesPanel.tsx",
+  "MapWorkPanel.tsx",
 ].map((file) => `app/(embedded)/(seo-pillar)/seo-pillar/components/panels/${file}`);
 
 describe("SEO Pilot responsive layout contract", () => {
@@ -65,6 +68,10 @@ describe("SEO Pilot responsive layout contract", () => {
     expect(css).toContain("max-width: 100%");
     expect(css).toMatch(/overflow-wrap:\s*anywhere/);
     expect(css).not.toMatch(/align-items:\s*end/);
+    expect(css).toContain(".commandCenter");
+    expect(css).toContain(".compactList");
+    expect(css).toContain(":focus-visible");
+    expect(css).toMatch(/overflow-x:\s*clip/);
   });
 
   it("lets fixed-aspect sparklines shrink inside narrow cards", () => {
