@@ -89,7 +89,7 @@ describe("syncTopicalMapStoreTasks", () => {
     await syncTopicalMapStoreTasks(db as any);
     const tasks = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create);
     const link = tasks.find((task: any) => task.proposedState.action === "internal_link");
-    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:z"], ruleDomains: ["internal_links"], targetType: "collection", targetUrl: "/collections/rice", observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
+    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:z"], ruleDomains: ["internal_links"], targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", linkTargetUrl: "/products/black-rice", linkAnchor: "shop black rice", observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
     expect(link.proposedState).toEqual({ action: "internal_link", before: { bodyHtml: "<p>Existing Rice body.</p>" }, after: { bodyHtml: '<p>Existing Rice body.</p><p><a href="/products/black-rice">shop black rice</a></p>' } });
     expect(link.dedupeKey).toMatch(/^store-task:topical-map:[a-f0-9]{64}$/);
     expect(TopicalMapStoreTaskSourceSchema.parse(link.sourceData)).toEqual(link.sourceData);

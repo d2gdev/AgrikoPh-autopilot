@@ -20,6 +20,18 @@ describe("topical-map Store Task routes", () => {
     expect(response.status).toBe(401); expect(auth.permission).not.toHaveBeenCalled(); expect(service.sync).not.toHaveBeenCalled(); expect(service.apply).not.toHaveBeenCalled();
   });
 
+  it.each([["sync", () => import("@/app/api/store-tasks/topical-map/sync/route")], ["apply", () => import("@/app/api/store-tasks/[id]/apply/route")]])("stops on permission denial before downstream boundaries for %s", async (name, load) => {
+    auth.permission.mockResolvedValue(NextResponse.json({ error: "Forbidden" }, { status: 403 }));
+    const route = await load();
+    const response = name === "sync"
+      ? await (route.POST as any)(request("/sync"))
+      : await route.POST(request("/task-1/apply"), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(403);
+    expect(service.sync).not.toHaveBeenCalled();
+    expect(service.apply).not.toHaveBeenCalled();
+    expect(rate).not.toHaveBeenCalled();
+  });
+
   it("checks CONTENT_REVIEW, rate limits by actor, and returns synchronization unchanged", async () => {
     const summary = { executable: 1, advisory: 2, unchanged: 3, suppressed: 4 }; service.sync.mockResolvedValue(summary);
     const response = await (await import("@/app/api/store-tasks/topical-map/sync/route")).POST(request("/sync"));

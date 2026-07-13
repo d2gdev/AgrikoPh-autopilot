@@ -12,7 +12,6 @@ const Hash = z.string().regex(/^[a-f0-9]{64}$/i);
 const GovernedUrl = z.string().refine((value) => {
   try { return path(value).startsWith("/") && !value.toLowerCase().startsWith("javascript:"); } catch { return false; }
 }, "Expected a governed URL");
-const ExecutableDomain = z.enum(["content_decisions", "internal_links"]);
 const AdvisoryDomain = z.enum(["content_decisions", "redirects", "canonicalization", "indexation"]);
 const AdvisoryTargetType = z.enum(["product", "collection", "page", "homepage", "blog_index", "redirect", "technical"]);
 const AdvisoryReason = z.enum(["homepage_not_governed", "blog_index_not_governed", "redirect_execution_unsupported", "canonicalization_execution_prohibited", "indexation_execution_prohibited", "draft_unavailable"]);
@@ -21,10 +20,18 @@ const SeoAfter = z.object({ seoTitle: z.string().min(1).max(70).optional(), seoD
 const BodyBefore = z.object({ bodyHtml: z.string() }).strict();
 const BodyAfter = z.object({ bodyHtml: z.string().min(1) }).strict();
 
-export const TopicalMapStoreTaskSourceSchema = z.discriminatedUnion("executable", [
-  z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(ExecutableDomain).min(1), targetType: TargetType, targetUrl: GovernedUrl, observedAt: z.string().datetime(), observedStateHash: Hash, executable: z.literal(true) }).strict(),
-  z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(AdvisoryDomain).min(1), targetType: AdvisoryTargetType, targetUrl: GovernedUrl, executable: z.literal(false), advisoryReason: AdvisoryReason }).strict(),
+const ExecutableSourceBase = {
+  source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash,
+  ruleIds: z.array(z.string().min(1)).min(1), targetType: TargetType, targetUrl: GovernedUrl,
+  observedAt: z.string().datetime(), observedStateHash: Hash, executable: z.literal(true),
+};
+const ExecutableSourceSchema = z.discriminatedUnion("action", [
+  z.object({ ...ExecutableSourceBase, action: z.literal("seo_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
+  z.object({ ...ExecutableSourceBase, action: z.literal("content_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
+  z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), linkTargetUrl: GovernedUrl, linkAnchor: z.string().min(1) }).strict(),
 ]);
+const AdvisorySourceSchema = z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(AdvisoryDomain).min(1), targetType: AdvisoryTargetType, targetUrl: GovernedUrl, executable: z.literal(false), advisoryReason: AdvisoryReason }).strict();
+export const TopicalMapStoreTaskSourceSchema = z.union([ExecutableSourceSchema, AdvisorySourceSchema]);
 
 export const TopicalMapStoreTaskProposedSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("seo_update"), before: SeoBefore, after: SeoAfter }).strict(),
@@ -48,7 +55,7 @@ type Client = {
   };
 };
 type Summary = { executable: number; advisory: number; unchanged: number; suppressed: number };
-type RuleDomain = z.infer<typeof ExecutableDomain> | z.infer<typeof AdvisoryDomain>;
+type RuleDomain = "content_decisions" | "internal_links" | z.infer<typeof AdvisoryDomain>;
 type TaskTargetType = z.infer<typeof TargetType> | z.infer<typeof AdvisoryTargetType>;
 type TaskAdvisoryReason = z.infer<typeof AdvisoryReason>;
 type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: TopicalMapStoreAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resource?: GovernedStoreResource; theme?: string; toUrl?: string; anchor?: string };
@@ -112,7 +119,7 @@ function advisory(center: TopicalMapCommandCenter, item: Candidate, reason: Task
   };
 }
 
-export async function syncTopicalMapStoreTasks(client: Client, _options: Record<string, never> = {}): Promise<Summary> {
+export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary> {
   const summary: Summary = { executable: 0, advisory: 0, unchanged: 0, suppressed: 0 };
   const center = await loadActiveTopicalMapCommandCenter(client);
   if (!center) return summary;
@@ -142,7 +149,20 @@ export async function syncTopicalMapStoreTasks(client: Client, _options: Record<
   const tasks: Persisted[] = viable.map((item) => {
     if (item.action === "advisory") return advisory(center, item, item.advisoryReason!);
     const resource = item.resource!;
-    const sourceData = TopicalMapStoreTaskSourceSchema.parse({ source: "topical-map", strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, targetType: resource.type, targetUrl: item.targetUrl, observedAt: resource.updatedAt.toISOString(), observedStateHash: resource.stateHash, executable: true });
+    const sourceData = TopicalMapStoreTaskSourceSchema.parse({
+      source: "topical-map",
+      strategyVersionId: center.identity.versionId,
+      packageSha256: center.identity.packageSha256,
+      ruleIds: item.ruleIds,
+      ruleDomains: item.ruleDomains,
+      targetType: resource.type,
+      targetUrl: item.targetUrl,
+      action: item.action,
+      ...(item.action === "internal_link" ? { linkTargetUrl: item.toUrl, linkAnchor: item.anchor } : {}),
+      observedAt: resource.updatedAt.toISOString(),
+      observedStateHash: resource.stateHash,
+      executable: true,
+    });
     if (item.action === "internal_link") {
       const bodyHtml = `${resource.bodyHtml}<p><a href="${escapeHtml(item.toUrl!)}">${escapeHtml(item.anchor!)}</a></p>`;
       return { targetType: resource.type, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceData, proposedState: { action: item.action, before: { bodyHtml: resource.bodyHtml }, after: { bodyHtml } } };

@@ -32,3 +32,19 @@ Status: DONE
 ## Concerns
 
 - `npm run typecheck:test` still reports three pre-existing missing `seo-pilot-responsive.module.css` imports outside Task 3; Task 3 itself adds no test-typecheck errors.
+
+## Review-finding remediation
+
+- Executable source evidence is now action-discriminated. Content and SEO tasks persist their exact action and content-decision domain; internal-link tasks additionally persist exact normalized destination and anchor.
+- Apply revalidation binds source action, governed target type/URL, exact active action/domain/rule IDs, and—for links—the active source, destination, anchor, and deterministic proposed body before observation, claim, or mutation.
+- The legacy PATCH route blocks completion from the minimal fail-closed marker `{ source: "topical-map", executable: true }`, even when all remaining source or proposal data is malformed. Dismissal remains available.
+- Sync and apply route permission-denial regressions prove the service, rate-limit, Prisma, and Shopify boundaries remain untouched after authorization fails.
+- High-risk route and apply orchestration branches were expanded from dense one-liners for auditability.
+
+### Remediation TDD evidence
+
+- RED: Task 2/3 focused run failed 13 tests: missing link provenance, malformed executable source still completing with HTTP 200, and forged source/action/target/link evidence reaching the wrong gate.
+- GREEN: `npx vitest run __tests__/lib/store-tasks/topical-map.test.ts __tests__/api/topical-map-store-tasks.test.ts __tests__/lib/store-tasks/apply-topical-map.test.ts __tests__/api/store-tasks-route.test.ts` passed 4 files, 36/36 tests.
+- `npm run typecheck` passed.
+- Targeted ESLint passed with no findings.
+- `git diff --check` passed.

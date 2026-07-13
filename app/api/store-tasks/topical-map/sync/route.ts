@@ -12,7 +12,12 @@ export async function POST(req: Request) {
   const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
   if (permissionError) return permissionError;
   const actor = (await getSessionUser(req)) ?? (await getSessionShop(req)) ?? "embedded-app";
-  if (!checkRateLimit(`topical-map-store-task-sync:${actor}`, 5, 60_000)) return NextResponse.json({ error: "Too many synchronization requests." }, { status: 429 });
-  try { return NextResponse.json(await syncTopicalMapStoreTasks(prisma)); }
-  catch { return NextResponse.json({ error: "Store task synchronization failed." }, { status: 500 }); }
+  if (!checkRateLimit(`topical-map-store-task-sync:${actor}`, 5, 60_000)) {
+    return NextResponse.json({ error: "Too many synchronization requests." }, { status: 429 });
+  }
+  try {
+    return NextResponse.json(await syncTopicalMapStoreTasks(prisma));
+  } catch {
+    return NextResponse.json({ error: "Store task synchronization failed." }, { status: 500 });
+  }
 }

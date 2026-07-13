@@ -20,12 +20,16 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_PUBLISH);
   if (permissionError) return permissionError;
   const { id } = await context.params;
-  if (!id) return NextResponse.json({ error: "Task id is required." }, { status: 400 });
+  if (!id) {
+    return NextResponse.json({ error: "Task id is required." }, { status: 400 });
+  }
   const actor = (await getSessionUser(req)) ?? "authenticated-operator";
-  try { return NextResponse.json(await applyTopicalMapStoreTask(prisma, { id, actor })); }
-  catch (error) {
+  try {
+    return NextResponse.json(await applyTopicalMapStoreTask(prisma, { id, actor }));
+  } catch (error) {
     if (error instanceof TopicalMapApplyError || (error && typeof error === "object" && "code" in error && (error as { code: string }).code in responses)) {
-      const code = (error as { code: TopicalMapApplyErrorCode }).code; const mapped = responses[code];
+      const code = (error as { code: TopicalMapApplyErrorCode }).code;
+      const mapped = responses[code];
       return NextResponse.json({ error: mapped.error, code }, { status: mapped.status });
     }
     return NextResponse.json({ error: "Store task apply failed." }, { status: 500 });

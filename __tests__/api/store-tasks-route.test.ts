@@ -15,6 +15,12 @@ describe("legacy Store Task PATCH", () => {
     const response = await (await import("@/app/api/store-tasks/route")).PATCH(request("completed"));
     expect(response.status).toBe(409); expect(db.storeTask.update).not.toHaveBeenCalled();
   });
+  it("blocks manual completion when executable topical-map source details are malformed", async () => {
+    db.storeTask.findUnique.mockResolvedValue({ id: "task-1", status: "pending", taskType: "ordinary", sourceData: { source: "topical-map", executable: true, malformed: true }, proposedState: {} });
+    const response = await (await import("@/app/api/store-tasks/route")).PATCH(request("completed"));
+    expect(response.status).toBe(409);
+    expect(db.storeTask.update).not.toHaveBeenCalled();
+  });
   it.each([["dismissed", { taskType: "topical_map", sourceData: source, proposedState: proposed }], ["completed", { taskType: "ordinary", sourceData: {}, proposedState: {} }]])("preserves %s behavior where allowed", async (status, extra) => {
     db.storeTask.findUnique.mockResolvedValue({ id: "task-1", status: "pending", ...extra });
     const response = await (await import("@/app/api/store-tasks/route")).PATCH(request(status));

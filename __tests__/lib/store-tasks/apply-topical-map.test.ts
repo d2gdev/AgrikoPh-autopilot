@@ -7,7 +7,7 @@ vi.mock("@/lib/topical-map/command-center", () => ({ loadActiveTopicalMapCommand
 
 import { applyTopicalMapStoreTask, TopicalMapApplyError } from "@/lib/store-tasks/apply-topical-map";
 
-const source = { source: "topical-map", strategyVersionId: "v1", packageSha256: "a".repeat(64), ruleIds: ["rule-1"], ruleDomains: ["content_decisions"], targetType: "product", targetUrl: "/products/rice", observedAt: "2026-07-13T00:00:00.000Z", observedStateHash: "b".repeat(64), executable: true };
+const source = { source: "topical-map", strategyVersionId: "v1", packageSha256: "a".repeat(64), ruleIds: ["rule-1"], ruleDomains: ["content_decisions"], targetType: "product", targetUrl: "/products/rice", action: "seo_update", observedAt: "2026-07-13T00:00:00.000Z", observedStateHash: "b".repeat(64), executable: true };
 const proposed = { action: "seo_update", before: { seoTitle: "Old", seoDescription: "Old desc" }, after: { seoTitle: "New", seoDescription: "New desc" } };
 const task = { id: "task-1", status: "pending", taskType: "topical_map", sourceData: source, proposedState: proposed };
 const resource = { id: "gid://shopify/Product/1", type: "product", url: "/products/rice", handle: "rice", title: "Rice", seoTitle: "Old", seoDescription: "Old desc", bodyHtml: "body", updatedAt: new Date(source.observedAt), stateHash: source.observedStateHash, internalTargets: [] };
@@ -54,6 +54,42 @@ describe("applyTopicalMapStoreTask", () => {
   it("rejects a duplicate atomic claim without mutating Shopify", async () => {
     const client = db(); client._tx.storeTask.updateMany.mockResolvedValue({ count: 0 });
     await expect(applyTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).rejects.toMatchObject({ code: "TASK_NOT_PENDING" });
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["forged target type", { sourceData: { ...source, targetType: "page" } }],
+    ["cross-schema source/action", { sourceData: source, proposedState: { action: "content_update", before: { bodyHtml: "body" }, after: { bodyHtml: "changed" } } }],
+  ])("rejects %s before claim and mutation", async (_name, changed) => {
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, ...changed });
+    await expect(applyTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).rejects.toMatchObject({ code: "RULE_CHANGED" });
+    expect(client._tx.storeTask.updateMany).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["destination", { toUrl: "/products/changed", recommendedAnchor: "shop rice" }],
+    ["anchor", { toUrl: "/products/target", recommendedAnchor: "changed anchor" }],
+  ])("rejects an internal link whose active %s changed", async (_name, activeLink) => {
+    const linkSource = { ...source, action: "internal_link", ruleDomains: ["internal_links"], linkTargetUrl: "/products/target", linkAnchor: "shop rice" };
+    const linkProposed = { action: "internal_link", before: { bodyHtml: "body" }, after: { bodyHtml: 'body<p><a href="/products/target">shop rice</a></p>' } };
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: linkSource, proposedState: linkProposed });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [{ fromUrl: "/products/rice", ruleIds: ["rule-1"], ...activeLink }] } });
+    await expect(applyTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).rejects.toMatchObject({ code: "RULE_CHANGED" });
+    expect(client._tx.storeTask.updateMany).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+
+  it("rejects a schema-valid internal-link body that is not the exact governed link", async () => {
+    const linkSource = { ...source, action: "internal_link", ruleDomains: ["internal_links"], linkTargetUrl: "/products/target", linkAnchor: "shop rice" };
+    const forged = { action: "internal_link", before: { bodyHtml: "body" }, after: { bodyHtml: "body<p>unbound content</p>" } };
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: linkSource, proposedState: forged });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [{ fromUrl: "/products/rice", toUrl: "/products/target", recommendedAnchor: "shop rice", ruleIds: ["rule-1"] }] } });
+    await expect(applyTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).rejects.toMatchObject({ code: "RULE_CHANGED" });
+    expect(client._tx.storeTask.updateMany).not.toHaveBeenCalled();
     expect(adapter.apply).not.toHaveBeenCalled();
   });
 
