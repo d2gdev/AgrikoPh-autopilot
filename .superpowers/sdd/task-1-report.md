@@ -1,48 +1,50 @@
-# Task 1 Report: Runtime production activation gate
-
-Status: DONE
+# Task 1 implementation report
 
 ## Outcome
 
-- Added `runtimeActivationEnabled()`, returning true only when `TOPICAL_MAP_ACTIVATION_ENABLED` is exactly `"true"`.
-- Kept the authorization check before the initial active-pointer query and lifecycle transaction.
-- Preserved the existing validated-target claim, active-pointer race check, serializable transaction, advisory lock, pointer update, supersession, and audit behavior.
-- Documented `TOPICAL_MAP_ACTIVATION_ENABLED=false` as server-only, strategy-selection-only, and independent of Shopify/Meta live execution.
-- Preserved route ordering: embedded auth first, `SETTINGS_ADMIN` permission second, then request/service/database boundaries.
+Implemented the pure, bounded `projectTopicalMapCommandCenter` projection for all eleven compiled topical-map domains. The model exposes strategy identity, complete domain counts, clusters, merged URL pages, prohibited content, link/redirect/canonical/indexation work, blockers, and safe rule provenance. Payloads are allowlist-projected, governed URLs are normalized to stable site-relative values, and all operator collections are deterministic.
 
 ## TDD evidence
 
-- RED: `npm test -- __tests__/lib/topical-map/activation.test.ts __tests__/api/topical-map-routes.test.ts`
-  - Expected result observed: 2 failures, 25 passes.
-  - Failures were specifically the absent `runtimeActivationEnabled` export and exact `true` still reaching the prior hardcoded rejection.
-- GREEN: same focused command.
-  - Result: 2 files passed, 28 tests passed, 0 failed.
+- RED: `npm test -- __tests__/lib/topical-map/command-center.test.ts` failed because `@/lib/topical-map/command-center` did not exist (1 failed suite, expected missing-module failure).
+- GREEN: `npm test -- __tests__/lib/topical-map/command-center.test.ts __tests__/lib/topical-map/evaluator.test.ts __tests__/lib/topical-map/contract.test.ts` passed: 3 files, 44 tests, 0 failures.
+- Type verification: `npx tsc --noEmit` completed successfully in the combined verification command.
+- Hygiene: `git diff --check` produced no errors before commit.
 
-Tests cover absent, empty, `false`, and non-exact `TRUE` values rejecting before database access; exact `true` reaching and completing the existing validated lifecycle transaction; and route auth/permission ordering before enabled activation database access.
+## Files
 
-## Verification
+- `lib/topical-map/command-center.ts` — exported domain tuple/types and deterministic bounded projection.
+- `__tests__/lib/topical-map/command-center.test.ts` — all-eleven-domain fixture, identity/count/merge/work/blocker/provenance assertions, payload-leak assertion, and unknown-domain fail-closed coverage.
 
-- `npm run typecheck`: pass.
-- `npm run typecheck:test`: pass.
-- `npm run lint`: pass with 0 errors and 115 pre-existing repository warnings; none are in the task's changed TypeScript files.
-- `git diff --check`: pass.
-- Focused tests: 28/28 pass.
+## Commit
+
+- `2db973a791b7ecfa57dd092e93e0d7c7146a2483` — `feat(topical-map): project command center model`
 
 ## Self-review
 
-- The flag comparison is exact and case-sensitive with no trimming or permissive coercion.
-- Disabled values cannot execute the preliminary Prisma read, open a transaction, acquire a lock, mutate lifecycle state, update the active pointer, or create audit history.
-- The enabled path changes no transaction semantics.
-- No live execution flag, recommendation status, Shopify connector, Meta connector, route permission, schema, migration, cron, or deployment behavior was changed.
-- No unrelated pre-existing working-tree changes were present at task start.
-
-## GROW
-
-- Ground: topical-map strategy selection is runtime-gated and remains default-off.
-- Record: updated `.mex/ROUTER.md` and logged the decision in `.mex/events/decisions.jsonl`.
-- Orient: updated `.mex/patterns/topical-map-activation-persistence.md` with exact flag semantics and the live-execution boundary.
-- Write: bumped the pattern `last_updated` value and ran `mex log --type decision`.
+- Projection is pure: no database, filesystem, clock, network, mutation, or execution authority.
+- Unknown domains fail closed instead of silently disappearing.
+- Only explicit output fields are copied; `rawContent` and arbitrary payload keys cannot leak.
+- Rule IDs and bounded source references remain available for operator traceability.
+- URL-keyed page data merges by normalized governed URL, and collections sort by priority followed by stable keys/rule IDs.
+- Existing topical-map contract and evaluator tests remain green.
+- Project verification checklist items concerning API routes, auth, cron, Prisma, LLMs, secrets, jobs, and prompts are not applicable because this task adds only a pure library projection and its unit tests.
+- GROW: reality changed only by adding this foundational projection. No runtime integration or project-state fact changed, and no recurring operational workflow was introduced, so `.mex` scaffolds and patterns were intentionally unchanged.
 
 ## Concerns
 
-The repository-wide lint command reports 115 pre-existing warnings but zero errors; none are in the task's changed TypeScript files. This task does not set the production flag, activate a strategy, deploy code, or authorize Shopify/Meta writes.
+None. The report itself is intentionally written after the implementation commit so it can record the immutable commit identifier; it is a coordination artifact rather than product code.
+
+## Review fixes
+
+- Explicitly project source locators into the approved contract grammar only: Markdown locators expose `kind`, `headingPath`, `contentFingerprint`, `lineStart`, and `lineEnd`; CSV locators expose `kind`, `businessKey`, `headerFingerprint`, `rowFingerprint`, and `rowNumber`. Malformed references now fail closed with `INVALID_SOURCE_REFERENCE`.
+- Deterministically sort projected source references and build provenance from rules sorted by `ruleId`.
+- Reject duplicate rule IDs with `DUPLICATE_TOPICAL_MAP_RULE_ID` instead of allowing order-dependent overwrite.
+- Added adversarial locator leak coverage, malformed-locator rejection, input/reference permutation byte-identity coverage, and duplicate-ID rejection.
+
+### Review-fix TDD and verification evidence
+
+- RED command: `npm test -- __tests__/lib/topical-map/command-center.test.ts`
+- RED output: 1 file ran; 4 tests total; 2 failed and 2 passed. Failures showed references remained unsorted and permuted inputs produced different serialized provenance.
+- Final command: `npm test -- __tests__/lib/topical-map/command-center.test.ts __tests__/lib/topical-map/evaluator.test.ts __tests__/lib/topical-map/contract.test.ts && npx tsc --noEmit && git diff --check`
+- Final output: 3 test files passed, 46 tests passed, 0 failures; TypeScript exited cleanly; `git diff --check` exited cleanly; combined command exit code 0.

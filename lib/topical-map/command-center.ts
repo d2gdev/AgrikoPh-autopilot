@@ -3,8 +3,12 @@ import { normalizeGovernedUrl } from "./url-normalizer";
 export const ALL_TOPICAL_MAP_DOMAINS = ["clusters", "page_roles", "url_intent_ownership", "content_decisions", "prohibited_content", "internal_links", "redirects", "canonicalization", "indexation", "evidence_gates", "high_stakes_reviews"] as const;
 export type TopicalMapDomain = typeof ALL_TOPICAL_MAP_DOMAINS[number];
 export type DomainCounts = Record<TopicalMapDomain, number>;
-export type SourceReference = { coverageUnitId?: string; artifactId?: string; locator?: unknown };
-export type ProjectionRule = { ruleId: string; ruleType: string; payload: unknown; sourceArtifactId: string; sourceReferences: SourceReference[] };
+export type ProjectedLocator =
+  | { kind: "markdown_heading" | "markdown_prose_span"; headingPath: string[]; contentFingerprint: string; lineStart: number; lineEnd: number }
+  | { kind: "csv_row"; businessKey: string; headerFingerprint: string; rowFingerprint: string; rowNumber: number };
+export type SourceReference = { coverageUnitId: string; artifactId: string; locator: ProjectedLocator };
+export type InputSourceReference = { coverageUnitId?: unknown; artifactId?: unknown; locator?: unknown };
+export type ProjectionRule = { ruleId: string; ruleType: string; payload: unknown; sourceArtifactId: string; sourceReferences: InputSourceReference[] };
 export type ProjectionInput = { strategy: { id: string; strategyVersion: string; contractRevision: string; packageSha256: string; activatedAt: Date | string | null }; rules: ProjectionRule[] };
 type RuleEvidence = { ruleIds: string[] };
 export type CommandCenterPage = RuleEvidence & { url: string; cluster?: string; role?: string; dominantIntent?: string; primaryKeywordOrTheme?: string; exclusiveIntentScope?: string; decision?: string; exactTargetIfAny?: string; priority?: string; evidence?: string };
@@ -31,12 +35,21 @@ function text(payload: Record<string, unknown>, key: string): string | undefined
 function url(value: string | undefined): string { if (!value) return ""; const normalized = normalizeGovernedUrl(value); if (normalized.startsWith("/")) return normalized; const parsed = new URL(normalized); return `${parsed.pathname}${parsed.search}${parsed.hash}`; }
 function priority(value?: string): number { const ranks: Record<string, number> = { critical: 0, highest: 0, high: 1, medium: 2, low: 3 }; return ranks[value?.toLowerCase() ?? ""] ?? 4; }
 function ordered<T extends { ruleIds: string[]; priority?: string }>(values: T[], key: (v: T) => string): T[] { return values.sort((a, b) => priority(a.priority) - priority(b.priority) || key(a).localeCompare(key(b)) || a.ruleIds.join().localeCompare(b.ruleIds.join())); }
+function projectedReference(value: InputSourceReference): SourceReference {
+  if (typeof value.coverageUnitId !== "string" || typeof value.artifactId !== "string") throw new Error("INVALID_SOURCE_REFERENCE");
+  const locator = object(value.locator);
+  if ((locator.kind === "markdown_heading" || locator.kind === "markdown_prose_span") && Array.isArray(locator.headingPath) && locator.headingPath.every((v) => typeof v === "string") && typeof locator.contentFingerprint === "string" && Number.isInteger(locator.lineStart) && Number.isInteger(locator.lineEnd)) return { coverageUnitId: value.coverageUnitId, artifactId: value.artifactId, locator: { kind: locator.kind, headingPath: [...locator.headingPath] as string[], contentFingerprint: locator.contentFingerprint, lineStart: locator.lineStart as number, lineEnd: locator.lineEnd as number } };
+  if (locator.kind === "csv_row" && typeof locator.businessKey === "string" && typeof locator.headerFingerprint === "string" && typeof locator.rowFingerprint === "string" && Number.isInteger(locator.rowNumber)) return { coverageUnitId: value.coverageUnitId, artifactId: value.artifactId, locator: { kind: "csv_row", businessKey: locator.businessKey, headerFingerprint: locator.headerFingerprint, rowFingerprint: locator.rowFingerprint, rowNumber: locator.rowNumber as number } };
+  throw new Error("INVALID_SOURCE_REFERENCE");
+}
 
 export function projectTopicalMapCommandCenter(input: ProjectionInput): TopicalMapCommandCenter {
   const domainCounts = Object.fromEntries(ALL_TOPICAL_MAP_DOMAINS.map((domain) => [domain, 0])) as DomainCounts;
   const byDomain = new Map<TopicalMapDomain, ProjectionRule[]>();
   const provenance: TopicalMapCommandCenter["provenance"] = {};
-  for (const rule of input.rules) { const domain = assertDomain(rule.ruleType); domainCounts[domain]++; byDomain.set(domain, [...(byDomain.get(domain) ?? []), rule]); provenance[rule.ruleId] = { sourceArtifactId: rule.sourceArtifactId, sourceReferences: rule.sourceReferences.map((r) => ({ coverageUnitId: r.coverageUnitId, artifactId: r.artifactId, locator: r.locator })) }; }
+  const sortedRules = [...input.rules].sort((a, b) => a.ruleId.localeCompare(b.ruleId));
+  for (let index = 1; index < sortedRules.length; index++) if (sortedRules[index - 1]!.ruleId === sortedRules[index]!.ruleId) throw new Error("DUPLICATE_TOPICAL_MAP_RULE_ID");
+  for (const rule of sortedRules) { const domain = assertDomain(rule.ruleType); domainCounts[domain]++; byDomain.set(domain, [...(byDomain.get(domain) ?? []), rule]); provenance[rule.ruleId] = { sourceArtifactId: rule.sourceArtifactId, sourceReferences: rule.sourceReferences.map(projectedReference).sort((a, b) => a.coverageUnitId.localeCompare(b.coverageUnitId) || a.artifactId.localeCompare(b.artifactId) || JSON.stringify(a.locator).localeCompare(JSON.stringify(b.locator))) }; }
   const rules = (domain: TopicalMapDomain) => (byDomain.get(domain) ?? []).slice().sort((a, b) => a.ruleId.localeCompare(b.ruleId));
   const clusters = rules("clusters").map((r) => { const p = object(r.payload); return { name: text(p, "cluster") ?? "", memberUrls: Array.isArray(p.memberUrls) ? p.memberUrls.filter((v): v is string => typeof v === "string").map((v) => url(v)).sort() : [], ruleIds: [r.ruleId] }; }).sort((a, b) => a.name.localeCompare(b.name));
   const pageMap = new Map<string, CommandCenterPage>();
@@ -46,6 +59,6 @@ export function projectTopicalMapCommandCenter(input: ProjectionInput): TopicalM
   const internalLinks = ordered(rules("internal_links").map((r) => { const p = object(r.payload); return { fromUrl: url(text(p, "fromUrl")), toUrl: url(text(p, "toUrl")), currentBodyState: text(p, "currentBodyState"), requiredAction: text(p, "requiredAction"), recommendedAnchor: text(p, "recommendedAnchor"), linkPurpose: text(p, "linkPurpose"), priority: text(p, "priority"), verification: text(p, "verification"), ruleIds: [r.ruleId] }; }), (v) => `${v.fromUrl}\0${v.toUrl}`);
   const redirects = ordered(rules("redirects").map((r) => { const p = object(r.payload); return { redirectId: text(p, "redirectId"), source: url(text(p, "source")), configuredTarget: text(p, "configuredTarget") ? url(text(p, "configuredTarget")) : undefined, finalTarget: url(text(p, "finalTarget")), hopCount: text(p, "hopCount"), topicRelevant: text(p, "topicRelevant"), knownState: text(p, "knownState"), requiredAction: text(p, "requiredAction"), ruleIds: [r.ruleId] }; }), (v) => v.source);
   const technical = (domain: "canonicalization" | "indexation") => ordered(rules(domain).map((r) => { const p = object(r.payload); return { currentUrl: url(text(p, "currentUrl")), proposedCanonicalUrl: url(text(p, "proposedCanonicalUrl")), publishingState: text(p, "publishingState"), decision: text(p, "decision"), priority: text(p, "priority"), evidence: text(p, "evidence"), ruleIds: [r.ruleId] }; }), (v) => v.currentUrl);
-  const literal = (domain: "evidence_gates" | "high_stakes_reviews") => rules(domain).map((r) => { const p = object(r.payload); return { name: text(p, "name") ?? "", text: text(p, "literalText") ?? "", ruleIds: [r.ruleId] }; }).sort((a, b) => a.name.localeCompare(b.name) || a.ruleIds[0].localeCompare(b.ruleIds[0]));
+  const literal = (domain: "evidence_gates" | "high_stakes_reviews") => rules(domain).map((r) => { const p = object(r.payload); return { name: text(p, "name") ?? "", text: text(p, "literalText") ?? "", ruleIds: [r.ruleId] }; }).sort((a, b) => a.name.localeCompare(b.name) || a.ruleIds[0]!.localeCompare(b.ruleIds[0]!));
   return { identity: { versionId: input.strategy.id, strategyVersion: input.strategy.strategyVersion, contractRevision: input.strategy.contractRevision, packageSha256: input.strategy.packageSha256, activatedAt: input.strategy.activatedAt === null ? null : new Date(input.strategy.activatedAt).toISOString() }, domainCounts, clusters, pages, prohibited, work: { internalLinks, redirects, canonicalization: technical("canonicalization"), indexation: technical("indexation") }, blockers: { evidence: literal("evidence_gates"), reviews: literal("high_stakes_reviews") }, provenance };
 }
