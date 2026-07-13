@@ -221,7 +221,13 @@ export async function POST(req: NextRequest) {
     let storeTaskSync: { status: "complete" | "partial"; executable: number; advisory: number; unchanged: number; suppressed: number };
     try {
       const summary = await syncTopicalMapStoreTasks(prisma);
-      storeTaskSync = { status: "complete", ...summary };
+      storeTaskSync = {
+        status: "complete",
+        executable: summary.executable,
+        advisory: summary.advisory,
+        unchanged: summary.unchanged,
+        suppressed: summary.suppressed,
+      };
     } catch {
       console.error("[seo/analyze] topical-map Store Task synchronization failed");
       storeTaskSync = { status: "partial", executable: 0, advisory: 0, unchanged: 0, suppressed: 0 };

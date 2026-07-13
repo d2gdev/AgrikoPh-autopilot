@@ -54,7 +54,7 @@ Lint:
 exit 0
 ```
 
-All warnings are pre-existing and outside Task 5 files.
+This run observed 85 warnings and 0 errors; no comparative baseline was collected for warning provenance.
 
 Exact safe build:
 
@@ -80,3 +80,12 @@ Supported Apply mutations are product, collection, and page SEO metadata, additi
 ## Working Tree Safety
 
 Pre-existing `.superpowers/sdd/task-1-report.md` and `.superpowers/sdd/task-2-report.md` modifications were preserved and left unstaged. No push or deployment was performed.
+
+## Review Findings Follow-up
+
+- Replaced success-summary spread with an explicit projection of only `status`, `executable`, `advisory`, `unchanged`, and `suppressed`.
+- Added an adversarial service result containing `secret`, `sourceBytes`, and nested provider detail; the route response omits every extra field.
+- Added a source-policy regression that prohibits the SEO analysis route from importing or calling the governed Shopify apply boundary, topical-map Apply service, `shopifyFetch`, or the Shopify Admin mutation module.
+- TDD RED: the adversarial route test failed because all extra service fields crossed the response boundary.
+- TDD GREEN: the SEO Pilot route file passed 48/48 after explicit projection.
+- Review-focused verification: nine files passed 135/135 tests; `npx tsc --noEmit` exited 0; lint observed 85 warnings and 0 errors and exited 0; `git diff --check` exited 0.

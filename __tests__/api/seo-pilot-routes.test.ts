@@ -523,6 +523,12 @@ describe("SEO Pilot route regressions", () => {
   });
 
   it("does not report already-covered GSC queries as new content gaps", async () => {
+    mockSyncTopicalMapStoreTasks.mockResolvedValue({
+      executable: 3, advisory: 4, unchanged: 5, suppressed: 6,
+      secret: "must-not-cross-route-boundary",
+      sourceBytes: "raw topical-map source",
+      detail: { providerToken: "hidden" },
+    } as any);
     mockSeoData.getLatestGscData.mockResolvedValue({
       queries: [
         { query: "black rice benefits", clicks: 3, impressions: 320, ctr: "0.9%", position: "8.0" },
@@ -573,6 +579,12 @@ describe("SEO Pilot route regressions", () => {
     expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledBefore(mockSyncTopicalMapStoreTasks);
     expect(mockSyncTopicalMapStoreTasks).toHaveBeenCalledWith(mockPrisma);
     expect(body.storeTaskSync).toEqual({ status: "complete", executable: 3, advisory: 4, unchanged: 5, suppressed: 6 });
+  });
+
+  it("keeps SEO analysis source isolated from Shopify mutation boundaries", () => {
+    const source = readFileSync("app/api/seo/analyze/route.ts", "utf8");
+    expect(source).not.toMatch(/\b(?:applyGovernedStoreResourceChange|applyTopicalMapStoreTask|shopifyFetch)\b/);
+    expect(source).not.toMatch(/from\s+["'][^"']*(?:apply-topical-map|shopify-admin)[^"']*["']/);
   });
 
   it("keeps a persisted analysis available when topical-map Store Task synchronization fails", async () => {
