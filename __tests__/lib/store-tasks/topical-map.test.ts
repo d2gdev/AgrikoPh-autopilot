@@ -16,10 +16,10 @@ const resource = (type: "product" | "collection" | "page", url: string, title: s
   id: `gid://${url}`, type, url, handle: url.split("/").at(-1), title,
   seoTitle: `Old ${title}`, seoDescription: `Old description for ${title}`,
   bodyHtml: `<p>Existing ${title} body.</p>`, updatedAt: observedAt,
-  stateHash: `hash:${url}`, internalTargets: [],
+  stateHash: "b".repeat(64), internalTargets: [],
 });
 const center = () => ({
-  identity: { versionId: "strategy-7", strategyVersion: "7", contractRevision: "3", packageSha256: "package-sha", activatedAt: "2026-07-12T00:00:00.000Z" },
+  identity: { versionId: "strategy-7", strategyVersion: "7", contractRevision: "3", packageSha256: "a".repeat(64), activatedAt: "2026-07-12T00:00:00.000Z" },
   domainCounts: {}, clusters: [{ name: "Philippine heirloom rice", memberUrls: [] }], prohibited: [], blockers: { evidence: [], reviews: [] }, provenance: {},
   pages: [
     { url: "/products/black-rice", ruleIds: ["decision:product", "role:product"], ruleDomains: { content_decisions: ["decision:product"] }, primaryKeywordOrTheme: "black rice Philippines", decision: "Improve SEO metadata", priority: "high" },
@@ -62,7 +62,7 @@ beforeEach(() => {
   ]));
   chat.mockResolvedValue({ content: JSON.stringify({ drafts: [
     { url: "/products/black-rice", seoTitle: "Black Rice Philippines | Philippine Heirloom Rice", seoDescription: "Shop Agriko black rice from the Philippines, grounded in our Philippine heirloom rice collection." },
-    { url: "/collections/rice", sectionHtml: "<h2>Philippine heirloom rice</h2><p>Explore Agriko's heirloom rice collection.</p>" },
+    { url: "/collections/rice", sectionText: "Explore Agriko's Philippine heirloom rice collection." },
     { url: "/pages/our-farm", seoTitle: "Our Farm | Agriko Philippine Heirloom Rice", seoDescription: "Learn about the Agriko farm story and our Philippine heirloom rice." },
   ] }), provider: "deepseek", model: "test" });
 });
@@ -89,7 +89,7 @@ describe("syncTopicalMapStoreTasks", () => {
     await syncTopicalMapStoreTasks(db as any);
     const tasks = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create);
     const link = tasks.find((task: any) => task.proposedState.action === "internal_link");
-    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "package-sha", ruleIds: ["link:a", "link:z"], ruleDomains: ["internal_links"], targetType: "collection", targetUrl: "/collections/rice", observedAt: observedAt.toISOString(), observedStateHash: "hash:/collections/rice", executable: true });
+    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:z"], ruleDomains: ["internal_links"], targetType: "collection", targetUrl: "/collections/rice", observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
     expect(link.proposedState).toEqual({ action: "internal_link", before: { bodyHtml: "<p>Existing Rice body.</p>" }, after: { bodyHtml: '<p>Existing Rice body.</p><p><a href="/products/black-rice">shop black rice</a></p>' } });
     expect(link.dedupeKey).toMatch(/^store-task:topical-map:[a-f0-9]{64}$/);
     expect(TopicalMapStoreTaskSourceSchema.parse(link.sourceData)).toEqual(link.sourceData);
@@ -141,5 +141,34 @@ describe("syncTopicalMapStoreTasks", () => {
     const result = await syncTopicalMapStoreTasks(db as any);
     expect(chat).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ executable: 1, advisory: 8, unchanged: 0, suppressed: 1 });
+  });
+
+  it("rejects empty and action-mismatched executable proposed states", () => {
+    expect(TopicalMapStoreTaskProposedSchema.safeParse({ action: "seo_update", before: {}, after: {} }).success).toBe(false);
+    expect(TopicalMapStoreTaskProposedSchema.safeParse({ action: "seo_update", before: { seoTitle: null }, after: { bodyHtml: "no" } }).success).toBe(false);
+    expect(TopicalMapStoreTaskProposedSchema.safeParse({ action: "content_update", before: { bodyHtml: "old" }, after: { seoTitle: "no" } }).success).toBe(false);
+    expect(TopicalMapStoreTaskProposedSchema.safeParse({ action: "internal_link", before: { bodyHtml: "old" }, after: {} }).success).toBe(false);
+    expect(TopicalMapStoreTaskProposedSchema.safeParse({ action: "seo_update", before: { seoTitle: null, seoDescription: null }, after: { seoTitle: "Valid" } }).success).toBe(true);
+  });
+
+  it("rejects arbitrary advisory source types, reasons, domains, hashes, and URLs", () => {
+    const valid = { source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], ruleDomains: ["redirects"], targetType: "redirect", targetUrl: "/old", executable: false, advisoryReason: "redirect_execution_unsupported" };
+    expect(TopicalMapStoreTaskSourceSchema.safeParse(valid).success).toBe(true);
+    for (const bad of [{ ...valid, targetType: "anything" }, { ...valid, advisoryReason: "anything" }, { ...valid, ruleDomains: ["anything"] }, { ...valid, packageSha256: "short" }, { ...valid, targetUrl: "javascript:alert(1)" }]) {
+      expect(TopicalMapStoreTaskSourceSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+
+  it("treats AI content as plain text and escapes script, javascript, events, ampersands, and quotes", async () => {
+    chat.mockResolvedValue({ content: JSON.stringify({ drafts: [
+      { url: "/products/black-rice", seoTitle: "Black Rice Philippines", seoDescription: "Agriko black rice Philippines" },
+      { url: "/collections/rice", sectionText: 'Philippine heirloom rice <script>alert("x")</script> javascript: onerror="run" & safe' },
+      { url: "/pages/our-farm", seoTitle: "Agriko Farm Story", seoDescription: "Agriko farm story Philippines" },
+    ] }), provider: "deepseek", model: "test" });
+    const db = client();
+    await syncTopicalMapStoreTasks(db as any);
+    const content = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create).find((task: any) => task.proposedState.action === "content_update");
+    expect(content.proposedState.after.bodyHtml).toBe('<p>Existing Rice body.</p><section><p>Philippine heirloom rice &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; javascript: onerror=&quot;run&quot; &amp; safe</p></section>');
+    expect(content.proposedState.after.bodyHtml).not.toContain("<script>");
   });
 });
