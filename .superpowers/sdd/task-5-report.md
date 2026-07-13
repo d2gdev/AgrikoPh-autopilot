@@ -60,3 +60,12 @@ Follow-up verification:
 - `npx tsc --noEmit`: exit 0.
 - `npm run lint`: exit 0.
 - `git diff --check`: exit 0.
+
+## Remaining review findings follow-up (2026-07-13)
+
+- Existing governed article pages whose active content decision says refresh, update, improve, optimize, or expand now emit exact `action: "refresh"` candidates. Candidates retain target URL, active package identity, exact rule IDs, projected priority, and up to 20 current query/page observations.
+- The promotion route accepts refresh explicitly, revalidates active decision/rules/priority, reconstructs current bounded GSC evidence, rejects stale evidence, and persists a governed `content-refresh` proposal using the existing evaluator, compliance, and dedupe transaction.
+- Page rule families now come from explicit projected `ruleDomains`; opaque rule IDs are never parsed for domain meaning.
+- Global evidence/review blockers only appear when family and priority are unfiltered and state includes blocked work. In incompatible combined selections, the UI explains why association-free global blockers are hidden.
+- Proposal helper coverage now includes created, already-handled, and failed responses for both content and internal-link candidates. UI coverage proves a mapped refresh renders evidence and an enabled proposal action.
+- Final affected matrix: 13 files passed, 120 tests passed; `npx tsc --noEmit`, `npm run lint`, and `git diff --check` exited 0.

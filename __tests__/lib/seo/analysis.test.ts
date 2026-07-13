@@ -118,6 +118,12 @@ describe("map-aware SEO analysis", () => {
     expect(result.suppressed).toContainEqual(expect.objectContaining({ ruleIds: ["rule:decision:2", "rule:prohibited:1"], reason: "Do not publish medical cure claims" }));
   });
 
+  it("emits an existing mapped page with a refresh decision as an actionable refresh with page evidence", () => {
+    const refreshMap = { ...commandCenter, pages: [{ url: "/blogs/news/source", decision: "optimize", primaryKeywordOrTheme: "source topic", priority: "medium", ruleIds: ["opaque-42"] }], prohibited: [] };
+    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap as any, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {} }] });
+    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", query: "source topic", priority: "medium", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
+  });
+
   it("accepts cached analysis only for the exact active identity", () => {
     const analysis = { gaps: [], observations: [], suppressed: [] };
     const envelope = { schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis };

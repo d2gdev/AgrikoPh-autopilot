@@ -15,13 +15,13 @@ export function MapPagesPanel({ map }: { map: TopicalMapCommandCenter }) {
   const [cluster, setCluster] = useState("all"), [priority, setPriority] = useState("all"), [family, setFamily] = useState("all"), [state, setState] = useState("all"), [blocker, setBlocker] = useState("all");
   const options = (label: string, values: Array<string | undefined>) => [{ label, value: "all" }, ...Array.from(new Set(values.filter(Boolean) as string[])).map(v => ({ label: v, value: v }))];
   const prohibitedUrls = useMemo(() => map.prohibited.map(item => item.url), [map.prohibited]);
-  const pages = useMemo(() => map.pages.filter(p => (cluster === "all" || p.cluster === cluster) && (priority === "all" || p.priority === priority) && (family === "all" || p.ruleIds.some(id => id.includes(family))) && (state === "all" || p.decision === state) && pageMatchesBlockerFilter(p.url, prohibitedUrls, blocker)), [map.pages, prohibitedUrls, cluster, priority, family, state, blocker]);
+  const pages = useMemo(() => map.pages.filter(p => (cluster === "all" || p.cluster === cluster) && (priority === "all" || p.priority === priority) && (family === "all" || Boolean(p.ruleDomains[family as keyof typeof p.ruleDomains]?.length)) && (state === "all" || p.decision === state) && pageMatchesBlockerFilter(p.url, prohibitedUrls, blocker)), [map.pages, prohibitedUrls, cluster, priority, family, state, blocker]);
   return <div className={styles.commandCenter}><BlockStack gap="400">
     <BlockStack gap="100"><Text as="h2" variant="headingLg">Pages &amp; ownership</Text><Text as="p" tone="subdued">Every URL has an explicit role, intent owner, content decision, and traceable rule source.</Text></BlockStack>
     <div className={styles.filterGrid}>
       <Select label="Filter by cluster" options={options("All clusters", map.pages.map(p => p.cluster))} value={cluster} onChange={setCluster}/>
       <Select label="Filter by priority" options={options("All priorities", map.pages.map(p => p.priority))} value={priority} onChange={setPriority}/>
-      <Select label="Filter by rule family" options={[{label:"All rule families",value:"all"},{label:"Page role",value:"page-role"},{label:"Intent owner",value:"intent"},{label:"Content decision",value:"content"}]} value={family} onChange={setFamily}/>
+      <Select label="Filter by rule family" options={[{label:"All rule families",value:"all"},{label:"Page role",value:"page_roles"},{label:"Intent owner",value:"url_intent_ownership"},{label:"Content decision",value:"content_decisions"}]} value={family} onChange={setFamily}/>
       <Select label="Filter by state" options={options("All states", map.pages.map(p => p.decision))} value={state} onChange={setState}/>
       <Select label="Filter by blocker" options={[{label:"All blocker states",value:"all"},{label:"Blocked",value:"blocked"},{label:"Clear",value:"clear"}]} value={blocker} onChange={setBlocker}/>
     </div>

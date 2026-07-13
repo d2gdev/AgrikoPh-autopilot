@@ -26,7 +26,7 @@ describe("projectTopicalMapCommandCenter", () => {
     expect(Object.keys(projected.domainCounts).sort()).toEqual(ALL_TOPICAL_MAP_DOMAINS.slice().sort());
     expect(Object.values(projected.domainCounts)).toEqual(expect.arrayContaining(Array(11).fill(1)));
     expect(projected.clusters[0]).toMatchObject({ name: "Black rice", memberUrls: ["/blogs/news/black-rice"], ruleIds: ["rule:cluster:1"] });
-    expect(projected.pages[0]).toMatchObject({ url: "/blogs/news/black-rice", cluster: "Black rice", role: "supporting", dominantIntent: "informational", decision: "keep", ruleIds: ["rule:decision:1", "rule:owner:1", "rule:role:1"] });
+    expect(projected.pages[0]).toMatchObject({ url: "/blogs/news/black-rice", cluster: "Black rice", role: "supporting", dominantIntent: "informational", decision: "keep", ruleIds: ["rule:decision:1", "rule:owner:1", "rule:role:1"], ruleDomains: { page_roles: ["rule:role:1"], url_intent_ownership: ["rule:owner:1"], content_decisions: ["rule:decision:1"] } });
     expect(projected.prohibited[0]).toMatchObject({ url: "/blogs/news/black-rice", item: "medical claims", ruleIds: ["rule:prohibited:1"] });
     expect(projected.work.internalLinks[0]).toMatchObject({ fromUrl: "/blogs/news/black-rice", toUrl: "/collections/rice", ruleIds: ["rule:link:1"] });
     expect(projected.work.redirects[0]).toMatchObject({ ruleIds: ["rule:redirect:1"], priority: "high", evidence: "verified" });
@@ -41,6 +41,11 @@ describe("projectTopicalMapCommandCenter", () => {
 
   it("rejects unknown compiled rule domains", () => {
     expect(() => projectTopicalMapCommandCenter({ strategy: { id: "v", strategyVersion: "1", contractRevision: "1", packageSha256: "x", activatedAt: null }, rules: [rule("rule:x", "unknown", {})] })).toThrow("UNKNOWN_TOPICAL_MAP_DOMAIN");
+  });
+
+  it("keeps page rule families explicit when rule IDs are opaque", () => {
+    const projected = projectTopicalMapCommandCenter({ strategy: { id: "v", strategyVersion: "1", contractRevision: "1", packageSha256: "x", activatedAt: null }, rules: [rule("opaque-a", "page_roles", { currentUrl: "/a", role: "support" }), rule("opaque-b", "content_decisions", { currentUrl: "/a", decision: "refresh" })] });
+    expect(projected.pages[0]?.ruleDomains).toEqual({ page_roles: ["opaque-a"], content_decisions: ["opaque-b"] });
   });
 
   it("allowlists locator fields and fails closed on malformed locators", () => {

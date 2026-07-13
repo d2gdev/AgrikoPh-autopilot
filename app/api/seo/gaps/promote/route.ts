@@ -27,7 +27,7 @@ const GapInputSchema = z.object({
   ruleIds: z.array(z.string().trim().min(1)).min(1).max(50),
   kind: z.enum(["content", "link"]),
   state: z.literal("candidate"),
-  action: z.enum(["create", "update"]),
+  action: z.enum(["create", "update", "refresh"]),
   strategyVersionId: z.string().trim().min(1),
   packageSha256: z.string().regex(/^[a-f0-9]{64}$/),
   fromUrl: z.string().trim().min(1).max(500).optional(),
@@ -66,8 +66,8 @@ export async function POST(req: NextRequest) {
   const governedRuleIds = gaps.map((gap): string[] | null => {
     if (gap.strategyVersionId !== strategyVersionId || gap.packageSha256 !== packageSha256) return null;
     if (gap.kind === "content" && gap.page) {
-      const page = commandCenter.pages.find((item) => item.url === gap.page && item.decision && (gap.action === "create" ? /(create|publish|new)/i : /(update|refresh|optimize)/i).test(item.decision));
-      return page && sameRules(gap.ruleIds, page.ruleIds) ? [...page.ruleIds] : null;
+      const page = commandCenter.pages.find((item) => item.url === gap.page && item.decision && (gap.action === "create" ? /(create|publish|new)/i : /(update|refresh|improve|optimi[sz]e|expand)/i).test(item.decision));
+      return page && gap.priority === (page.priority ?? "unspecified") && sameRules(gap.ruleIds, page.ruleIds) ? [...page.ruleIds] : null;
     }
     if (gap.kind === "link" && gap.action === "update" && gap.fromUrl && gap.toUrl) {
       const fromUrl = normalizeGovernedUrl(gap.fromUrl);
@@ -85,6 +85,15 @@ export async function POST(req: NextRequest) {
   const gscData = await getLatestGscData();
   const allQueries = gscData.queries;
   const knownQueries = new Map(allQueries.map((q) => [q.query.toLowerCase(), q]));
+  const evidenceFor = (gap: z.infer<typeof GapInputSchema>) => {
+    const pageEvidence = gap.page ? gscData.queryPagePairs.filter((item) => normalizeGovernedUrl(item.page) === normalizeGovernedUrl(gap.page!)).slice(0, 20).map((item) => ({ query: item.query, impressions: item.impressions, position: Number.isFinite(Number(item.position)) ? Number(item.position) : null })) : [];
+    if (pageEvidence.length) return pageEvidence;
+    const query = knownQueries.get(gap.query.toLowerCase());
+    return query ? [{ query: query.query, impressions: query.impressions, position: Number.isFinite(Number(query.position)) ? Number(query.position) : null }] : [];
+  };
+  if (gaps.some((gap) => JSON.stringify(gap.observedEvidence) !== JSON.stringify(evidenceFor(gap)))) {
+    return NextResponse.json({ error: "Gap evidence is no longer current", code: "STRATEGY_CHANGED" }, { status: 409 });
+  }
 
   let skipped = 0;
 
@@ -144,7 +153,9 @@ export async function POST(req: NextRequest) {
         articleByTitle.get(inputTitle.toLowerCase());
       const decision = gap.kind === "content" && gap.action === "create"
         ? { kind: "promote" as const, proposalType: "new-content" as const }
-        : classifySeoPromotion({
+        : gap.kind === "content" && gap.action === "refresh"
+          ? { kind: "promote" as const, proposalType: "content-refresh" as const }
+          : classifySeoPromotion({
         issue: gap.issue,
         opportunityType: gap.type,
         page: gap.page,

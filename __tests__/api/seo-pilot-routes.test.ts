@@ -134,7 +134,7 @@ describe("SEO Pilot route regressions", () => {
         ["rule:mapped", "/blogs/news/mapped", "create"], ["rule:black", "/blogs/news/black-rice-benefits", "update"],
         ["rule:ghost", "/blogs/news/ghost-handle", "update"], ["rule:target", "/blogs/news/target-article", "update"],
         ["rule:collection", "/collections/black-rice", "update"],
-      ].map(([ruleId, currentUrl, decision]) => ({ ruleId, ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl, decision }, sourceReferences: [] } })),
+      ].map(([ruleId, currentUrl, decision]) => ({ ruleId, ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl, decision, priority: "high" }, sourceReferences: [] } })),
         { ruleId: "rule:link", ruleType: "internal_links", sourceArtifactId: "internal-links", compiledPayload: { payload: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", currentBodyState: "absent", requiredAction: "add", recommendedAnchor: "mapped topic", linkPurpose: "supporting context", priority: "high" }, sourceReferences: [] } },
       ],
     } });
@@ -353,6 +353,18 @@ describe("SEO Pilot route regressions", () => {
     expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
   });
 
+  it("promotes an exact existing mapped refresh candidate as governed content refresh", async () => {
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 400 }]);
+    mockPrisma.contentProposal.create.mockResolvedValue({ id: "refresh-1", title: "Expand thin content: Black Rice Benefits" });
+    mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "black rice benefits", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], pages: [], queryPagePairs: [{ query: "black rice benefits", page: "/blogs/news/black-rice-benefits", clicks: 4, impressions: 120, position: "9" }], fetchedAt: new Date(), source: "normalized", window: null });
+    const { POST } = await import("@/app/api/seo/gaps/promote/route");
+    const gap = { ...strategyIdentity, kind: "content", state: "candidate", action: "refresh", ruleIds: ["rule:black"], query: "black rice benefits", suggestedTitle: "Black Rice Benefits", page: "/blogs/news/black-rice-benefits", priority: "high", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] };
+    const res = await POST(governedPromotionRequest({ gaps: [gap] }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(expect.objectContaining({ created: 1 }));
+    expect(mockCreateGovernedContentProposal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ data: expect.objectContaining({ proposalType: "content-refresh", articleHandle: "black-rice-benefits", sourceData: expect.objectContaining({ strategyVersionId: "v3", ruleIds: ["rule:black"] }) }), candidate: { type: "content", action: "update", targetUrl: "/blogs/news/black-rice-benefits" } }));
+  });
+
   it("maps a transaction-time strategy change to STRATEGY_CHANGED", async () => {
     mockPrisma.articleRecord.findMany.mockResolvedValue([]);
     mockCreateGovernedContentProposal.mockRejectedValueOnce(new MockStrategyChangedError());
@@ -539,6 +551,7 @@ describe("SEO Pilot route regressions", () => {
         suggestedTitle: "Client Supplied Title",
         issue: "missing-meta",
         articleHandle: "black-rice-benefits",
+        observedEvidence: [{ query: "black rice", impressions: 200, position: 8 }],
       }],
     }));
 

@@ -2,6 +2,7 @@ import { hasMissingMeta } from "@/lib/seo/meta";
 import type { GscQueryPageRow, GscQueryRow } from "@/lib/seo/types";
 import { z } from "zod";
 import type { TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
+import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
 const STOP_WORDS = new Set([
   "the", "and", "for", "with", "from", "that", "this", "are", "was", "how", "why",
@@ -50,7 +51,7 @@ export type MapAwareSeoGap = {
   packageSha256: string;
   ruleIds: string[];
   state: "candidate";
-  action: "create" | "update";
+  action: "create" | "update" | "refresh";
   query: string;
   suggestedTitle: string;
   page?: string;
@@ -69,7 +70,7 @@ export type MapAwareSeoAnalysis = {
 const IdentitySchema = z.object({ versionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 const MapGapSchema = z.object({
   kind: z.enum(["content", "link"]), strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  ruleIds: z.array(z.string().min(1)).min(1), state: z.literal("candidate"), action: z.enum(["create", "update"]), query: z.string().min(1), suggestedTitle: z.string().min(1),
+  ruleIds: z.array(z.string().min(1)).min(1), state: z.literal("candidate"), action: z.enum(["create", "update", "refresh"]), query: z.string().min(1), suggestedTitle: z.string().min(1),
   page: z.string().min(1).optional(), fromUrl: z.string().min(1).optional(), toUrl: z.string().min(1).optional(), type: z.string().min(1).optional(),
   priority: z.string().min(1), observedEvidence: z.array(z.object({ query: z.string().min(1), impressions: z.number().nonnegative(), position: z.number().nullable() }).strict()).max(20),
 }).strict();
@@ -99,19 +100,29 @@ export function buildMapAwareSeoGaps(input: {
 }): MapAwareSeoAnalysis {
   const existing = new Set(input.articles.map((article) => `/blogs/news/${article.handle.toLowerCase()}`));
   const observations = buildProgrammaticSeoGaps(input);
-  const evidenceFor = (query: string) => observations.filter(item => item.query.toLowerCase() === query.toLowerCase()).map(item => ({ query: item.query, impressions: item.impressions, position: Number.isFinite(item.position) ? item.position : null }));
+  const queries = new Map(input.queries.map(item => [item.query.toLowerCase(), item]));
+  const evidenceFor = (query: string, page?: string) => {
+    const byPage = page ? input.queryPagePairs.filter(item => normalizeGovernedUrl(item.page) === page).slice(0, 20).map(item => ({ query: item.query, impressions: item.impressions, position: Number.isFinite(Number(item.position)) ? Number(item.position) : null })) : [];
+    if (byPage.length) return byPage;
+    const item = queries.get(query.toLowerCase());
+    return item ? [{ query: item.query, impressions: item.impressions, position: Number.isFinite(Number(item.position)) ? Number(item.position) : null }] : [];
+  };
   const prohibitedByUrl = new Map(input.commandCenter.prohibited.map((item) => [item.url, item]));
   const gaps: MapAwareSeoGap[] = [];
   const suppressed: MapAwareSeoAnalysis["suppressed"] = [];
   for (const page of input.commandCenter.pages) {
-    if (existing.has(page.url) || !page.decision || !/(create|publish|new)/i.test(page.decision)) continue;
+    if (!page.decision) continue;
+    const exists = existing.has(page.url);
+    const create = !exists && /(create|publish|new)/i.test(page.decision);
+    const refresh = exists && /(refresh|update|improve|optimi[sz]e|expand)/i.test(page.decision);
+    if (!create && !refresh) continue;
     const prohibited = prohibitedByUrl.get(page.url);
     if (prohibited) {
       suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: page.url, reason: prohibited.item, ruleIds: [...page.ruleIds, ...prohibited.ruleIds].sort() });
       continue;
     }
     const query = page.primaryKeywordOrTheme ?? page.url;
-    gaps.push({ kind: "content", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate", action: "create", query, suggestedTitle: query, page: page.url, priority: page.priority ?? "unspecified", observedEvidence: evidenceFor(query) });
+    gaps.push({ kind: "content", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate", action: refresh ? "refresh" : "create", query, suggestedTitle: query, page: page.url, priority: page.priority ?? "unspecified", observedEvidence: evidenceFor(query, page.url) });
   }
   for (const link of input.commandCenter.work.internalLinks) {
     if (!/(absent|missing|not present|add)/i.test(`${link.currentBodyState ?? ""} ${link.requiredAction ?? ""}`)) continue;
