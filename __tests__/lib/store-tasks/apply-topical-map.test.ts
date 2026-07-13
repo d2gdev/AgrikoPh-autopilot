@@ -88,7 +88,41 @@ describe("applyTopicalMapStoreTask", () => {
     const client = db();
     client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: linkSource, proposedState: forged });
     command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [{ fromUrl: "/products/rice", toUrl: "/products/target", recommendedAnchor: "shop rice", ruleIds: ["rule-1"] }] } });
-    await expect(applyTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).rejects.toMatchObject({ code: "RULE_CHANGED" });
+    await expect(applyTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).rejects.toMatchObject({ code: "OBSERVATION_CHANGED" });
+    expect(adapter.fetch).toHaveBeenCalledTimes(1);
+    expect(client._tx.storeTask.updateMany).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+
+  it("rejects forged matching internal-link before/after bodies against the fresh resource", async () => {
+    const linkSource = { ...source, action: "internal_link", ruleDomains: ["internal_links"], linkTargetUrl: "/products/target", linkAnchor: "shop rice" };
+    const forged = { action: "internal_link", before: { bodyHtml: "forged" }, after: { bodyHtml: 'forged<p><a href="/products/target">shop rice</a></p>' } };
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: linkSource, proposedState: forged });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [{ fromUrl: "/products/rice", toUrl: "/products/target", recommendedAnchor: "shop rice", ruleIds: ["rule-1"] }] } });
+    await expect(applyTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).rejects.toMatchObject({ code: "OBSERVATION_CHANGED" });
+    expect(adapter.fetch).toHaveBeenCalledTimes(1);
+    expect(client._tx.storeTask.updateMany).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["SEO metadata", source, { ...proposed, before: { seoTitle: "forged", seoDescription: "Old desc" } }, "Improve SEO metadata"],
+    ["content body", { ...source, action: "content_update" }, { action: "content_update", before: { bodyHtml: "forged" }, after: { bodyHtml: "changed" } }, "Expand content"],
+  ])("rejects stale or forged %s before state against the fresh resource", async (_name, changedSource, changedProposed, decision) => {
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: changedSource, proposedState: changedProposed });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [{ url: "/products/rice", decision, ruleDomains: { content_decisions: ["rule-1"] } }], work: { internalLinks: [] } });
+    await expect(applyTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).rejects.toMatchObject({ code: "OBSERVATION_CHANGED" });
+    expect(client._tx.storeTask.updateMany).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+
+  it("rejects a runtime-unsupported target as non-executable before Shopify or claim", async () => {
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: { ...source, targetType: "home", targetUrl: "/" } as any });
+    await expect(applyTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).rejects.toMatchObject({ code: "TASK_NOT_EXECUTABLE" });
+    expect(adapter.fetch).not.toHaveBeenCalled();
     expect(client._tx.storeTask.updateMany).not.toHaveBeenCalled();
     expect(adapter.apply).not.toHaveBeenCalled();
   });

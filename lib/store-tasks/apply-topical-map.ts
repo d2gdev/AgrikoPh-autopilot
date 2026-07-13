@@ -65,8 +65,6 @@ function stillGoverned(
   const resolvedTarget = resolveGovernedStoreUrl(source.targetUrl);
   if (!resolvedTarget || resolvedTarget.type !== source.targetType) return false;
   if (source.action === "internal_link" && proposed.action === "internal_link") {
-    const expectedBody = `${proposed.before.bodyHtml}<p><a href="${escapeHtml(source.linkTargetUrl)}">${escapeHtml(source.linkAnchor)}</a></p>`;
-    if (proposed.after.bodyHtml !== expectedBody) return false;
     return center.work.internalLinks.some((item) => {
       const activeAnchor = item.recommendedAnchor ?? item.toUrl;
       return path(item.fromUrl) === source.targetUrl
@@ -80,9 +78,41 @@ function stillGoverned(
   return !!page && currentAction === source.action && sameStrings(page.ruleDomains.content_decisions ?? [], source.ruleIds);
 }
 
-function changes(proposed: ReturnType<typeof TopicalMapStoreTaskProposedSchema.parse>): Record<string, string> {
+function expectedInternalLinkBody(
+  currentBody: string,
+  source: Extract<ReturnType<typeof TopicalMapStoreTaskSourceSchema.parse>, { executable: true; action: "internal_link" }>,
+): string {
+  return `${currentBody}<p><a href="${escapeHtml(source.linkTargetUrl)}">${escapeHtml(source.linkAnchor)}</a></p>`;
+}
+
+function matchesFreshObservation(
+  resource: GovernedStoreResource,
+  source: Extract<ReturnType<typeof TopicalMapStoreTaskSourceSchema.parse>, { executable: true }>,
+  proposed: Exclude<ReturnType<typeof TopicalMapStoreTaskProposedSchema.parse>, { action: "advisory" }>,
+): boolean {
+  if (source.action !== proposed.action) return false;
+  if (proposed.action === "internal_link" && source.action === "internal_link") {
+    return proposed.before.bodyHtml === resource.bodyHtml
+      && proposed.after.bodyHtml === expectedInternalLinkBody(resource.bodyHtml, source);
+  }
+  if (proposed.action === "content_update") {
+    return proposed.before.bodyHtml === resource.bodyHtml;
+  }
+  return Object.entries(proposed.before).every(([key, value]) => {
+    return resource[key as "seoTitle" | "seoDescription"] === value;
+  });
+}
+
+function changes(
+  proposed: ReturnType<typeof TopicalMapStoreTaskProposedSchema.parse>,
+  current: GovernedStoreResource,
+  source: Extract<ReturnType<typeof TopicalMapStoreTaskSourceSchema.parse>, { executable: true }>,
+): Record<string, string> {
   if (proposed.action === "advisory") {
     throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
+  }
+  if (proposed.action === "internal_link" && source.action === "internal_link") {
+    return { bodyHtml: expectedInternalLinkBody(current.bodyHtml, source) };
   }
   return { ...proposed.after };
 }
@@ -114,7 +144,10 @@ export async function applyTopicalMapStoreTask(db: Db, input: ApplyInput): Promi
     throw new TopicalMapApplyError("RULE_CHANGED");
   }
   const current = await fetchGovernedStoreResource(source.targetUrl);
-  if (!current || current.type !== source.targetType || current.stateHash !== source.observedStateHash) {
+  if (!current
+    || current.type !== source.targetType
+    || current.stateHash !== source.observedStateHash
+    || !matchesFreshObservation(current, source, proposed)) {
     throw new TopicalMapApplyError("OBSERVATION_CHANGED");
   }
   const claimed = await db.$transaction((tx) => tx.storeTask.updateMany({
@@ -125,7 +158,7 @@ export async function applyTopicalMapStoreTask(db: Db, input: ApplyInput): Promi
     throw new TopicalMapApplyError("TASK_NOT_PENDING");
   }
 
-  const expected = changes(proposed);
+  const expected = changes(proposed, current, source);
   try {
     const updated = await applyGovernedStoreResourceChange(current, expected);
     if (!verified(updated, expected)) {

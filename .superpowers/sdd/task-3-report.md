@@ -48,3 +48,16 @@ Status: DONE
 - `npm run typecheck` passed.
 - Targeted ESLint passed with no findings.
 - `git diff --check` passed.
+
+## Fresh-resource before-state remediation
+
+- Apply now binds every persisted before-state field to the freshly fetched resource after the state-hash check and before claim: content/internal-link bodies must equal current `bodyHtml`, while each stored SEO title/description value must equal current metadata.
+- Internal-link mutation bodies are constructed from fresh `current.bodyHtml` plus the exact server-revalidated destination and anchor, never from persisted before-state bytes.
+- Schema-valid but forged matching link before/after bodies, forged content bodies, and forged SEO metadata return `OBSERVATION_CHANGED` before claim or mutation.
+- Runtime-unsupported target types return `TASK_NOT_EXECUTABLE` before fetching Shopify or claiming a task; allowlisted URL/type mismatches remain a separate `RULE_CHANGED` gate.
+
+### Fresh-resource TDD evidence
+
+- RED: the forged matching internal-link before/after regression reached mutation and returned `SHOPIFY_FAILED` instead of stopping at observation validation.
+- GREEN: Task 2/3 focused verification passed 4 files, 40/40 tests.
+- `npm run typecheck`, targeted ESLint, and `git diff --check` passed.
