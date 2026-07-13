@@ -89,3 +89,9 @@ Pre-existing `.superpowers/sdd/task-1-report.md` and `.superpowers/sdd/task-2-re
 - TDD RED: the adversarial route test failed because all extra service fields crossed the response boundary.
 - TDD GREEN: the SEO Pilot route file passed 48/48 after explicit projection.
 - Review-focused verification: nine files passed 135/135 tests; `npx tsc --noEmit` exited 0; lint observed 85 warnings and 0 errors and exited 0; `git diff --check` exited 0.
+
+## Verification Chronology Clarification
+
+- The full suite result of 1,455 passed with 8 skipped and the successful exact safe `autopilot_test` build were collected before the final response-bounding review fix.
+- The final review fix itself was freshly verified by 48/48 SEO route tests, 135/135 tests in the nine-file focused gate, `npx tsc --noEmit`, lint with 0 errors and 85 warnings observed, and `git diff --check`.
+- No warning provenance is claimed because no comparative lint baseline was collected.
