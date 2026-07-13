@@ -3,8 +3,8 @@ import { loadCommandCenterAndAnalysis, loadSeoCoreRequest, refreshResultToast, r
 
 const identityV3 = { versionId: "v3", strategyVersion: "3", contractRevision: "2", packageSha256: "a".repeat(64), activatedAt: null };
 const analysis = { gaps: [], observations: [], suppressed: [] };
-const envelopeV2 = { analysis, generatedAt: "2026-07-12T00:00:00.000Z", strategy: { ...identityV3, versionId: "v2" } };
-const envelopeV3 = { analysis, generatedAt: "2026-07-13T00:00:00.000Z", strategy: identityV3 };
+const envelopeV2 = { state: "ready" as const, analysis, generatedAt: "2026-07-12T00:00:00.000Z", strategy: { ...identityV3, versionId: "v2" } };
+const envelopeV3 = { state: "ready" as const, analysis, generatedAt: "2026-07-13T00:00:00.000Z", strategy: identityV3 };
 
 describe("active topical-map loading", () => {
   it("rejects analysis for a different active strategy as stale", () => {
@@ -35,6 +35,27 @@ describe("active topical-map loading", () => {
     expect(authFetch).toHaveBeenCalledOnce();
     expect(result.mapState).toEqual({ state: "error", message: "Strategy command center is unavailable." });
     expect(result.mapAnalysisState).toEqual({ state: "error", analysis: null, message: "Strategy command center is unavailable." });
+  });
+
+  it("maps the server stale response without exposing stale content", async () => {
+    const staleResponse = { state: "stale", analysis: null, generatedAt: null, strategy: identityV3, cachedStrategy: { versionId: "v2", packageSha256: "b".repeat(64) } };
+    const authFetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ state: "ready", generatedAt: "now", commandCenter: { identity: identityV3 } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(staleResponse), { status: 200 }));
+    const result = await loadCommandCenterAndAnalysis(authFetch);
+    expect(result.mapAnalysisState).toEqual({ state: "stale", analysis: null });
+    expect(JSON.stringify(result)).not.toContain("stale finding");
+  });
+
+  it.each([
+    { state: "future", commandCenter: null },
+    { state: "ready", generatedAt: "now", commandCenter: null },
+  ])("treats malformed or unknown governance payload as an error", async (payload) => {
+    const authFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }));
+    const result = await loadCommandCenterAndAnalysis(authFetch);
+    expect(result.mapState.state).toBe("error");
+    expect(result.mapAnalysisState.state).toBe("error");
+    expect(authFetch).toHaveBeenCalledOnce();
   });
 });
 

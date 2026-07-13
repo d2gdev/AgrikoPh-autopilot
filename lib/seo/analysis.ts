@@ -35,6 +35,15 @@ export interface ProgrammaticSeoGap {
 }
 
 export type StrategyIdentity = { versionId: string; packageSha256: string };
+export function readAnalysisStrategyIdentity(payload: unknown): StrategyIdentity | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const value = payload as Record<string, unknown>;
+  if (value.schemaVersion !== "2" || !value.strategy || typeof value.strategy !== "object" || Array.isArray(value.strategy)) return null;
+  const strategy = value.strategy as Record<string, unknown>;
+  return typeof strategy.versionId === "string" && typeof strategy.packageSha256 === "string" && /^[a-f0-9]{64}$/.test(strategy.packageSha256)
+    ? { versionId: strategy.versionId, packageSha256: strategy.packageSha256 }
+    : null;
+}
 export type MapAwareSeoGap = {
   kind: "content" | "link";
   strategyVersionId: string;

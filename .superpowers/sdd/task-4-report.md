@@ -24,3 +24,20 @@ Status: DONE
 - Orient: existing topical-map operator-surface patterns remain applicable; no new recurring procedure was introduced.
 - Write: no scaffold/context file required a factual update.
 - Concerns: none.
+
+## Review fixes
+
+- The analysis route now distinguishes `ready`, `empty`, `stale`, and `no_active_strategy`. For stale schema-v2 snapshots it returns the current and cached identities but always returns `analysis: null`; stale finding content never crosses the server boundary.
+- The client maps the exact stale route response to `MapAnalysisState.stale` while retaining the command-center-first request order.
+- Successful command-center responses are strictly discriminated: only an exact `no_active_strategy` null payload or a complete `ready` payload is accepted. Unknown future states and malformed ready payloads become governance errors and do not trigger analysis loading.
+
+### Review-fix RED
+
+`npm test -- __tests__/components/use-seo-data.test.ts __tests__/api/seo-pilot-routes.test.ts` failed 4/53 as expected: the route omitted the stale discriminator and cached identity, the client mapped stale to empty, and malformed governance payloads mapped to no-active-strategy.
+
+### Review-fix GREEN
+
+- Same focused command: 2 files, 53/53 tests passed.
+- `npm run typecheck`: passed.
+- Targeted ESLint across the two tests and four changed production files: passed with exit 0.
+- `git diff --check`: passed with exit 0.

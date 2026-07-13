@@ -10,9 +10,11 @@ export type MapLoadState =
   | { state: "ready"; generatedAt: string; commandCenter: TopicalMapCommandCenter };
 
 export type MapAnalysisEnvelope = {
+  state: "ready" | "empty" | "stale" | "no_active_strategy";
   analysis: MapAwareSeoAnalysis | null;
   generatedAt: string | null;
   strategy: MapIdentity | null;
+  cachedStrategy?: { versionId: string; packageSha256: string };
 };
 
 export type MapAnalysisState =

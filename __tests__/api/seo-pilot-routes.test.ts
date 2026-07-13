@@ -62,6 +62,7 @@ const mockJobs = vi.hoisted(() => ({
 const mockEnqueueJob = vi.hoisted(() => vi.fn());
 const mockMaterializeJobsStatusSnapshot = vi.hoisted(() => vi.fn());
 const mockCreateGovernedContentProposal = vi.hoisted(() => vi.fn());
+const mockGetLatestSnapshot = vi.hoisted(() => vi.fn());
 class MockStrategyChangedError extends Error {}
 
 vi.mock("@/lib/auth", () => ({
@@ -73,6 +74,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
+vi.mock("@/lib/seo/snapshot", () => ({ getLatestSnapshot: mockGetLatestSnapshot }));
 vi.mock("@/lib/topical-map/compliance-store", () => ({
   createGovernedContentProposal: mockCreateGovernedContentProposal,
   createGovernedContentProposalInTransaction: mockCreateGovernedContentProposal,
@@ -137,6 +139,7 @@ describe("SEO Pilot route regressions", () => {
       ],
     } });
     mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
+    mockGetLatestSnapshot.mockResolvedValue(null);
     mockPrisma.auditLog.create.mockResolvedValue({});
     mockPrisma.keywordResearchResult.findMany.mockResolvedValue([]);
     mockPrisma.marketKeyword.findFirst.mockResolvedValue(null);
@@ -189,6 +192,31 @@ describe("SEO Pilot route regressions", () => {
       status: "queued",
     });
     mockMaterializeJobsStatusSnapshot.mockResolvedValue(undefined);
+  });
+
+  it("signals a stale strategy analysis without returning its content", async () => {
+    mockGetLatestSnapshot.mockResolvedValue({
+      fetchedAt: new Date("2026-07-12T00:00:00.000Z"),
+      payload: {
+        schemaVersion: "2",
+        strategy: { versionId: "v2", packageSha256: "b".repeat(64) },
+        generatedAt: "2026-07-12T00:00:00.000Z",
+        analysis: { gaps: [{ secret: "stale finding" }], observations: [], suppressed: [] },
+      },
+    });
+    const { GET } = await import("@/app/api/seo/analysis/route");
+
+    const res = await GET(new Request("http://test.local/api/seo/analysis") as NextRequest);
+    const body = await res.json();
+
+    expect(body).toEqual({
+      state: "stale",
+      analysis: null,
+      generatedAt: null,
+      strategy: expect.objectContaining({ versionId: "v3", packageSha256: "a".repeat(64) }),
+      cachedStrategy: { versionId: "v2", packageSha256: "b".repeat(64) },
+    });
+    expect(JSON.stringify(body)).not.toContain("stale finding");
   });
 
   it("rejects arbitrary non-SEO history sources", async () => {

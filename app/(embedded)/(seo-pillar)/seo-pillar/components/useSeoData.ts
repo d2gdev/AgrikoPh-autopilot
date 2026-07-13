@@ -6,6 +6,7 @@ import type { MapAnalysisEnvelope, MapAnalysisState, MapIdentity, MapLoadState }
 
 export function resolveMapAnalysisState(input: { active: MapIdentity | null; envelope: MapAnalysisEnvelope }): MapAnalysisState {
   if (!input.active) return { state: "no_active_strategy", analysis: null };
+  if (input.envelope.state === "stale") return { state: "stale", analysis: null };
   if (!input.envelope.strategy || input.envelope.strategy.versionId !== input.active.versionId || input.envelope.strategy.packageSha256 !== input.active.packageSha256) {
     return { state: "stale", analysis: null };
   }
@@ -20,8 +21,12 @@ export async function loadCommandCenterAndAnalysis(authFetch: AuthFetch): Promis
     return { mapState: { state: "error", message }, mapAnalysisState: { state: "error", analysis: null, message } };
   }
   const body = await governance.json();
-  if (body.state === "no_active_strategy" || !body.commandCenter) {
+  if (body.state === "no_active_strategy" && body.commandCenter === null) {
     return { mapState: { state: "no_active_strategy" }, mapAnalysisState: { state: "no_active_strategy", analysis: null } };
+  }
+  if (body.state !== "ready" || !body.commandCenter || typeof body.generatedAt !== "string") {
+    const message = "Strategy command center is unavailable.";
+    return { mapState: { state: "error", message }, mapAnalysisState: { state: "error", analysis: null, message } };
   }
   const mapState: MapLoadState = { state: "ready", generatedAt: body.generatedAt, commandCenter: body.commandCenter };
   const response = await authFetch("/api/seo/analysis");
