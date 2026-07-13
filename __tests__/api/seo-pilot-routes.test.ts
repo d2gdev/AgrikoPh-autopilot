@@ -61,6 +61,7 @@ const mockJobs = vi.hoisted(() => ({
 }));
 const mockEnqueueJob = vi.hoisted(() => vi.fn());
 const mockMaterializeJobsStatusSnapshot = vi.hoisted(() => vi.fn());
+const mockSyncTopicalMapStoreTasks = vi.hoisted(() => vi.fn());
 const mockCreateGovernedContentProposal = vi.hoisted(() => vi.fn());
 const mockGetLatestSnapshot = vi.hoisted(() => vi.fn());
 class MockStrategyChangedError extends Error {}
@@ -96,6 +97,9 @@ vi.mock("@/lib/jobs/orchestrator", () => ({
 }));
 vi.mock("@/lib/dashboard/jobs-status", () => ({
   materializeJobsStatusSnapshot: (...args: Parameters<typeof mockMaterializeJobsStatusSnapshot>) => mockMaterializeJobsStatusSnapshot(...args),
+}));
+vi.mock("@/lib/store-tasks/topical-map", () => ({
+  syncTopicalMapStoreTasks: mockSyncTopicalMapStoreTasks,
 }));
 
 function jsonRequest(path: string, body: Record<string, unknown>, method = "POST") {
@@ -188,6 +192,7 @@ describe("SEO Pilot route regressions", () => {
     });
     mockJobs.acquireJobLock.mockResolvedValue(true);
     mockJobs.releaseJobLock.mockResolvedValue(undefined);
+    mockSyncTopicalMapStoreTasks.mockResolvedValue({ executable: 3, advisory: 4, unchanged: 5, suppressed: 6 });
     mockEnqueueJob.mockResolvedValue({
       created: true,
       runId: "dashboard-run",
@@ -565,6 +570,30 @@ describe("SEO Pilot route regressions", () => {
     expect(body.analysis.contentGaps).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ query: "black rice benefits" })])
     );
+    expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledBefore(mockSyncTopicalMapStoreTasks);
+    expect(mockSyncTopicalMapStoreTasks).toHaveBeenCalledWith(mockPrisma);
+    expect(body.storeTaskSync).toEqual({ status: "complete", executable: 3, advisory: 4, unchanged: 5, suppressed: 6 });
+  });
+
+  it("keeps a persisted analysis available when topical-map Store Task synchronization fails", async () => {
+    mockSeoData.getLatestGscData.mockResolvedValue({
+      queries: [{ query: "black rice benefits", clicks: 3, impressions: 320, ctr: "0.9%", position: "8.0" }],
+      pages: [], queryPagePairs: [], fetchedAt: new Date("2026-06-01T00:00:00Z"), source: "normalized", window: null,
+    });
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      { handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 900, internalLinkCount: 2, seoData: { seoTitle: "Black Rice Benefits", seoDescription: "A complete guide." } },
+    ]);
+    mockSyncTopicalMapStoreTasks.mockRejectedValue(new Error("provider credentials leaked here"));
+    const { POST } = await import("@/app/api/seo/analyze/route");
+
+    const res = await POST(new Request("http://test.local/api/seo/analyze", { method: "POST" }) as NextRequest);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledOnce();
+    expect(body.analysis).toEqual(expect.objectContaining({ contentGaps: expect.any(Array) }));
+    expect(body.storeTaskSync).toEqual({ status: "partial", executable: 0, advisory: 0, unchanged: 0, suppressed: 0 });
+    expect(JSON.stringify(body)).not.toContain("credentials leaked");
   });
 
   it("filters AI strategy bullets to grounded items and returns evidence for each visible item", async () => {

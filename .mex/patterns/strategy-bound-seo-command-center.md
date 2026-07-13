@@ -10,7 +10,7 @@ edges:
     condition: when changing the authenticated command-center projection or five-job UI
   - target: seo-pilot-proposal-actions.md
     condition: when changing governed Content Pilot proposal creation
-last_updated: 2026-07-13T14:53:00+08:00
+last_updated: 2026-07-13T21:12:00+08:00
 ---
 
 # Strategy-bound SEO Command Center
@@ -28,6 +28,7 @@ SEO observations are evidence, not governance. Only the active `agrikoph.com` to
 5. For content or internal-link promotion, reconstruct the candidate from the current server projection and reject stale identity, unrelated rule IDs, altered evidence, or incomplete link pairs before persistence.
 6. Preserve evaluator/compliance/dedupe evidence in the existing transaction. Redirect persistence remains unsupported; canonicalization and indexation remain advisory-only and must never advertise live execution.
 7. When removing a legacy strategy surface, delete its module, unreachable panels/handlers/tabs, and add a recursive runtime-source regression scan so hidden fallback code cannot return.
+8. After the exact active-map analysis snapshot is persisted, synchronize non-blog Store Tasks as an independent best-effort step. Return only bounded counts, preserve analysis readiness on sync failure, and keep the standalone sync route for operator retry.
 
 ## Gotchas
 
@@ -37,6 +38,7 @@ SEO observations are evidence, not governance. Only the active `agrikoph.com` to
 - A newer active pointer invalidates cached analysis immediately; timestamps alone do not establish freshness.
 - Local builds must use the exact non-production `autopilot_test` URL and include `connection_limit` and `pool_timeout`; never source production credentials for a build.
 - Inspection completeness must use the same executable scope as analysis. Non-blog Shopify objects that Content Pilot deliberately suppresses must remain visible as unsupported findings, but must not make fully inspected blog actions globally unavailable.
+- Never route governed blog articles into Store Tasks; blog create/refresh/link work remains in Content Pilot, while Store Tasks cover supported non-blog Shopify resources.
 
 ## Verify
 

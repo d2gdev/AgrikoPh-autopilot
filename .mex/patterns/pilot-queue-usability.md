@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-11
+last_updated: 2026-07-13T21:12:00+08:00
 ---
 
 # Pilot Queue Usability
@@ -44,6 +44,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 20. Protect Run Indexer and Content Brief with `CONTENT_REVIEW`. Return safe operator errors rather than raw provider or Shopify details.
 21. Route every `fetchBlogContentHandler` production entry point through one owner-token lock wrapper. A denied lock means another index is active; only the owner that acquired the lock may release it.
 22. Overview counts must load the complete paginated article corpus, and overlapping refreshes must prevent older results from overwriting newer state.
+23. For executable topical-map Store Tasks, confirmation starts Apply but does not prove completion. Revalidate the active strategy and exact live before-state, perform only the supported Shopify mutation, persist the success receipt, and only then mark the task completed. Advisory tasks never expose Apply.
 
 ## Gotchas
 - A successful "skipped/already handled" backend response still feels broken if the UI leaves the same row visible or says to fetch data first.
@@ -57,6 +58,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 - A polling interval can continuously abort an unbounded pagination request and leave loading state stuck. Skip background polls while active and bound page traversal using the server's truthful total.
 - A local lock at only one route is not a job invariant. Cron aggregation, scheduled publishing, shared publish services, source refreshes, scripts, and dashboard refreshes must all use the same lock wrapper.
 - Do not replace a concrete mutation failure with a secondary reload failure. Preserve the primary message and roll back optimistic state if no authoritative state can be loaded.
+- Never mark an executable map task complete from a request acknowledgment or local state update. Completion requires the persisted Shopify receipt; missing receipt evidence remains failed/reconcilable, not complete.
 
 ## Verify
 - Add or update a route/API regression proving list responses include the evidence fields the row renders.

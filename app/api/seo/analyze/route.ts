@@ -13,6 +13,7 @@ import { buildMapAwareSeoGaps, createMapAnalysisEnvelope, SEO_ANALYSIS_MAX_AGE_H
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { hasMissingMeta } from "@/lib/seo/meta";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
+import { syncTopicalMapStoreTasks } from "@/lib/store-tasks/topical-map";
 import type { Prisma } from "@prisma/client";
 
 const SeoAnalysisSchema = z.object({
@@ -217,7 +218,15 @@ export async function POST(req: NextRequest) {
     } catch {
       throw new AnalysisPersistenceError("Analysis snapshot could not be saved");
     }
-    return NextResponse.json({ analysis, mapAnalysis, generatedAt: generatedAt.toISOString(), gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source });
+    let storeTaskSync: { status: "complete" | "partial"; executable: number; advisory: number; unchanged: number; suppressed: number };
+    try {
+      const summary = await syncTopicalMapStoreTasks(prisma);
+      storeTaskSync = { status: "complete", ...summary };
+    } catch {
+      console.error("[seo/analyze] topical-map Store Task synchronization failed");
+      storeTaskSync = { status: "partial", executable: 0, advisory: 0, unchanged: 0, suppressed: 0 };
+    }
+    return NextResponse.json({ analysis, mapAnalysis, generatedAt: generatedAt.toISOString(), gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source, storeTaskSync });
   };
 
   const aiTimeout = AbortSignal.timeout(25_000);

@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-13T14:53:00+08:00
+last_updated: 2026-07-13T21:12:00+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **Governed topical-map Store Task integration local release (2026-07-13):** An operator-triggered SEO analysis refresh now persists the exact active-map schema-v2 snapshot before synchronizing non-blog Store Tasks and returns bounded executable/advisory/unchanged/suppressed counts. Synchronization failure is a safe partial result and never erases or withholds the ready analysis; the standalone authenticated sync route remains available for retry. Blog articles remain in Content Pilot. Store Task execution supports only confirmed, strategy/state-revalidated product, collection, and page SEO/content/internal-link mutations; homepage, blog index, redirects, canonicalization, indexation, and unavailable drafts remain advisory-only. A task is complete only after a Shopify success receipt is persisted. The nine-file focused gate passed 134/134, the full suite passed 1,455 tests with 8 skipped, lint had zero errors (85 pre-existing warnings), the exact local `autopilot_test` build passed, and diff hygiene was clean. No autonomous execution, production access, deployment, Shopify mutation, or Meta mutation occurred.
 - **SEO executable-scope evidence completeness (2026-07-13):** The strategy-bound analysis evidence denominator now matches the analyzer's executable Content Pilot scope. Governed blog articles and blog link sources remain mandatory and fail closed when uninspected; non-blog home, blog-index, collection, page, and product objects remain explicitly suppressed as unsupported instead of globally withholding otherwise complete blog actions. A route regression covers a mixed blog/product map.
 - **Timeless SEO analysis snapshot selection (2026-07-13):** `seo_analysis` is an upserted current-state snapshot with epoch date-range keys, so its reader orders solely by `fetchedAt`. Period snapshots such as GSC and GA4 retain date-range-first ordering. This prevents older ranged legacy analysis rows from masking the newly persisted active-map analysis.
 - **SEO store-observation timestamp correction (2026-07-13):** Map-aware SEO analysis and promotion use `ArticleRecord.updatedAt` as the last successful Shopify inspection timestamp. `indexedAt` is immutable record-creation time and must not be used for freshness. A regression proves a newly refreshed article remains current even when it was originally indexed long ago; analysis and promotion now share the same inspection timestamp boundary.

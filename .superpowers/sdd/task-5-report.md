@@ -1,86 +1,82 @@
-# Task 5 report: SEO Pilot topical-map command center
+# Task 5 Report — Integration, GROW, and Local Release Verification
 
-Status: DONE_WITH_CONCERNS
+Date: 2026-07-13 (Asia/Singapore)
 
-## Ground
+## Outcome
 
-- Replaced the nine legacy navigation destinations with five operator jobs: Map overview, Pages & ownership, Content gaps, Links & technical, and Search evidence.
-- Added active-package identity and health totals covering all eleven topical-map rule domains.
-- Added page ownership and technical work lists with labelled filters and expandable rule/source provenance.
-- Connected active-strategy content and missing-internal-link candidates to the governed `/api/seo/gaps/promote` proposal route, with busy and created/already-handled feedback.
-- Kept redirect, canonicalization, and indexation execution unavailable, with explicit explanatory disabled controls.
-- Kept raw GSC observations separate and disabled their proposal controls when no map rule association exists.
-- Added distinct loading, no-active-strategy, command-center error, stale-analysis, and empty-analysis copy.
-- Added narrow-layout list styling, overflow containment, keyboard-visible disclosure focus, and non-color status text.
+- `POST /api/seo/analyze` persists the exact active-map schema-v2 analysis snapshot before calling `syncTopicalMapStoreTasks(prisma)`.
+- A successful synchronization returns the fixed, source-free `storeTaskSync` shape: `status`, `executable`, `advisory`, `unchanged`, and `suppressed`.
+- Synchronization failure returns the same bounded counts as zero with `status: "partial"`; the provider/database exception is not returned and the persisted analysis remains available.
+- The authenticated standalone Store Pilot synchronization endpoint remains unchanged for operator retry.
+- No production access, deployment, Shopify mutation, Meta mutation, strategy activation, or autonomous task Apply occurred.
 
-## TDD evidence
+## TDD Evidence
 
-Red command:
+RED:
 
-`npm test -- __tests__/components/topical-map-strategy-panel.test.ts __tests__/components/seo-pilot-responsive.test.ts`
+```text
+npx vitest run __tests__/api/seo-pilot-routes.test.ts
+2 failed, 45 passed
+```
 
-Observed: 2 test files failed. The failures named missing `MapOverviewPanel.tsx`, `MapPagesPanel.tsx`, `MapWorkPanel.tsx`, `.commandCenter`, and `.compactList` contracts.
+The success regression failed because sync had not been called after persistence; the failure-isolation regression failed because `storeTaskSync` was absent.
 
-Green command:
+GREEN:
 
-`npm test -- __tests__/components/topical-map-strategy-panel.test.ts __tests__/components/seo-pilot-responsive.test.ts __tests__/components/use-seo-data.test.ts __tests__/a11y/no-raw-hex.test.ts`
+```text
+npx vitest run __tests__/api/seo-pilot-routes.test.ts
+1 file passed; 47/47 tests passed
+```
 
-Observed: 4 files passed, 30 tests passed, 0 failed.
+The regression preserves the existing mapped blog-gap assertions while proving persistence-before-sync, bounded counts, safe failure isolation, and no leaked failure detail. Shopify execution is outside this route; synchronization only creates/reconciles review tasks.
 
-Additional verification:
+## Release Gates
 
-- `npx tsc --noEmit`: exit 0.
-- `git diff --check`: exit 0.
-- `npm run lint`: exit 0 with 140 existing/project warnings and no errors. Several warnings now surface legacy SEO Pilot state/imports that became unreachable after the navigation cutover; they do not block compilation but should be removed in a later focused cleanup rather than broadening this task.
+Focused nine-file gate:
 
-## Self-review
+```text
+9/9 files passed
+134/134 tests passed
+```
 
-- Live execution authority was not broadened. Only the already governed proposal route is called.
-- Raw strategy source bytes and compiled payloads are not rendered.
-- Rule IDs, source artifact identity, bounded source-reference coverage IDs, blockers, and active package identity remain visible.
-- Technical controls accurately distinguish operator-visible required work from unavailable live execution.
-- No nested cards, raw colors, or horizontal scrolling were added.
+Full suite:
 
-## Concerns
+```text
+204 passed, 3 skipped files
+1,455 passed, 8 skipped tests
+exit 0
+```
 
-- The existing page still contains unreachable legacy panel handlers and imports after the five-tab cutover, producing lint warnings. Removing that dead code is desirable but was intentionally not mixed into the command-center behavior change.
-- Page/work filter facets are intentionally bounded to projected fields. Some work filter values have limited utility until the command-center projection exposes normalized lifecycle and blocker associations per row.
+Lint:
 
-## Review-finding follow-up (2026-07-13)
+```text
+85 warnings, 0 errors
+exit 0
+```
 
-- Fixed the critical proposal transport defect: content and internal-link actions now submit the exact candidate identity at both top level and per gap (`strategyVersionId`, `packageSha256`, `gaps: [gap]`). Behavior tests assert the exact request body and success feedback for both action families.
-- Map-aware analysis now carries strict, validated `priority` and bounded `observedEvidence` fields. Content gaps display the actual projected priority and exact matching GSC observations, or explicitly state that no matching observation exists rather than fabricating evidence.
-- Work priority/state/blocker filters now classify and filter real rows. Internal links are candidates only when an analysis candidate exists; absent candidates are evidence-blocked. Redirect/canonical/indexation rows are review-blocked because no safe Content Pilot persistence/generation type exists. Page blocker filtering now uses actual prohibited-content URL associations.
-- Redirects, canonicalization, and indexation now have distinct truthful controls. Redirect persistence is labelled unsupported; canonical and indexation remain advisory-only under the package contract. No technical live-execution authority was added and no unpublishable generic proposal type was invented.
-- Raw evidence filter labels are visible. Overview summaries now derive cluster URL coverage, decision distribution, action-family totals, and high-priority action counts from the command-center projection.
+All warnings are pre-existing and outside Task 5 files.
 
-Follow-up verification:
+Exact safe build:
 
-- Focused UI, API, route, analysis, command-center, proposal integration, evaluator, and governed-operation matrix: 13 files passed, 113 tests passed.
-- `npx tsc --noEmit`: exit 0.
-- `npm run lint`: exit 0.
-- `git diff --check`: exit 0.
+```text
+DATABASE_URL='postgresql://test:test@127.0.0.1:5432/autopilot_test?connection_limit=10&pool_timeout=10' npm run build
+Next.js 15.5.19 compiled successfully
+exit 0
+```
 
-## Remaining review findings follow-up (2026-07-13)
+Diff hygiene: `git diff --check` passed after all implementation and GROW edits.
 
-- Existing governed article pages whose active content decision says refresh, update, improve, optimize, or expand now emit exact `action: "refresh"` candidates. Candidates retain target URL, active package identity, exact rule IDs, projected priority, and up to 20 current query/page observations.
-- The promotion route accepts refresh explicitly, revalidates active decision/rules/priority, reconstructs current bounded GSC evidence, rejects stale evidence, and persists a governed `content-refresh` proposal using the existing evaluator, compliance, and dedupe transaction.
-- Page rule families now come from explicit projected `ruleDomains`; opaque rule IDs are never parsed for domain meaning.
-- Global evidence/review blockers only appear when family and priority are unfiltered and state includes blocked work. In incompatible combined selections, the UI explains why association-free global blockers are hidden.
-- Proposal helper coverage now includes created, already-handled, and failed responses for both content and internal-link candidates. UI coverage proves a mapped refresh renders evidence and an enabled proposal action.
-- Final affected matrix: 13 files passed, 120 tests passed; `npx tsc --noEmit`, `npm run lint`, and `git diff --check` exited 0.
+## GROW
 
-## Final refresh-persistence correction (2026-07-13)
+- Ground: operator-triggered SEO analysis now best-effort synchronizes non-blog topical-map Store Tasks only after durable analysis persistence; failure does not affect the ready snapshot.
+- Record: updated `.mex/ROUTER.md` and `.mex/context/architecture.md` with supported mutation and isolation boundaries.
+- Orient: updated command-center and queue-usability patterns to keep blog work in Content Pilot and require a persisted Shopify receipt before executable map-task completion.
+- Write: bumped every changed scaffold `last_updated` value and recorded the rationale with `mex log`.
 
-- Map-authorized refresh/update/improve/optimize/expand candidates now persist a generic governed `content-refresh` with `action: "refresh"`, exact `mapDecision`, target URL/title, projected priority, bounded current evidence, strategy identity, and server-revalidated rule IDs.
-- The route no longer infers thin content, an expand remedy, or a doubled word-count target from a map refresh decision. Those specifics remain available only to independently evidenced legacy thin-content findings.
-- The refresh route regression asserts the persisted proposal contains no `thin` wording and no `targetWordCount`, while retaining evaluator context `{ type: "content", action: "update", targetUrl }`.
-- The refresh analysis fixture now uses the complete projected page contract without a call-site `as any` cast.
-- Final affected verification: 11 files passed, 113 tests passed; `npx tsc --noEmit`, `npm run lint`, and `git diff --check` exited 0.
+## Execution Boundary
 
-## Final map-evidence correspondence correction (2026-07-13)
+Supported Apply mutations are product, collection, and page SEO metadata, additive content, and internal links. Apply requires explicit confirmation plus active-strategy and live-before-state revalidation. Homepage, blog index, redirects, canonicalization, indexation, and unavailable drafts are advisory-only. Synchronization never applies work, and task completion requires a persisted Shopify success receipt.
 
-- Map-aware candidates now carry strict `mapEvidence` separately from bounded current `observedEvidence`; the UI labels both evidence sources independently.
-- Promotion compares submitted map evidence to the active server projection and rejects altered values before persistence. Successful refresh proposals persist the server-selected map evidence in both `proposedState` and `sourceData` alongside current observations.
-- Analysis tests now use a fully typed `TopicalMapCommandCenter` fixture with complete domain counts, rule-domain mappings, work, blockers, and provenance. No `as any` bypass remains in the refresh analysis contract.
-- Final affected verification: 9 files passed, 104 tests passed; `npx tsc --noEmit`, `npm run lint`, and `git diff --check` exited 0.
+## Working Tree Safety
+
+Pre-existing `.superpowers/sdd/task-1-report.md` and `.superpowers/sdd/task-2-report.md` modifications were preserved and left unstaged. No push or deployment was performed.
