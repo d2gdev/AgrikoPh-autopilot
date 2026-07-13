@@ -73,7 +73,8 @@ type Summary = { executable: number; advisory: number; unchanged: number; suppre
 type RuleDomain = "content_decisions" | "internal_links" | z.infer<typeof AdvisoryDomain>;
 type TaskTargetType = z.infer<typeof TargetType> | z.infer<typeof AdvisoryTargetType>;
 type TaskAdvisoryReason = z.infer<typeof AdvisoryReason>;
-type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: TopicalMapStoreAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resource?: GovernedStoreResource; theme?: string; links?: Array<{ toUrl: string; anchor: string }> };
+type CandidateLink = { toUrl: string; anchor: string; ruleIds: string[] };
+type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: TopicalMapStoreAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resource?: GovernedStoreResource; theme?: string; links?: CandidateLink[] };
 type Persisted = { targetType: string; targetUrl: string; priority: string; ruleIds: string[]; ruleDomains: string[]; sourceData: z.infer<typeof TopicalMapStoreTaskSourceSchema>; proposedState: z.infer<typeof TopicalMapStoreTaskProposedSchema> };
 
 function path(value: string): string {
@@ -127,12 +128,18 @@ function candidates(center: TopicalMapCommandCenter): Candidate[] {
     if (!target) continue;
     const current = linkGroups.get(fromUrl) ?? { targetType: target.type, targetUrl: fromUrl, ruleIds: [], ruleDomains: ["internal_links"], priority: link.priority ?? "medium", action: "internal_link", links: [] };
     current.ruleIds.push(...link.ruleIds);
-    current.links!.push({ toUrl: path(link.toUrl), anchor: link.recommendedAnchor ?? link.toUrl });
+    current.links!.push({ toUrl: path(link.toUrl), anchor: link.recommendedAnchor ?? link.toUrl, ruleIds: [...link.ruleIds] });
     linkGroups.set(fromUrl, current);
   }
   for (const group of linkGroups.values()) {
     group.ruleIds = [...new Set(group.ruleIds)].sort();
-    group.links = [...new Map(group.links!.map((link) => [`${link.toUrl}\u0000${link.anchor}`, link])).values()].sort((a, b) => a.toUrl.localeCompare(b.toUrl) || a.anchor.localeCompare(b.anchor));
+    const uniqueLinks = new Map<string, CandidateLink>();
+    for (const link of group.links!) {
+      const key = `${link.toUrl}\u0000${link.anchor}`;
+      const existing = uniqueLinks.get(key);
+      uniqueLinks.set(key, existing ? { ...existing, ruleIds: [...new Set([...existing.ruleIds, ...link.ruleIds])].sort() } : { ...link, ruleIds: [...new Set(link.ruleIds)].sort() });
+    }
+    group.links = [...uniqueLinks.values()].sort((a, b) => a.toUrl.localeCompare(b.toUrl) || a.anchor.localeCompare(b.anchor));
     result.push(group);
   }
   const advisory = (targetUrl: string, ruleIds: string[], ruleDomain: z.infer<typeof AdvisoryDomain>, reason: TaskAdvisoryReason, targetType: z.infer<typeof AdvisoryTargetType>) => result.push({ targetType, targetUrl: path(targetUrl), ruleIds: [...ruleIds].sort(), ruleDomains: [ruleDomain], priority: "medium", action: "advisory", advisoryReason: reason });
@@ -186,6 +193,7 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
       const existingTargets = new Set(resource.internalTargets.map(path));
       item.links = item.links!.filter((link) => !existingTargets.has(link.toUrl));
       if (!item.links.length) { summary.unchanged++; continue; }
+      item.ruleIds = [...new Set(item.links.flatMap((link) => link.ruleIds))].sort();
     }
     viable.push(item);
   }
@@ -216,7 +224,7 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
       targetType: resource.type,
       targetUrl: item.targetUrl,
       action: item.action,
-      ...(item.action === "internal_link" ? { links: item.links } : {}),
+      ...(item.action === "internal_link" ? { links: item.links!.map(({ toUrl, anchor }) => ({ toUrl, anchor })) } : {}),
       observedAt: resource.updatedAt.toISOString(),
       observedStateHash: resource.stateHash,
       executable: true,

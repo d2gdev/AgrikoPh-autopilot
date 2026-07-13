@@ -16,7 +16,7 @@ const resource = (type: "product" | "collection" | "page", url: string, title: s
   id: `gid://${url}`, type, url, handle: url.split("/").at(-1), title,
   seoTitle: `Old ${title}`, seoDescription: `Old description for ${title}`,
   bodyHtml: `<p>Existing ${title} body.</p>`, updatedAt: observedAt,
-  stateHash: "b".repeat(64), internalTargets: [],
+  stateHash: "b".repeat(64), internalTargets: [] as string[],
 });
 const center = () => ({
   identity: { versionId: "strategy-7", strategyVersion: "7", contractRevision: "3", packageSha256: "a".repeat(64), activatedAt: "2026-07-12T00:00:00.000Z" },
@@ -100,6 +100,24 @@ describe("syncTopicalMapStoreTasks", () => {
     expect(links[0].proposedState.after.bodyHtml).toContain('<section class="ag-related-recipes"');
     expect(links[0].proposedState.after.bodyHtml.match(/<section/g)).toHaveLength(1);
     expect(links[0].proposedState.after.bodyHtml.match(/<li>/g)).toHaveLength(3);
+  });
+
+  it("removes rule IDs with destinations that already exist on the resource", async () => {
+    const rice = resource("collection", "/collections/rice", "Rice");
+    rice.internalTargets = ["/products/brown-rice"];
+    fetchResources.mockResolvedValue(new Map([
+      ["/products/black-rice", resource("product", "/products/black-rice", "Black Rice")],
+      ["/collections/rice", rice],
+      ["/pages/our-farm", resource("page", "/pages/our-farm", "Our Farm")],
+    ]));
+    const db = client();
+    await syncTopicalMapStoreTasks(db as any);
+    const link = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create).find((task: any) => task.proposedState.action === "internal_link");
+    expect(link.sourceData.links).toEqual([
+      { toUrl: "/products/black-rice", anchor: "shop black rice" },
+      { toUrl: "/products/red-rice", anchor: "shop red rice" },
+    ]);
+    expect(link.sourceData.ruleIds).toEqual(["link:a", "link:red", "link:z"]);
   });
 
   it("supersedes obsolete unapproved per-link tasks after creating the grouped replacement", async () => {
