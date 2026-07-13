@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { loadCommandCenterAndAnalysis, loadSeoCoreRequest, refreshResultToast, resolveMapAnalysisState, seoCoreCacheKey, waitForSeoRefresh } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/useSeoData";
+import { isMapAnalysisEnvelope, loadCommandCenterAndAnalysis, loadSeoCoreRequest, refreshResultToast, resolveMapAnalysisState, seoCoreCacheKey, waitForSeoRefresh } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/useSeoData";
 
 const identityV3 = { versionId: "v3", strategyVersion: "3", contractRevision: "2", packageSha256: "a".repeat(64), activatedAt: null };
 const analysis = { gaps: [], observations: [], suppressed: [] };
 const envelopeV2 = { state: "ready" as const, analysis, generatedAt: "2026-07-12T00:00:00.000Z", strategy: { ...identityV3, versionId: "v2" } };
 const envelopeV3 = { state: "ready" as const, analysis, generatedAt: "2026-07-13T00:00:00.000Z", strategy: identityV3 };
+const commandCenter = { identity: identityV3, domainCounts: { clusters: 0, page_roles: 0, url_intent_ownership: 0, content_decisions: 0, prohibited_content: 0, internal_links: 0, redirects: 0, canonicalization: 0, indexation: 0, evidence_gates: 0, high_stakes_reviews: 0 }, clusters: [], pages: [], prohibited: [], work: { internalLinks: [], redirects: [], canonicalization: [], indexation: [] }, blockers: { evidence: [], reviews: [] }, provenance: {} };
 
 describe("active topical-map loading", () => {
   it("rejects analysis for a different active strategy as stale", () => {
@@ -21,7 +22,7 @@ describe("active topical-map loading", () => {
     const calls: string[] = [];
     const authFetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input); calls.push(url);
-      if (url.includes("command-center")) return new Response(JSON.stringify({ state: "ready", generatedAt: "now", commandCenter: { identity: identityV3 } }), { status: 200 });
+      if (url.includes("command-center")) return new Response(JSON.stringify({ state: "ready", generatedAt: "now", commandCenter }), { status: 200 });
       return new Response(JSON.stringify(envelopeV3), { status: 200 });
     });
     const result = await loadCommandCenterAndAnalysis(authFetch);
@@ -40,7 +41,7 @@ describe("active topical-map loading", () => {
   it("maps the server stale response without exposing stale content", async () => {
     const staleResponse = { state: "stale", analysis: null, generatedAt: null, strategy: identityV3, cachedStrategy: { versionId: "v2", packageSha256: "b".repeat(64) } };
     const authFetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ state: "ready", generatedAt: "now", commandCenter: { identity: identityV3 } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ state: "ready", generatedAt: "now", commandCenter }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(staleResponse), { status: 200 }));
     const result = await loadCommandCenterAndAnalysis(authFetch);
     expect(result.mapAnalysisState).toEqual({ state: "stale", analysis: null });
@@ -56,6 +57,22 @@ describe("active topical-map loading", () => {
     expect(result.mapState.state).toBe("error");
     expect(result.mapAnalysisState.state).toBe("error");
     expect(authFetch).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a truthy but incomplete command center before loading analysis", async () => {
+    const authFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ state: "ready", generatedAt: "now", commandCenter: { identity: identityV3 } }), { status: 200 }));
+    const result = await loadCommandCenterAndAnalysis(authFetch);
+    expect(result.mapState.state).toBe("error");
+    expect(authFetch).toHaveBeenCalledOnce();
+  });
+
+  it("accepts only possible discriminated analysis envelopes", () => {
+    expect(isMapAnalysisEnvelope(envelopeV3)).toBe(true);
+    expect(isMapAnalysisEnvelope({ state: "empty", analysis: null, generatedAt: null, strategy: identityV3 })).toBe(true);
+    expect(isMapAnalysisEnvelope({ state: "stale", analysis: null, generatedAt: null, strategy: identityV3, cachedStrategy: { versionId: "v2", packageSha256: "b".repeat(64) } })).toBe(true);
+    expect(isMapAnalysisEnvelope({ state: "no_active_strategy", analysis: null, generatedAt: null, strategy: null })).toBe(true);
+    expect(isMapAnalysisEnvelope({ state: "ready", analysis: null, generatedAt: null, strategy: identityV3 })).toBe(false);
+    expect(isMapAnalysisEnvelope({ state: "stale", analysis, generatedAt: null, strategy: identityV3 })).toBe(false);
   });
 });
 

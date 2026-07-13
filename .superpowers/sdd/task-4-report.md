@@ -41,3 +41,14 @@ Status: DONE
 - `npm run typecheck`: passed.
 - Targeted ESLint across the two tests and four changed production files: passed with exit 0.
 - `git diff --check`: passed with exit 0.
+
+## Final review fixes
+
+- Added an explicit runtime command-center guard requiring the complete active identity, all eleven numeric domain counts, projection arrays, work arrays, blocker arrays, and provenance object. A truthy identity-only object is rejected as a governance error before `/api/seo/analysis` is requested.
+- Replaced the permissive analysis-envelope shape with an exact discriminated union for `ready`, `empty`, `stale`, and `no_active_strategy` and added a matching runtime guard. Impossible combinations such as ready/null or stale/non-null are rejected.
+
+### Final RED/GREEN evidence
+
+- RED: focused hook test failed 2/16 because the incomplete command center reached the analysis fetch and the envelope guard did not exist.
+- GREEN: `npm test -- __tests__/components/use-seo-data.test.ts __tests__/api/seo-pilot-routes.test.ts` passed 55/55 tests.
+- `npm run typecheck`, targeted ESLint, and `git diff --check` all passed with exit 0.

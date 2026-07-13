@@ -3,6 +3,31 @@ import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import type { SeoData, Analysis, Health, KeywordRow, Cluster, SnapshotTrendPoint, StrategyPackageOverview } from "./types";
 import type { MapAnalysisEnvelope, MapAnalysisState, MapIdentity, MapLoadState } from "./map-types";
+import type { MapAwareSeoAnalysis } from "@/lib/seo/analysis";
+
+const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
+const hash = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+function isMapIdentity(value: unknown): value is MapIdentity {
+  return object(value) && typeof value.versionId === "string" && value.versionId.length > 0 && typeof value.strategyVersion === "string" && value.strategyVersion.length > 0 && typeof value.contractRevision === "string" && value.contractRevision.length > 0 && hash(value.packageSha256) && (value.activatedAt === null || typeof value.activatedAt === "string");
+}
+function isCommandCenter(value: unknown): value is import("@/lib/topical-map/command-center").TopicalMapCommandCenter {
+  if (!object(value) || !isMapIdentity(value.identity) || !object(value.domainCounts) || !object(value.work) || !object(value.blockers) || !object(value.provenance)) return false;
+  const domains = ["clusters", "page_roles", "url_intent_ownership", "content_decisions", "prohibited_content", "internal_links", "redirects", "canonicalization", "indexation", "evidence_gates", "high_stakes_reviews"];
+  const counts = value.domainCounts as Record<string, unknown>;
+  const work = value.work as Record<string, unknown>;
+  const blockers = value.blockers as Record<string, unknown>;
+  return domains.every((domain) => typeof counts[domain] === "number") && [value.clusters, value.pages, value.prohibited, work.internalLinks, work.redirects, work.canonicalization, work.indexation, blockers.evidence, blockers.reviews].every(Array.isArray);
+}
+const isAnalysis = (value: unknown): value is MapAwareSeoAnalysis => object(value) && Array.isArray(value.gaps) && Array.isArray(value.observations) && Array.isArray(value.suppressed);
+export function isMapAnalysisEnvelope(value: unknown): value is MapAnalysisEnvelope {
+  if (!object(value)) return false;
+  if (value.state === "no_active_strategy") return value.analysis === null && value.generatedAt === null && value.strategy === null;
+  if (!isMapIdentity(value.strategy)) return false;
+  if (value.state === "ready") return isAnalysis(value.analysis) && typeof value.generatedAt === "string";
+  if (value.state === "empty") return value.analysis === null && value.generatedAt === null;
+  if (value.state === "stale") return value.analysis === null && value.generatedAt === null && object(value.cachedStrategy) && typeof value.cachedStrategy.versionId === "string" && value.cachedStrategy.versionId.length > 0 && hash(value.cachedStrategy.packageSha256);
+  return false;
+}
 
 export function resolveMapAnalysisState(input: { active: MapIdentity | null; envelope: MapAnalysisEnvelope }): MapAnalysisState {
   if (!input.active) return { state: "no_active_strategy", analysis: null };
@@ -24,7 +49,7 @@ export async function loadCommandCenterAndAnalysis(authFetch: AuthFetch): Promis
   if (body.state === "no_active_strategy" && body.commandCenter === null) {
     return { mapState: { state: "no_active_strategy" }, mapAnalysisState: { state: "no_active_strategy", analysis: null } };
   }
-  if (body.state !== "ready" || !body.commandCenter || typeof body.generatedAt !== "string") {
+  if (body.state !== "ready" || !isCommandCenter(body.commandCenter) || typeof body.generatedAt !== "string") {
     const message = "Strategy command center is unavailable.";
     return { mapState: { state: "error", message }, mapAnalysisState: { state: "error", analysis: null, message } };
   }
@@ -34,7 +59,12 @@ export async function loadCommandCenterAndAnalysis(authFetch: AuthFetch): Promis
     const message = "Strategy analysis is unavailable.";
     return { mapState, mapAnalysisState: { state: "error", analysis: null, message } };
   }
-  const envelope = await response.json() as MapAnalysisEnvelope;
+  const payload: unknown = await response.json();
+  if (!isMapAnalysisEnvelope(payload)) {
+    const message = "Strategy analysis is unavailable.";
+    return { mapState, mapAnalysisState: { state: "error", analysis: null, message } };
+  }
+  const envelope = payload;
   return { mapState, mapAnalysisState: resolveMapAnalysisState({ active: body.commandCenter.identity, envelope }) };
 }
 

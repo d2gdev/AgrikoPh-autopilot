@@ -9,13 +9,11 @@ export type MapLoadState =
   | { state: "error"; message: string }
   | { state: "ready"; generatedAt: string; commandCenter: TopicalMapCommandCenter };
 
-export type MapAnalysisEnvelope = {
-  state: "ready" | "empty" | "stale" | "no_active_strategy";
-  analysis: MapAwareSeoAnalysis | null;
-  generatedAt: string | null;
-  strategy: MapIdentity | null;
-  cachedStrategy?: { versionId: string; packageSha256: string };
-};
+export type MapAnalysisEnvelope =
+  | { state: "ready"; analysis: MapAwareSeoAnalysis; generatedAt: string; strategy: MapIdentity }
+  | { state: "empty"; analysis: null; generatedAt: null; strategy: MapIdentity }
+  | { state: "stale"; analysis: null; generatedAt: null; strategy: MapIdentity; cachedStrategy: { versionId: string; packageSha256: string } }
+  | { state: "no_active_strategy"; analysis: null; generatedAt: null; strategy: null };
 
 export type MapAnalysisState =
   | { state: "loading"; analysis: null }
