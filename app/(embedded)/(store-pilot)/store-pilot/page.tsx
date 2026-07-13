@@ -37,7 +37,7 @@ interface StoreTask {
   proposedState: Record<string, unknown>;
   sourceData: Record<string, unknown>;
   priority: string;
-  status: "pending" | "completed" | "dismissed";
+  status: "pending" | "failed" | "completed" | "dismissed";
   completedAt: string | null;
   completionNote: string | null;
 }
@@ -49,6 +49,7 @@ interface TaskBucket {
 
 const TASK_TABS = [
   { id: "pending", content: "Pending" },
+  { id: "failed", content: "Failed" },
   { id: "completed", content: "Completed" },
   { id: "dismissed", content: "Dismissed" },
 ] as const;
@@ -81,6 +82,7 @@ export default function StorePilotReportPage() {
   const [taskTab, setTaskTab] = useState(0);
   const [taskBuckets, setTaskBuckets] = useState<Record<(typeof TASK_TABS)[number]["id"], TaskBucket>>({
     pending: { tasks: [], total: 0 },
+    failed: { tasks: [], total: 0 },
     completed: { tasks: [], total: 0 },
     dismissed: { tasks: [], total: 0 },
   });
@@ -183,12 +185,24 @@ export default function StorePilotReportPage() {
       if (!res.ok) throw new Error(json.error ?? "Topical-map change could not be applied.");
       setSelectedMapTask(null);
       await loadTasks();
-      setToastMessage("The topical-map change was applied.");
+      setToastMessage("The topical-map change was approved and queued.");
     } catch (err) {
       setTaskError(err instanceof Error ? err.message : "Topical-map change could not be applied.");
     } finally {
       setApplyingTaskId(null);
       endMutation();
+    }
+  }
+
+  async function selectMapTask(task: StoreTask) {
+    setTaskError(null);
+    try {
+      const response = await authFetch(`/api/store-tasks/${task.id}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Task detail failed to load.");
+      setSelectedMapTask({ ...task, ...payload.task });
+    } catch (error) {
+      setTaskError(error instanceof Error ? error.message : "Task detail failed to load.");
     }
   }
 
@@ -242,7 +256,7 @@ export default function StorePilotReportPage() {
     formatDate(task.createdAt),
     activeTaskStatus === "pending" ? (
       <InlineStack key={`${task.id}-actions`} gap="200" wrap={false}>
-        {mapTask ? (executable ? <Button size="slim" onClick={() => setSelectedMapTask(task)} disabled={mutationBusy}>Apply</Button> : null) : (
+        {mapTask ? (executable ? <Button size="slim" onClick={() => selectMapTask(task)} disabled={mutationBusy}>Apply</Button> : null) : (
           <Button size="slim" onClick={() => updateTask(task.id, "completed")} loading={updatingTaskId === task.id} disabled={mutationBusy}>Complete</Button>
         )}
         <Button

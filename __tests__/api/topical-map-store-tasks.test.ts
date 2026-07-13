@@ -8,7 +8,7 @@ vi.mock("@/lib/auth", () => ({ requireAppAuth: auth.app, requirePermission: auth
 vi.mock("@/lib/db", () => ({ prisma: db }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: rate }));
 vi.mock("@/lib/store-tasks/topical-map", () => ({ syncTopicalMapStoreTasks: service.sync }));
-vi.mock("@/lib/store-tasks/apply-topical-map", () => ({ applyTopicalMapStoreTask: service.apply, TopicalMapApplyError: class extends Error { constructor(public code: string) { super(code); } } }));
+vi.mock("@/lib/store-tasks/apply-topical-map", () => ({ approveTopicalMapStoreTask: service.apply, TopicalMapApplyError: class extends Error { constructor(public code: string) { super(code); } } }));
 const request = (path: string) => new Request(`http://test.local${path}`, { method: "POST" });
 
 beforeEach(() => { vi.clearAllMocks(); auth.app.mockResolvedValue(null); auth.permission.mockResolvedValue(null); auth.user.mockResolvedValue("actor-1"); auth.shop.mockResolvedValue("shop"); rate.mockReturnValue(true); });
@@ -40,7 +40,7 @@ describe("topical-map Store Task routes", () => {
     expect(await response.json()).toEqual(summary);
   });
 
-  it("applies only the route id with CONTENT_PUBLISH and maps typed failures safely", async () => {
+  it("approves only the route id with CONTENT_PUBLISH and maps typed failures safely", async () => {
     service.apply.mockRejectedValue(Object.assign(new Error("source bytes"), { code: "OBSERVATION_CHANGED" }));
     const response = await (await import("@/app/api/store-tasks/[id]/apply/route")).POST(request("/task-1/apply"), { params: Promise.resolve({ id: "task-1" }) });
     expect(auth.permission).toHaveBeenCalledWith(expect.any(Request), "content:publish");

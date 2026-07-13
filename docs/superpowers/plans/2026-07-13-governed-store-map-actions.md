@@ -10,10 +10,10 @@
 
 ## Global Constraints
 
-- Never execute live Shopify changes unless `EXECUTE_APPROVED_LIVE_ENABLED=true` and the operator has explicitly confirmed Apply.
+- Never execute live Shopify changes unless the exact linked Recommendation is `approved`/`override_approved` and `EXECUTE_APPROVED_LIVE_ENABLED=true`; route confirmation only approves and queues it.
 - Every embedded route calls `await requireAppAuth(req)` as its first statement; Apply immediately requires `CONTENT_PUBLISH`, task synchronization requires `CONTENT_REVIEW`.
 - All database access uses `import { prisma } from "@/lib/db"`; never instantiate `PrismaClient`.
-- Reuse the existing `StoreTask` model and `shopifyFetch`; add no schema migration, generic workflow engine, background executor, or parallel proposal model.
+- Reuse the existing Recommendation lifecycle, `StoreTask`, `execute-approved`, and `shopifyFetch`; the only schema addition is a narrow persisted normalized-target execution lock.
 - Product and collection writes are limited to `seo` and `descriptionHtml`; page writes are limited to `title`, `body`, and `global.title_tag` / `global.description_tag` metafields.
 - Handles, publication state, price, product status, navigation, theme templates, redirects, canonicalization, and indexation are never executed by this feature.
 - Homepage and blog-index work is advisory-only. Blog articles remain exclusively in Content Pilot.
@@ -122,7 +122,7 @@ Cover:
 - missing resource observations suppressed rather than executable;
 - exact strategy/rule/source identity in `sourceData`;
 - exact current/proposed values in `proposedState`;
-- deterministic dedupe key based on strategy identity, sorted rule IDs, normalized URL, action type, and proposed hash;
+- stable deterministic dedupe key based on strategy identity, sorted rule IDs, normalized URL, and action type, with the proposed hash stored separately;
 - pending task upsert, with completed/dismissed history never silently reopened.
 
 - [ ] **Step 2: Verify projection tests fail**
@@ -186,7 +186,7 @@ git commit -m "feat(store): synchronize topical-map tasks"
 
 ---
 
-### Task 3: Authenticated synchronization and confirmed Apply APIs
+### Task 3: Authenticated synchronization, Recommendation approval, and guarded executor dispatch
 
 **Files:**
 - Create: `app/api/store-tasks/topical-map/sync/route.ts`
@@ -199,7 +199,7 @@ git commit -m "feat(store): synchronize topical-map tasks"
 **Interfaces:**
 - Sync route returns `{ executable, advisory, unchanged, suppressed }`.
 - Apply service returns `{ task, receipt }` or typed conflicts `LIVE_DISABLED`, `TASK_NOT_PENDING`, `TASK_NOT_EXECUTABLE`, `STRATEGY_CHANGED`, `RULE_CHANGED`, `OBSERVATION_CHANGED`, `SHOPIFY_FAILED`.
-- Apply route returns 200 for verified completion, 403 for disabled live execution/permission, 409 for state conflicts, and 502 for Shopify failures.
+- Apply route returns 202 for queued approval and never mutates Shopify; executor dispatch records verified completion or a safe failed/uncertain state.
 
 - [ ] **Step 1: Write failing auth and sync route tests**
 
@@ -373,4 +373,3 @@ Run the required whole-branch code review. Fix every Critical or Important findi
 - [ ] **Step 8: Production acceptance without an unapproved write**
 
 Run authenticated synchronization and verify executable/advisory counts, exact active strategy identity, and zero recommendation/proposal mutation. Confirm the Store Pilot bundle contains the review and Apply flow. Do not select or apply a production task during deployment. The first live task remains pending until the operator reviews its actual before/after values and confirms Apply in Shopify Admin.
-

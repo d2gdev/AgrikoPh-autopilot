@@ -18,12 +18,12 @@ const AdvisoryReason = z.enum(["homepage_not_governed", "blog_index_not_governed
 const SeoBefore = z.object({ seoTitle: z.string().nullable().optional(), seoDescription: z.string().nullable().optional() }).strict();
 const SeoAfter = z.object({ seoTitle: z.string().min(1).max(70).optional(), seoDescription: z.string().min(1).max(160).optional() }).strict().refine((value) => value.seoTitle !== undefined || value.seoDescription !== undefined, "At least one SEO field is required");
 const BodyBefore = z.object({ bodyHtml: z.string() }).strict();
-const BodyAfter = z.object({ bodyHtml: z.string().min(1) }).strict();
+const BodyAfter = z.object({ bodyHtml: z.string().min(1).max(50_000) }).strict();
 
 const ExecutableSourceBase = {
   source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash,
   ruleIds: z.array(z.string().min(1)).min(1), targetType: TargetType, targetUrl: GovernedUrl,
-  observedAt: z.string().datetime(), observedStateHash: Hash, executable: z.literal(true),
+  observedAt: z.string().datetime().refine((value) => new Date(value).getTime() <= Date.now() + 5 * 60_000, "Observation cannot be in the future"), observedStateHash: Hash, recommendationId: z.string().min(1).optional(), executable: z.literal(true),
 };
 const ExecutableSourceSchema = z.discriminatedUnion("action", [
   z.object({ ...ExecutableSourceBase, action: z.literal("seo_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
@@ -42,7 +42,7 @@ export const TopicalMapStoreTaskProposedSchema = z.discriminatedUnion("action", 
 
 const DraftResponse = z.object({ drafts: z.array(z.object({
   url: GovernedUrl, seoTitle: z.string().min(1).max(70).optional(), seoDescription: z.string().min(1).max(160).optional(), sectionText: z.string().min(1).max(1000).optional(),
-}).strict()).max(250) }).strict().superRefine((value, ctx) => {
+}).strict()).max(25) }).strict().superRefine((value, ctx) => {
   const urls = value.drafts.map((draft) => path(draft.url));
   if (new Set(urls).size !== urls.length) ctx.addIssue({ code: "custom", message: "Draft URLs must be unique", path: ["drafts"] });
 });
@@ -52,6 +52,12 @@ type Client = {
   storeTask: {
     findUnique(args: { where: { dedupeKey: string } }): Promise<{ status: string } | null>;
     upsert(args: unknown): Promise<unknown>;
+    update?(args: unknown): Promise<unknown>;
+  };
+  rawSnapshot?: { findFirst(args: unknown): Promise<{ id: string } | null> };
+  recommendation?: {
+    findFirst(args: unknown): Promise<{ id: string; status: string } | null>;
+    create(args: unknown): Promise<{ id: string; status: string }>;
   };
 };
 type Summary = { executable: number; advisory: number; unchanged: number; suppressed: number };
@@ -74,7 +80,6 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 function escapeHtml(value: string): string { return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
-function before(resource: GovernedStoreResource) { return { title: resource.title, seoTitle: resource.seoTitle, seoDescription: resource.seoDescription, bodyHtml: resource.bodyHtml }; }
 function pageAction(page: CommandCenterPage): TopicalMapStoreAction {
   const decision = page.decision?.toLowerCase() ?? "";
   return /(seo|meta|title|description)/.test(decision) ? "seo_update" : "content_update";
@@ -136,11 +141,13 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     viable.push(item);
   }
 
-  const draftCandidates = viable.filter((item) => item.action === "seo_update" || item.action === "content_update");
+  const draftCandidates = viable.filter((item) => item.action === "seo_update" || item.action === "content_update").slice(0, 25);
   let drafts = new Map<string, z.infer<typeof DraftResponse>["drafts"][number]>();
   if (draftCandidates.length) {
     try {
-      const response = await chatCompletionWithFailover({ messages: [{ role: "system", content: "Return strict JSON only. Draft bounded SEO metadata or additive plain sectionText. Never return HTML, handles, or publication fields." }, { role: "user", content: JSON.stringify({ draftsRequested: draftCandidates.map((item) => ({ url: item.targetUrl, action: item.action, theme: item.theme, current: before(item.resource!) })) }) }], response_format: { type: "json_object" } });
+      const request = JSON.stringify({ draftsRequested: draftCandidates.map((item) => ({ url: item.targetUrl, action: item.action, theme: item.theme?.slice(0, 300), current: { title: item.resource!.title.slice(0, 300), seoTitle: item.resource!.seoTitle?.slice(0, 300), seoDescription: item.resource!.seoDescription?.slice(0, 500), bodyExcerpt: item.resource!.bodyHtml.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 1500) } })) });
+      if (request.length > 60_000) throw new Error("Draft request exceeds bounded size");
+      const response = await chatCompletionWithFailover({ messages: [{ role: "system", content: "Return strict JSON only. Draft bounded SEO metadata or additive plain sectionText. Never return HTML, handles, or publication fields." }, { role: "user", content: request }], response_format: { type: "json_object" } });
       const parsed = DraftResponse.safeParse(JSON.parse(response.content));
       if (parsed.success && parsed.data.drafts.every((draft) => draftCandidates.some((item) => item.targetUrl === path(draft.url)))) drafts = new Map(parsed.data.drafts.map((draft) => [path(draft.url), draft]));
     } catch { /* draft-dependent work becomes advisory below */ }
@@ -165,22 +172,34 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     });
     if (item.action === "internal_link") {
       const bodyHtml = `${resource.bodyHtml}<p><a href="${escapeHtml(item.toUrl!)}">${escapeHtml(item.anchor!)}</a></p>`;
+      if (bodyHtml.length > 50_000) return advisory(center, item, "draft_unavailable");
       return { targetType: resource.type, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceData, proposedState: { action: item.action, before: { bodyHtml: resource.bodyHtml }, after: { bodyHtml } } };
     }
     const draft = drafts.get(item.targetUrl);
     if (!draft || !grounded(draft, item) || (item.action === "seo_update" && (!draft.seoTitle || !draft.seoDescription)) || (item.action === "content_update" && !draft.sectionText)) return advisory(center, item, "draft_unavailable");
     if (item.action === "seo_update") return { targetType: resource.type, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceData, proposedState: { action: item.action, before: { seoTitle: resource.seoTitle, seoDescription: resource.seoDescription }, after: { seoTitle: draft.seoTitle!, seoDescription: draft.seoDescription! } } };
-    return { targetType: resource.type, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceData, proposedState: { action: item.action, before: { bodyHtml: resource.bodyHtml }, after: { bodyHtml: `${resource.bodyHtml}<section><p>${escapeHtml(draft.sectionText!)}</p></section>` } } };
+    const bodyHtml = `${resource.bodyHtml}<section><p>${escapeHtml(draft.sectionText!)}</p></section>`;
+    if (bodyHtml.length > 50_000) return advisory(center, item, "draft_unavailable");
+    return { targetType: resource.type, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceData, proposedState: { action: item.action, before: { bodyHtml: resource.bodyHtml }, after: { bodyHtml } } };
   });
 
   for (const task of tasks) {
     const checkedSource = TopicalMapStoreTaskSourceSchema.parse(task.sourceData);
     const checkedProposed = TopicalMapStoreTaskProposedSchema.parse(task.proposedState);
     const proposedHash = hash(canonical(checkedProposed));
-    const dedupeKey = `store-task:topical-map:${hash(canonical([center.identity.versionId, center.identity.packageSha256, [...task.ruleIds].sort(), path(task.targetUrl), checkedProposed.action, proposedHash]))}`;
+    const dedupeKey = `store-task:topical-map:${hash(canonical([center.identity.versionId, center.identity.packageSha256, [...task.ruleIds].sort(), path(task.targetUrl), checkedProposed.action]))}`;
     const existing = await client.storeTask.findUnique({ where: { dedupeKey } });
     if (existing && !["pending", "failed"].includes(existing.status)) { summary.unchanged++; continue; }
-    await client.storeTask.upsert({ where: { dedupeKey }, create: { taskType: "topical_map", targetType: task.targetType, targetId: null, targetUrl: task.targetUrl, title: checkedSource.executable ? `Review topical-map ${checkedProposed.action}` : "Review topical-map advisory", description: checkedSource.executable ? `Review the governed ${checkedProposed.action} for ${task.targetUrl}.` : checkedSource.advisoryReason, proposedState: checkedProposed, sourceData: checkedSource, priority: task.priority, status: "pending", dedupeKey }, update: { taskType: "topical_map", targetType: task.targetType, targetUrl: task.targetUrl, title: checkedSource.executable ? `Review topical-map ${checkedProposed.action}` : "Review topical-map advisory", description: checkedSource.executable ? `Review the governed ${checkedProposed.action} for ${task.targetUrl}.` : checkedSource.advisoryReason, proposedState: checkedProposed, sourceData: checkedSource, priority: task.priority, status: "pending" } });
+    const sourceWithHash = checkedSource;
+    const persisted = await client.storeTask.upsert({ where: { dedupeKey }, create: { taskType: "topical_map", targetType: task.targetType, targetId: null, targetUrl: task.targetUrl, title: checkedSource.executable ? `Review topical-map ${checkedProposed.action}` : "Review topical-map advisory", description: checkedSource.executable ? `Review the governed ${checkedProposed.action} for ${task.targetUrl}.` : checkedSource.advisoryReason, proposedState: checkedProposed, sourceData: sourceWithHash, priority: task.priority, status: "pending", dedupeKey }, update: { taskType: "topical_map", targetType: task.targetType, targetUrl: task.targetUrl, title: checkedSource.executable ? `Review topical-map ${checkedProposed.action}` : "Review topical-map advisory", description: checkedSource.executable ? `Review the governed ${checkedProposed.action} for ${task.targetUrl}.` : checkedSource.advisoryReason, proposedState: checkedProposed, sourceData: sourceWithHash, priority: task.priority, status: "pending", completionNote: null, completedAt: null } }) as { id?: string } | undefined;
+    if (checkedSource.executable && persisted?.id && client.recommendation && client.rawSnapshot && client.storeTask.update) {
+      const snapshot = await client.rawSnapshot.findFirst({ where: { source: "seo_analysis" }, orderBy: { fetchedAt: "desc" }, select: { id: true } });
+      if (!snapshot) { summary.suppressed++; continue; }
+      let recommendation = await client.recommendation.findFirst({ where: { platform: "shopify", actionType: "apply_topical_map_store_task", targetEntityId: persisted.id, status: { in: ["pending", "approved", "override_approved"] } }, select: { id: true, status: true } });
+      if (!recommendation && checkedProposed.action !== "advisory") recommendation = await client.recommendation.create({ data: { platform: "shopify", skillId: "topical-map-store-task", skillName: "Governed topical-map Store Task", actionType: "apply_topical_map_store_task", targetEntityType: "store_task", targetEntityId: persisted.id, targetEntityName: task.targetUrl, currentValue: JSON.stringify(checkedProposed.before), proposedValue: JSON.stringify({ taskId: persisted.id, proposedStateHash: proposedHash }), rationale: `Apply the exact governed ${checkedProposed.action} after operator approval.`, guardStatus: "clear", status: "pending", snapshotId: snapshot.id } });
+      if (!recommendation) { summary.suppressed++; continue; }
+      await client.storeTask.update({ where: { id: persisted.id }, data: { sourceData: { ...sourceWithHash, recommendationId: recommendation.id } } });
+    }
     if (checkedSource.executable) summary.executable++; else summary.advisory++;
   }
   return summary;

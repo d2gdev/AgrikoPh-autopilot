@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-13T21:24:00+08:00
+last_updated: 2026-07-13T21:45:00+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **Governed Store Task approval remediation (2026-07-13):** Store Pilot confirmation now approves and queues an exact linked pending Recommendation; it never writes to Shopify. Only `execute-approved`, with the live gate and approved status, dispatches the strict topical-map service. Target-scoped persisted locking, immediate reobservation, failed/uncertain reconciliation, 50,000-character after-state limits, bounded AI context, bounded list DTOs, authenticated on-demand detail, and failed-task retry through re-sync are enforced locally.
 - **Governed topical-map Store Task integration local release (2026-07-13):** An operator-triggered SEO analysis refresh now persists the exact active-map schema-v2 snapshot before synchronizing non-blog Store Tasks and returns bounded executable/advisory/unchanged/suppressed counts. Synchronization failure is a safe partial result and never erases or withholds the ready analysis; the standalone authenticated sync route remains available for retry. Blog articles remain in Content Pilot. Store Task execution supports only confirmed, strategy/state-revalidated product, collection, and page SEO/content/internal-link mutations; homepage, blog index, redirects, canonicalization, indexation, and unavailable drafts remain advisory-only. A task is complete only after a Shopify success receipt is persisted. Before the final response-bounding review fix, the full suite passed 1,455 tests with 8 skipped and the exact local `autopilot_test` build passed. The final fix was then verified by 48/48 route tests, the nine-file focused gate at 135/135, typecheck, lint with 0 errors and 85 warnings observed, and clean diff hygiene. No autonomous execution, production access, deployment, Shopify mutation, or Meta mutation occurred.
 - **SEO executable-scope evidence completeness (2026-07-13):** The strategy-bound analysis evidence denominator now matches the analyzer's executable Content Pilot scope. Governed blog articles and blog link sources remain mandatory and fail closed when uninspected; non-blog home, blog-index, collection, page, and product objects remain explicitly suppressed as unsupported instead of globally withholding otherwise complete blog actions. A route regression covers a mixed blog/product map.
 - **Timeless SEO analysis snapshot selection (2026-07-13):** `seo_analysis` is an upserted current-state snapshot with epoch date-range keys, so its reader orders solely by `fetchedAt`. Period snapshots such as GSC and GA4 retain date-range-first ordering. This prevents older ranged legacy analysis rows from masking the newly persisted active-map analysis.

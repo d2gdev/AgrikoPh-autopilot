@@ -351,6 +351,12 @@ model StoreTask {
   @@index([opportunityId])
 }
 
+model StoreTaskExecutionLock {
+  targetUrl String   @id
+  taskId    String   @unique
+  claimedAt DateTime @default(now())
+}
+
 model ContentProposal {
   id               String    @id @default(cuid())
   createdAt        DateTime  @default(now())

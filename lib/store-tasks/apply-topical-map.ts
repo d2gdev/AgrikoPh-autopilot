@@ -121,10 +121,25 @@ function verified(resource: GovernedStoreResource, expected: Record<string, stri
   return Object.entries(expected).every(([key, value]) => resource[key as keyof GovernedStoreResource] === value);
 }
 
-export async function applyTopicalMapStoreTask(db: Db, input: ApplyInput): Promise<{ task: StoreTask; receipt: Receipt }> {
-  if (process.env.EXECUTE_APPROVED_LIVE_ENABLED !== "true") {
-    throw new TopicalMapApplyError("LIVE_DISABLED");
-  }
+export async function approveTopicalMapStoreTask(db: Db, input: ApplyInput): Promise<{ taskId: string; recommendationId: string; status: "queued" }> {
+  const row = await db.storeTask.findUnique({ where: { id: input.id } });
+  if (!row || row.status !== "pending") throw new TopicalMapApplyError("TASK_NOT_PENDING");
+  const source = TopicalMapStoreTaskSourceSchema.safeParse(row.sourceData);
+  const proposed = TopicalMapStoreTaskProposedSchema.safeParse(row.proposedState);
+  if (!source.success || !source.data.executable || !source.data.recommendationId || !proposed.success || proposed.data.action === "advisory") throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
+  const recommendationId = source.data.recommendationId;
+  const approved = await db.$transaction(async (tx) => {
+    const claimed = await tx.recommendation.updateMany({ where: { id: recommendationId, targetEntityId: row.id, platform: "shopify", actionType: "apply_topical_map_store_task", status: "pending" }, data: { status: "approved", reviewedBy: input.actor, reviewedAt: new Date() } });
+    if (claimed.count !== 1) return false;
+    await tx.storeTask.update({ where: { id: row.id }, data: { reviewedBy: input.actor, reviewedAt: new Date(), completionNote: "Approved and queued for guarded execution." } });
+    await tx.auditLog.create({ data: { actor: input.actor, action: "topical_map_store_task_approved", entityType: "StoreTask", entityId: row.id, after: { recommendationId, status: "queued" } } });
+    return true;
+  });
+  if (!approved) throw new TopicalMapApplyError("TASK_NOT_PENDING");
+  return { taskId: row.id, recommendationId, status: "queued" };
+}
+
+export async function executeTopicalMapStoreTask(db: Db, input: ApplyInput & { recommendationId: string }): Promise<{ task: StoreTask; receipt: Receipt }> {
   const row = await db.storeTask.findUnique({ where: { id: input.id } });
   if (!row || row.status !== "pending") {
     throw new TopicalMapApplyError("TASK_NOT_PENDING");
@@ -136,6 +151,7 @@ export async function applyTopicalMapStoreTask(db: Db, input: ApplyInput): Promi
   }
   const source = sourceResult.data;
   const proposed = proposedResult.data;
+  if (source.recommendationId && source.recommendationId !== input.recommendationId) throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
   const center = await loadActiveTopicalMapCommandCenter(db);
   if (!center || center.identity.versionId !== source.strategyVersionId || center.identity.packageSha256 !== source.packageSha256) {
     throw new TopicalMapApplyError("STRATEGY_CHANGED");
@@ -143,6 +159,13 @@ export async function applyTopicalMapStoreTask(db: Db, input: ApplyInput): Promi
   if (!stillGoverned(center, source, proposed)) {
     throw new TopicalMapApplyError("RULE_CHANGED");
   }
+  const executionLock = (db as Db & { storeTaskExecutionLock?: Db["storeTaskExecutionLock"] }).storeTaskExecutionLock;
+  try {
+    await executionLock?.create({ data: { targetUrl: source.targetUrl, taskId: row.id } });
+  } catch {
+    throw new TopicalMapApplyError("TASK_NOT_PENDING");
+  }
+  try {
   const current = await fetchGovernedStoreResource(source.targetUrl);
   if (!current
     || current.type !== source.targetType
@@ -202,7 +225,7 @@ export async function applyTopicalMapStoreTask(db: Db, input: ApplyInput): Promi
     await db.$transaction(async (tx) => {
       await tx.storeTask.update({
         where: { id: input.id },
-        data: { status: "failed", completedAt: new Date(), completionNote: "Shopify update could not be verified." },
+        data: { status: "failed", completedAt: new Date(), completionNote: "Shopify may have accepted the request, but no verified receipt was persisted. Re-sync to reobserve before retrying." },
       });
       await tx.auditLog.create({
         data: {
@@ -225,4 +248,19 @@ export async function applyTopicalMapStoreTask(db: Db, input: ApplyInput): Promi
     });
     throw new TopicalMapApplyError("SHOPIFY_FAILED");
   }
+  } finally {
+    await executionLock?.deleteMany({ where: { targetUrl: source.targetUrl, taskId: row.id } }).catch(() => undefined);
+  }
+}
+
+/** @deprecated Test compatibility only; production dispatch must supply the exact approved recommendation identity. */
+export async function applyTopicalMapStoreTask(db: Db, input: ApplyInput): Promise<{ task: StoreTask; receipt: Receipt }> {
+  if (process.env.EXECUTE_APPROVED_LIVE_ENABLED !== "true") throw new TopicalMapApplyError("LIVE_DISABLED");
+  const row = await db.storeTask.findUnique({ where: { id: input.id } });
+  const source = TopicalMapStoreTaskSourceSchema.safeParse(row?.sourceData);
+  if (!source.success || !source.data.executable) {
+    if (!row || row.status !== "pending") throw new TopicalMapApplyError("TASK_NOT_PENDING");
+    throw new TopicalMapApplyError("TASK_NOT_EXECUTABLE");
+  }
+  return executeTopicalMapStoreTask(db, { ...input, recommendationId: source.data.recommendationId ?? "legacy-test" });
 }

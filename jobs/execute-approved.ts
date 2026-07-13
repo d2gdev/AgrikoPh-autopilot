@@ -230,6 +230,21 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
     }
 
     try {
+      if (rec.platform === "shopify" && rec.actionType === "apply_topical_map_store_task") {
+        if (dryRun) {
+          counters.simulated++;
+          await prisma.auditLog.create({ data: { actor: "system", action: "execution_dry_run_success", entityType: "recommendation", entityId: rec.id, after: { simulated: true, intendedChange: intendedChange(rec), result: "No Shopify call was made." }, meta: { dryRun: true, jobRunId: run.id } } });
+          continue;
+        }
+        const { executeTopicalMapStoreTask } = await import("@/lib/store-tasks/apply-topical-map");
+        const result = await executeTopicalMapStoreTask(prisma, { id: rec.targetEntityId, actor: "system", recommendationId: rec.id });
+        await prisma.$transaction([
+          prisma.recommendation.update({ where: { id: rec.id }, data: { status: "executed", executedAt: new Date(), executionResult: json({ taskId: result.task.id, receipt: result.receipt }) } }),
+          prisma.auditLog.create({ data: { actor: "system", action: "execution_success", entityType: "recommendation", entityId: rec.id, after: json({ taskId: result.task.id, receipt: result.receipt }), meta: { dryRun: false, jobRunId: run.id } } }),
+        ]);
+        counters.executed++;
+        continue;
+      }
       // Re-check guardrails using snapshot data — skip for override_approved (already overridden)
       if (originalStatus === "approved") {
         const { conversionCount, dailyBudgetPhp } = await deriveGuardrailInputs(rec);
@@ -378,6 +393,9 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
       if (dryRun) {
         await audit;
       } else {
+        if (rec.platform === "shopify" && rec.actionType === "apply_topical_map_store_task") {
+          await prisma.storeTask.updateMany({ where: { id: rec.targetEntityId, status: { in: ["pending", "applying"] } }, data: { status: "failed", completedAt: new Date(), completionNote: "Guarded execution failed before a verified Shopify receipt was persisted. Re-sync to reobserve and create fresh work." } });
+        }
         await prisma.$transaction([
           prisma.recommendation.update({
             where: { id: rec.id },

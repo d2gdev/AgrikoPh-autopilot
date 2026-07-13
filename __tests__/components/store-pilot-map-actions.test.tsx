@@ -45,6 +45,7 @@ function installFetch(applyResponse: { ok: boolean; error?: string } = { ok: tru
     if (url.startsWith("/api/store-tasks?status=pending")) return response({ tasks: [executable, advisory, ordinary], total: 3 });
     if (url.startsWith("/api/store-tasks?status=")) return response({ tasks: [], total: 0 });
     if (url === "/api/store-tasks/topical-map/sync") return response({ executable: 1 });
+    if (url === "/api/store-tasks/map-1") return response({ task: executable });
     if (url === "/api/store-tasks/map-1/apply") return response(applyResponse.ok ? { task: executable } : { error: applyResponse.error }, applyResponse.ok);
     if (url === "/api/store-tasks") return response({ task: ordinary });
     throw new Error(`Unexpected URL ${url}`);
@@ -64,20 +65,20 @@ describe("Store Pilot topical-map workflow", () => {
     fireEvent.click(sync); fireEvent.click(sync);
     await screen.findByText("Topical-map tasks synchronized.");
     expect(authFetch.mock.calls.filter(([url]) => url === "/api/store-tasks/topical-map/sync")).toHaveLength(1);
-    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?status="))).toHaveLength(6);
+    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?status="))).toHaveLength(8);
   });
 
   it("opens Apply confirmation and calls apply only after confirmation", async () => {
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
-    const dialog = screen.getByRole("dialog", { name: "Apply topical-map change" });
+    const dialog = screen.getByRole("dialog", { name: "Approve topical-map change" });
     expect(authFetch.mock.calls.some(([url]) => url === "/api/store-tasks/map-1/apply")).toBe(false);
     expect(within(dialog).getByText("/products/black-rice")).toBeTruthy();
-    const confirm = within(dialog).getByRole("button", { name: "Apply change" });
+    const confirm = within(dialog).getByRole("button", { name: "Approve and queue" });
     fireEvent.click(confirm); fireEvent.click(confirm);
-    await screen.findByText("The topical-map change was applied.");
+    await screen.findByText("The topical-map change was approved and queued.");
     expect(authFetch.mock.calls.filter(([url]) => url === "/api/store-tasks/map-1/apply")).toHaveLength(1);
-    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?status="))).toHaveLength(6);
+    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?status="))).toHaveLength(8);
   });
 
   it.each([
@@ -88,7 +89,7 @@ describe("Store Pilot topical-map workflow", () => {
     authFetch.mockReset(); installFetch({ ok: false, error: message });
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
-    await userEvent.click(screen.getByRole("button", { name: "Apply change" }));
+    await userEvent.click(screen.getByRole("button", { name: "Approve and queue" }));
     expect((await screen.findByRole("alert")).textContent).toContain(message);
   });
 
@@ -106,6 +107,7 @@ describe("Store Pilot topical-map workflow", () => {
     authFetch.mockImplementation((url: string) => {
       if (url === "/api/store-tasks/topical-map/sync") return pending.then(() => ({ ok: true, json: async () => ({}) }));
       if (url === "/api/images") return response({ images: [], total: 0, missingAltText: 0 });
+      if (url === "/api/store-tasks/map-1") return response({ task: executable });
       if (url.startsWith("/api/store-tasks?status=pending")) return response({ tasks: [executable, advisory, ordinary], total: 3 });
       return response({ tasks: [], total: 0 });
     });
@@ -124,13 +126,14 @@ describe("Store Pilot topical-map workflow", () => {
     authFetch.mockImplementation((url: string) => {
       if (url === "/api/store-tasks/topical-map/sync") return pending.then(() => ({ ok: true, json: async () => ({}) }));
       if (url === "/api/images") return response({ images: [], total: 0, missingAltText: 0 });
+      if (url === "/api/store-tasks/map-1") return response({ task: executable });
       if (url.startsWith("/api/store-tasks?status=pending")) return response({ tasks: [executable, advisory, ordinary], total: 3 });
       return response({ tasks: [], total: 0 });
     });
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
     fireEvent.click(screen.getByRole("button", { name: "Sync topical map" }));
-    await waitFor(() => expect((screen.getByRole("button", { name: "Apply change" }) as HTMLButtonElement).disabled).toBe(true));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Approve and queue" }) as HTMLButtonElement).disabled).toBe(true));
     release();
   });
 });

@@ -6,7 +6,14 @@ import { requireAppAuth, getSessionShop } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { routeOpenStoreTaskOpportunities } from "@/lib/store-tasks/route-opportunities";
 
-const VALID_STATUSES = ["pending", "completed", "dismissed"];
+const VALID_STATUSES = ["pending", "failed", "completed", "dismissed"];
+
+function previewJson(value: unknown): unknown {
+  if (typeof value === "string") return value.length > 400 ? `${value.slice(0, 400)}…` : value;
+  if (Array.isArray(value)) return value.slice(0, 25).map(previewJson);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, previewJson(item)]));
+  return value;
+}
 
 export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
@@ -20,11 +27,12 @@ export async function GET(req: Request) {
 
   const tasks = await prisma.storeTask.findMany({
     where: { status },
+    select: { id: true, createdAt: true, taskType: true, targetType: true, targetId: true, targetUrl: true, title: true, description: true, proposedState: true, sourceData: true, priority: true, status: true, completedAt: true, completionNote: true },
     orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
     take: 250,
   });
 
-  return NextResponse.json({ tasks, total: tasks.length });
+  return NextResponse.json({ tasks: tasks.map((task) => ({ ...task, proposedState: previewJson(task.proposedState) })), total: tasks.length });
 }
 
 export async function POST(req: Request) {

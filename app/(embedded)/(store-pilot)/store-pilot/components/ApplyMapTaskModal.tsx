@@ -13,14 +13,14 @@ export function ApplyMapTaskModal({ open, task, loading, disabled = false, onClo
     <Modal
       open={open && Boolean(task)}
       onClose={onClose}
-      title="Apply topical-map change"
-      primaryAction={{ content: "Apply change", onAction: onConfirm, loading, disabled: disabled || loading }}
+      title="Approve topical-map change"
+      primaryAction={{ content: "Approve and queue", onAction: onConfirm, loading, disabled: disabled || loading }}
       secondaryActions={[{ content: "Cancel", onAction: onClose, disabled: disabled || loading }]}
     >
       <Modal.Section>
         {task ? (
           <BlockStack gap="300">
-            <Text as="p">Confirm the exact target and changed fields before applying this update to Shopify.</Text>
+            <Text as="p">Confirm the exact target and changed fields. This approves the linked recommendation and queues guarded execution; Shopify is not changed by this confirmation.</Text>
             <MapTaskDetails task={task} compact />
           </BlockStack>
         ) : null}

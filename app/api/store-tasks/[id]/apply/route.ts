@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { applyTopicalMapStoreTask, TopicalMapApplyError, type TopicalMapApplyErrorCode } from "@/lib/store-tasks/apply-topical-map";
+import { approveTopicalMapStoreTask, TopicalMapApplyError, type TopicalMapApplyErrorCode } from "@/lib/store-tasks/apply-topical-map";
 
 export const dynamic = "force-dynamic";
 const responses: Record<TopicalMapApplyErrorCode, { status: number; error: string }> = {
@@ -25,7 +25,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   const actor = (await getSessionUser(req)) ?? "authenticated-operator";
   try {
-    return NextResponse.json(await applyTopicalMapStoreTask(prisma, { id, actor }));
+    return NextResponse.json(await approveTopicalMapStoreTask(prisma, { id, actor }), { status: 202 });
   } catch (error) {
     if (error instanceof TopicalMapApplyError || (error && typeof error === "object" && "code" in error && (error as { code: string }).code in responses)) {
       const code = (error as { code: TopicalMapApplyErrorCode }).code;

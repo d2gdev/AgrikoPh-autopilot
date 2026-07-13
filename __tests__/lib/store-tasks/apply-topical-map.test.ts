@@ -5,7 +5,7 @@ const command = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("@/lib/shopify-governed-resources", async (original) => ({ ...(await original<typeof import("@/lib/shopify-governed-resources")>()), fetchGovernedStoreResource: adapter.fetch, applyGovernedStoreResourceChange: adapter.apply }));
 vi.mock("@/lib/topical-map/command-center", () => ({ loadActiveTopicalMapCommandCenter: command.load }));
 
-import { applyTopicalMapStoreTask, TopicalMapApplyError } from "@/lib/store-tasks/apply-topical-map";
+import { applyTopicalMapStoreTask, approveTopicalMapStoreTask, TopicalMapApplyError } from "@/lib/store-tasks/apply-topical-map";
 
 const source = { source: "topical-map", strategyVersionId: "v1", packageSha256: "a".repeat(64), ruleIds: ["rule-1"], ruleDomains: ["content_decisions"], targetType: "product", targetUrl: "/products/rice", action: "seo_update", observedAt: "2026-07-13T00:00:00.000Z", observedStateHash: "b".repeat(64), executable: true };
 const proposed = { action: "seo_update", before: { seoTitle: "Old", seoDescription: "Old desc" }, after: { seoTitle: "New", seoDescription: "New desc" } };
@@ -25,6 +25,18 @@ beforeEach(() => {
   adapter.apply.mockResolvedValue({ ...resource, seoTitle: "New", seoDescription: "New desc", stateHash: "c".repeat(64) });
 });
 afterEach(() => vi.unstubAllEnvs());
+
+describe("approveTopicalMapStoreTask", () => {
+  it("approves only the exact linked pending recommendation and never calls Shopify", async () => {
+    const linkedTask = { ...task, sourceData: { ...source, recommendationId: "rec-1" } };
+    const tx = { recommendation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, storeTask: { update: vi.fn() }, auditLog: { create: vi.fn() } };
+    const client = { storeTask: { findUnique: vi.fn().mockResolvedValue(linkedTask) }, $transaction: vi.fn(async (fn) => fn(tx)) };
+    await expect(approveTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).resolves.toEqual({ taskId: "task-1", recommendationId: "rec-1", status: "queued" });
+    expect(tx.recommendation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: "rec-1", targetEntityId: "task-1", status: "pending" }), data: expect.objectContaining({ status: "approved" }) }));
+    expect(adapter.fetch).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+});
 
 describe("applyTopicalMapStoreTask", () => {
   it("claims once, performs one allowlisted mutation, verifies returned fields, and records a safe receipt", async () => {
@@ -133,7 +145,7 @@ describe("applyTopicalMapStoreTask", () => {
   ])("marks a claimed task failed and audits safely on %s", async (_name, setup) => {
     setup(); const client = db();
     await expect(applyTopicalMapStoreTask(client as any, { id: "task-1", actor: "operator-1" })).rejects.toBeInstanceOf(TopicalMapApplyError);
-    expect(client._tx.storeTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed", completionNote: "Shopify update could not be verified." }) }));
+    expect(client._tx.storeTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed", completionNote: expect.stringContaining("no verified receipt") }) }));
     expect(client._tx.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "topical_map_store_task_failed", meta: expect.not.objectContaining({ error: expect.stringContaining("secret") }) }) });
   });
 });

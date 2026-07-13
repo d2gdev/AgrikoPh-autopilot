@@ -28,7 +28,11 @@ export function resolveGovernedStoreUrl(value: string): { type: GovernedStoreTar
   const match = pathname.match(/^\/(products|collections|pages)\/([^/]+)$/);
   if (!match) return null;
   const types = { products: "product", collections: "collection", pages: "page" } as const;
-  return { type: types[match[1] as keyof typeof types], handle: decodeURIComponent(match[2]!) };
+  try {
+    return { type: types[match[1] as keyof typeof types], handle: decodeURIComponent(match[2]!) };
+  } catch {
+    return null;
+  }
 }
 
 type Node = { id: string; handle: string; title: string; updatedAt: string; descriptionHtml?: string; body?: string; seo?: { title?: string | null; description?: string | null }; seoTitle?: { value: string | null } | null; seoDescription?: { value: string | null } | null };
@@ -45,6 +49,9 @@ function resource(type: GovernedStoreTargetType, node: Node): GovernedStoreResou
   const url = `/${plural}/${node.handle}`;
   const bodyHtml = node.descriptionHtml ?? node.body ?? "";
   const updatedAt = new Date(node.updatedAt);
+  if (!Number.isFinite(updatedAt.getTime()) || updatedAt.getTime() > Date.now() + 5 * 60_000) {
+    throw new Error("Invalid Shopify resource observation timestamp");
+  }
   const seoTitle = type === "page" ? node.seoTitle?.value ?? null : node.seo?.title ?? null;
   const seoDescription = type === "page" ? node.seoDescription?.value ?? null : node.seo?.description ?? null;
   const canonical = JSON.stringify({ id: node.id, type, url, title: node.title, seoTitle, seoDescription, bodyHtml, updatedAt: updatedAt.toISOString() });

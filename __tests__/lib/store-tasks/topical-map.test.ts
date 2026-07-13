@@ -43,12 +43,16 @@ const center = () => ({
 
 function client(existing: Record<string, { status: string }> = {}) {
   const rows = new Map(Object.entries(existing));
+  let sequence = 0;
   return {
     topicalMapActivation: { findUnique: vi.fn() },
     storeTask: {
       findUnique: vi.fn(async ({ where }: any) => rows.get(where.dedupeKey) ?? null),
-      upsert: vi.fn(async ({ where, create, update }: any) => { rows.set(where.dedupeKey, { ...create, ...update, status: "pending" }); return rows.get(where.dedupeKey); }),
+      upsert: vi.fn(async ({ where, create, update }: any) => { const prior = rows.get(where.dedupeKey) as any; rows.set(where.dedupeKey, { id: prior?.id ?? `task-${++sequence}`, ...create, ...update, status: "pending" }); return rows.get(where.dedupeKey); }),
+      update: vi.fn(),
     },
+    rawSnapshot: { findFirst: vi.fn().mockResolvedValue({ id: "seo-snapshot-1" }) },
+    recommendation: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn(async () => ({ id: `rec-${sequence}`, status: "pending" })) },
   };
 }
 
@@ -73,6 +77,8 @@ describe("syncTopicalMapStoreTasks", () => {
     const result = await syncTopicalMapStoreTasks(db as any);
     expect(result).toEqual({ executable: 4, advisory: 5, unchanged: 0, suppressed: 1 });
     expect(chat).toHaveBeenCalledTimes(1);
+    expect(db.recommendation.create).toHaveBeenCalledTimes(4);
+    expect(db.storeTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: { sourceData: expect.objectContaining({ recommendationId: expect.stringMatching(/^rec-/) }) } }));
     const creates = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create);
     expect(creates.filter((task: any) => task.sourceData.executable).map((task: any) => [task.targetType, task.proposedState.action])).toEqual([
       ["collection", "content_update"], ["collection", "internal_link"], ["page", "seo_update"], ["product", "seo_update"],

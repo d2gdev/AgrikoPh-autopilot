@@ -13,7 +13,7 @@ The first release supports:
 - required internal-link insertion into product, collection, and page HTML;
 - exact topical-map identity and rule provenance on every Store Task;
 - read-only advisory tasks for homepage and blog-index work, because Shopify does not expose their theme-controlled body layout through the product, collection, page, blog, or article resource mutations;
-- one explicit, confirmed Apply action before every supported Shopify write.
+- one explicit, confirmed Apply action that approves the exact linked Recommendation; the existing guarded executor performs any later Shopify write.
 
 This release does not execute redirects, canonicalization, indexation, theme-template edits, navigation edits, price changes, product status changes, handles, or publishing-state changes. Blog articles continue through Content Pilot and are not duplicated in Store Pilot.
 
@@ -49,7 +49,7 @@ An executable Store Task is created only when the map contains enough exact dire
 
 Its `proposedState` stores only allowlisted fields and exact before/after values. AI may draft SEO copy through the existing failover client, but the result must pass a strict Zod schema and length limits before persistence. AI failure produces an advisory task, never an executable placeholder.
 
-Tasks use a deterministic dedupe key derived from strategy identity, rule IDs, target URL, action type, and proposed-state hash. Regeneration updates a still-pending matching task but never reopens completed or dismissed work silently.
+Tasks use a stable deterministic dedupe key derived from strategy identity, rule IDs, target URL, and action type. The proposed-state hash is separate Recommendation evidence. Regeneration refreshes pending/failed work and creates a fresh pending Recommendation after failure, but never reopens completed or dismissed history.
 
 ### 3. Confirmed execution state machine
 
@@ -68,9 +68,9 @@ pending -> applying -> completed
 - `failed`: no success is claimed; the task retains a safe error message and can be reviewed again.
 - `dismissed`: closed without a write.
 
-The Apply button opens a confirmation modal that shows the exact current-to-proposed fields; confirming is the operator approval. The apply route requires `CONTENT_PUBLISH`, `EXECUTE_APPROVED_LIVE_ENABLED=true`, a `pending` executable task, and the active strategy to match the stored identity. No schema migration or parallel proposal model is introduced; the existing Store Task status and review fields record the transition.
+The Apply button opens a confirmation modal that loads exact detail on demand. Confirming is the operator approval: the route requires `CONTENT_PUBLISH`, atomically approves the exact linked pending Recommendation, and returns `202 queued` without calling Shopify. `execute-approved` alone claims the approved Recommendation, checks `EXECUTE_APPROVED_LIVE_ENABLED=true`, revalidates strategy/rules/store state, acquires a persisted normalized-target lock, and dispatches the governed Store Task service.
 
-Immediately before mutation, the server refetches the exact Shopify object and compares its state hash with the task observation. Any changed object, active strategy, rule set, or proposed field returns `409` and performs no write. The request atomically claims the task before the external call, prevents duplicate execution, and records an audit entry for success or failure.
+Immediately before mutation, the executor refetches the exact Shopify object and compares its state hash with the task observation. Any changed object, active strategy, rule set, proposed field, or occupied target lock performs no write. Recommendation and Store Task terminal states are reconciled, and uncertain post-request verification is explicitly failed rather than completed.
 
 ### 4. Shopify mutation boundary
 
