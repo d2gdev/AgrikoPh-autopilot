@@ -182,13 +182,23 @@ export async function POST(req: NextRequest) {
     contentGaps: programmaticGaps, observations: mapAnalysis.observations, suppressedGaps: mapAnalysis.suppressed, limits, aiStatus: "partial" as const, aiError,
   });
   const persistAnalysis = async (presentation: Record<string, unknown>, generatedAt: Date) => {
-    const candidateTimes = mapAnalysis.gaps.map(gap => ({ source: gap.observation.source, capturedAt: new Date(gap.observation.capturedAt) }));
-    const oldest = (source: "store" | "link_inspection") => candidateTimes.filter(item => item.source === source).reduce<Date | null>((value, item) => !value || item.capturedAt < value ? item.capturedAt : value, null);
-    const storeCapturedAt = oldest("store");
-    const linkCapturedAt = oldest("link_inspection");
+    const requiredStoreUrls = [...new Set(commandCenter.pages.map(page => page.url))];
+    const storeObservations = requiredStoreUrls.flatMap(url => {
+      const match = /^\/blogs\/[^/]+\/([^/]+)$/.exec(url);
+      if (!match) return [];
+      const article = governedArticles.find(item => item.handle === match[1]);
+      const capturedAt = article?.indexedAt instanceof Date ? article.indexedAt : verifiedAbsentUrls.get(url);
+      return capturedAt ? [capturedAt] : [];
+    });
+    const requiredLinkSources = [...new Set(commandCenter.work.internalLinks.map(link => link.fromUrl))];
+    const linkObservations = requiredLinkSources.flatMap(source => linkInspections.get(source)?.capturedAt ?? []);
+    const oldest = (timestamps: Date[]) => timestamps.reduce<Date | null>((value, item) => !value || item < value ? item : value, null);
+    const storeCapturedAt = oldest(storeObservations);
+    const linkCapturedAt = oldest(linkObservations);
+    const requiredObservationFamilies = [...(requiredStoreUrls.length ? ["store" as const] : []), ...(requiredLinkSources.length ? ["link_inspection" as const] : [])];
     const payload = createMapAnalysisEnvelope({
       strategy: commandCenter.identity, generatedAt, analysis: mapAnalysis,
-      evidence: { gscCapturedAt: gscData.fetchedAt?.toISOString() ?? null, storeCapturedAt: storeCapturedAt?.toISOString() ?? null, linkCapturedAt: linkCapturedAt?.toISOString() ?? null, maxAgeHours: SEO_ANALYSIS_MAX_AGE_HOURS },
+      evidence: { gscCapturedAt: gscData.fetchedAt?.toISOString() ?? null, storeCapturedAt: storeCapturedAt?.toISOString() ?? null, linkCapturedAt: linkCapturedAt?.toISOString() ?? null, requiredObservationFamilies, storeInspection: { required: requiredStoreUrls.length, inspected: storeObservations.length }, linkInspection: { required: requiredLinkSources.length, inspected: linkObservations.length }, maxAgeHours: SEO_ANALYSIS_MAX_AGE_HOURS },
       presentation,
     });
     return prisma.rawSnapshot.upsert({

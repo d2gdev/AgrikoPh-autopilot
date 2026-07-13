@@ -82,8 +82,22 @@ const ObservationSchema = z.object({ query: z.string().min(1), impressions: z.nu
 const SuppressedSchema = z.object({ strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/), page: z.string().min(1), reason: z.string().min(1), ruleIds: z.array(z.string().min(1)).min(1) }).strict();
 export const SEO_ANALYSIS_MAX_AGE_HOURS = 72;
 export const AnalysisEvidenceSchema = z.object({
-  gscCapturedAt: z.string().datetime().nullable(), storeCapturedAt: z.string().datetime().nullable(), linkCapturedAt: z.string().datetime().nullable(), maxAgeHours: z.literal(SEO_ANALYSIS_MAX_AGE_HOURS),
-}).strict();
+  gscCapturedAt: z.string().datetime().nullable(),
+  storeCapturedAt: z.string().datetime().nullable(),
+  linkCapturedAt: z.string().datetime().nullable(),
+  requiredObservationFamilies: z.array(z.enum(["store", "link_inspection"])).max(2),
+  storeInspection: z.object({ required: z.number().int().nonnegative(), inspected: z.number().int().nonnegative() }).strict(),
+  linkInspection: z.object({ required: z.number().int().nonnegative(), inspected: z.number().int().nonnegative() }).strict(),
+  maxAgeHours: z.literal(SEO_ANALYSIS_MAX_AGE_HOURS),
+}).strict().superRefine((value, ctx) => {
+  const families = new Set(value.requiredObservationFamilies);
+  if (families.size !== value.requiredObservationFamilies.length) ctx.addIssue({ code: "custom", message: "Duplicate observation family" });
+  for (const [family, inspection, capturedAt] of [["store", value.storeInspection, value.storeCapturedAt], ["link_inspection", value.linkInspection, value.linkCapturedAt]] as const) {
+    if ((inspection.required > 0) !== families.has(family)) ctx.addIssue({ code: "custom", message: `Required observation family mismatch: ${family}` });
+    if (inspection.inspected > inspection.required) ctx.addIssue({ code: "custom", message: `Inspected count exceeds required count: ${family}` });
+    if ((inspection.inspected > 0) !== (capturedAt !== null)) ctx.addIssue({ code: "custom", message: `Observation timestamp/count mismatch: ${family}` });
+  }
+});
 export const MapAnalysisEnvelopeSchema = z.object({
   schemaVersion: z.literal("2"),
   strategy: IdentitySchema,
@@ -109,10 +123,16 @@ export function createMapAnalysisEnvelope(input: { strategy: StrategyIdentity; g
 export function analysisEvidenceState(payload: unknown, now = new Date()): "current" | "evidence_stale" | "observation_unavailable" {
   const parsed = MapAnalysisEnvelopeSchema.safeParse(payload);
   if (!parsed.success) return "observation_unavailable";
-  const timestamps = [parsed.data.evidence.gscCapturedAt, parsed.data.evidence.storeCapturedAt, parsed.data.evidence.linkCapturedAt].filter((value): value is string => value !== null);
-  if (timestamps.length < 2) return "observation_unavailable";
+  const evidence = parsed.data.evidence;
+  if (!evidence.gscCapturedAt) return "observation_unavailable";
+  for (const family of evidence.requiredObservationFamilies) {
+    const inspection = family === "store" ? evidence.storeInspection : evidence.linkInspection;
+    const capturedAt = family === "store" ? evidence.storeCapturedAt : evidence.linkCapturedAt;
+    if (inspection.inspected !== inspection.required || !capturedAt) return "observation_unavailable";
+  }
+  const timestamps = [evidence.gscCapturedAt, ...evidence.requiredObservationFamilies.map(family => family === "store" ? evidence.storeCapturedAt! : evidence.linkCapturedAt!)];
   if (timestamps.some(value => new Date(value).getTime() > now.getTime() + 5 * 60_000)) return "observation_unavailable";
-  return timestamps.some(value => now.getTime() - new Date(value).getTime() > parsed.data.evidence.maxAgeHours * 3_600_000) ? "evidence_stale" : "current";
+  return timestamps.some(value => now.getTime() - new Date(value).getTime() > evidence.maxAgeHours * 3_600_000) ? "evidence_stale" : "current";
 }
 
 export function buildMapAwareSeoGaps(input: {

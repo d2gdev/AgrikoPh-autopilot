@@ -222,6 +222,8 @@ describe("SEO Pilot route regressions", () => {
   });
 
   it("round-trips the POST schema-v2 map analysis through the GET reader", async () => {
+    const active = await mockPrisma.topicalMapActivation.findUnique();
+    mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { ...active.strategyVersion, compiledRules: active.strategyVersion.compiledRules.filter((rule: { ruleId: string }) => rule.ruleId !== "rule:collection") } });
     const capturedAt = new Date();
     mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "mapped topic", clicks: 0, impressions: 40, ctr: "0%", position: "8" }], pages: [], queryPagePairs: [], fetchedAt: capturedAt, source: "normalized", window: null });
     mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, linksData: { internal: [] }, indexedAt: capturedAt }]);
@@ -237,6 +239,43 @@ describe("SEO Pilot route regressions", () => {
     const { GET } = await import("@/app/api/seo/analysis/route");
     const get = await GET(new Request("http://test.local/api/seo/analysis") as NextRequest);
     expect(await get.json()).toEqual(expect.objectContaining({ state: "ready", analysis: posted.mapAnalysis }));
+  });
+
+  it("round-trips a fully inspected zero-gap map as ready with empty gaps", async () => {
+    const active = await mockPrisma.topicalMapActivation.findUnique();
+    mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { ...active.strategyVersion, compiledRules: active.strategyVersion.compiledRules.filter((rule: { ruleId: string }) => rule.ruleId !== "rule:collection") } });
+    const capturedAt = new Date();
+    mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "mapped topic", clicks: 1, impressions: 40, ctr: "2%", position: "8" }], pages: [], queryPagePairs: [], fetchedAt: capturedAt, source: "normalized", window: null });
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      { handle: "mapped", title: "Mapped", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: {}, indexedAt: capturedAt },
+      { handle: "source", title: "Source", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: { internal: [{ href: "/blogs/news/mapped" }] }, indexedAt: capturedAt },
+    ]);
+    const { POST } = await import("@/app/api/seo/analyze/route");
+    const post = await POST(jsonRequest("/api/seo/analyze", {}));
+    expect(post.status).toBe(200);
+    const posted = await post.json();
+    expect(posted.mapAnalysis.gaps).toEqual([]);
+    const payload = mockPrisma.rawSnapshot.upsert.mock.calls.at(-1)?.[0]?.update?.payload;
+    expect(payload.evidence).toEqual(expect.objectContaining({ requiredObservationFamilies: ["store", "link_inspection"], storeInspection: { required: 4, inspected: 4 }, linkInspection: { required: 1, inspected: 1 }, storeCapturedAt: capturedAt.toISOString(), linkCapturedAt: capturedAt.toISOString() }));
+    mockGetLatestSnapshot.mockResolvedValue({ payload, fetchedAt: capturedAt });
+    const { GET } = await import("@/app/api/seo/analysis/route");
+    const get = await GET(new Request("http://test.local/api/seo/analysis") as NextRequest);
+    expect(await get.json()).toEqual(expect.objectContaining({ state: "ready", analysis: expect.objectContaining({ gaps: [] }) }));
+  });
+
+  it("withholds a persisted zero-gap map when a required link inspection is missing", async () => {
+    const capturedAt = new Date();
+    mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "mapped topic", clicks: 1, impressions: 40, ctr: "2%", position: "8" }], pages: [], queryPagePairs: [], fetchedAt: capturedAt, source: "normalized", window: null });
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "mapped", title: "Mapped", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: {}, indexedAt: capturedAt }]);
+    const { POST } = await import("@/app/api/seo/analyze/route");
+    const post = await POST(jsonRequest("/api/seo/analyze", {}));
+    expect(post.status).toBe(200);
+    const payload = mockPrisma.rawSnapshot.upsert.mock.calls.at(-1)?.[0]?.update?.payload;
+    expect(payload.evidence.linkInspection).toEqual({ required: 1, inspected: 0 });
+    mockGetLatestSnapshot.mockResolvedValue({ payload, fetchedAt: capturedAt });
+    const { GET } = await import("@/app/api/seo/analysis/route");
+    const get = await GET(new Request("http://test.local/api/seo/analysis") as NextRequest);
+    expect(await get.json()).toEqual(expect.objectContaining({ state: "observation_unavailable", analysis: null }));
   });
 
   it("rejects arbitrary non-SEO history sources", async () => {

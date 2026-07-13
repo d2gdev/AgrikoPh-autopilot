@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-13T13:28:00+08:00
+last_updated: 2026-07-13T13:36:00+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **SEO inspection-completeness evidence (2026-07-13):** Analysis readiness is independent of actionable gap count. The strict envelope declares required store/link families, required-versus-inspected source counts, and oldest successful timestamps across all relevant inspections, including satisfied/preserve/already-linked observations. Fully inspected zero-gap maps are ready; unknown or missing inspections fail unavailable, and stale/future evidence remains withheld.
 - **Candidate-specific SEO observation enforcement (2026-07-13):** Every actionable mapped content/link candidate carries exact store or ArticleRecord link-inspection provenance and capture time, is independently rejected when missing, future-dated, or older than 72 hours, and is revalidated against exact current ArticleRecord state inside the governed proposal transaction. Create targets that now exist, refresh sources that changed/disappeared, and link sources that changed/disappeared/already contain the target return typed conflicts without proposal persistence. Aggregate evidence uses the oldest actionable candidate timestamp per source.
 - **Strategy-bound SEO analysis evidence envelope (2026-07-13):** SEO analysis POST/GET share one strict schema-v2 persisted envelope with map gaps isolated from AI presentation, exact active identity, and 72-hour GSC/store/link observation timestamps. Governed blog and link-source handles are directly inspected outside the 200-article presentation cap; non-blog or uninspectable sources fail closed as observation-unavailable. Link candidates require a fresh inspected source and exact normalized destination absence. The UI reloads persisted map analysis before opening Content gaps and distinguishes strategy-identity stale, evidence stale, and unavailable observations.
 - **Topical-map command-center local release verification (2026-07-13):** The completed five-job SEO Pilot cutover passed the eight-file focused gate (97/97), full Vitest suite (1,358 passed, 8 skipped), ESLint with zero errors (87 pre-existing warnings), a production Next.js build using only the exact local `autopilot_test` URL with required Prisma pool parameters, and `git diff --check`. Auth-bound route tests prove app authentication precedes Prisma, active identity and all eleven rule domains are projected without source bytes, stale analysis is withheld, exact map-derived content/link proposals retain strategy and rule context, unrelated or stale rule contexts fail closed, and canonical/indexation remain non-executable. Recursive source tests prove the June strategy module/constants, retired panels, and hidden tabs are absent. Production deployment remains pending the required whole-branch review gate; no production, database, environment authorization, Shopify, Meta, or remote-branch mutation occurred during this verification.

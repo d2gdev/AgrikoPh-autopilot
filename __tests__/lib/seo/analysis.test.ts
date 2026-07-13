@@ -94,6 +94,13 @@ describe("buildProgrammaticSeoGaps", () => {
 });
 
 describe("map-aware SEO analysis", () => {
+  const completeEvidence = (capturedAt: string | null, overrides: Record<string, unknown> = {}) => ({
+    gscCapturedAt: capturedAt, storeCapturedAt: capturedAt, linkCapturedAt: capturedAt,
+    requiredObservationFamilies: ["store", "link_inspection"],
+    storeInspection: { required: 1, inspected: capturedAt ? 1 : 0 },
+    linkInspection: { required: 1, inspected: capturedAt ? 1 : 0 },
+    maxAgeHours: 72, ...overrides,
+  });
   const identity = { versionId: "v3", packageSha256: "a".repeat(64) };
   const commandCenter: TopicalMapCommandCenter = {
     identity: { ...identity, strategyVersion: "3", contractRevision: "3", activatedAt: null },
@@ -152,18 +159,19 @@ describe("map-aware SEO analysis", () => {
 
   it("accepts cached analysis only for the exact active identity", () => {
     const analysis = { gaps: [], observations: [], suppressed: [] };
-    const envelope = { schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis, evidence: { gscCapturedAt: "2026-07-13T00:00:00.000Z", storeCapturedAt: "2026-07-13T00:00:00.000Z", linkCapturedAt: "2026-07-13T00:00:00.000Z", maxAgeHours: 72 } };
+    const envelope = { schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis, evidence: completeEvidence("2026-07-13T00:00:00.000Z") };
     expect(readAnalysisForStrategy(envelope, identity)).toEqual(analysis);
     expect(readAnalysisForStrategy(envelope, { ...identity, versionId: "v4" })).toBeNull();
     expect(readAnalysisForStrategy(envelope, { ...identity, packageSha256: "b".repeat(64) })).toBeNull();
   });
 
   it("enforces the 72-hour evidence boundary and unavailable observations", () => {
-    const payload = (capturedAt: string | null) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [], observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: capturedAt, linkCapturedAt: capturedAt, maxAgeHours: 72 } });
+    const payload = (capturedAt: string | null, overrides: Record<string, unknown> = {}) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [], observations: [], suppressed: [] }, evidence: completeEvidence(capturedAt, overrides) });
     expect(analysisEvidenceState(payload("2026-07-10T00:00:00.000Z"), new Date("2026-07-13T00:00:00.000Z"))).toBe("current");
     expect(analysisEvidenceState(payload("2026-07-09T23:59:59.999Z"), new Date("2026-07-13T00:00:00.000Z"))).toBe("evidence_stale");
     expect(analysisEvidenceState(payload(null), new Date("2026-07-13T00:00:00.000Z"))).toBe("observation_unavailable");
     expect(analysisEvidenceState(payload("2026-07-14T00:00:00.000Z"), new Date("2026-07-13T00:00:00.000Z"))).toBe("observation_unavailable");
+    expect(analysisEvidenceState(payload("2026-07-13T00:00:00.000Z", { linkInspection: { required: 1, inspected: 0 }, linkCapturedAt: null }), new Date("2026-07-13T00:00:00.000Z"))).toBe("observation_unavailable");
   });
 
   it("emits only candidates whose exact store and link observations are fresh", () => {
@@ -193,7 +201,7 @@ describe("map-aware SEO analysis", () => {
 
   it("rejects a malformed cached gap and a per-gap identity mismatch", () => {
     const validGap = { kind: "content", strategyVersionId: "v3", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], state: "candidate", action: "create", query: "mapped", suggestedTitle: "Mapped guide", page: "/blogs/news/mapped", priority: "high", mapEvidence: null, observedEvidence: [{ query: "mapped", impressions: 12, position: 8 }], observation: { source: "store", capturedAt: "2026-07-13T00:00:00.000Z", provenance: "ArticleRecord:absence:/blogs/news/mapped" } };
-    const envelope = (gap: unknown) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [gap], observations: [], suppressed: [] }, evidence: { gscCapturedAt: "2026-07-13T00:00:00.000Z", storeCapturedAt: "2026-07-13T00:00:00.000Z", linkCapturedAt: "2026-07-13T00:00:00.000Z", maxAgeHours: 72 } });
+    const envelope = (gap: unknown) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [gap], observations: [], suppressed: [] }, evidence: completeEvidence("2026-07-13T00:00:00.000Z") });
     expect(readAnalysisForStrategy(envelope({ ...validGap, ruleIds: [] }), identity)).toBeNull();
     expect(readAnalysisForStrategy(envelope({ ...validGap, strategyVersionId: "v4" }), identity)).toBeNull();
     expect(readAnalysisForStrategy(envelope({ ...validGap, packageSha256: "b".repeat(64) }), identity)).toBeNull();

@@ -141,3 +141,14 @@ Fresh verification:
 - No deployment, production access, database mutation, Shopify write, or Meta write occurred.
 
 GROW: Grounded exact per-candidate freshness and transaction-time source-state enforcement; recorded the behavior here and in the router; the existing strategy-bound command-center runbook already covers this recurring boundary, so no new pattern was necessary.
+
+## Inspection-completeness evidence correction (2026-07-13)
+
+- Envelope evidence now declares required store/link-inspection families, required and successfully inspected source counts, and the oldest relevant successful timestamp independently of whether an actionable gap was emitted.
+- Existing, preserved, satisfied, and already-linked observations therefore contribute to completeness without becoming candidates. Unknown/uninspectable sources remain incomplete rather than receiving fabricated evidence.
+- The strict reader requires complete coverage for every declared family plus current GSC evidence. Missing coverage is `observation_unavailable`; stale evidence is `evidence_stale`; materially future-dated evidence is unavailable.
+- A true POST-persisted-envelope → GET integration proves a fully inspected zero-gap map returns `ready` with empty gaps. Its countertest proves an omitted required link inspection is withheld.
+
+Fresh verification: focused 57/57; full suite 1,368 passed and 8 skipped across 197 passing files; typecheck exit 0; lint exit 0 with 85 existing warnings; safe local production build compiled and generated 24/24 pages; `git diff --check` exit 0. No deployment or production mutation occurred.
+
+GROW: Grounded readiness in inspection completeness rather than candidate count; recorded the corrected envelope/reader contract here and in the router; retained the existing strategy-bound command-center pattern because it already owns this recurring boundary.
