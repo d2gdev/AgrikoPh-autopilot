@@ -45,3 +45,18 @@ Additional verification:
 
 - The existing page still contains unreachable legacy panel handlers and imports after the five-tab cutover, producing lint warnings. Removing that dead code is desirable but was intentionally not mixed into the command-center behavior change.
 - Page/work filter facets are intentionally bounded to projected fields. Some work filter values have limited utility until the command-center projection exposes normalized lifecycle and blocker associations per row.
+
+## Review-finding follow-up (2026-07-13)
+
+- Fixed the critical proposal transport defect: content and internal-link actions now submit the exact candidate identity at both top level and per gap (`strategyVersionId`, `packageSha256`, `gaps: [gap]`). Behavior tests assert the exact request body and success feedback for both action families.
+- Map-aware analysis now carries strict, validated `priority` and bounded `observedEvidence` fields. Content gaps display the actual projected priority and exact matching GSC observations, or explicitly state that no matching observation exists rather than fabricating evidence.
+- Work priority/state/blocker filters now classify and filter real rows. Internal links are candidates only when an analysis candidate exists; absent candidates are evidence-blocked. Redirect/canonical/indexation rows are review-blocked because no safe Content Pilot persistence/generation type exists. Page blocker filtering now uses actual prohibited-content URL associations.
+- Redirects, canonicalization, and indexation now have distinct truthful controls. Redirect persistence is labelled unsupported; canonical and indexation remain advisory-only under the package contract. No technical live-execution authority was added and no unpublishable generic proposal type was invented.
+- Raw evidence filter labels are visible. Overview summaries now derive cluster URL coverage, decision distribution, action-family totals, and high-priority action counts from the command-center projection.
+
+Follow-up verification:
+
+- Focused UI, API, route, analysis, command-center, proposal integration, evaluator, and governed-operation matrix: 13 files passed, 113 tests passed.
+- `npx tsc --noEmit`: exit 0.
+- `npm run lint`: exit 0.
+- `git diff --check`: exit 0.

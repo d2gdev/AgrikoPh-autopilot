@@ -32,6 +32,7 @@ import { MapOverviewPanel } from "./components/panels/MapOverviewPanel";
 import { MapPagesPanel } from "./components/panels/MapPagesPanel";
 import { MapWorkPanel } from "./components/panels/MapWorkPanel";
 import type { MapAwareSeoGap } from "@/lib/seo/analysis";
+import { submitMapProposal } from "./components/map-proposal-action";
 
 // render a page path/url as a subdued span (or link when it looks like a path/url)
 const pagePath = (p: string | null | undefined) => {
@@ -153,10 +154,9 @@ export default function SeoPillarReportPage() {
     const key = gap.ruleIds.join("|");
     setPromotingMap(current => new Set([...current, key]));
     try {
-      const response = await authFetch("/api/seo/gaps/promote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gaps: [gap] }) });
-      const result = await response.json().catch(() => ({}));
-      if (response.ok && (result.created > 0 || result.skipped > 0)) { setPromotedMap(current => new Set([...current, key])); setToast(result.created > 0 ? "Created governed proposal in Content Pilot." : "This governed proposal is already handled."); }
-      else setToast(result.error ?? "Could not create governed proposal.");
+      const result = await submitMapProposal(authFetch, gap);
+      if (result.resolved) setPromotedMap(current => new Set([...current, key]));
+      setToast(result.message);
     } catch { setToast("Could not create governed proposal."); }
     finally { setPromotingMap(current => { const next = new Set(current); next.delete(key); return next; }); }
   }, [authFetch]);

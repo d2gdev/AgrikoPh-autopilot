@@ -14,7 +14,7 @@ describe("projectTopicalMapCommandCenter", () => {
       rule("rule:decision:1", "content_decisions", { currentUrl: url, decision: "keep", exactTargetIfAny: "", priority: "high", evidence: "Traffic supported" }),
       rule("rule:prohibited:1", "prohibited_content", { currentUrl: url, decision: "prohibit", exactTargetIfAny: "medical claims", priority: "critical", evidence: "Unsafe" }),
       rule("rule:link:1", "internal_links", { fromUrl: url, toUrl: "/collections/rice", currentBodyState: "missing", requiredAction: "add", recommendedAnchor: "rice", linkPurpose: "commercial path", priority: "high", verification: "inspect" }, "internal-links"),
-      rule("rule:redirect:1", "redirects", { redirectId: "r1", source: "/old", configuredTarget: "/blogs/news/black-rice", finalTarget: url, hopCount: "1", topicRelevant: "yes", knownState: "configured", requiredAction: "retain" }, "redirect-inventory"),
+      rule("rule:redirect:1", "redirects", { redirectId: "r1", source: "/old", configuredTarget: "/blogs/news/black-rice", finalTarget: url, hopCount: "1", topicRelevant: "yes", knownState: "configured", requiredAction: "retain", priority: "high", evidence: "verified" }, "redirect-inventory"),
       rule("rule:canonical:1", "canonicalization", { currentUrl: url, proposedCanonicalUrl: "/blogs/news/black-rice", priority: "medium", decision: "review", evidence: "read only" }),
       rule("rule:index:1", "indexation", { currentUrl: url, proposedCanonicalUrl: "/blogs/news/black-rice", publishingState: "published", priority: "medium", decision: "index", evidence: "read only" }),
       rule("rule:evidence:1", "evidence_gates", { name: "Fresh SERP evidence", literalText: "Evidence must be current" }, "evidence"),
@@ -29,7 +29,7 @@ describe("projectTopicalMapCommandCenter", () => {
     expect(projected.pages[0]).toMatchObject({ url: "/blogs/news/black-rice", cluster: "Black rice", role: "supporting", dominantIntent: "informational", decision: "keep", ruleIds: ["rule:decision:1", "rule:owner:1", "rule:role:1"] });
     expect(projected.prohibited[0]).toMatchObject({ url: "/blogs/news/black-rice", item: "medical claims", ruleIds: ["rule:prohibited:1"] });
     expect(projected.work.internalLinks[0]).toMatchObject({ fromUrl: "/blogs/news/black-rice", toUrl: "/collections/rice", ruleIds: ["rule:link:1"] });
-    expect(projected.work.redirects[0]!.ruleIds).toEqual(["rule:redirect:1"]);
+    expect(projected.work.redirects[0]).toMatchObject({ ruleIds: ["rule:redirect:1"], priority: "high", evidence: "verified" });
     expect(projected.work.canonicalization[0]!.ruleIds).toEqual(["rule:canonical:1"]);
     expect(projected.work.indexation[0]!.ruleIds).toEqual(["rule:index:1"]);
     expect(projected.blockers.evidence[0]).toMatchObject({ name: "Fresh SERP evidence", ruleIds: ["rule:evidence:1"] });

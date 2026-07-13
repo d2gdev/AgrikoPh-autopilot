@@ -32,6 +32,8 @@ const GapInputSchema = z.object({
   packageSha256: z.string().regex(/^[a-f0-9]{64}$/),
   fromUrl: z.string().trim().min(1).max(500).optional(),
   toUrl: z.string().trim().min(1).max(500).optional(),
+  priority: z.string().trim().min(1).max(40),
+  observedEvidence: z.array(z.object({ query: z.string().trim().min(1).max(160), impressions: z.number().nonnegative(), position: z.number().nullable() }).strict()).max(20),
 }).strict();
 const PromoteGapsBodySchema = z.object({
   strategyVersionId: z.string().trim().min(1),

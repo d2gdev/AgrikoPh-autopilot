@@ -34,11 +34,11 @@ export function OpportunitiesPanel({
       {oppCount > 0 && (
         <div className={styles.controlRow}>
           <div className={styles.control}>
-            <TextField label="Search opportunities" labelHidden placeholder="Search query or page…" value={oppSearch} onChange={setOppSearch}
+            <TextField label="Search evidence" placeholder="Search query or page…" value={oppSearch} onChange={setOppSearch}
               autoComplete="off" clearButton onClearButtonClick={() => setOppSearch("")} />
           </div>
           <div className={styles.controlCompact}>
-            <Select label="Filter by type" labelHidden options={oppTypeOptions} value={oppType} onChange={setOppType} />
+            <Select label="Filter evidence by type" options={oppTypeOptions} value={oppType} onChange={setOppType} />
           </div>
         </div>
       )}

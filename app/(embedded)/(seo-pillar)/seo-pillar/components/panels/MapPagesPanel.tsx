@@ -9,11 +9,13 @@ function Provenance({ ruleIds, map }: { ruleIds: string[]; map: TopicalMapComman
   </BlockStack></details>;
 }
 export { Provenance };
+export function pageMatchesBlockerFilter(pageUrl: string, prohibitedUrls: string[], blocker: string) { const blocked = prohibitedUrls.includes(pageUrl); return blocker === "all" || (blocker === "blocked" ? blocked : !blocked); }
 
 export function MapPagesPanel({ map }: { map: TopicalMapCommandCenter }) {
   const [cluster, setCluster] = useState("all"), [priority, setPriority] = useState("all"), [family, setFamily] = useState("all"), [state, setState] = useState("all"), [blocker, setBlocker] = useState("all");
   const options = (label: string, values: Array<string | undefined>) => [{ label, value: "all" }, ...Array.from(new Set(values.filter(Boolean) as string[])).map(v => ({ label: v, value: v }))];
-  const pages = useMemo(() => map.pages.filter(p => (cluster === "all" || p.cluster === cluster) && (priority === "all" || p.priority === priority) && (family === "all" || p.ruleIds.some(id => id.includes(family))) && (state === "all" || p.decision === state) && blocker === "all"), [map.pages, cluster, priority, family, state, blocker]);
+  const prohibitedUrls = useMemo(() => map.prohibited.map(item => item.url), [map.prohibited]);
+  const pages = useMemo(() => map.pages.filter(p => (cluster === "all" || p.cluster === cluster) && (priority === "all" || p.priority === priority) && (family === "all" || p.ruleIds.some(id => id.includes(family))) && (state === "all" || p.decision === state) && pageMatchesBlockerFilter(p.url, prohibitedUrls, blocker)), [map.pages, prohibitedUrls, cluster, priority, family, state, blocker]);
   return <div className={styles.commandCenter}><BlockStack gap="400">
     <BlockStack gap="100"><Text as="h2" variant="headingLg">Pages &amp; ownership</Text><Text as="p" tone="subdued">Every URL has an explicit role, intent owner, content decision, and traceable rule source.</Text></BlockStack>
     <div className={styles.filterGrid}>
@@ -25,7 +27,7 @@ export function MapPagesPanel({ map }: { map: TopicalMapCommandCenter }) {
     </div>
     <Text as="p" variant="bodySm" tone="subdued">Showing {pages.length} of {map.pages.length} pages</Text>
     <div className={styles.compactList}>{pages.map(page => <section className={styles.listRow} key={page.url} aria-label={page.url}><BlockStack gap="200">
-      <InlineStack align="space-between" wrap><Text as="h3" variant="headingSm">{page.url}</Text>{page.priority && <Badge>{page.priority}</Badge>}</InlineStack>
+      <InlineStack align="space-between" wrap><Text as="h3" variant="headingSm">{page.url}</Text><InlineStack gap="100">{map.prohibited.some(item => item.url === page.url) && <Badge tone="critical">Blocked: prohibited content</Badge>}{page.priority && <Badge>{page.priority}</Badge>}</InlineStack></InlineStack>
       <InlineStack gap="300" wrap><Text as="p"><b>Cluster:</b> {page.cluster ?? "Unassigned"}</Text><Text as="p"><b>Role:</b> {page.role ?? "Unspecified"}</Text><Text as="p"><b>State:</b> {page.decision ?? "Unspecified"}</Text></InlineStack>
       <Text as="p" tone="subdued">Intent: {page.dominantIntent ?? page.exclusiveIntentScope ?? "Not specified"}</Text><Provenance ruleIds={page.ruleIds} map={map}/>
     </BlockStack></section>)}</div>

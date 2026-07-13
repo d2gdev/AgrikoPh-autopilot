@@ -90,8 +90,10 @@ describe("topical-map command center", () => {
     expect(gaps).toContain("Create proposal");
     expect(work).toContain("Create link proposal");
     expect(work).toContain("Live execution prohibited");
-    expect(work).toContain("Canonical and indexation changes require a separately permitted execution path");
-    expect(work).toContain("Redirect execution is not available from SEO Pilot");
+    expect(work).toContain("canonical live execution is prohibited");
+    expect(work).toContain("indexation live execution is prohibited");
+    expect(work).toContain("Redirect proposal persistence is not supported by Content Pilot");
+    expect(work).not.toContain("Execution blocked");
   });
 
   it("separates raw observations and renders five distinct unavailable states", () => {

@@ -57,6 +57,8 @@ export type MapAwareSeoGap = {
   fromUrl?: string;
   toUrl?: string;
   type?: string;
+  priority: string;
+  observedEvidence: Array<{ query: string; impressions: number; position: number | null }>;
 };
 export type MapAwareSeoAnalysis = {
   gaps: MapAwareSeoGap[];
@@ -69,6 +71,7 @@ const MapGapSchema = z.object({
   kind: z.enum(["content", "link"]), strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/),
   ruleIds: z.array(z.string().min(1)).min(1), state: z.literal("candidate"), action: z.enum(["create", "update"]), query: z.string().min(1), suggestedTitle: z.string().min(1),
   page: z.string().min(1).optional(), fromUrl: z.string().min(1).optional(), toUrl: z.string().min(1).optional(), type: z.string().min(1).optional(),
+  priority: z.string().min(1), observedEvidence: z.array(z.object({ query: z.string().min(1), impressions: z.number().nonnegative(), position: z.number().nullable() }).strict()).max(20),
 }).strict();
 const ObservationSchema = z.object({ query: z.string().min(1), impressions: z.number().nonnegative(), position: z.number(), suggestedTitle: z.string().min(1), issue: z.enum(["missing-meta", "thin-content"]).optional(), articleHandle: z.string().min(1).optional(), wordCount: z.number().nullable().optional() }).strict();
 const SuppressedSchema = z.object({ strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/), page: z.string().min(1), reason: z.string().min(1), ruleIds: z.array(z.string().min(1)).min(1) }).strict();
@@ -96,6 +99,7 @@ export function buildMapAwareSeoGaps(input: {
 }): MapAwareSeoAnalysis {
   const existing = new Set(input.articles.map((article) => `/blogs/news/${article.handle.toLowerCase()}`));
   const observations = buildProgrammaticSeoGaps(input);
+  const evidenceFor = (query: string) => observations.filter(item => item.query.toLowerCase() === query.toLowerCase()).map(item => ({ query: item.query, impressions: item.impressions, position: Number.isFinite(item.position) ? item.position : null }));
   const prohibitedByUrl = new Map(input.commandCenter.prohibited.map((item) => [item.url, item]));
   const gaps: MapAwareSeoGap[] = [];
   const suppressed: MapAwareSeoAnalysis["suppressed"] = [];
@@ -106,11 +110,13 @@ export function buildMapAwareSeoGaps(input: {
       suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: page.url, reason: prohibited.item, ruleIds: [...page.ruleIds, ...prohibited.ruleIds].sort() });
       continue;
     }
-    gaps.push({ kind: "content", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate", action: "create", query: page.primaryKeywordOrTheme ?? page.url, suggestedTitle: page.primaryKeywordOrTheme ?? page.url, page: page.url });
+    const query = page.primaryKeywordOrTheme ?? page.url;
+    gaps.push({ kind: "content", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate", action: "create", query, suggestedTitle: query, page: page.url, priority: page.priority ?? "unspecified", observedEvidence: evidenceFor(query) });
   }
   for (const link of input.commandCenter.work.internalLinks) {
     if (!/(absent|missing|not present|add)/i.test(`${link.currentBodyState ?? ""} ${link.requiredAction ?? ""}`)) continue;
-    gaps.push({ kind: "link", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...link.ruleIds], state: "candidate", action: "update", query: link.recommendedAnchor ?? link.toUrl, suggestedTitle: `Add internal link from ${link.fromUrl} to ${link.toUrl}`, page: link.fromUrl, fromUrl: link.fromUrl, toUrl: link.toUrl, type: "internal-link" });
+    const query = link.recommendedAnchor ?? link.toUrl;
+    gaps.push({ kind: "link", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...link.ruleIds], state: "candidate", action: "update", query, suggestedTitle: `Add internal link from ${link.fromUrl} to ${link.toUrl}`, page: link.fromUrl, fromUrl: link.fromUrl, toUrl: link.toUrl, type: "internal-link", priority: link.priority ?? "unspecified", observedEvidence: evidenceFor(query) });
   }
   return { gaps, observations, suppressed };
 }

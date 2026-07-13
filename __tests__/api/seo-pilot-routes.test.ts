@@ -107,7 +107,7 @@ function jsonRequest(path: string, body: Record<string, unknown>, method = "POST
 
 const strategyIdentity = { strategyVersionId: "v3", packageSha256: "a".repeat(64) };
 function governedPromotionRequest(body: { gaps: Array<Record<string, unknown>> } & Record<string, unknown>) {
-  return jsonRequest("/api/seo/gaps/promote", { ...strategyIdentity, ...body });
+  return jsonRequest("/api/seo/gaps/promote", { ...strategyIdentity, ...body, gaps: body.gaps.map(gap => ({ priority: "high", observedEvidence: [], ...gap })) });
 }
 
 describe("SEO Pilot route regressions", () => {

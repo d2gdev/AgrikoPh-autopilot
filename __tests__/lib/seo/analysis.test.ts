@@ -97,7 +97,7 @@ describe("map-aware SEO analysis", () => {
   const commandCenter = {
     identity: { ...identity, strategyVersion: "3", contractRevision: "3", activatedAt: null },
     pages: [
-      { url: "/blogs/news/mapped", decision: "create", primaryKeywordOrTheme: "mapped topic", ruleIds: ["rule:decision:1"] },
+      { url: "/blogs/news/mapped", decision: "create", primaryKeywordOrTheme: "mapped topic", priority: "high", ruleIds: ["rule:decision:1"] },
       { url: "/blogs/news/prohibited", decision: "create", primaryKeywordOrTheme: "medical cure", ruleIds: ["rule:decision:2"] },
     ],
     prohibited: [{ url: "/blogs/news/prohibited", item: "Do not publish medical cure claims", ruleIds: ["rule:prohibited:1"] }],
@@ -112,6 +112,7 @@ describe("map-aware SEO analysis", () => {
     });
     expect(result.observations).toEqual([expect.objectContaining({ query: "unmapped popular query" })]);
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", strategyVersionId: "v3", ruleIds: ["rule:decision:1"], state: "candidate" }));
+    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", priority: "high", observedEvidence: [] }));
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "link", ruleIds: ["rule:link:1"], state: "candidate" }));
     expect(result.gaps).not.toEqual(expect.arrayContaining([expect.objectContaining({ query: "unmapped popular query" })]));
     expect(result.suppressed).toContainEqual(expect.objectContaining({ ruleIds: ["rule:decision:2", "rule:prohibited:1"], reason: "Do not publish medical cure claims" }));
@@ -126,7 +127,7 @@ describe("map-aware SEO analysis", () => {
   });
 
   it("rejects a malformed cached gap and a per-gap identity mismatch", () => {
-    const validGap = { kind: "content", strategyVersionId: "v3", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], state: "candidate", action: "create", query: "mapped", suggestedTitle: "Mapped guide", page: "/blogs/news/mapped" };
+    const validGap = { kind: "content", strategyVersionId: "v3", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], state: "candidate", action: "create", query: "mapped", suggestedTitle: "Mapped guide", page: "/blogs/news/mapped", priority: "high", observedEvidence: [{ query: "mapped", impressions: 12, position: 8 }] };
     const envelope = (gap: unknown) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [gap], observations: [], suppressed: [] } });
     expect(readAnalysisForStrategy(envelope({ ...validGap, ruleIds: [] }), identity)).toBeNull();
     expect(readAnalysisForStrategy(envelope({ ...validGap, strategyVersionId: "v4" }), identity)).toBeNull();
