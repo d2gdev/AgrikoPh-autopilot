@@ -33,6 +33,8 @@ const center = () => ({
   work: {
     internalLinks: [
       { fromUrl: "/collections/rice", toUrl: "/products/black-rice", ruleIds: ["link:z", "link:a"], recommendedAnchor: "shop black rice", priority: "high" },
+      { fromUrl: "/collections/rice", toUrl: "/products/brown-rice", ruleIds: ["link:brown"], recommendedAnchor: "shop brown rice", priority: "medium" },
+      { fromUrl: "/collections/rice", toUrl: "/products/red-rice", ruleIds: ["link:red"], recommendedAnchor: "shop red rice", priority: "medium" },
       { fromUrl: "/blogs/news/black-rice-guide", toUrl: "/products/black-rice", ruleIds: ["link:article"], recommendedAnchor: "black rice", priority: "high" },
     ],
     redirects: [{ source: "/old", finalTarget: "/products/black-rice", ruleIds: ["redirect:1"] }],
@@ -72,6 +74,24 @@ beforeEach(() => {
 });
 
 describe("syncTopicalMapStoreTasks", () => {
+  it("groups internal links for one source into one deterministic section", async () => {
+    const db = client();
+    await syncTopicalMapStoreTasks(db as any);
+    const links = db.storeTask.upsert.mock.calls
+      .map((call: any) => call[0].create)
+      .filter((task: any) => task.proposedState.action === "internal_link");
+    expect(links).toHaveLength(1);
+    expect(links[0].sourceData.ruleIds).toEqual(["link:a", "link:brown", "link:red", "link:z"]);
+    expect(links[0].sourceData.links).toEqual([
+      { toUrl: "/products/black-rice", anchor: "shop black rice" },
+      { toUrl: "/products/brown-rice", anchor: "shop brown rice" },
+      { toUrl: "/products/red-rice", anchor: "shop red rice" },
+    ]);
+    expect(links[0].proposedState.after.bodyHtml).toContain('<section class="ag-related-recipes"');
+    expect(links[0].proposedState.after.bodyHtml.match(/<section/g)).toHaveLength(1);
+    expect(links[0].proposedState.after.bodyHtml.match(/<li>/g)).toHaveLength(3);
+  });
+
   it("projects only governed non-blog resources, keeps technical work advisory, and suppresses missing observations", async () => {
     const db = client();
     const result = await syncTopicalMapStoreTasks(db as any);
@@ -95,8 +115,8 @@ describe("syncTopicalMapStoreTasks", () => {
     await syncTopicalMapStoreTasks(db as any);
     const tasks = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create);
     const link = tasks.find((task: any) => task.proposedState.action === "internal_link");
-    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:z"], ruleDomains: ["internal_links"], sourceReferences: [{ kind: "rule", id: "link:a" }, { kind: "rule", id: "link:z" }], generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", linkTargetUrl: "/products/black-rice", linkAnchor: "shop black rice", observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
-    expect(link.proposedState).toEqual({ action: "internal_link", before: { bodyHtml: "<p>Existing Rice body.</p>" }, after: { bodyHtml: '<p>Existing Rice body.</p><p><a href="/products/black-rice">shop black rice</a></p>' } });
+    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:brown", "link:red", "link:z"], ruleDomains: ["internal_links"], sourceReferences: [{ kind: "rule", id: "link:a" }, { kind: "rule", id: "link:brown" }, { kind: "rule", id: "link:red" }, { kind: "rule", id: "link:z" }], generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", links: [{ toUrl: "/products/black-rice", anchor: "shop black rice" }, { toUrl: "/products/brown-rice", anchor: "shop brown rice" }, { toUrl: "/products/red-rice", anchor: "shop red rice" }], observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
+    expect(link.proposedState).toEqual({ action: "internal_link", before: { bodyHtml: "<p>Existing Rice body.</p>" }, after: { bodyHtml: '<p>Existing Rice body.</p><section class="ag-related-recipes" aria-labelledby="ag-related-recipes-title"><h2 id="ag-related-recipes-title">Explore Related Resources</h2><ul><li><a href="/products/black-rice">shop black rice</a></li><li><a href="/products/brown-rice">shop brown rice</a></li><li><a href="/products/red-rice">shop red rice</a></li></ul></section>' } });
     expect(link.dedupeKey).toMatch(/^store-task:topical-map:[a-f0-9]{64}$/);
     expect(TopicalMapStoreTaskSourceSchema.parse(link.sourceData)).toEqual(link.sourceData);
     expect(TopicalMapStoreTaskProposedSchema.parse(link.proposedState)).toEqual(link.proposedState);

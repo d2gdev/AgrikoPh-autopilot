@@ -31,7 +31,7 @@ const ExecutableSourceBase = {
 const ExecutableSourceSchema = z.discriminatedUnion("action", [
   z.object({ ...ExecutableSourceBase, action: z.literal("seo_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
   z.object({ ...ExecutableSourceBase, action: z.literal("content_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
-  z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), linkTargetUrl: GovernedUrl, linkAnchor: z.string().min(1) }).strict(),
+  z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), links: z.array(z.object({ toUrl: GovernedUrl, anchor: z.string().min(1) }).strict()).min(1).max(100) }).strict(),
 ]);
 const AdvisorySourceSchema = z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(AdvisoryDomain).min(1), sourceReferences: SourceReferences, generationProvenance: GenerationProvenance, targetType: AdvisoryTargetType, targetUrl: GovernedUrl, executable: z.literal(false), advisoryReason: AdvisoryReason }).strict();
 export const TopicalMapStoreTaskSourceSchema = z.union([ExecutableSourceSchema, AdvisorySourceSchema]);
@@ -68,7 +68,7 @@ type Summary = { executable: number; advisory: number; unchanged: number; suppre
 type RuleDomain = "content_decisions" | "internal_links" | z.infer<typeof AdvisoryDomain>;
 type TaskTargetType = z.infer<typeof TargetType> | z.infer<typeof AdvisoryTargetType>;
 type TaskAdvisoryReason = z.infer<typeof AdvisoryReason>;
-type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: TopicalMapStoreAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resource?: GovernedStoreResource; theme?: string; toUrl?: string; anchor?: string };
+type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: TopicalMapStoreAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resource?: GovernedStoreResource; theme?: string; links?: Array<{ toUrl: string; anchor: string }> };
 type Persisted = { targetType: string; targetUrl: string; priority: string; ruleIds: string[]; ruleDomains: string[]; sourceData: z.infer<typeof TopicalMapStoreTaskSourceSchema>; proposedState: z.infer<typeof TopicalMapStoreTaskProposedSchema> };
 
 function path(value: string): string {
@@ -108,12 +108,21 @@ function candidates(center: TopicalMapCommandCenter): Candidate[] {
     if (!target || !(page.ruleDomains.content_decisions?.length)) continue;
     result.push({ targetType: target.type, targetUrl: url, ruleIds: [...page.ruleDomains.content_decisions].sort(), ruleDomains: ["content_decisions"], priority: page.priority ?? "medium", action: pageAction(page), theme: page.primaryKeywordOrTheme });
   }
+  const linkGroups = new Map<string, Candidate>();
   for (const link of center.work.internalLinks) {
     const fromUrl = path(link.fromUrl);
     if (/^\/blogs\/[^/]+\/[^/]+/.test(fromUrl)) continue;
     const target = resolveGovernedStoreUrl(fromUrl);
     if (!target) continue;
-    result.push({ targetType: target.type, targetUrl: fromUrl, ruleIds: [...link.ruleIds].sort(), ruleDomains: ["internal_links"], priority: link.priority ?? "medium", action: "internal_link", toUrl: path(link.toUrl), anchor: link.recommendedAnchor ?? link.toUrl });
+    const current = linkGroups.get(fromUrl) ?? { targetType: target.type, targetUrl: fromUrl, ruleIds: [], ruleDomains: ["internal_links"], priority: link.priority ?? "medium", action: "internal_link", links: [] };
+    current.ruleIds.push(...link.ruleIds);
+    current.links!.push({ toUrl: path(link.toUrl), anchor: link.recommendedAnchor ?? link.toUrl });
+    linkGroups.set(fromUrl, current);
+  }
+  for (const group of linkGroups.values()) {
+    group.ruleIds = [...new Set(group.ruleIds)].sort();
+    group.links = [...new Map(group.links!.map((link) => [`${link.toUrl}\u0000${link.anchor}`, link])).values()].sort((a, b) => a.toUrl.localeCompare(b.toUrl) || a.anchor.localeCompare(b.anchor));
+    result.push(group);
   }
   const advisory = (targetUrl: string, ruleIds: string[], ruleDomain: z.infer<typeof AdvisoryDomain>, reason: TaskAdvisoryReason, targetType: z.infer<typeof AdvisoryTargetType>) => result.push({ targetType, targetUrl: path(targetUrl), ruleIds: [...ruleIds].sort(), ruleDomains: [ruleDomain], priority: "medium", action: "advisory", advisoryReason: reason });
   for (const rule of center.work.redirects) advisory(rule.source, rule.ruleIds, "redirects", "redirect_execution_unsupported", "redirect");
@@ -142,7 +151,11 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     const resource = resources.get(item.targetUrl);
     if (!resource) { summary.suppressed++; continue; }
     item.resource = resource;
-    if (item.action === "internal_link" && resource.internalTargets.map(path).includes(item.toUrl!)) { summary.unchanged++; continue; }
+    if (item.action === "internal_link") {
+      const existingTargets = new Set(resource.internalTargets.map(path));
+      item.links = item.links!.filter((link) => !existingTargets.has(link.toUrl));
+      if (!item.links.length) { summary.unchanged++; continue; }
+    }
     viable.push(item);
   }
 
@@ -172,13 +185,16 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
       targetType: resource.type,
       targetUrl: item.targetUrl,
       action: item.action,
-      ...(item.action === "internal_link" ? { linkTargetUrl: item.toUrl, linkAnchor: item.anchor } : {}),
+      ...(item.action === "internal_link" ? { links: item.links } : {}),
       observedAt: resource.updatedAt.toISOString(),
       observedStateHash: resource.stateHash,
       executable: true,
     });
     if (item.action === "internal_link") {
-      const bodyHtml = `${resource.bodyHtml}<p><a href="${escapeHtml(item.toUrl!)}">${escapeHtml(item.anchor!)}</a></p>`;
+      const linkMarkup = item.links!.length === 1
+        ? `<p><a href="${escapeHtml(item.links![0]!.toUrl)}">${escapeHtml(item.links![0]!.anchor)}</a></p>`
+        : `<section class="ag-related-recipes" aria-labelledby="ag-related-recipes-title"><h2 id="ag-related-recipes-title">${item.targetUrl === "/pages/red-rice-recipes" ? "Explore More Red Rice Recipes" : "Explore Related Resources"}</h2><ul>${item.links!.map((link) => `<li><a href="${escapeHtml(link.toUrl)}">${escapeHtml(link.anchor)}</a></li>`).join("")}</ul></section>`;
+      const bodyHtml = `${resource.bodyHtml}${linkMarkup}`;
       if (bodyHtml.length > 50_000) return advisory(center, item, "draft_unavailable");
       return { targetType: resource.type, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceData, proposedState: { action: item.action, before: { bodyHtml: resource.bodyHtml }, after: { bodyHtml } } };
     }
