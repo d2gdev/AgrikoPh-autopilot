@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-13T14:19:00+08:00
+last_updated: 2026-07-13T14:53:00+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **SEO executable-scope evidence completeness (2026-07-13):** The strategy-bound analysis evidence denominator now matches the analyzer's executable Content Pilot scope. Governed blog articles and blog link sources remain mandatory and fail closed when uninspected; non-blog home, blog-index, collection, page, and product objects remain explicitly suppressed as unsupported instead of globally withholding otherwise complete blog actions. A route regression covers a mixed blog/product map.
 - **Timeless SEO analysis snapshot selection (2026-07-13):** `seo_analysis` is an upserted current-state snapshot with epoch date-range keys, so its reader orders solely by `fetchedAt`. Period snapshots such as GSC and GA4 retain date-range-first ordering. This prevents older ranged legacy analysis rows from masking the newly persisted active-map analysis.
 - **SEO store-observation timestamp correction (2026-07-13):** Map-aware SEO analysis and promotion use `ArticleRecord.updatedAt` as the last successful Shopify inspection timestamp. `indexedAt` is immutable record-creation time and must not be used for freshness. A regression proves a newly refreshed article remains current even when it was originally indexed long ago; analysis and promotion now share the same inspection timestamp boundary.
 - **Topical-map SEO command center production release (2026-07-13):** The reviewed command center is deployed on production commit `1655651353135a51b8ca04320af6f0385f9e7e6d`. The active build, PM2 restart chronology, public health, authenticated active-map identity, all eleven domain counts, five client job labels, legacy-source absence, empty/non-stale analysis state, and zero verification-time recommendation/proposal writes were independently observed. Direct embedded HTML correctly redirects to Shopify authentication, so bundle/API evidence is recorded without claiming an unauthenticated browser-session visual check. No authorization flag, strategy activation, production data, Shopify object, or Meta object changed during this UI release.

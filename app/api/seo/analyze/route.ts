@@ -182,7 +182,10 @@ export async function POST(req: NextRequest) {
     contentGaps: programmaticGaps, observations: mapAnalysis.observations, suppressedGaps: mapAnalysis.suppressed, limits, aiStatus: "partial" as const, aiError,
   });
   const persistAnalysis = async (presentation: Record<string, unknown>, generatedAt: Date) => {
-    const requiredStoreUrls = [...new Set(commandCenter.pages.map(page => page.url))];
+    // Non-blog Shopify objects are intentionally suppressed by buildMapAwareSeoGaps
+    // because Content Pilot cannot safely revalidate or edit them. Do not count
+    // those unsupported objects as missing evidence for the blog action set.
+    const requiredStoreUrls = [...new Set(commandCenter.pages.map(page => page.url).filter(url => /^\/blogs\/[^/]+\/[^/]+$/.test(url)))];
     const storeObservations = requiredStoreUrls.flatMap(url => {
       const match = /^\/blogs\/[^/]+\/([^/]+)$/.exec(url);
       if (!match) return [];
@@ -190,7 +193,7 @@ export async function POST(req: NextRequest) {
       const capturedAt = article?.updatedAt instanceof Date ? article.updatedAt : verifiedAbsentUrls.get(url);
       return capturedAt ? [capturedAt] : [];
     });
-    const requiredLinkSources = [...new Set(commandCenter.work.internalLinks.map(link => link.fromUrl))];
+    const requiredLinkSources = [...new Set(commandCenter.work.internalLinks.map(link => link.fromUrl).filter(url => /^\/blogs\/[^/]+\/[^/]+$/.test(url)))];
     const linkObservations = requiredLinkSources.flatMap(source => linkInspections.get(source)?.capturedAt ?? []);
     const oldest = (timestamps: Date[]) => timestamps.reduce<Date | null>((value, item) => !value || item < value ? item : value, null);
     const storeCapturedAt = oldest(storeObservations);

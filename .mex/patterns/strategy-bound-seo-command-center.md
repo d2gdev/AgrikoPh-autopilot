@@ -10,7 +10,7 @@ edges:
     condition: when changing the authenticated command-center projection or five-job UI
   - target: seo-pilot-proposal-actions.md
     condition: when changing governed Content Pilot proposal creation
-last_updated: 2026-07-13T12:48:00+08:00
+last_updated: 2026-07-13T14:53:00+08:00
 ---
 
 # Strategy-bound SEO Command Center
@@ -36,6 +36,7 @@ SEO observations are evidence, not governance. Only the active `agrikoph.com` to
 - Refresh/improve/optimize decisions for existing pages are governed content refreshes, not generic thin-content guesses.
 - A newer active pointer invalidates cached analysis immediately; timestamps alone do not establish freshness.
 - Local builds must use the exact non-production `autopilot_test` URL and include `connection_limit` and `pool_timeout`; never source production credentials for a build.
+- Inspection completeness must use the same executable scope as analysis. Non-blog Shopify objects that Content Pilot deliberately suppresses must remain visible as unsupported findings, but must not make fully inspected blog actions globally unavailable.
 
 ## Verify
 
