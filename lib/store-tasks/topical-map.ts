@@ -270,7 +270,6 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     if (existing?.id && advisorySemanticKey && client.storeTask.findMany && client.storeTask.updateMany && client.recommendation?.updateMany && client.auditLog && client.$transaction) {
       await supersedeEquivalentAdvisories(client as unknown as AdvisoryDatabase, {
         semanticKey: advisorySemanticKey,
-        keepId: existing.id,
         actor: "topical-map-sync",
       });
       summary.unchanged++;
@@ -288,7 +287,6 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     if (persisted?.id && advisorySemanticKey && client.storeTask.findMany && client.storeTask.updateMany && client.recommendation?.updateMany && client.auditLog && client.$transaction) {
       await supersedeEquivalentAdvisories(client as unknown as AdvisoryDatabase, {
         semanticKey: advisorySemanticKey,
-        keepId: persisted.id,
         actor: "topical-map-sync",
       });
     }

@@ -125,6 +125,13 @@ describe("topical-map advisory identity", () => {
     }));
   });
 
+  it("canonicalizes equivalent governed URL representations before hashing", () => {
+    const keys = ["/old", "/old/", "https://agrikoph.com/old"].map((targetUrl) =>
+      topicalMapAdvisorySemanticKey({ ...advisoryIdentity, targetUrl }));
+
+    expect(new Set(keys)).toHaveLength(1);
+  });
+
   it("keeps the newest pending advisory and dismisses only older pending or failed duplicates", () => {
     const rows = [
       { id: "older-pending", createdAt: new Date("2026-07-10T00:00:00Z"), status: "pending", sourceData: advisorySource() },
@@ -175,7 +182,7 @@ describe("topical-map advisory identity", () => {
       rejectedRecommendations: 1,
     });
     expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: { in: ["older"] }, status: { in: ["pending", "failed"] } },
+      where: expect.objectContaining({ id: { in: ["older"] }, status: { in: ["pending", "failed"] } }),
     }));
     expect(db.recommendation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ targetEntityId: { in: ["older"] }, status: { in: ["pending", "failed"] } }),
@@ -213,6 +220,34 @@ describe("topical-map advisory identity", () => {
       rejectedRecommendations: 0,
     });
     expect(db.storeTask.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("revalidates recommendation and receipt protection at the transactional mutation boundary", async () => {
+    const approving = client({
+      older: { id: "older", status: "pending", sourceData: advisorySource() },
+      newer: { id: "newer", status: "pending", createdAt: new Date("2026-07-12T00:00:00Z"), sourceData: advisorySource() },
+    });
+    approving.recommendation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ targetEntityId: "older", status: "approved" }]);
+
+    await expect(cleanupTopicalMapAdvisories(approving, { apply: true, actor: "cleanup-test" }))
+      .rejects.toThrow("Advisory cleanup found protected work");
+    expect(approving.storeTask.updateMany).not.toHaveBeenCalled();
+
+    const receipted = client({
+      older: { id: "older", status: "pending", sourceData: advisorySource() },
+      newer: { id: "newer", status: "pending", createdAt: new Date("2026-07-12T00:00:00Z"), sourceData: advisorySource() },
+    });
+    receipted.storeTask.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(cleanupTopicalMapAdvisories(receipted, { apply: true, actor: "cleanup-test" }))
+      .rejects.toThrow("Advisory cleanup lost a concurrent update");
+    expect(receipted.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ executionReceipt: { equals: expect.anything() } }),
+    }));
+    expect(receipted.auditLog.create).not.toHaveBeenCalled();
   });
 });
 
@@ -343,6 +378,44 @@ describe("syncTopicalMapStoreTasks", () => {
     }));
     expect(db.auditLog.create).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
       action: "topical_map_advisory_superseded",
+    }) }));
+  });
+
+  it("retains a historical pending semantic advisory instead of a canonical failed row", async () => {
+    const semanticKey = topicalMapAdvisorySemanticKey({
+      strategyVersionId: "strategy-7",
+      packageSha256: "a".repeat(64),
+      targetUrl: "/old",
+      advisoryReason: "redirect_execution_unsupported",
+      ruleIds: ["redirect:1"],
+    });
+    const db = client({
+      [`store-task:topical-map:advisory:${semanticKey}`]: {
+        id: "canonical-failed",
+        createdAt: new Date("2026-07-13T00:00:00Z"),
+        status: "failed",
+        targetUrl: "/old",
+        sourceData: advisorySource({ packageSha256: "a".repeat(64), ruleIds: ["redirect:1"], targetUrl: "/old" }),
+      },
+      "store-task:topical-map:historical-pending": {
+        id: "historical-pending",
+        createdAt: new Date("2026-07-10T00:00:00Z"),
+        status: "pending",
+        targetUrl: "/old/",
+        sourceData: advisorySource({ packageSha256: "a".repeat(64), ruleIds: ["redirect:1"], targetUrl: "/old/" }),
+      },
+    });
+
+    const result = await syncTopicalMapStoreTasks(db as any);
+
+    expect(result.unchanged).toBe(1);
+    expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ["canonical-failed"] } }),
+      data: expect.objectContaining({ status: "dismissed" }),
+    }));
+    expect(db.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      entityId: "canonical-failed",
+      after: expect.objectContaining({ replacementTaskId: "historical-pending" }),
     }) }));
   });
 

@@ -28,10 +28,13 @@ export type AdvisoryDuplicateGroup = {
 };
 
 function canonicalIdentity(input: AdvisorySemanticIdentity): string {
+  const normalized = normalizeGovernedUrl(input.targetUrl);
+  const governedUrl = new URL(normalized, "https://agrikoph.com");
+  const pathname = governedUrl.pathname.length > 1 ? governedUrl.pathname.replace(/\/$/, "") : governedUrl.pathname;
   return JSON.stringify({
     strategyVersionId: input.strategyVersionId,
     packageSha256: input.packageSha256.toLowerCase(),
-    targetUrl: normalizeGovernedUrl(input.targetUrl),
+    targetUrl: `${pathname}${governedUrl.search}${governedUrl.hash}`,
     advisoryReason: input.advisoryReason,
     ruleIds: [...new Set(input.ruleIds)].sort(),
   });
@@ -102,11 +105,16 @@ async function dismissAdvisoryDuplicateGroup(
   const now = new Date();
   return db.$transaction(async (tx) => {
     const note = `Superseded by topical-map advisory ${group.keepId}`;
-    const updated = await tx.storeTask.updateMany({
-      where: { id: { in: group.dismissIds }, status: { in: ["pending", "failed"] } },
-      data: { status: "dismissed", completedAt: now, completionNote: note },
-    });
-    if (updated.count !== group.dismissIds.length) throw new Error("Advisory cleanup lost a concurrent update");
+    const protectedRecommendationWhere = {
+      targetEntityId: { in: group.dismissIds },
+      platform: "shopify" as const,
+      actionType: "apply_topical_map_store_task",
+      status: { in: ["approved", "override_approved", "executing"] },
+    };
+    if ((await tx.recommendation.findMany({
+      where: protectedRecommendationWhere,
+      select: { targetEntityId: true },
+    })).length) throw new Error("Advisory cleanup found protected work");
     const rejected = await tx.recommendation.updateMany({
       where: {
         targetEntityId: { in: group.dismissIds },
@@ -121,6 +129,19 @@ async function dismissAdvisoryDuplicateGroup(
         reviewNote: note,
       },
     });
+    if ((await tx.recommendation.findMany({
+      where: protectedRecommendationWhere,
+      select: { targetEntityId: true },
+    })).length) throw new Error("Advisory cleanup found protected work");
+    const updated = await tx.storeTask.updateMany({
+      where: {
+        id: { in: group.dismissIds },
+        status: { in: ["pending", "failed"] },
+        executionReceipt: { equals: Prisma.DbNull },
+      },
+      data: { status: "dismissed", completedAt: now, completionNote: note },
+    });
+    if (updated.count !== group.dismissIds.length) throw new Error("Advisory cleanup lost a concurrent update");
     for (const id of group.dismissIds) {
       await tx.auditLog.create({
         data: {
@@ -133,12 +154,12 @@ async function dismissAdvisoryDuplicateGroup(
       });
     }
     return { dismissed: updated.count, rejectedRecommendations: rejected.count };
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 export async function supersedeEquivalentAdvisories(
   db: AdvisoryDatabase,
-  options: { semanticKey: string; keepId: string; actor: string },
+  options: { semanticKey: string; actor: string },
 ): Promise<{ dismissed: number; rejectedRecommendations: number }> {
   const rows = await db.storeTask.findMany({
     where: {
@@ -150,7 +171,7 @@ export async function supersedeEquivalentAdvisories(
   });
   const eligibleRows = await excludeApprovedAdvisoryWork(db, rows);
   const group = selectAdvisoryDuplicateGroups(eligibleRows).find((candidate) =>
-    candidate.semanticKey === options.semanticKey && candidate.keepId === options.keepId);
+    candidate.semanticKey === options.semanticKey);
   if (!group) return { dismissed: 0, rejectedRecommendations: 0 };
   return dismissAdvisoryDuplicateGroup(db, group, options.actor);
 }
