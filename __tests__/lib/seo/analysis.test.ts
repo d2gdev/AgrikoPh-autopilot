@@ -120,7 +120,7 @@ describe("map-aware SEO analysis", () => {
 
   it("emits an existing mapped page with a refresh decision as an actionable refresh with page evidence", () => {
     const refreshMap = { ...commandCenter, pages: [{ url: "/blogs/news/source", decision: "optimize", primaryKeywordOrTheme: "source topic", priority: "medium", ruleIds: ["opaque-42"] }], prohibited: [] };
-    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap as any, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {} }] });
+    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {} }] });
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", query: "source topic", priority: "medium", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
   });
 

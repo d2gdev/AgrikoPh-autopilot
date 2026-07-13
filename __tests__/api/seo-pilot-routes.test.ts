@@ -355,14 +355,17 @@ describe("SEO Pilot route regressions", () => {
 
   it("promotes an exact existing mapped refresh candidate as governed content refresh", async () => {
     mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 400 }]);
-    mockPrisma.contentProposal.create.mockResolvedValue({ id: "refresh-1", title: "Expand thin content: Black Rice Benefits" });
+    mockPrisma.contentProposal.create.mockResolvedValue({ id: "refresh-1", title: "Refresh content: Black Rice Benefits" });
     mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "black rice benefits", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], pages: [], queryPagePairs: [{ query: "black rice benefits", page: "/blogs/news/black-rice-benefits", clicks: 4, impressions: 120, position: "9" }], fetchedAt: new Date(), source: "normalized", window: null });
     const { POST } = await import("@/app/api/seo/gaps/promote/route");
     const gap = { ...strategyIdentity, kind: "content", state: "candidate", action: "refresh", ruleIds: ["rule:black"], query: "black rice benefits", suggestedTitle: "Black Rice Benefits", page: "/blogs/news/black-rice-benefits", priority: "high", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] };
     const res = await POST(governedPromotionRequest({ gaps: [gap] }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(expect.objectContaining({ created: 1 }));
-    expect(mockCreateGovernedContentProposal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ data: expect.objectContaining({ proposalType: "content-refresh", articleHandle: "black-rice-benefits", sourceData: expect.objectContaining({ strategyVersionId: "v3", ruleIds: ["rule:black"] }) }), candidate: { type: "content", action: "update", targetUrl: "/blogs/news/black-rice-benefits" } }));
+    expect(mockCreateGovernedContentProposal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ data: expect.objectContaining({ proposalType: "content-refresh", articleHandle: "black-rice-benefits", title: "Refresh content: Black Rice Benefits", description: expect.stringContaining("update"), proposedState: { action: "refresh", articleHandle: "black-rice-benefits", articleTitle: "Black Rice Benefits", targetUrl: "/blogs/news/black-rice-benefits", mapDecision: "update", priority: "high", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] }, sourceData: expect.objectContaining({ strategyVersionId: "v3", ruleIds: ["rule:black"], mapDecision: "update", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] }) }), candidate: { type: "content", action: "update", targetUrl: "/blogs/news/black-rice-benefits" } }));
+    const persisted = mockCreateGovernedContentProposal.mock.calls[0]?.[1]?.data;
+    expect(JSON.stringify(persisted)).not.toMatch(/thin/i);
+    expect(persisted?.proposedState).not.toHaveProperty("targetWordCount");
   });
 
   it("maps a transaction-time strategy change to STRATEGY_CHANGED", async () => {

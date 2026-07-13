@@ -179,9 +179,14 @@ export async function POST(req: NextRequest) {
       }
       const title = matchedArticle?.title ?? inputTitle;
       const wordCount = matchedArticle?.wordCount ?? 0;
+      const governedPage = commandCenter.pages.find((page) => page.url === targetUrl);
+      const mapRefresh = gap.action === "refresh";
+      const mapDecision = mapRefresh ? governedPage?.decision : undefined;
       const proposalTitle =
         proposalType === "seo-fix"
           ? `Improve SERP snippet: ${title}`
+          : mapRefresh
+            ? `Refresh content: ${title}`
           : proposalType === "content-refresh"
             ? `Expand thin content: ${title}`
             : title;
@@ -190,7 +195,7 @@ export async function POST(req: NextRequest) {
       Math.round((impressions ?? 0) / 20) +
         (position && position <= 10 ? 20 : position && position <= 20 ? 10 : 0)
     );
-    const priority = classifyPriority(score);
+    const priority = mapRefresh ? (/critical|highest|high/i.test(gap.priority) ? "P1" : /low/i.test(gap.priority) ? "P3" : "P2") : classifyPriority(score);
     const impact = findingToImpact(score);
     const effort = proposalType === "new-content"
       ? changeTypeToEffort("new_article")
@@ -210,12 +215,16 @@ export async function POST(req: NextRequest) {
       description:
         proposalType === "seo-fix"
           ? `Rewrite meta title and description for "${title}" targeting "${gap.query}" (${impressions ?? 0} impressions, avg position ${position ?? "—"}).`
+          : mapRefresh
+            ? `Refresh "${title}" according to the active map decision "${mapDecision}" using only the attached current evidence.`
           : proposalType === "content-refresh"
             ? `Expand "${title}" from ${wordCount || "few"} words to ${target}+ words to improve SEO.`
             : `Net-new article targeting the search query "${gap.query}" (${impressions ?? 0} impressions, avg position ${position ?? "—"}).`,
       proposedState:
         proposalType === "seo-fix"
           ? { articleHandle, articleTitle: title, targetQuery: gap.query, issue: gap.issue ?? gap.type ?? "serp-snippet" }
+          : mapRefresh
+            ? { action: "refresh", articleHandle, articleTitle: title, targetUrl, mapDecision, priority: gap.priority, observedEvidence: gap.observedEvidence }
           : proposalType === "content-refresh"
             ? { action: "expand", articleHandle, articleTitle: title, currentWordCount: wordCount, targetWordCount: target, issue: gap.issue }
             : {
@@ -229,7 +238,7 @@ export async function POST(req: NextRequest) {
                 gscPosition: position ?? null,
                 gscImpressions: impressions ?? 0,
               },
-      sourceData: { source: "seo-pilot", query: gap.query, impressions: impressions ?? 0, position: position ?? null, issue: gap.issue ?? null, page: gap.page ?? null, strategyVersionId, packageSha256, ruleIds: governedRuleIds[gapIndex]! },
+      sourceData: { source: "seo-pilot", query: gap.query, impressions: impressions ?? 0, position: position ?? null, issue: gap.issue ?? null, page: gap.page ?? null, strategyVersionId, packageSha256, ruleIds: governedRuleIds[gapIndex]!, ...(mapRefresh ? { mapDecision, priority: gap.priority, observedEvidence: gap.observedEvidence } : {}) },
     };
     const keyed = withContentProposalDedupeKey(data as any);
     if (seenInBatch.has(keyed.dedupeKey)) {

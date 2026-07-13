@@ -69,3 +69,11 @@ Follow-up verification:
 - Global evidence/review blockers only appear when family and priority are unfiltered and state includes blocked work. In incompatible combined selections, the UI explains why association-free global blockers are hidden.
 - Proposal helper coverage now includes created, already-handled, and failed responses for both content and internal-link candidates. UI coverage proves a mapped refresh renders evidence and an enabled proposal action.
 - Final affected matrix: 13 files passed, 120 tests passed; `npx tsc --noEmit`, `npm run lint`, and `git diff --check` exited 0.
+
+## Final refresh-persistence correction (2026-07-13)
+
+- Map-authorized refresh/update/improve/optimize/expand candidates now persist a generic governed `content-refresh` with `action: "refresh"`, exact `mapDecision`, target URL/title, projected priority, bounded current evidence, strategy identity, and server-revalidated rule IDs.
+- The route no longer infers thin content, an expand remedy, or a doubled word-count target from a map refresh decision. Those specifics remain available only to independently evidenced legacy thin-content findings.
+- The refresh route regression asserts the persisted proposal contains no `thin` wording and no `targetWordCount`, while retaining evaluator context `{ type: "content", action: "update", targetUrl }`.
+- The refresh analysis fixture now uses the complete projected page contract without a call-site `as any` cast.
+- Final affected verification: 11 files passed, 113 tests passed; `npx tsc --noEmit`, `npm run lint`, and `git diff --check` exited 0.
