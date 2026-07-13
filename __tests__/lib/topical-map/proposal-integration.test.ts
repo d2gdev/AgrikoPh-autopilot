@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createGovernedContentProposal,
+  StrategyChangedError,
   type GovernedProposalPersistence,
 } from "@/lib/topical-map/compliance-store";
 
@@ -65,6 +66,16 @@ const data = {
 };
 
 describe("governed ContentProposal persistence", () => {
+  it("rejects an activation change inside the proposal transaction", async () => {
+    const db = persistence(activeStrategy({ id: "strategy-2", packageSha256: "b".repeat(64) }));
+    await expect(createGovernedContentProposal(db, {
+      data,
+      candidate: { type: "content", action: "create", targetUrl: "/blogs/news/black-rice-guide" },
+      expectedStrategy: { versionId: "strategy-1", packageSha256 },
+    })).rejects.toBeInstanceOf(StrategyChangedError);
+    expect(db.proposalRows).toEqual([]);
+    expect(db.complianceRows).toEqual([]);
+  });
   it("atomically stores a compliant proposal's complete package traceability in normalized and JSON storage", async () => {
     const db = persistence(activeStrategy());
 

@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { createGovernedContentProposalInTransaction } from "@/lib/topical-map/compliance-store";
+import { createGovernedContentProposalInTransaction, StrategyChangedError } from "@/lib/topical-map/compliance-store";
 import { getSessionShop, getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { classifyPriority, findingToImpact, changeTypeToEffort } from "@/lib/content-pilot/priority-score";
@@ -23,7 +23,14 @@ const GapInputSchema = z.object({
   page: z.string().trim().max(500).optional(),
   type: z.string().trim().max(80).optional(),
   ruleIds: z.array(z.string().trim().min(1)).min(1).max(50),
-});
+  kind: z.enum(["content", "link"]),
+  state: z.literal("candidate"),
+  action: z.enum(["create", "update"]),
+  strategyVersionId: z.string().trim().min(1),
+  packageSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  fromUrl: z.string().trim().min(1).max(500).optional(),
+  toUrl: z.string().trim().min(1).max(500).optional(),
+}).strict();
 const PromoteGapsBodySchema = z.object({
   strategyVersionId: z.string().trim().min(1),
   packageSha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -51,8 +58,20 @@ export async function POST(req: NextRequest) {
   if (!commandCenter || commandCenter.identity.versionId !== strategyVersionId || commandCenter.identity.packageSha256 !== packageSha256) {
     return NextResponse.json({ error: "Active strategy changed", code: "STRATEGY_CHANGED" }, { status: 409 });
   }
-  const activeRuleIds = new Set(Object.keys(commandCenter.provenance));
-  if (gaps.some((gap) => gap.ruleIds.some((ruleId) => !activeRuleIds.has(ruleId)))) {
+  const sameRules = (left: string[], right: string[]) => left.length === right.length && [...left].sort().every((value, index) => value === [...right].sort()[index]);
+  const governedRuleIds = gaps.map((gap): string[] | null => {
+    if (gap.strategyVersionId !== strategyVersionId || gap.packageSha256 !== packageSha256) return null;
+    if (gap.kind === "content" && gap.page) {
+      const page = commandCenter.pages.find((item) => item.url === gap.page && item.decision && (gap.action === "create" ? /(create|publish|new)/i : /(update|refresh|optimize)/i).test(item.decision));
+      return page && sameRules(gap.ruleIds, page.ruleIds) ? [...page.ruleIds] : null;
+    }
+    if (gap.kind === "link" && gap.action === "update" && gap.fromUrl && gap.toUrl) {
+      const link = commandCenter.work.internalLinks.find((item) => item.fromUrl === gap.fromUrl && item.toUrl === gap.toUrl && /(absent|missing|not present|add)/i.test(`${item.currentBodyState ?? ""} ${item.requiredAction ?? ""}`));
+      return link && gap.page === gap.fromUrl && sameRules(gap.ruleIds, link.ruleIds) ? [...link.ruleIds] : null;
+    }
+    return null;
+  });
+  if (governedRuleIds.some((ruleIds) => ruleIds === null)) {
     return NextResponse.json({ error: "Gap rule context is not active", code: "STRATEGY_CHANGED" }, { status: 409 });
   }
 
@@ -69,7 +88,9 @@ export async function POST(req: NextRequest) {
   const candidateHandles = Array.from(new Set(gapHandles));
   const skippedReasons = { duplicate: 0, missingArticle: 0, nonBlogExistingPage: 0, missingGovernedContext: 0 };
 
-  const created = await prisma.$transaction(async (tx) => {
+  let created;
+  try {
+  created = await prisma.$transaction(async (tx) => {
     const existingArticles = await tx.articleRecord.findMany({
         where: {
           OR: [
@@ -86,7 +107,7 @@ export async function POST(req: NextRequest) {
     const seenInBatch = new Set<string>();
     const rows: Array<{ data: Record<string, unknown>; candidate: { type: "content" | "seo_metadata"; action?: "create" | "update"; targetUrl: string } }> = [];
 
-    for (const gap of gaps) {
+    for (const [gapIndex, gap] of gaps.entries()) {
       const knownQuery = knownQueries.get(gap.query.toLowerCase());
       const impressions = gap.impressions ?? knownQuery?.impressions ?? 0;
       const position = gap.position ?? (knownQuery ? Number(knownQuery.position) : undefined);
@@ -95,7 +116,9 @@ export async function POST(req: NextRequest) {
       const matchedArticle =
         (requestedHandle ? articleByHandle.get(requestedHandle.toLowerCase()) : undefined) ??
         articleByTitle.get(inputTitle.toLowerCase());
-      const decision = classifySeoPromotion({
+      const decision = gap.kind === "content" && gap.action === "create"
+        ? { kind: "promote" as const, proposalType: "new-content" as const }
+        : classifySeoPromotion({
         issue: gap.issue,
         opportunityType: gap.type,
         page: gap.page,
@@ -169,7 +192,7 @@ export async function POST(req: NextRequest) {
                 gscPosition: position ?? null,
                 gscImpressions: impressions ?? 0,
               },
-      sourceData: { source: "seo-pilot", query: gap.query, impressions: impressions ?? 0, position: position ?? null, issue: gap.issue ?? null, page: gap.page ?? null, strategyVersionId, packageSha256, ruleIds: gap.ruleIds },
+      sourceData: { source: "seo-pilot", query: gap.query, impressions: impressions ?? 0, position: position ?? null, issue: gap.issue ?? null, page: gap.page ?? null, strategyVersionId, packageSha256, ruleIds: governedRuleIds[gapIndex]! },
     };
     const keyed = withContentProposalDedupeKey(data as any);
     if (seenInBatch.has(keyed.dedupeKey)) {
@@ -191,11 +214,15 @@ export async function POST(req: NextRequest) {
 
     const results = [];
     for (const r of rows) {
-      const result = await createGovernedContentProposalInTransaction(tx as never, r as never);
+      const result = await createGovernedContentProposalInTransaction(tx as never, { ...r, expectedStrategy: { versionId: strategyVersionId, packageSha256 } } as never);
       if (result.created) results.push(result.proposal); else skipped++;
     }
     return results;
   });
+  } catch (error) {
+    if (error instanceof StrategyChangedError) return NextResponse.json({ error: "Active strategy changed", code: "STRATEGY_CHANGED" }, { status: 409 });
+    throw error;
+  }
 
   if (created.length === 0) {
     return NextResponse.json({ created: 0, skipped, skippedReasons, proposals: [] });

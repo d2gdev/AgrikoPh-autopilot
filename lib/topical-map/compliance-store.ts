@@ -45,6 +45,11 @@ export type GovernedProposalResult = {
   proposal: Proposal | null;
   compliance: StrategyComplianceResult;
 };
+export type ExpectedStrategyIdentity = { versionId: string; packageSha256: string };
+export class StrategyChangedError extends Error {
+  readonly code = "STRATEGY_CHANGED";
+  constructor() { super("Active strategy changed before proposal persistence."); this.name = "StrategyChangedError"; }
+}
 
 type StoredStrategy = {
   id: string;
@@ -184,16 +189,17 @@ async function persistNonProposalCompliance(tx: GovernedProposalTransaction, str
 
 export async function createGovernedContentProposal(
   db: GovernedProposalPersistence,
-  input: { data: ContentProposalCreateData; candidate: StrategyProposalCandidate },
+  input: { data: ContentProposalCreateData; candidate: StrategyProposalCandidate; expectedStrategy?: ExpectedStrategyIdentity },
 ): Promise<GovernedProposalResult> {
   return db.$transaction((tx) => createGovernedContentProposalInTransaction(tx, input));
 }
 
 export async function createGovernedContentProposalInTransaction(
   tx: GovernedProposalTransaction,
-  input: { data: ContentProposalCreateData; candidate: StrategyProposalCandidate },
+  input: { data: ContentProposalCreateData; candidate: StrategyProposalCandidate; expectedStrategy?: ExpectedStrategyIdentity },
 ): Promise<GovernedProposalResult> {
     const active = await loadActiveStrategyPolicy(tx);
+    if (input.expectedStrategy && (!active || active.strategyVersionId !== input.expectedStrategy.versionId || active.policy.packageIdentity.packageSha256 !== input.expectedStrategy.packageSha256)) throw new StrategyChangedError();
     const compliance = evaluateStrategyPolicy(active?.policy ?? null, input.candidate);
     if (compliance.result !== "compliant" && compliance.result !== "needs_high_stakes_review") {
       if (active) await persistNonProposalCompliance(tx, active.strategyVersionId, compliance, input.candidate, input.data.proposalType);

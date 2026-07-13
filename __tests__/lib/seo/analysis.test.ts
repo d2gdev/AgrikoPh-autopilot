@@ -124,4 +124,12 @@ describe("map-aware SEO analysis", () => {
     expect(readAnalysisForStrategy(envelope, { ...identity, versionId: "v4" })).toBeNull();
     expect(readAnalysisForStrategy(envelope, { ...identity, packageSha256: "b".repeat(64) })).toBeNull();
   });
+
+  it("rejects a malformed cached gap and a per-gap identity mismatch", () => {
+    const validGap = { kind: "content", strategyVersionId: "v3", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], state: "candidate", action: "create", query: "mapped", suggestedTitle: "Mapped guide", page: "/blogs/news/mapped" };
+    const envelope = (gap: unknown) => ({ schemaVersion: "2", strategy: identity, generatedAt: "2026-07-13T00:00:00.000Z", analysis: { gaps: [gap], observations: [], suppressed: [] } });
+    expect(readAnalysisForStrategy(envelope({ ...validGap, ruleIds: [] }), identity)).toBeNull();
+    expect(readAnalysisForStrategy(envelope({ ...validGap, strategyVersionId: "v4" }), identity)).toBeNull();
+    expect(readAnalysisForStrategy(envelope({ ...validGap, packageSha256: "b".repeat(64) }), identity)).toBeNull();
+  });
 });

@@ -41,6 +41,7 @@ export type MapAwareSeoGap = {
   packageSha256: string;
   ruleIds: string[];
   state: "candidate";
+  action: "create" | "update";
   query: string;
   suggestedTitle: string;
   page?: string;
@@ -51,15 +52,25 @@ export type MapAwareSeoGap = {
 export type MapAwareSeoAnalysis = {
   gaps: MapAwareSeoGap[];
   observations: ProgrammaticSeoGap[];
-  suppressed: Array<{ page: string; reason: string; ruleIds: string[] }>;
+  suppressed: Array<{ strategyVersionId: string; packageSha256: string; page: string; reason: string; ruleIds: string[] }>;
 };
 
+const IdentitySchema = z.object({ versionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
+const MapGapSchema = z.object({
+  kind: z.enum(["content", "link"]), strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  ruleIds: z.array(z.string().min(1)).min(1), state: z.literal("candidate"), action: z.enum(["create", "update"]), query: z.string().min(1), suggestedTitle: z.string().min(1),
+  page: z.string().min(1).optional(), fromUrl: z.string().min(1).optional(), toUrl: z.string().min(1).optional(), type: z.string().min(1).optional(),
+}).strict();
+const ObservationSchema = z.object({ query: z.string().min(1), impressions: z.number().nonnegative(), position: z.number(), suggestedTitle: z.string().min(1), issue: z.enum(["missing-meta", "thin-content"]).optional(), articleHandle: z.string().min(1).optional(), wordCount: z.number().nullable().optional() }).strict();
+const SuppressedSchema = z.object({ strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/), page: z.string().min(1), reason: z.string().min(1), ruleIds: z.array(z.string().min(1)).min(1) }).strict();
 const EnvelopeSchema = z.object({
   schemaVersion: z.literal("2"),
-  strategy: z.object({ versionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+  strategy: IdentitySchema,
   generatedAt: z.string().datetime(),
-  analysis: z.object({ gaps: z.array(z.unknown()), observations: z.array(z.unknown()), suppressed: z.array(z.unknown()) }).passthrough(),
-}).strict();
+  analysis: z.object({ gaps: z.array(MapGapSchema), observations: z.array(ObservationSchema), suppressed: z.array(SuppressedSchema) }).strict(),
+}).strict().superRefine((value, ctx) => {
+  for (const item of [...value.analysis.gaps, ...value.analysis.suppressed]) if (item.strategyVersionId !== value.strategy.versionId || item.packageSha256 !== value.strategy.packageSha256) ctx.addIssue({ code: "custom", message: "Analysis item strategy identity mismatch" });
+});
 
 export function readAnalysisForStrategy(payload: unknown, active: StrategyIdentity): MapAwareSeoAnalysis | null {
   const parsed = EnvelopeSchema.safeParse(payload);
@@ -83,14 +94,14 @@ export function buildMapAwareSeoGaps(input: {
     if (existing.has(page.url) || !page.decision || !/(create|publish|new)/i.test(page.decision)) continue;
     const prohibited = prohibitedByUrl.get(page.url);
     if (prohibited) {
-      suppressed.push({ page: page.url, reason: prohibited.item, ruleIds: [...page.ruleIds, ...prohibited.ruleIds].sort() });
+      suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: page.url, reason: prohibited.item, ruleIds: [...page.ruleIds, ...prohibited.ruleIds].sort() });
       continue;
     }
-    gaps.push({ kind: "content", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate", query: page.primaryKeywordOrTheme ?? page.url, suggestedTitle: page.primaryKeywordOrTheme ?? page.url, page: page.url });
+    gaps.push({ kind: "content", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate", action: "create", query: page.primaryKeywordOrTheme ?? page.url, suggestedTitle: page.primaryKeywordOrTheme ?? page.url, page: page.url });
   }
   for (const link of input.commandCenter.work.internalLinks) {
     if (!/(absent|missing|not present|add)/i.test(`${link.currentBodyState ?? ""} ${link.requiredAction ?? ""}`)) continue;
-    gaps.push({ kind: "link", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...link.ruleIds], state: "candidate", query: link.recommendedAnchor ?? link.toUrl, suggestedTitle: `Add internal link from ${link.fromUrl} to ${link.toUrl}`, page: link.fromUrl, fromUrl: link.fromUrl, toUrl: link.toUrl, type: "internal-link" });
+    gaps.push({ kind: "link", strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...link.ruleIds], state: "candidate", action: "update", query: link.recommendedAnchor ?? link.toUrl, suggestedTitle: `Add internal link from ${link.fromUrl} to ${link.toUrl}`, page: link.fromUrl, fromUrl: link.fromUrl, toUrl: link.toUrl, type: "internal-link" });
   }
   return { gaps, observations, suppressed };
 }

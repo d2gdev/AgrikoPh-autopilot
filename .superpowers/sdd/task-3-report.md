@@ -41,3 +41,18 @@ Status: DONE_WITH_CONCERNS
 ## Commit
 
 Implementation commit: `694c7f20aed0af5636bda39e0e63394108393c82`.
+
+## Review-finding remediation
+
+- Eliminated activation TOCTOU: callers pass the expected version ID/package hash into `createGovernedContentProposalInTransaction`; the active policy loaded by that transaction is compared before evaluation or persistence. `StrategyChangedError` is mapped to HTTP 409 `STRATEGY_CHANGED`.
+- Bound rule evidence to candidates: promotion resolves exact content action/target or internal-link source/destination against the active server projection, requires exact rule-set equality, and persists the server-selected rule IDs rather than request-authored provenance.
+- Hardened cached envelopes: strict schemas now validate every gap, observation, and suppressed item, including candidate kind/state/action, non-empty rule IDs, and item-level version/hash equality with the envelope.
+- Replaced generic request mutation in tests with explicit governed promotion fixtures; added stale transaction activation, unrelated active rule, malformed gap, and per-item identity mismatch coverage.
+
+### Remediation evidence
+
+- RED: focused analysis/proposal tests failed on permissive cached gaps and missing transaction identity enforcement.
+- GREEN: `npm test -- __tests__/lib/seo/analysis.test.ts __tests__/api/seo-pilot-routes.test.ts __tests__/lib/topical-map/proposal-integration.test.ts __tests__/lib/topical-map/evaluator.test.ts __tests__/lib/content-pilot/create-proposal.test.ts` — 5 files, 65 tests passed.
+- `npx tsc --noEmit` — passed.
+- Targeted ESLint across all changed production/tests — passed with no findings.
+- `git diff --check` — passed.
