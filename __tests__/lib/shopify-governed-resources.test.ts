@@ -64,14 +64,20 @@ describe("fetchGovernedStoreResources", () => {
     expect(resources.has("/products/")).toBe(false);
   });
 
-  it("produces a stable SHA-256 state hash and changes it for governed state changes", async () => {
+  it("produces a stable SHA-256 state hash and changes separately for title, body, and SEO", async () => {
     const node = { id: "p1", handle: "pure-ginger", title: "Ginger", descriptionHtml: "<p>Body</p>", updatedAt: "2026-07-01T00:00:00Z", seo: { title: "SEO", description: "Desc" } };
     mockShopifyFetch.mockResolvedValue({ products: page([{ node }]) });
     const first = await fetchGovernedStoreResource("/products/pure-ginger");
     mockShopifyFetch.mockResolvedValue({ products: page([{ node: { ...node, title: "Changed" } }]) });
-    const second = await fetchGovernedStoreResource("/products/pure-ginger");
+    const titleChanged = await fetchGovernedStoreResource("/products/pure-ginger");
+    mockShopifyFetch.mockResolvedValue({ products: page([{ node: { ...node, descriptionHtml: "<p>Changed</p>" } }]) });
+    const bodyChanged = await fetchGovernedStoreResource("/products/pure-ginger");
+    mockShopifyFetch.mockResolvedValue({ products: page([{ node: { ...node, seo: { ...node.seo, title: "Changed SEO" } } }]) });
+    const seoChanged = await fetchGovernedStoreResource("/products/pure-ginger");
     expect(first?.stateHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(first?.stateHash).not.toBe(second?.stateHash);
+    expect(titleChanged?.stateHash).not.toBe(first?.stateHash);
+    expect(bodyChanged?.stateHash).not.toBe(first?.stateHash);
+    expect(seoChanged?.stateHash).not.toBe(first?.stateHash);
     mockShopifyFetch.mockResolvedValue({ products: page([{ node }]) });
     expect((await fetchGovernedStoreResource("https://agrikoph.com/products/pure-ginger"))?.stateHash).toBe(first?.stateHash);
   });
@@ -85,6 +91,21 @@ describe("applyGovernedStoreResourceChange", () => {
   it.each(["handle", "status", "published", "price", "unknown"])("rejects non-allowlisted key %s", async (key) => {
     await expect(applyGovernedStoreResourceChange(base, { [key]: "x" } as never)).rejects.toThrow(/not allowed/i);
     expect(mockUpdateProduct).not.toHaveBeenCalled();
+  });
+
+  it.each(["product", "collection"] as const)("rejects title changes for %s resources before transport", async (type) => {
+    const target = { ...base, type, id: `${type}-1`, url: `/${type === "product" ? "products" : "collections"}/target`, handle: "target" };
+    await expect(applyGovernedStoreResourceChange(target, { title: "Changed" })).rejects.toThrow(/title.*not allowed/i);
+    expect(mockUpdateProduct).not.toHaveBeenCalled();
+    expect(mockUpdateCollection).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsupported runtime resource type before transport", async () => {
+    const unsupported = { ...base, type: "article" } as never;
+    await expect(applyGovernedStoreResourceChange(unsupported, { bodyHtml: "<p>Changed</p>" })).rejects.toThrow(/unsupported.*type/i);
+    expect(mockUpdateProduct).not.toHaveBeenCalled();
+    expect(mockUpdateCollection).not.toHaveBeenCalled();
+    expect(mockUpdatePage).not.toHaveBeenCalled();
   });
 
   it("maps product changes and refetches the resource", async () => {
@@ -112,6 +133,6 @@ describe("applyGovernedStoreResourceChange", () => {
   it("rejects missing post-mutation resources", async () => {
     mockUpdateProduct.mockResolvedValue({ id: base.id });
     mockShopifyFetch.mockResolvedValue({ products: page([]) });
-    await expect(applyGovernedStoreResourceChange(base, { title: "Changed" })).rejects.toThrow(/not return updated/i);
+    await expect(applyGovernedStoreResourceChange(base, { bodyHtml: "<p>Changed</p>" })).rejects.toThrow(/not return updated/i);
   });
 });

@@ -67,13 +67,14 @@ export async function fetchGovernedStoreResources(urls: string[]): Promise<Map<s
     let after: string | null = null;
     do {
       const key = type === "product" ? "products" : type === "collection" ? "collections" : "pages";
-      const data = await shopifyFetch<Record<typeof key, Connection>>(queries[type], { after });
-      for (const { node } of data[key].edges) {
+      const data: Record<string, Connection> = await shopifyFetch<Record<string, Connection>>(queries[type], { after });
+      const connection = data[key]!;
+      for (const { node } of connection.edges) {
         if (!node.handle || !requested.has(`${type}:${node.handle}`)) continue;
         const item = resource(type, node);
         result.set(item.url, item);
       }
-      after = data[key].pageInfo.hasNextPage ? data[key].pageInfo.endCursor : null;
+      after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
     } while (after);
   }
   return result;
@@ -89,9 +90,26 @@ export async function fetchGovernedStoreResource(url: string): Promise<GovernedS
 export async function applyGovernedStoreResourceChange(resource: GovernedStoreResource, proposed: GovernedStoreResourceChange): Promise<GovernedStoreResource> {
   const allowed = new Set(["seoTitle", "seoDescription", "title", "bodyHtml"]);
   for (const key of Object.keys(proposed)) if (!allowed.has(key)) throw new Error(`Governed resource change key is not allowed: ${key}`);
-  if (resource.type === "product") await updateProductSeo(resource.id, { ...(proposed.seoTitle === undefined ? {} : { title: proposed.seoTitle ?? "" }), ...(proposed.seoDescription === undefined ? {} : { description: proposed.seoDescription ?? "" }) }, { ...(proposed.title === undefined ? {} : { title: proposed.title }), ...(proposed.bodyHtml === undefined ? {} : { descriptionHtml: proposed.bodyHtml }) });
-  else if (resource.type === "collection") await updateCollectionSeoAndBody(resource.id, { ...(proposed.seoTitle === undefined ? {} : { title: proposed.seoTitle ?? "" }), ...(proposed.seoDescription === undefined ? {} : { description: proposed.seoDescription ?? "" }) }, { ...(proposed.title === undefined ? {} : { title: proposed.title }), ...(proposed.bodyHtml === undefined ? {} : { descriptionHtml: proposed.bodyHtml }) });
-  else await updatePageSeoAndBody(resource.id, proposed);
+  switch (resource.type) {
+    case "product":
+      if (proposed.title !== undefined) throw new Error("title is not allowed for product resources");
+      await updateProductSeo(resource.id, { ...(proposed.seoTitle === undefined ? {} : { title: proposed.seoTitle ?? "" }), ...(proposed.seoDescription === undefined ? {} : { description: proposed.seoDescription ?? "" }) }, { ...(proposed.bodyHtml === undefined ? {} : { descriptionHtml: proposed.bodyHtml }) });
+      break;
+    case "collection":
+      if (proposed.title !== undefined) throw new Error("title is not allowed for collection resources");
+      await updateCollectionSeoAndBody(resource.id, { ...(proposed.seoTitle === undefined ? {} : { title: proposed.seoTitle ?? "" }), ...(proposed.seoDescription === undefined ? {} : { description: proposed.seoDescription ?? "" }) }, { ...(proposed.bodyHtml === undefined ? {} : { descriptionHtml: proposed.bodyHtml }) });
+      break;
+    case "page":
+      await updatePageSeoAndBody(resource.id, {
+        ...(proposed.title === undefined ? {} : { title: proposed.title }),
+        ...(proposed.seoTitle === undefined ? {} : { seoTitle: proposed.seoTitle ?? "" }),
+        ...(proposed.seoDescription === undefined ? {} : { seoDescription: proposed.seoDescription ?? "" }),
+        ...(proposed.bodyHtml === undefined ? {} : { bodyHtml: proposed.bodyHtml }),
+      });
+      break;
+    default:
+      throw new Error(`Unsupported governed store resource type: ${String(resource.type)}`);
+  }
   const updated = await fetchGovernedStoreResource(resource.url);
   if (!updated) throw new Error("Shopify did not return updated governed resource after mutation");
   return updated;

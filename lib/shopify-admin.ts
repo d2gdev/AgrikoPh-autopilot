@@ -193,8 +193,9 @@ export async function updateProductMediaAlt(
 export async function updateProductSeo(
   productId: string,
   seo: { title?: string; description?: string },
-  content: { title?: string; descriptionHtml?: string } = {}
+  content: { descriptionHtml?: string } = {}
 ): Promise<{ id: string; seo: { title: string | null; description: string | null } }> {
+  if ("title" in content) throw new Error("title is not allowed for product mutations");
   validateGovernedFields(seo.title, seo.description, content.descriptionHtml);
   const mutation = `
     mutation UpdateProductSeo($product: ProductUpdateInput!) {
@@ -236,8 +237,9 @@ function validateGovernedFields(title?: string, description?: string, html?: str
 export async function updateCollectionSeoAndBody(
   collectionId: string,
   seo: { title?: string; description?: string },
-  content: { title?: string; descriptionHtml?: string } = {}
+  content: { descriptionHtml?: string } = {}
 ): Promise<{ id: string; seo: { title: string | null; description: string | null } }> {
+  if ("title" in content) throw new Error("title is not allowed for collection mutations");
   validateGovernedFields(seo.title, seo.description, content.descriptionHtml);
   const data = await shopifyFetch<{ collectionUpdate: { collection: { id: string; seo: { title: string | null; description: string | null } } | null; userErrors: Array<{ message: string }> } }>(`
     mutation UpdateCollectionSeoAndBody($input: CollectionInput!) {
@@ -253,6 +255,7 @@ export async function updatePageSeoAndBody(
   pageId: string,
   change: { title?: string; seoTitle?: string; seoDescription?: string; bodyHtml?: string }
 ): Promise<{ id: string }> {
+  validateGovernedFields(change.title);
   validateGovernedFields(change.seoTitle, change.seoDescription, change.bodyHtml);
   const metafields = [
     change.seoTitle === undefined ? null : { namespace: "global", key: "title_tag", type: "single_line_text_field", value: change.seoTitle },

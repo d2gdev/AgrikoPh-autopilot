@@ -115,6 +115,7 @@ describe("governed Shopify mutations", () => {
     await expect(updateProductSeo("p1", { title: "x".repeat(71) })).rejects.toThrow(/70/);
     await expect(updateCollectionSeoAndBody("c1", { description: "x".repeat(161) })).rejects.toThrow(/160/);
     await expect(updatePageSeoAndBody("g1", { bodyHtml: "x".repeat(50_001) })).rejects.toThrow(/50,000/);
+    await expect(updatePageSeoAndBody("g1", { title: "x".repeat(71) })).rejects.toThrow(/70/);
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
