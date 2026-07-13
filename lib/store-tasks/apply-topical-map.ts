@@ -47,7 +47,15 @@ function expectedChanges(proposed: ExecutableProposed, current: GovernedStoreRes
 function beforeMatches(proposed: ExecutableProposed, current: GovernedStoreResource) {
   return Object.entries(proposed.before ?? {}).every(([key, value]) => current[key as keyof GovernedStoreResource] === value);
 }
-function afterMatches(expected: Record<string, string>, current: GovernedStoreResource) { return Object.entries(expected).every(([key, value]) => current[key as keyof GovernedStoreResource] === value); }
+function normalizeShopifyHtml(value: string) { return value.replace(/>\s+</g, "><").trim(); }
+function afterMatches(expected: Record<string, string>, current: GovernedStoreResource) {
+  return Object.entries(expected).every(([key, value]) => {
+    const observed = current[key as keyof GovernedStoreResource];
+    return key === "bodyHtml" && typeof observed === "string"
+      ? normalizeShopifyHtml(observed) === normalizeShopifyHtml(value)
+      : observed === value;
+  });
+}
 
 export async function approveTopicalMapStoreTask(db: Db, input: { id: string; actor: string }) {
   const row = await db.storeTask.findUnique({ where: { id: input.id } });

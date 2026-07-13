@@ -3,7 +3,7 @@ const adapter = vi.hoisted(() => ({ fetch: vi.fn(), apply: vi.fn() }));
 const command = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock("@/lib/shopify-governed-resources", async (original) => ({ ...(await original<typeof import("@/lib/shopify-governed-resources")>()), fetchGovernedStoreResource: adapter.fetch, applyGovernedStoreResourceChange: adapter.apply }));
 vi.mock("@/lib/topical-map/command-center", () => ({ loadActiveTopicalMapCommandCenter: command.load }));
-import { approveTopicalMapStoreTask, dispatchClaimedTopicalMapStoreTask, TopicalMapApplyError } from "@/lib/store-tasks/apply-topical-map";
+import { approveTopicalMapStoreTask, dispatchClaimedTopicalMapStoreTask, reobserveTopicalMapReceipt, TopicalMapApplyError } from "@/lib/store-tasks/apply-topical-map";
 import { hashTopicalMapProposedState } from "@/lib/store-tasks/topical-map";
 
 const source = { source: "topical-map", strategyVersionId: "v1", packageSha256: "a".repeat(64), ruleIds: ["rule-1"], ruleDomains: ["content_decisions"], sourceReferences: [{ kind: "rule", id: "rule-1" }], generationProvenance: "bounded_ai_draft", targetType: "product", targetUrl: "/products/rice", action: "seo_update", observedAt: "2026-07-13T00:00:00.000Z", observedStateHash: "b".repeat(64), recommendationId: "rec-1", executable: true };
@@ -57,5 +57,14 @@ describe("topical-map approval and internal dispatch", () => {
     adapter.apply.mockResolvedValue({ ...groupedResource, bodyHtml, stateHash: "c".repeat(64) });
     await dispatchClaimedTopicalMapStoreTask(client as any, groupedRec as any);
     expect(adapter.apply).toHaveBeenCalledWith(groupedResource, { bodyHtml });
+  });
+  it("reconciles Shopify HTML that differs only by inter-tag formatting", async () => {
+    const bodyHtml = '<p>Existing.</p><section><h2>Explore More Red Rice Recipes</h2><ul><li><a href="/blogs/recipes/red-rice">Red Rice</a></li></ul></section>';
+    const groupedSource = { ...source, targetType: "page", targetUrl: "/pages/red-rice-recipes", action: "internal_link", ruleDomains: ["internal_links"], ruleIds: ["link:red"], sourceReferences: [{ kind: "rule", id: "link:red" }], generationProvenance: "deterministic", links: [{ toUrl: "/blogs/recipes/red-rice", anchor: "Red Rice" }] };
+    const groupedProposed = { action: "internal_link", before: { bodyHtml: "<p>Existing.</p>" }, after: { bodyHtml } };
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, status: "reconciliation_needed", sourceData: groupedSource, proposedState: groupedProposed });
+    adapter.fetch.mockResolvedValue({ ...resource, type: "page", url: "/pages/red-rice-recipes", bodyHtml: bodyHtml.replace(/></g, ">\n<"), stateHash: "c".repeat(64) });
+    await expect(reobserveTopicalMapReceipt(client as any, rec as any)).resolves.toMatchObject({ taskId: "task-1", action: "internal_link" });
   });
 });
