@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { requireAppAuth, getSessionShop } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { routeOpenStoreTaskOpportunities } from "@/lib/store-tasks/route-opportunities";
+import { TopicalMapStoreTaskProposedSchema, TopicalMapStoreTaskSourceSchema } from "@/lib/store-tasks/topical-map";
 
 const VALID_STATUSES = ["pending", "completed", "dismissed"];
 
@@ -60,6 +61,11 @@ export async function PATCH(req: Request) {
     if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (task.status !== "pending") {
       return NextResponse.json({ error: `Cannot update a task with status "${task.status}"` }, { status: 409 });
+    }
+    const topicalMapSource = TopicalMapStoreTaskSourceSchema.safeParse(task.sourceData);
+    const topicalMapProposed = TopicalMapStoreTaskProposedSchema.safeParse(task.proposedState);
+    if (status === "completed" && task.taskType === "topical_map" && topicalMapSource.success && topicalMapSource.data.executable && topicalMapProposed.success && topicalMapProposed.data.action !== "advisory") {
+      return NextResponse.json({ error: "Executable topical-map tasks must use the confirmed apply route." }, { status: 409 });
     }
 
     const updated = await prisma.storeTask.update({
