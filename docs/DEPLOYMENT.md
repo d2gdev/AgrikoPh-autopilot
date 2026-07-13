@@ -127,3 +127,29 @@ After deploying:
 - [ ] `GET /api/settings` from Shopify admin loads guardrail config (auto-seeded on first call)
 - [ ] After first cron run: `GET /api/jobs/status` shows a completed `JobRun`
 - [ ] `RawSnapshot` rows appear in the database after `fetch-ads-data` runs
+
+## Topical-map command-center deployment preparation (2026-07-13)
+
+Status: **locally verified; not deployed**. Production deployment is intentionally deferred until the required whole-branch review gate completes. This preparation did not access production, change database data, change environment authorization flags, write to Shopify/Meta, or update remote branches.
+
+Fresh local evidence from branch `feat/seo-pilot-topical-map-command-center`:
+
+- Focused Task 7 gate: 8 files passed, 97 tests passed.
+- Full suite: 197 files passed and 3 skipped; 1,358 tests passed and 8 skipped.
+- ESLint: exit 0 with zero errors and 87 existing warnings.
+- Build: exit 0 with `DATABASE_URL` restricted to local `autopilot_test` plus `connection_limit=10&pool_timeout=10`; `/api/topical-map/command-center` and `/seo-pillar` were emitted.
+- `git diff --check`: exit 0.
+- Read-only/auth workflow coverage: auth precedes Prisma; ready response identity matches the active projection; all eleven domains are returned; source bytes are excluded; five operator jobs remain reachable; stale analysis is withheld; exact mapped content/link proposals persist rule/strategy context; stale, unrelated, or altered contexts fail closed; canonical/indexation advertise no live execution.
+- Legacy proof: recursive runtime-source regression checks exclude the June report string, `KEYWORD_CLUSTERS`, `PRIMARY_TARGETS`, `SECONDARY_BANK`, `ROADMAP`, `keyword-strategy`, retired panels/handlers, and hidden tabs 5–8.
+
+After whole-branch review, deploy only the reviewed main commit through `node scripts/git-deploy.mjs`. Do not change `EXECUTE_APPROVED_LIVE_ENABLED`, `TOPICAL_MAP_ACTIVATION_ENABLED`, database data, or strategy activation as part of this UI release. Fresh production acceptance must record:
+
+- [ ] intended local/main/origin commit and `/opt/autopilot` `HEAD` are identical;
+- [ ] active `.next/BUILD_ID` exists and its artifact timestamp follows deployment of that commit;
+- [ ] PM2 `autopilot` restart timestamp follows the build and the process is online/healthy;
+- [ ] public `GET https://autopilot.agrikoph.com/api/health` returns healthy;
+- [ ] authenticated command-center API reports active version `cmriak0gt00y8s66lxrfkstp6`, unless a newer separately authorized activation is evidenced;
+- [ ] authenticated SEO Pilot renders exactly five jobs, no June strategy copy, and all eleven domain counts;
+- [ ] stale pre-map analysis content is absent;
+- [ ] canonical/indexation remain explicitly non-executable and no Shopify live write occurs during verification;
+- [ ] deployment evidence records server commit, build identity/time, PM2 restart time, health response, active map identity, legacy-content absence, and no-live-write observation.
