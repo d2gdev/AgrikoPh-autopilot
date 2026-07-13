@@ -27,6 +27,7 @@
     "shopify:token": "node scripts/refresh-shopify-admin-token.mjs",
     "shopify:refresh-token": "node scripts/refresh-shopify-admin-token.mjs",
     "shopify:check-token": "node scripts/refresh-shopify-admin-token.mjs --check-only",
+    "store-tasks:cleanup-topical-map-advisories": "tsx scripts/cleanup-topical-map-advisories.ts",
     "codex:loop": "node scripts/codex-agent-loop.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
