@@ -63,7 +63,7 @@ function client(existing: Record<string, { status: string; id?: string; targetUr
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(async (run: any) => run(db)),
     rawSnapshot: { findFirst: vi.fn().mockResolvedValue({ id: "seo-snapshot-1" }) },
-    recommendation: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(async () => ({ id: `rec-${sequence}`, status: "pending" })) },
+    recommendation: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(async () => ({ id: `rec-${sequence}`, status: "pending" })), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
   };
   return db;
 }
@@ -125,7 +125,7 @@ describe("syncTopicalMapStoreTasks", () => {
       source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64),
       ruleIds: ["link:legacy"], ruleDomains: ["internal_links"], sourceReferences: [{ kind: "rule", id: "link:legacy" }],
       generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link",
-      linkTargetUrl: "/products/black-rice", linkAnchor: "shop black rice", observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true,
+      linkTargetUrl: "/products/black-rice", linkAnchor: "shop black rice", observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), recommendationId: `rec-${id}`, executable: true,
     } });
     const grouped = { status: "pending", id: "old-grouped", targetUrl: "/collections/rice", sourceData: {
       source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64),
@@ -134,6 +134,7 @@ describe("syncTopicalMapStoreTasks", () => {
       links: [{ toUrl: "/products/old", anchor: "old" }], observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true,
     } };
     const db = client({ old_pending: legacy("pending", "old-pending"), old_failed: legacy("failed", "old-failed"), old_completed: legacy("completed", "old-completed"), old_grouped: grouped });
+    db.recommendation.findUnique.mockImplementation(async ({ where }: any) => where.id.startsWith("rec-old-") ? { id: where.id, status: "pending" } : null);
     await syncTopicalMapStoreTasks(db as any);
     expect(db.storeTask.updateMany).toHaveBeenCalledTimes(3);
     expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -141,7 +142,15 @@ describe("syncTopicalMapStoreTasks", () => {
       data: expect.objectContaining({ status: "dismissed", completionNote: expect.stringContaining("Superseded by grouped topical-map internal-link task") }),
     }));
     expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: "old-grouped" }) }));
-    expect(db.auditLog.create).toHaveBeenCalledTimes(3);
+    expect(db.auditLog.create).toHaveBeenCalledTimes(5);
+    expect(db.recommendation.updateMany).toHaveBeenCalledTimes(2);
+    expect(db.recommendation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "rec-old-pending", status: { in: ["pending", "failed"] } },
+      data: expect.objectContaining({ status: "rejected", reviewNote: expect.stringContaining("Superseded by grouped topical-map internal-link task") }),
+    }));
+    expect(db.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      action: "topical_map_recommendation_superseded", entityType: "recommendation", entityId: "rec-old-pending",
+    }) }));
     expect(db.storeTask.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: "old-completed" }) }));
   });
 

@@ -69,6 +69,7 @@ type Client = {
     findFirst(args: unknown): Promise<{ id: string; status: string } | null>;
     findUnique?(args: unknown): Promise<{ id: string; status: string } | null>;
     create(args: unknown): Promise<{ id: string; status: string }>;
+    updateMany?(args: unknown): Promise<{ count: number }>;
   };
 };
 type Summary = { executable: number; advisory: number; unchanged: number; suppressed: number };
@@ -158,15 +159,16 @@ function advisory(center: TopicalMapCommandCenter, item: Candidate, reason: Task
   };
 }
 
-async function supersedeObsoleteLinkTasks(client: Client, center: TopicalMapCommandCenter, task: Persisted, replacementId: string): Promise<void> {
+async function supersedeObsoleteLinkTasks(client: Client, center: TopicalMapCommandCenter, task: Persisted, replacementId: string, replacementRecommendationId?: string): Promise<void> {
   if (task.proposedState.action !== "internal_link" || !client.storeTask.findMany || !client.storeTask.updateMany || !client.auditLog || !client.$transaction) return;
   const rows = await client.storeTask.findMany({ where: { taskType: "topical_map", targetUrl: task.targetUrl, status: { in: ["pending", "failed"] } }, select: { id: true, status: true, sourceData: true } });
   for (const row of rows) {
     if (row.id === replacementId) continue;
     const parsed = SupersedableInternalLinkSourceSchema.safeParse(row.sourceData);
     if (!parsed.success || parsed.data.strategyVersionId !== center.identity.versionId || parsed.data.packageSha256 !== center.identity.packageSha256) continue;
+    let recommendation: { id: string; status: string } | null = null;
     if (parsed.data.recommendationId && client.recommendation?.findUnique) {
-      const recommendation = await client.recommendation.findUnique({ where: { id: parsed.data.recommendationId }, select: { id: true, status: true } });
+      recommendation = await client.recommendation.findUnique({ where: { id: parsed.data.recommendationId }, select: { id: true, status: true } });
       if (recommendation && ["approved", "override_approved", "executing"].includes(recommendation.status)) continue;
     }
     await client.$transaction(async (tx) => {
@@ -174,6 +176,10 @@ async function supersedeObsoleteLinkTasks(client: Client, center: TopicalMapComm
       const updated = await tx.storeTask.updateMany!({ where: { id: row.id, status: { in: ["pending", "failed"] } }, data: { status: "dismissed", completionNote: note, completedAt: new Date() } });
       if (updated.count !== 1) return;
       await tx.auditLog!.create({ data: { actor: "topical-map-sync", action: "topical_map_store_task_superseded", entityType: "StoreTask", entityId: row.id, before: { status: row.status }, after: { status: "dismissed", replacementTaskId: replacementId }, meta: { strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, targetUrl: task.targetUrl } } });
+      if (recommendation && tx.recommendation?.updateMany) {
+        const rejected = await tx.recommendation.updateMany({ where: { id: recommendation.id, status: { in: ["pending", "failed"] } }, data: { status: "rejected", reviewedBy: "topical-map-sync", reviewedAt: new Date(), reviewNote: note } });
+        if (rejected.count === 1) await tx.auditLog!.create({ data: { actor: "topical-map-sync", action: "topical_map_recommendation_superseded", entityType: "recommendation", entityId: recommendation.id, before: { status: recommendation.status }, after: { status: "rejected", replacementTaskId: replacementId, replacementRecommendationId: replacementRecommendationId ?? null }, meta: { strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, targetUrl: task.targetUrl } } });
+      }
     });
   }
 }
@@ -260,15 +266,17 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     }
     const sourceWithHash = checkedSource;
     const persisted = await client.storeTask.upsert({ where: { dedupeKey }, create: { taskType: "topical_map", targetType: task.targetType, targetId: null, targetUrl: task.targetUrl, title: checkedSource.executable ? `Review topical-map ${checkedProposed.action}` : "Review topical-map advisory", description: checkedSource.executable ? `Review the governed ${checkedProposed.action} for ${task.targetUrl}.` : checkedSource.advisoryReason, proposedState: checkedProposed, sourceData: sourceWithHash, priority: task.priority, status: "pending", dedupeKey }, update: { taskType: "topical_map", targetType: task.targetType, targetUrl: task.targetUrl, title: checkedSource.executable ? `Review topical-map ${checkedProposed.action}` : "Review topical-map advisory", description: checkedSource.executable ? `Review the governed ${checkedProposed.action} for ${task.targetUrl}.` : checkedSource.advisoryReason, proposedState: checkedProposed, sourceData: sourceWithHash, priority: task.priority, status: "pending", completionNote: null, completedAt: null } }) as { id?: string } | undefined;
+    let replacementRecommendationId: string | undefined;
     if (checkedSource.executable && persisted?.id && client.recommendation && client.rawSnapshot && client.storeTask.update) {
       const snapshot = await client.rawSnapshot.findFirst({ where: { source: "seo_analysis" }, orderBy: { fetchedAt: "desc" }, select: { id: true } });
       if (!snapshot) { summary.suppressed++; continue; }
       let recommendation = await client.recommendation.findFirst({ where: { platform: "shopify", actionType: "apply_topical_map_store_task", targetEntityId: persisted.id, status: { in: ["pending", "approved", "override_approved"] } }, select: { id: true, status: true } });
       if (!recommendation && checkedProposed.action !== "advisory") recommendation = await client.recommendation.create({ data: { platform: "shopify", skillId: "topical-map-store-task", skillName: "Governed topical-map Store Task", actionType: "apply_topical_map_store_task", targetEntityType: "store_task", targetEntityId: persisted.id, targetEntityName: task.targetUrl, currentValue: JSON.stringify(checkedProposed.before), proposedValue: JSON.stringify({ taskId: persisted.id, proposedStateHash: proposedHash }), rationale: `Apply the exact governed ${checkedProposed.action} after operator approval.`, guardStatus: "clear", status: "pending", snapshotId: snapshot.id } });
       if (!recommendation) { summary.suppressed++; continue; }
+      replacementRecommendationId = recommendation.id;
       await client.storeTask.update({ where: { id: persisted.id }, data: { sourceData: { ...sourceWithHash, recommendationId: recommendation.id } } });
     }
-    if (checkedSource.executable && checkedProposed.action === "internal_link" && persisted?.id) await supersedeObsoleteLinkTasks(client, center, task, persisted.id);
+    if (checkedSource.executable && checkedProposed.action === "internal_link" && persisted?.id) await supersedeObsoleteLinkTasks(client, center, task, persisted.id, replacementRecommendationId);
     if (checkedSource.executable) summary.executable++; else summary.advisory++;
   }
   return summary;
