@@ -1,94 +1,55 @@
-# Task 2 Report: Authenticated topical-map command center API
+# Task 2 Report: Topical-map Store Task synchronization
 
 ## Outcome
 
-Implemented `GET /api/topical-map/command-center` as an authenticated, dynamic, private/no-store embedded API route. It resolves the active `agrikoph.com` strategy through the authoritative `TopicalMapActivation` relation, projects the reviewed command-center model, returns an explicit no-active state, and maps failures to a bounded JSON 500 response.
+Implemented strict topical-map Store Task projection and synchronization for governed product, collection, and page resources. The service batches SEO/content drafting into at most one AI call, deterministically appends internal links, creates advisory-only tasks for unsupported technical/home/blog-index work, suppresses unobserved resources, and preserves completed/dismissed history.
 
-## Red evidence
+## TDD evidence
 
-Command:
+- RED: `npx vitest run __tests__/lib/store-tasks/topical-map.test.ts` failed because `@/lib/store-tasks/topical-map` did not exist.
+- GREEN: `npx vitest run __tests__/lib/store-tasks/topical-map.test.ts` passed: 1 file, 8 tests.
 
-`npm test -- __tests__/api/topical-map-command-center-route.test.ts`
+## Verification
 
-Result: expected failure, 1 failed file / 4 failed tests. Every test failed because `@/app/api/topical-map/command-center/route` did not exist.
+- `npx vitest run __tests__/lib/store-tasks/topical-map.test.ts` — 8/8 passed.
+- `npx tsc --noEmit` — passed.
+- `git diff --cached --check` — passed before commit.
+- Staged scope before commit contained only `lib/store-tasks/topical-map.ts` and `__tests__/lib/store-tasks/topical-map.test.ts`.
 
-## Green evidence
+## Coverage
 
-Command:
+- Governed non-blog product/collection/page content decisions.
+- Deterministic non-blog internal-link additions with normalized destination checks and escaped anchor/URL output.
+- Blog-article exclusion; homepage/blog-index advisory projection.
+- Redirect/canonical/indexation advisory-only projection.
+- Missing observation suppression.
+- Strict source/proposed schemas, exact observed state and strategy/rule identity.
+- Dedupe identity over strategy version/package, sorted rule IDs, normalized URL, action, and proposed-state hash.
+- Pending/failed refresh while completed/dismissed rows remain unchanged.
+- One batched AI call, strict key parsing, metadata bounds, grounding checks, additive body sections, and advisory fallback.
 
-`npm test -- __tests__/api/topical-map-command-center-route.test.ts __tests__/lib/topical-map/command-center.test.ts __tests__/api/topical-map-routes.test.ts`
+## Self-review / safety
 
-Result: 3 passed files / 24 passed tests.
-
-Additional verification:
-
-- `npm run typecheck` — passed.
-- `npx eslint app/api/topical-map/command-center/route.ts __tests__/api/topical-map-command-center-route.test.ts` — passed.
-- `git diff --check` — passed.
-
-## Files
-
-- `app/api/topical-map/command-center/route.ts`
-- `__tests__/api/topical-map-command-center-route.test.ts`
-
-## Behavioral coverage
-
-- `await requireAppAuth(req)` is the first handler operation.
-- Unauthenticated requests stop before Prisma.
-- No active pointer returns `state: "no_active_strategy"` and `commandCenter: null`.
-- Database/projection failures return only `{ state: "unavailable", error: "Command center is unavailable." }` with status 500.
-- Ready responses contain all eleven domain counts and the projected identity.
-- All route-owned responses use `Cache-Control: private, no-store`.
-- The single Prisma query selects only active strategy identity plus compiled-rule projection storage; it does not select artifacts or raw source bytes.
-
-## Self-review
-
-- Confirmed the route exports only supported Next.js route/config symbols.
-- Confirmed database access uses the shared `@/lib/db` client.
-- Confirmed no mutation, activation, Shopify/Meta write, permission expansion, or raw artifact projection was introduced.
-- Confirmed nullable persisted contract revisions fail closed rather than being silently projected.
-
-## Concerns / brief deviation
-
-The task brief's illustrative query used `topicalMapStrategyVersion.findFirst({ where: { active: true } })` and direct rule fields `payload`/`sourceReferences`. Those fields do not exist in the checked-in Prisma schema. The implementation instead uses the database-level active pointer (`topicalMapActivation.findUnique({ where: { siteHost: "agrikoph.com" } })`) and maps the persisted `compiledPayload` envelope into the already-reviewed projector input. This is the schema-correct single-query equivalent and matches the brief's stated "Prisma active-version relations" interface.
+- No production/deploy/live Shopify or Meta write occurred.
+- The reviewed `lib/shopify-governed-resources.ts` mutation boundaries were not changed.
+- No route, cron, schema, secret, or authorization behavior changed.
+- Existing unrelated `.superpowers/sdd/task-1-report.md` worktree changes were preserved and excluded from the commit.
 
 ## Commit
 
-`22c76409244f5fdaff7deca2b2b666884a1fdea0` (`feat(api): expose active topical map command center`)
+`0cacacc898e1bf588f6503701b959927a09daf5a` (`feat(store): synchronize topical-map tasks`)
 
-## Important review finding follow-up
+## Concerns
 
-The active-pointer projection now selects `lifecycle` and `validationStatus` and fails closed with the existing bounded unavailable response unless the pointed strategy is both `active` and `valid`. Focused tests cover a superseded lifecycle and an invalid validation status; neither can produce a ready projection. The response-boundary test was renamed to state precisely that the exact Prisma select omits artifacts and that extra mock fields are not serialized into the API response.
+None identified within Task 2 scope.
 
-### Follow-up RED evidence
+## Review hardening follow-up
 
-Command:
+Commit `b20493b62c6f342639b84cac85ce06e7859aec9d` (`fix(store): harden topical-map task drafts`) addresses the Task 2 review findings.
 
-`npm test -- __tests__/api/topical-map-command-center-route.test.ts`
+- Replaced the executable proposed-state schema with strict action-discriminated variants. SEO updates require at least one bounded SEO field and forbid title/body HTML; content and internal-link updates require body HTML and forbid SEO/title fields.
+- Restricted source hashes, governed URLs, rule domains, advisory target types, and advisory reasons to their known semantic values.
+- Replaced AI-provided HTML with bounded plain `sectionText`; server code escapes all HTML-significant characters and wraps the result in fixed markup.
+- Added TDD regressions for empty/mismatched states, arbitrary advisory values, and script/javascript/event-like AI text.
 
-Exact result summary:
-
-```text
-Test Files  1 failed (1)
-Tests  3 failed | 3 passed (6)
-```
-
-The two new fail-closed cases received 200 instead of the expected 500, and the exact-select assertion showed `lifecycle` and `validationStatus` were absent.
-
-### Follow-up GREEN and verification evidence
-
-Command:
-
-`npm test -- __tests__/api/topical-map-command-center-route.test.ts __tests__/lib/topical-map/command-center.test.ts __tests__/api/topical-map-routes.test.ts && npm run typecheck && npx eslint app/api/topical-map/command-center/route.ts __tests__/api/topical-map-command-center-route.test.ts && git diff --check`
-
-Exact test/typecheck output summary:
-
-```text
-Test Files  3 passed (3)
-Tests  26 passed (26)
-
-> agriko-autopilot@0.1.0 typecheck
-> tsc --noEmit
-```
-
-The combined command exited 0. Targeted ESLint and `git diff --check` emitted no diagnostics.
+RED evidence: focused suite failed 4 tests against the pre-fix implementation. Final verification: 11/11 focused tests passed, `npx tsc --noEmit` passed, and staged `git diff --check` passed with only the two Task 2 files staged.

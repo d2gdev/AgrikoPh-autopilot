@@ -1,50 +1,68 @@
-# Task 1 implementation report
+# Task 1 Report — Shopify governed-resource adapter
 
-## Outcome
+## Status
 
-Implemented the pure, bounded `projectTopicalMapCommandCenter` projection for all eleven compiled topical-map domains. The model exposes strategy identity, complete domain counts, clusters, merged URL pages, prohibited content, link/redirect/canonical/indexation work, blockers, and safe rule provenance. Payloads are allowlist-projected, governed URLs are normalized to stable site-relative values, and all operator collections are deterministic.
-
-## TDD evidence
-
-- RED: `npm test -- __tests__/lib/topical-map/command-center.test.ts` failed because `@/lib/topical-map/command-center` did not exist (1 failed suite, expected missing-module failure).
-- GREEN: `npm test -- __tests__/lib/topical-map/command-center.test.ts __tests__/lib/topical-map/evaluator.test.ts __tests__/lib/topical-map/contract.test.ts` passed: 3 files, 44 tests, 0 failures.
-- Type verification: `npx tsc --noEmit` completed successfully in the combined verification command.
-- Hygiene: `git diff --check` produced no errors before commit.
+DONE
 
 ## Files
 
-- `lib/topical-map/command-center.ts` — exported domain tuple/types and deterministic bounded projection.
-- `__tests__/lib/topical-map/command-center.test.ts` — all-eleven-domain fixture, identity/count/merge/work/blocker/provenance assertions, payload-leak assertion, and unknown-domain fail-closed coverage.
+- Created `lib/shopify-governed-resources.ts`
+- Modified `lib/shopify-admin.ts`
+- Created `__tests__/lib/shopify-governed-resources.test.ts`
+- Modified `__tests__/lib/shopify-admin.test.ts`
+
+## Red evidence
+
+`npx vitest run __tests__/lib/shopify-governed-resources.test.ts` exited 1 with `Cannot find package '@/lib/shopify-governed-resources'`, confirming the new interface was absent.
+
+## Green evidence
+
+`npx vitest run __tests__/lib/shopify-governed-resources.test.ts __tests__/lib/shopify-admin.test.ts` passed: 2 files, 25 tests.
+
+## Additional verification
+
+- `npm run typecheck`: passed (`tsc --noEmit`, exit 0)
+- `git diff --check`: passed
+- No Shopify request occurred outside mocks in the focused adapter/admin tests.
 
 ## Commit
 
-- `2db973a791b7ecfa57dd092e93e0d7c7146a2483` — `feat(topical-map): project command center model`
-
-## Self-review
-
-- Projection is pure: no database, filesystem, clock, network, mutation, or execution authority.
-- Unknown domains fail closed instead of silently disappearing.
-- Only explicit output fields are copied; `rawContent` and arbitrary payload keys cannot leak.
-- Rule IDs and bounded source references remain available for operator traceability.
-- URL-keyed page data merges by normalized governed URL, and collections sort by priority followed by stable keys/rule IDs.
-- Existing topical-map contract and evaluator tests remain green.
-- Project verification checklist items concerning API routes, auth, cron, Prisma, LLMs, secrets, jobs, and prompts are not applicable because this task adds only a pure library projection and its unit tests.
-- GROW: reality changed only by adding this foundational projection. No runtime integration or project-state fact changed, and no recurring operational workflow was introduced, so `.mex` scaffolds and patterns were intentionally unchanged.
+`2aa7f992a2a0bc9f0bb2191c5715edb0719f6f37`
 
 ## Concerns
 
-None. The report itself is intentionally written after the implementation commit so it can record the immutable commit identifier; it is a coordination artifact rather than product code.
+None. No production, deployment, database, Shopify live-write, or authorization action was performed.
 
 ## Review fixes
 
-- Explicitly project source locators into the approved contract grammar only: Markdown locators expose `kind`, `headingPath`, `contentFingerprint`, `lineStart`, and `lineEnd`; CSV locators expose `kind`, `businessKey`, `headerFingerprint`, `rowFingerprint`, and `rowNumber`. Malformed references now fail closed with `INVALID_SOURCE_REFERENCE`.
-- Deterministically sort projected source references and build provenance from rules sorted by `ruleId`.
-- Reject duplicate rule IDs with `DUPLICATE_TOPICAL_MAP_RULE_ID` instead of allowing order-dependent overwrite.
-- Added adversarial locator leak coverage, malformed-locator rejection, input/reference permutation byte-identity coverage, and duplicate-ID rejection.
+- Product and collection mutations now reject `title` before transport and expose no content-title input.
+- Unsupported runtime resource types now fail closed instead of falling through to page mutation.
+- Page titles longer than 70 characters are rejected before transport.
+- State-hash coverage independently proves changes for title, body HTML, and SEO.
 
-### Review-fix TDD and verification evidence
+### Review red evidence
 
-- RED command: `npm test -- __tests__/lib/topical-map/command-center.test.ts`
-- RED output: 1 file ran; 4 tests total; 2 failed and 2 passed. Failures showed references remained unsorted and permuted inputs produced different serialized provenance.
-- Final command: `npm test -- __tests__/lib/topical-map/command-center.test.ts __tests__/lib/topical-map/evaluator.test.ts __tests__/lib/topical-map/contract.test.ts && npx tsc --noEmit && git diff --check`
-- Final output: 3 test files passed, 46 tests passed, 0 failures; TypeScript exited cleanly; `git diff --check` exited cleanly; combined command exit code 0.
+The focused two-file run failed 4 tests: product-title rejection, collection-title rejection, unsupported-type rejection, and overlong page-title validation. Each failure showed the request continuing past the required pre-transport boundary.
+
+### Review green evidence
+
+- `npx vitest run __tests__/lib/shopify-governed-resources.test.ts __tests__/lib/shopify-admin.test.ts`: 28/28 passed.
+- `npm run typecheck`: passed.
+- `git diff --check`: passed.
+- Review-fix commit: `8756d948ce8ba3fb940c3d6c9a79a95e22a5565f`.
+
+## Important finding fix
+
+Product and collection helpers now reject every caller-owned content key except `descriptionHtml`, reject nested SEO keys except `title` and `description`, and explicitly construct Shopify variables from `id`, a newly constructed SEO object, and optional `descriptionHtml`. No caller-owned object is spread or passed through.
+
+### Important finding red evidence
+
+- Direct helper tests with forged `handle`, `status`, `price`, and content `title` produced 5 failures because those keys reached transport.
+- A second red cycle with forged nested SEO `status` produced 2 failures because the SEO object reached transport.
+
+### Important finding green evidence
+
+- `npx vitest run __tests__/lib/shopify-governed-resources.test.ts __tests__/lib/shopify-admin.test.ts`: 36/36 passed.
+- `npm run typecheck`: passed.
+- `git diff --check`: passed.
+- Commit: `76b7e4608e5030703ed3edc6adc036d719c20ea2`.
