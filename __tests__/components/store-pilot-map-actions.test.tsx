@@ -19,8 +19,11 @@ vi.mock("@shopify/polaris", () => {
   Modal.Section = passthrough;
   const Layout = Object.assign(passthrough, { Section: passthrough });
   const DataTable = ({ headings, rows }: any) => <table><thead><tr>{headings.map((heading: string) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{rows.map((row: any[], index: number) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table>;
-  const Tabs = () => null;
-  return { Page: passthrough, Layout, Card: passthrough, Text, Badge, InlineStack: passthrough, BlockStack: passthrough, Box: passthrough, Divider: () => <hr />, ProgressBar: passthrough, DataTable, Tabs, Button, Banner, Toast, Modal };
+  const Tabs = ({ tabs, selected, onSelect }: any) => <div role="tablist">{tabs.map((tab: any, index: number) => <button key={tab.id} role="tab" aria-selected={selected === index} onClick={() => onSelect(index)}>{tab.content}</button>)}</div>;
+  const TextField = ({ label, value, onChange, type }: any) => <label>{label}<input aria-label={label} type={type ?? "text"} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+  const Select = ({ label, value, options, onChange }: any) => <label>{label}<select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option: any) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
+  const Collapsible = ({ open, children }: any) => open ? <div>{children}</div> : null;
+  return { Page: passthrough, Layout, Card: passthrough, Text, Badge, InlineStack: passthrough, BlockStack: passthrough, Box: passthrough, Divider: () => <hr />, ProgressBar: passthrough, DataTable, Tabs, Button, Banner, Toast, Modal, TextField, Select, Collapsible };
 });
 
 import StorePilotReportPage from "@/app/(embedded)/(store-pilot)/store-pilot/page";
@@ -37,13 +40,44 @@ const executable = {
 };
 const advisory = { ...executable, id: "map-2", title: "Map advisory", sourceData: { ...executable.sourceData, executable: false, advisoryReason: "canonicalization_execution_prohibited" }, proposedState: { action: "advisory", advisory: "canonicalization_execution_prohibited" } };
 const ordinary = { ...executable, id: "ordinary-1", taskType: "price_review", title: "Ordinary task", sourceData: {}, proposedState: {} };
+const groupedLinks = {
+  ...executable,
+  id: "map-links",
+  targetUrl: "/collections/rice",
+  sourceData: {
+    ...executable.sourceData,
+    action: "internal_link",
+    links: [
+      { anchor: "shop heirloom rice", toUrl: "/products/heirloom-rice" },
+      { anchor: "compare rice varieties", toUrl: "/collections/rice-varieties" },
+    ],
+  },
+  proposedState: {
+    action: "internal_link",
+    before: { bodyHtml: "<p>raw current HTML</p>" },
+    after: { bodyHtml: "<p>raw proposed HTML</p>" },
+  },
+};
 
 function response(body: unknown, ok = true) { return Promise.resolve({ ok, json: async () => body }); }
+function storeTaskResponse(url: string) {
+  const params = new URL(url, "http://test.local").searchParams;
+  const executionClass = params.get("executionClass");
+  const status = params.get("status");
+  const page = Number(params.get("page"));
+  const pageSize = Number(params.get("pageSize"));
+  if (pageSize === 50 && executionClass === "actionable" && status === "pending") {
+    return response({ tasks: [executable, ordinary], total: 704, page, pageSize: 50, hasMore: true });
+  }
+  if (pageSize === 50 && executionClass === "advisory" && status === "pending") {
+    return response({ tasks: [advisory], total: 1, page, pageSize: 50, hasMore: false });
+  }
+  return response({ tasks: [], total: status === "pending" ? 1 : 0, page: 1, pageSize, hasMore: false });
+}
 function installFetch(applyResponse: { ok: boolean; error?: string } = { ok: true }) {
   authFetch.mockImplementation((url: string) => {
     if (url === "/api/images") return response({ images: [], total: 0, missingAltText: 0 });
-    if (url.startsWith("/api/store-tasks?status=pending")) return response({ tasks: [executable, advisory, ordinary], total: 3 });
-    if (url.startsWith("/api/store-tasks?status=")) return response({ tasks: [], total: 0 });
+    if (url.startsWith("/api/store-tasks?")) return storeTaskResponse(url);
     if (url === "/api/store-tasks/topical-map/sync") return response({ executable: 1 });
     if (url === "/api/store-tasks/map-1") return response({ task: executable });
     if (url === "/api/store-tasks/map-1/apply") return response(applyResponse.ok ? { task: executable } : { error: applyResponse.error }, applyResponse.ok);
@@ -59,13 +93,36 @@ async function renderPage() {
 describe("Store Pilot topical-map workflow", () => {
   beforeEach(() => { authFetch.mockReset(); installFetch(); });
 
-  it("syncs once on rapid clicks, then reloads every bucket and shows success", async () => {
+  it("shows actionable and advisory views with bounded search and pagination controls", async () => {
+    await renderPage();
+    expect(screen.getByRole("tab", { name: "Actionable" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Advisory" })).toBeTruthy();
+    expect(screen.getByRole("searchbox", { name: "Search Store Tasks" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("queries the selected page and keeps advisory references dismiss-only", async () => {
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledWith(expect.stringContaining("executionClass=actionable&status=pending&page=2&pageSize=50")));
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search Store Tasks" }), "canonical");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledWith(expect.stringContaining("executionClass=actionable&status=pending&page=1&pageSize=50&q=canonical")));
+
+    await userEvent.click(screen.getByRole("tab", { name: "Advisory" }));
+    await screen.findByText("Map advisory");
+    expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Complete" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  });
+
+  it("syncs once on rapid clicks, then reloads the selected page and summaries", async () => {
     await renderPage();
     const sync = screen.getByRole("button", { name: "Sync topical map" });
     fireEvent.click(sync); fireEvent.click(sync);
     await screen.findByText("Topical-map tasks synchronized.");
     expect(authFetch.mock.calls.filter(([url]) => url === "/api/store-tasks/topical-map/sync")).toHaveLength(1);
-    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?status="))).toHaveLength(12);
+    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?"))).toHaveLength(18);
   });
 
   it("opens Apply confirmation and calls apply only after confirmation", async () => {
@@ -78,7 +135,7 @@ describe("Store Pilot topical-map workflow", () => {
     fireEvent.click(confirm); fireEvent.click(confirm);
     await screen.findByText("The topical-map change was approved and queued.");
     expect(authFetch.mock.calls.filter(([url]) => url === "/api/store-tasks/map-1/apply")).toHaveLength(1);
-    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?status="))).toHaveLength(12);
+    expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?"))).toHaveLength(18);
   });
 
   it.each([
@@ -108,8 +165,8 @@ describe("Store Pilot topical-map workflow", () => {
       if (url === "/api/store-tasks/topical-map/sync") return pending.then(() => ({ ok: true, json: async () => ({}) }));
       if (url === "/api/images") return response({ images: [], total: 0, missingAltText: 0 });
       if (url === "/api/store-tasks/map-1") return response({ task: executable });
-      if (url.startsWith("/api/store-tasks?status=pending")) return response({ tasks: [executable, advisory, ordinary], total: 3 });
-      return response({ tasks: [], total: 0 });
+      if (url.startsWith("/api/store-tasks?")) return storeTaskResponse(url);
+      return response({ tasks: [], total: 0, page: 1, pageSize: 50, hasMore: false });
     });
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Sync topical map" }));
@@ -127,8 +184,8 @@ describe("Store Pilot topical-map workflow", () => {
       if (url === "/api/store-tasks/topical-map/sync") return pending.then(() => ({ ok: true, json: async () => ({}) }));
       if (url === "/api/images") return response({ images: [], total: 0, missingAltText: 0 });
       if (url === "/api/store-tasks/map-1") return response({ task: executable });
-      if (url.startsWith("/api/store-tasks?status=pending")) return response({ tasks: [executable, advisory, ordinary], total: 3 });
-      return response({ tasks: [], total: 0 });
+      if (url.startsWith("/api/store-tasks?")) return storeTaskResponse(url);
+      return response({ tasks: [], total: 0, page: 1, pageSize: 50, hasMore: false });
     });
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
@@ -156,5 +213,20 @@ describe("MapTaskDetails disclosure", () => {
     expect(screen.getByText(longValue)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Show full proposed value" }));
     expect(screen.getByText(`${longValue}-new`)).toBeTruthy();
+  });
+
+  it("reviews grouped internal links semantically before raw HTML", async () => {
+    render(<MapTaskDetails task={groupedLinks as StoreTaskView} />);
+    expect(screen.getByText("Links to add (2)")).toBeTruthy();
+    expect(screen.getByText("shop heirloom rice")).toBeTruthy();
+    expect(screen.getByText("/products/heirloom-rice")).toBeTruthy();
+    expect(screen.getByText("compare rice varieties")).toBeTruthy();
+    expect(screen.getByText("/collections/rice-varieties")).toBeTruthy();
+    expect(screen.queryByText("<p>raw current HTML</p>")).toBeNull();
+    expect(screen.queryByText("<p>raw proposed HTML</p>")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Show raw HTML diagnostic" }));
+    expect(screen.getByText("<p>raw current HTML</p>")).toBeTruthy();
+    expect(screen.getByText("<p>raw proposed HTML</p>")).toBeTruthy();
   });
 });

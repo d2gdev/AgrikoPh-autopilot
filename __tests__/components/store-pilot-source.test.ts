@@ -9,10 +9,17 @@ describe("Store Pilot static safety policy", () => {
   });
   it("lists applying/reconciliation/failed work and retries only through re-sync", () => {
     const source = readFileSync("app/(embedded)/(store-pilot)/store-pilot/page.tsx", "utf8");
-    expect(source).toContain('{ id: "applying", content: "Applying" }');
-    expect(source).toContain('{ id: "reconciliation_needed", content: "Reconciliation" }');
+    expect(source).toContain('{ label: "Applying", value: "applying" }');
+    expect(source).toContain('{ label: "Reconciliation needed", value: "reconciliation_needed" }');
     expect(source).toContain('Re-sync/retry');
     expect(source).toContain('onClick={syncTopicalMap}');
     expect(source).not.toContain('retryTopicalMapStoreTask');
+  });
+  it("loads one selected page instead of preloading all six statuses", () => {
+    const source = readFileSync("app/(embedded)/(store-pilot)/store-pilot/page.tsx", "utf8");
+    expect(source).not.toContain("TASK_TABS.map(async");
+    expect(source).not.toContain("taskBuckets");
+    expect(source).toContain("summaryQueries.map");
+    expect(source).toContain("pageSize");
   });
 });

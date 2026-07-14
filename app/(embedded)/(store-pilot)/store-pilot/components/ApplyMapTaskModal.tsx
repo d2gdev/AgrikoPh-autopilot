@@ -21,7 +21,7 @@ export function ApplyMapTaskModal({ open, task, loading, disabled = false, onClo
         {task ? (
           <BlockStack gap="300">
             <Text as="p">Confirm the exact target and changed fields. This approves the linked recommendation and queues guarded execution; Shopify is not changed by this confirmation.</Text>
-            <MapTaskDetails task={task} compact />
+            <MapTaskDetails task={task} />
           </BlockStack>
         ) : null}
       </Modal.Section>
