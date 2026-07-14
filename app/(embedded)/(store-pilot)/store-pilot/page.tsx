@@ -117,6 +117,7 @@ export default function StorePilotReportPage() {
   });
   const [summaryCounts, setSummaryCounts] = useState<Partial<Record<SummaryKey, number>>>({});
   const [tasksLoading, setTasksLoading] = useState(true);
+  const [summaryLoading, setSummaryLoading] = useState(true);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [syncingMap, setSyncingMap] = useState(false);
@@ -125,6 +126,7 @@ export default function StorePilotReportPage() {
   const [mapTaskStage, setMapTaskStage] = useState<"review" | "approved">("review");
   const [approvedRecommendationId, setApprovedRecommendationId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const taskRequestGenerationRef = useRef(0);
   const mutationBusyRef = useRef(false);
   const mutationBusy = Boolean(syncingMap || applyingTaskId || updatingTaskId);
 
@@ -139,40 +141,55 @@ export default function StorePilotReportPage() {
   }
 
   const loadTasks = useCallback(async () => {
+    const requestGeneration = ++taskRequestGenerationRef.current;
     setTasksLoading(true);
+    setSummaryLoading(true);
     setTaskError(null);
-    try {
-      const activeParams: Record<string, string | number> = {
-        executionClass, status, page, pageSize: PAGE_SIZE,
-      };
-      if (submittedSearch) activeParams.q = submittedSearch;
-      const [activeResponse, ...summaryResponses] = await Promise.all([
-        authFetch(storeTaskUrl(activeParams)),
-        ...summaryQueries.map(([summaryClass, summaryStatus]) => authFetch(storeTaskUrl({
+    const activeParams: Record<string, string | number> = {
+      executionClass, status, page, pageSize: PAGE_SIZE,
+    };
+    if (submittedSearch) activeParams.q = submittedSearch;
+    const summaryRequest = (async () => {
+      try {
+        const summaryResponses = await Promise.all(summaryQueries.map(([summaryClass, summaryStatus]) => authFetch(storeTaskUrl({
           executionClass: summaryClass,
           status: summaryStatus,
           page: 1,
           pageSize: 1,
-        }))),
-      ]);
-      const [activePayload, ...summaryPayloads] = await Promise.all([
-        activeResponse.json(),
-        ...summaryResponses.map((response) => response.json()),
-      ]);
-      if (!activeResponse.ok) throw new Error(activePayload.error ?? "Store tasks failed to load.");
-      const failedSummary = summaryResponses.findIndex((response) => !response.ok);
-      if (failedSummary !== -1) {
-        throw new Error(summaryPayloads[failedSummary]?.error ?? "Store task summaries failed to load.");
+        }))));
+        const summaryPayloads = await Promise.all(summaryResponses.map((response) => response.json()));
+        if (summaryResponses.some((response) => !response.ok)) return { unavailable: true as const };
+        return { counts: Object.fromEntries(summaryQueries.map(([summaryClass, summaryStatus], index) => [
+          `${summaryClass}:${summaryStatus}`,
+          Number(summaryPayloads[index]?.total ?? 0),
+        ])) as Partial<Record<SummaryKey, number>> };
+      } catch {
+        return { unavailable: true as const };
       }
+    })();
+
+    try {
+      const activeResponse = await authFetch(storeTaskUrl(activeParams));
+      const activePayload = await activeResponse.json();
+      if (!activeResponse.ok) throw new Error(activePayload.error ?? "Store tasks failed to load.");
+      if (requestGeneration !== taskRequestGenerationRef.current) return;
       setTaskPage(activePayload as StoreTaskPage);
-      setSummaryCounts(Object.fromEntries(summaryQueries.map(([summaryClass, summaryStatus], index) => [
-        `${summaryClass}:${summaryStatus}`,
-        Number(summaryPayloads[index]?.total ?? 0),
-      ])) as Partial<Record<SummaryKey, number>>);
-    } catch (err) {
-      setTaskError(err instanceof Error ? err.message : "Store tasks failed to load.");
-    } finally {
       setTasksLoading(false);
+
+      const summaryResult = await summaryRequest;
+      if (requestGeneration !== taskRequestGenerationRef.current) return;
+      if ("unavailable" in summaryResult) {
+        setSummaryCounts({});
+        setTaskError("Tasks loaded, but summary counts are temporarily unavailable.");
+      } else {
+        setSummaryCounts(summaryResult.counts);
+      }
+      setSummaryLoading(false);
+    } catch (err) {
+      if (requestGeneration !== taskRequestGenerationRef.current) return;
+      setTaskError(err instanceof Error ? err.message : "Store tasks failed to load.");
+      setTasksLoading(false);
+      setSummaryLoading(false);
     }
   }, [authFetch, executionClass, page, status, submittedSearch]);
 
@@ -359,7 +376,7 @@ export default function StorePilotReportPage() {
               <Card key={label}>
                 <BlockStack gap="100">
                   <Text variant="headingSm" as="h3" tone="subdued">{label}</Text>
-                  <Text variant="heading2xl" as="p">{tasksLoading ? "—" : value}</Text>
+                  <Text variant="heading2xl" as="p">{summaryLoading ? "—" : value}</Text>
                 </BlockStack>
               </Card>
             ))}

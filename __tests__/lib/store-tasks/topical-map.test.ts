@@ -76,6 +76,10 @@ function client(existing: Record<string, { status: string; id?: string; createdA
     topicalMapActivation: { findUnique: vi.fn() },
     storeTask: {
       findUnique: vi.fn(async ({ where }: any) => rows.get(where.dedupeKey) ?? null),
+      findFirst: vi.fn(async ({ where }: any) => [...rows.values()].find((row: any) =>
+        (where.id === undefined || row.id === where.id)
+        && (where.status === undefined || where.status.in.includes(row.status))
+        && (where.executionReceipt === undefined || row.executionReceipt == null)) ?? null),
       findMany: vi.fn(async ({ where }: any) => [...rows.values()].filter((row: any) =>
         (where.targetUrl === undefined || row.targetUrl === where.targetUrl)
         && (where.status === undefined || where.status.in.includes(row.status))
@@ -248,6 +252,20 @@ describe("topical-map advisory identity", () => {
       where: expect.objectContaining({ executionReceipt: { equals: expect.anything() } }),
     }));
     expect(receipted.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("aborts cleanup when the selected keeper becomes ineligible before the transaction", async () => {
+    const db = client({
+      older: { id: "older", status: "failed", sourceData: advisorySource() },
+      newer: { id: "newer", status: "pending", createdAt: new Date("2026-07-12T00:00:00Z"), sourceData: advisorySource() },
+    });
+    db.storeTask.findFirst.mockResolvedValueOnce(null);
+
+    await expect(cleanupTopicalMapAdvisories(db, { apply: true, actor: "cleanup-test" }))
+      .rejects.toThrow("Advisory cleanup lost its keeper");
+    expect(db.recommendation.updateMany).not.toHaveBeenCalled();
+    expect(db.storeTask.updateMany).not.toHaveBeenCalled();
+    expect(db.auditLog.create).not.toHaveBeenCalled();
   });
 });
 

@@ -105,8 +105,29 @@ async function dismissAdvisoryDuplicateGroup(
   const now = new Date();
   return db.$transaction(async (tx) => {
     const note = `Superseded by topical-map advisory ${group.keepId}`;
+    const keeper = await tx.storeTask.findFirst({
+      where: {
+        id: group.keepId,
+        status: { in: ["pending", "failed"] },
+        executionReceipt: { equals: Prisma.DbNull },
+      },
+      select: { sourceData: true },
+    });
+    const keeperSource = TopicalMapStoreTaskSourceSchema.safeParse(keeper?.sourceData);
+    if (!keeperSource.success
+      || keeperSource.data.source !== "topical-map"
+      || keeperSource.data.executable !== false
+      || topicalMapAdvisorySemanticKey({
+        strategyVersionId: keeperSource.data.strategyVersionId,
+        packageSha256: keeperSource.data.packageSha256,
+        targetUrl: keeperSource.data.targetUrl,
+        advisoryReason: keeperSource.data.advisoryReason,
+        ruleIds: keeperSource.data.ruleIds,
+      }) !== group.semanticKey) {
+      throw new Error("Advisory cleanup lost its keeper");
+    }
     const protectedRecommendationWhere = {
-      targetEntityId: { in: group.dismissIds },
+      targetEntityId: { in: [group.keepId, ...group.dismissIds] },
       platform: "shopify" as const,
       actionType: "apply_topical_map_store_task",
       status: { in: ["approved", "override_approved", "executing"] },

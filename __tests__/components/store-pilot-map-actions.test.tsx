@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -60,6 +60,11 @@ const groupedLinks = {
 };
 
 function response(body: unknown, ok = true) { return Promise.resolve({ ok, json: async () => body }); }
+function deferredResponse() {
+  let resolve!: (value: { ok: boolean; json: () => Promise<unknown> }) => void;
+  const promise = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((next) => { resolve = next; });
+  return { promise, resolve };
+}
 function storeTaskResponse(url: string) {
   const params = new URL(url, "http://test.local").searchParams;
   const executionClass = params.get("executionClass");
@@ -115,6 +120,60 @@ describe("Store Pilot topical-map workflow", () => {
     expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Complete" })).toBeNull();
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  });
+
+  it("installs only the newest active-page response when requests resolve out of order", async () => {
+    const olderActionable = deferredResponse();
+    const newerAdvisory = deferredResponse();
+    authFetch.mockImplementation((url: string) => {
+      if (url === "/api/images") return response({ images: [], total: 0, missingAltText: 0 });
+      if (url.startsWith("/api/store-tasks?")) {
+        const params = new URL(url, "http://test.local").searchParams;
+        if (params.get("pageSize") === "50") {
+          return params.get("executionClass") === "actionable" ? olderActionable.promise : newerAdvisory.promise;
+        }
+        return response({ tasks: [], total: 0, page: 1, pageSize: 1, hasMore: false });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    render(<StorePilotReportPage />);
+    await waitFor(() => expect(authFetch).toHaveBeenCalledWith(expect.stringContaining("executionClass=actionable&status=pending&page=1&pageSize=50")));
+    await userEvent.click(screen.getByRole("tab", { name: "Advisory" }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledWith(expect.stringContaining("executionClass=advisory&status=pending&page=1&pageSize=50")));
+
+    await act(async () => newerAdvisory.resolve({ ok: true, json: async () => ({ tasks: [advisory], total: 1, page: 1, pageSize: 50, hasMore: false }) }));
+    expect(await screen.findByText("Map advisory")).toBeTruthy();
+
+    await act(async () => olderActionable.resolve({ ok: true, json: async () => ({ tasks: [executable, ordinary], total: 2, page: 1, pageSize: 50, hasMore: false }) }));
+    expect(screen.getByText("Map advisory")).toBeTruthy();
+    expect(screen.queryByText("Ordinary task")).toBeNull();
+  });
+
+  it("keeps a valid active page when summary counts fail", async () => {
+    let failSummaries = false;
+    authFetch.mockImplementation((url: string) => {
+      if (url === "/api/images") return response({ images: [], total: 0, missingAltText: 0 });
+      if (url.startsWith("/api/store-tasks?")) {
+        const params = new URL(url, "http://test.local").searchParams;
+        if (params.get("pageSize") === "50") return storeTaskResponse(url);
+        if (failSummaries && params.get("executionClass") === "actionable" && params.get("status") === "pending") {
+          return response({ error: "x".repeat(10_000) }, false);
+        }
+        return response({ tasks: [], total: 0, page: 1, pageSize: 1, hasMore: false });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    await renderPage();
+    failSummaries = true;
+    await userEvent.click(screen.getByRole("tab", { name: "Advisory" }));
+
+    expect(await screen.findByText("Map advisory")).toBeTruthy();
+    expect(screen.queryByText("Ordinary task")).toBeNull();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("summary counts are temporarily unavailable");
+    expect(alert.textContent!.length).toBeLessThan(200);
   });
 
   it("syncs once on rapid clicks, then reloads the selected page and summaries", async () => {
