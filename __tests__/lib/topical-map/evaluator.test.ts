@@ -48,23 +48,33 @@ describe("evaluateStrategyPolicy", () => {
     expect(result.packageIdentity).toEqual(active.packageIdentity);
   });
 
-  it("blocks an explicit do-not-create decision", () => {
+  it("requires the declared condition before reconsidering an explicit do-not-create decision", () => {
     const prohibited = rule((item) => item.domain === "prohibited_content");
     const payload = prohibited.payload as any;
 
     const result = evaluateStrategyPolicy(active, { type: "content", action: "create", targetUrl: payload.currentUrl });
 
-    expect(result).toMatchObject({ result: "blocked", reasonCodes: ["EXPLICIT_DO_NOT_CREATE"] });
-    expect(result.matchedRules).toEqual([expect.objectContaining({ ruleId: prohibited.ruleId })]);
+    expect(result).toMatchObject({ result: "needs_evidence", reasonCodes: ["UNSATISFIED_SOURCE_CONDITION"] });
+    expect(result.matchedRules).toEqual([expect.objectContaining({ ruleId: "content-decision:3396fb206dd722f3a4d5" })]);
   });
 
   it("recognizes an exact required internal link", () => {
-    const link = rule((item) => item.domain === "internal_links");
+    const link = rule((item) => item.domain === "internal_links" && /\b(add|ensure)\b/i.test(String((item.payload as any).requiredAction ?? "")));
     const payload = link.payload as any;
 
     const result = evaluateStrategyPolicy(active, { type: "internal_link", fromUrl: payload.fromUrl, toUrl: payload.toUrl });
 
     expect(result).toMatchObject({ result: "compliant", reasonCodes: [] });
+    expect(result.matchedRules).toEqual([expect.objectContaining({ ruleId: link.ruleId })]);
+  });
+
+  it("does not treat a retain-only link rule as authorization to append a missing link", () => {
+    const link = rule((item) => item.domain === "internal_links" && /\bretain\b/i.test(String((item.payload as any).requiredAction ?? "")));
+    const payload = link.payload as any;
+
+    const result = evaluateStrategyPolicy(active, { type: "internal_link", fromUrl: payload.fromUrl, toUrl: payload.toUrl });
+
+    expect(result).toMatchObject({ result: "conflict", reasonCodes: ["NON_ADDITIVE_INTERNAL_LINK_INSTRUCTION"] });
     expect(result.matchedRules).toEqual([expect.objectContaining({ ruleId: link.ruleId })]);
   });
 
@@ -84,6 +94,11 @@ describe("evaluateStrategyPolicy", () => {
     const coverageUnitId = brownRice.conditions[0]?.sourceReferenceIds[0];
     if (!coverageUnitId) throw new Error("Expected brown-rice source condition coverage.");
 
+    const missing = evaluateStrategyPolicy(active, {
+      type: "content",
+      action: "create",
+      targetUrl: payload.currentUrl,
+    });
     const insufficient = evaluateStrategyPolicy(active, {
       type: "content",
       action: "create",
@@ -97,9 +112,35 @@ describe("evaluateStrategyPolicy", () => {
       sourceConditionEvidence: [{ coverageUnitId, state: "satisfied", observedValue: 6 }],
     });
 
+    expect(missing).toMatchObject({ result: "needs_evidence", reasonCodes: ["UNSATISFIED_SOURCE_CONDITION"] });
     expect(insufficient).toMatchObject({ result: "needs_evidence", reasonCodes: ["UNSATISFIED_SOURCE_CONDITION"] });
     expect(insufficient.matchedRules).toEqual([expect.objectContaining({ ruleId: brownRice.ruleId })]);
     expect(satisfied).toMatchObject({ result: "compliant", reasonCodes: [] });
+  });
+
+  it("fails closed for every active manual-gate content decision", () => {
+    const gated = compiled.byDomain.content_decisions.filter((item) => item.resolutionStatus === "manual_gate");
+    expect(gated).toHaveLength(11);
+    for (const item of gated) {
+      const value = item.payload as { currentUrl: string };
+      expect(evaluateStrategyPolicy(active, { type: "content", action: "update", targetUrl: value.currentUrl })).toMatchObject({
+        result: "blocked",
+        reasonCodes: ["MANUAL_GATE_REQUIRED"],
+        matchedRules: [expect.objectContaining({ ruleId: item.ruleId })],
+      });
+    }
+  });
+
+  it("fails closed for both active manual-gate redirects", () => {
+    const gated = compiled.byDomain.redirects.filter((item) => item.resolutionStatus === "manual_gate");
+    expect(gated).toHaveLength(2);
+    for (const item of gated) {
+      const value = item.payload as { source: string; finalTarget: string };
+      expect(evaluateStrategyPolicy(active, { type: "redirect", fromUrl: value.source, toUrl: value.finalTarget })).toMatchObject({
+        result: "blocked",
+        reasonCodes: ["MANUAL_GATE_REQUIRED"],
+      });
+    }
   });
 
   it("requires fresh mandatory evidence from the validator report", () => {

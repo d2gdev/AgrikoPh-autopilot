@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { analysisEvidenceState, buildMapAwareSeoGaps, buildProgrammaticSeoGaps, readAnalysisForStrategy } from "@/lib/seo/analysis";
 import type { TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 
+const resolvedPolicy = { resolutionStatus: "resolved" as const, conditions: [], evidenceRequirements: [], reviewRequirements: [] };
+
 describe("buildProgrammaticSeoGaps", () => {
   it("keeps thin-content and missing-meta findings for the same article", () => {
     const gaps = buildProgrammaticSeoGaps({
@@ -107,11 +109,11 @@ describe("map-aware SEO analysis", () => {
     domainCounts: { clusters: 0, page_roles: 0, url_intent_ownership: 0, content_decisions: 2, prohibited_content: 1, internal_links: 1, redirects: 0, canonicalization: 0, indexation: 0, evidence_gates: 0, high_stakes_reviews: 0 },
     clusters: [],
     pages: [
-      { url: "/blogs/news/mapped", title: "Mapped Topic Guide", decision: "create", primaryKeywordOrTheme: "mapped topic", priority: "high", ruleIds: ["rule:decision:1"], ruleDomains: { content_decisions: ["rule:decision:1"] } },
-      { url: "/blogs/news/prohibited", decision: "create", primaryKeywordOrTheme: "medical cure", ruleIds: ["rule:decision:2"], ruleDomains: { content_decisions: ["rule:decision:2"] } },
+      { url: "/blogs/news/mapped", title: "Mapped Topic Guide", decision: "create", primaryKeywordOrTheme: "mapped topic", priority: "high", contentDecisionPolicy: resolvedPolicy, ruleIds: ["rule:decision:1"], ruleDomains: { content_decisions: ["rule:decision:1"] } },
+      { url: "/blogs/news/prohibited", decision: "create", primaryKeywordOrTheme: "medical cure", contentDecisionPolicy: resolvedPolicy, ruleIds: ["rule:decision:2"], ruleDomains: { content_decisions: ["rule:decision:2"] } },
     ],
-    prohibited: [{ url: "/blogs/news/prohibited", item: "Do not publish medical cure claims", ruleIds: ["rule:prohibited:1"] }],
-    work: { internalLinks: [{ fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", currentBodyState: "absent", ruleIds: ["rule:link:1"] }], redirects: [], canonicalization: [], indexation: [] },
+    prohibited: [{ url: "/blogs/news/prohibited", item: "Do not publish medical cure claims", policy: resolvedPolicy, ruleIds: ["rule:prohibited:1"] }],
+    work: { internalLinks: [{ fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", currentBodyState: "absent", requiredAction: "add exact link", policy: resolvedPolicy, ruleIds: ["rule:link:1"] }], redirects: [], canonicalization: [], indexation: [] },
     blockers: { evidence: [], reviews: [] },
     provenance: {},
   };
@@ -135,10 +137,33 @@ describe("map-aware SEO analysis", () => {
   });
 
   it("emits an existing mapped page with a refresh decision as an actionable refresh with page evidence", () => {
-    const refreshMap: TopicalMapCommandCenter = { ...commandCenter, pages: [{ url: "/blogs/news/source", decision: "optimize", evidence: "Preserve the winning intent while improving clarity.", primaryKeywordOrTheme: "source topic", priority: "medium", ruleIds: ["opaque-42"], ruleDomains: { content_decisions: ["opaque-42"] } }], prohibited: [] };
+    const refreshMap: TopicalMapCommandCenter = { ...commandCenter, pages: [{ url: "/blogs/news/source", title: "Map-owned source guide", decision: "optimize", evidence: "Preserve the winning intent while improving clarity.", primaryKeywordOrTheme: "source topic", priority: "medium", contentDecisionPolicy: resolvedPolicy, ruleIds: ["opaque-42"], ruleDomains: { content_decisions: ["opaque-42"] } }], prohibited: [] };
     const asOf = new Date("2026-07-13T00:00:00.000Z");
     const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, updatedAt: asOf }], asOf });
-    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", query: "source topic", priority: "medium", mapEvidence: "Preserve the winning intent while improving clarity.", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
+    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", suggestedTitle: "Map-owned source guide", currentArticleTitle: "Source", query: "source topic", priority: "medium", mapEvidence: "Preserve the winning intent while improving clarity.", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
+  });
+
+  it("suppresses manual-gate and unsatisfied conditional content decisions", () => {
+    const asOf = new Date("2026-07-13T00:00:00.000Z");
+    const gatedMap: TopicalMapCommandCenter = {
+      ...commandCenter,
+      prohibited: [],
+      pages: [
+        { ...commandCenter.pages[0]!, url: "/blogs/news/medical", decision: "refresh and expand existing owner; medical review", contentDecisionPolicy: { ...resolvedPolicy, resolutionStatus: "manual_gate" }, ruleIds: ["rule:medical"] },
+        { ...commandCenter.pages[0]!, url: "/blogs/news/conditional", decision: "create", contentDecisionPolicy: { ...resolvedPolicy, conditions: [{ kind: "literal_source_condition", text: "Required evidence", sourceReferenceIds: ["coverage:condition"] }] }, ruleIds: ["rule:conditional"] },
+      ],
+      work: { ...commandCenter.work, internalLinks: [] },
+    };
+    const result = buildMapAwareSeoGaps({
+      strategy: identity, commandCenter: gatedMap, queries: [], queryPagePairs: [],
+      articles: [{ blogHandle: "news", handle: "medical", title: "Medical", wordCount: 500, internalLinkCount: 0, seoData: {}, updatedAt: asOf }],
+      verifiedAbsentUrls: new Map([["/blogs/news/conditional", asOf]]), asOf,
+    });
+    expect(result.gaps).toEqual([]);
+    expect(result.suppressed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ page: "/blogs/news/medical", reason: "manual_gate", currentArticleTitle: "Medical", observation: { source: "store", capturedAt: asOf.toISOString(), provenance: "ArticleRecord:news/medical" } }),
+      expect.objectContaining({ page: "/blogs/news/conditional", reason: "conditions_unsatisfied", observation: { source: "store", capturedAt: asOf.toISOString(), provenance: "ArticleRecord:absence:/blogs/news/conditional" } }),
+    ]));
   });
 
   it("matches identical article handles only within the exact blog URL", () => {
@@ -184,8 +209,63 @@ describe("map-aware SEO analysis", () => {
     expect(unavailable.suppressed).toContainEqual(expect.objectContaining({ reason: expect.stringContaining("observation_unavailable"), ruleIds: ["rule:link:1"] }));
   });
 
+  it("treats an explicit ensure instruction as an additive link candidate", () => {
+    const ensureMap: TopicalMapCommandCenter = {
+      ...commandCenter,
+      work: { ...commandCenter.work, internalLinks: [{ ...commandCenter.work.internalLinks[0]!, currentBodyState: "recipe hub rule", requiredAction: "ensure recipe hub links to this exact recipe" }] },
+    };
+    const result = buildMapAwareSeoGaps({
+      strategy: identity,
+      commandCenter: ensureMap,
+      queries: [],
+      queryPagePairs: [],
+      articles: [],
+      linkInspections: new Map([["/blogs/news/source", { capturedAt: new Date(), targets: new Set<string>() }]]),
+    });
+
+    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "link", ruleIds: ["rule:link:1"] }));
+  });
+
+  it("fails closed for a conditional internal link whose destination gate is not satisfied", () => {
+    const asOf = new Date("2026-07-13T00:00:00.000Z");
+    const conditionalMap: TopicalMapCommandCenter = {
+      ...commandCenter,
+      pages: [],
+      prohibited: [],
+      work: {
+        ...commandCenter.work,
+        internalLinks: [{
+          fromUrl: "/blogs/news/organic-brown-rice-philippines",
+          toUrl: "/pages/brown-rice-recipes",
+          currentBodyState: "conditional; destination not created",
+          requiredAction: "add only if the six-recipe and SERP gates pass",
+          recommendedAnchor: "brown rice recipes",
+          policy: resolvedPolicy,
+          ruleIds: ["internal-link:conditional-destination"],
+        }],
+      },
+    };
+
+    const result = buildMapAwareSeoGaps({
+      strategy: identity,
+      commandCenter: conditionalMap,
+      queries: [],
+      queryPagePairs: [],
+      articles: [],
+      linkInspections: new Map([["/blogs/news/organic-brown-rice-philippines", { capturedAt: asOf, targets: new Set<string>() }]]),
+      asOf,
+    });
+
+    expect(result.gaps).toEqual([]);
+    expect(result.suppressed).toContainEqual(expect.objectContaining({
+      page: "/blogs/news/organic-brown-rice-philippines",
+      reason: "conditions_unsatisfied",
+      ruleIds: ["internal-link:conditional-destination"],
+    }));
+  });
+
   it("does not claim unverified non-blog page absence", () => {
-    const map: TopicalMapCommandCenter = { ...commandCenter, pages: [{ url: "/pages/unknown", decision: "create", priority: "high", ruleIds: ["opaque"], ruleDomains: { content_decisions: ["opaque"] } }], prohibited: [] };
+    const map: TopicalMapCommandCenter = { ...commandCenter, pages: [{ url: "/pages/unknown", decision: "create", priority: "high", contentDecisionPolicy: resolvedPolicy, ruleIds: ["opaque"], ruleDomains: { content_decisions: ["opaque"] } }], prohibited: [] };
     const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: map, queries: [], queryPagePairs: [], articles: [], verifiedAbsentUrls: new Map() });
     expect(result.gaps).toEqual(expect.not.arrayContaining([expect.objectContaining({ page: "/pages/unknown" })]));
     expect(result.suppressed).toContainEqual(expect.objectContaining({ page: "/pages/unknown", reason: expect.stringContaining("observation_unavailable") }));

@@ -3,6 +3,7 @@ import { Prisma, type Recommendation } from "@prisma/client";
 import { applyGovernedStoreResourceChange, createGovernedRedirect, fetchGovernedRedirects, fetchGovernedStoreResource, resolveGovernedStoreUrl, type GovernedStoreResource } from "@/lib/shopify-governed-resources";
 import { appendInternalLinkMarkup, classifyTopicalMapPageAction, hashTopicalMapProposedState, TopicalMapStoreTaskProposedSchema, TopicalMapStoreTaskSourceSchema } from "@/lib/store-tasks/topical-map";
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
+import { topicalMapActionEligibility, topicalMapInternalLinkEligibility, topicalMapInternalLinkRequiresAddition } from "@/lib/topical-map/action-eligibility";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
 export type TopicalMapApplyErrorCode = "TASK_NOT_PENDING" | "TASK_NOT_EXECUTABLE" | "APPROVED_BYTES_CHANGED" | "STRATEGY_CHANGED" | "RULE_CHANGED" | "OBSERVATION_CHANGED" | "TARGET_LOCKED" | "SHOPIFY_FAILED" | "SHOPIFY_VERIFICATION_UNCERTAIN";
@@ -40,17 +41,27 @@ function stillGoverned(center: Awaited<ReturnType<typeof loadActiveTopicalMapCom
   if (!center || source.action !== proposed.action) return false;
   if (source.action === "redirect_create" && proposed.action === "redirect_create") {
     const governed = center.work.redirects.filter((item) => path(item.source) === source.targetUrl && path(item.finalTarget) === source.redirectTarget);
-    return proposed.after.target === source.redirectTarget && governed.length === 1 && sameStrings(governed[0]!.ruleIds, source.ruleIds);
+    return proposed.after.target === source.redirectTarget
+      && governed.length === 1
+      && topicalMapActionEligibility(governed[0]!.policy).actionable
+      && sameStrings(governed[0]!.ruleIds, source.ruleIds);
   }
   const target = resolveGovernedStoreUrl(source.targetUrl); if (!target || target.type !== source.targetType) return false;
   if (source.action === "internal_link") {
-    const governed = center.work.internalLinks.filter((item) => path(item.fromUrl) === source.targetUrl && source.links.some((link) => link.toUrl === path(item.toUrl) && link.anchor === (item.recommendedAnchor ?? item.toUrl)));
+    const governed = center.work.internalLinks.filter((item) => path(item.fromUrl) === source.targetUrl
+      && topicalMapInternalLinkEligibility(item.policy, item.currentBodyState, item.requiredAction).actionable
+      && topicalMapInternalLinkRequiresAddition(item.requiredAction)
+      && source.links.some((link) => link.toUrl === path(item.toUrl) && link.anchor === (item.recommendedAnchor ?? item.toUrl)));
     const governedLinks = new Set(governed.map((item) => `${path(item.toUrl)}\u0000${item.recommendedAnchor ?? item.toUrl}`));
     return governedLinks.size === source.links.length && source.links.every((link) => governedLinks.has(`${link.toUrl}\u0000${link.anchor}`)) && sameStrings(governed.flatMap((item) => item.ruleIds), source.ruleIds);
   }
   const page = center.pages.find((item) => path(item.url) === source.targetUrl);
   const action = classifyTopicalMapPageAction(page?.decision);
-  return !!page && action === source.action && sameStrings(page.ruleDomains.content_decisions ?? [], source.ruleIds);
+  return !!page
+    && !!page.contentDecisionPolicy
+    && topicalMapActionEligibility(page.contentDecisionPolicy).actionable
+    && action === source.action
+    && sameStrings(page.ruleDomains.content_decisions ?? [], source.ruleIds);
 }
 function expectedChanges(proposed: ExecutableProposed, current: GovernedStoreResource, source: ExecutableSource): Record<string, string> {
   if (proposed.action === "internal_link" && source.action === "internal_link") return { bodyHtml: appendInternalLinkMarkup(current.bodyHtml, source.targetUrl, source.links) };

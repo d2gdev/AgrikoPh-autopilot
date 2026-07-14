@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { projectTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
+import type { TopicalMapPhaseGateSummary, TopicalMapResolutionStatus, TopicalMapRuleRequirement, TopicalMapScheduleAuthorityBoundary } from "@/lib/topical-map/action-eligibility";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,12 @@ export async function GET(req: Request) {
             sourceArtifactId: rule.sourceArtifactId,
             payload: compiled.payload,
             sourceReferences: Array.isArray(compiled.sourceReferences) ? compiled.sourceReferences : [],
+            resolutionStatus: compiled.resolutionStatus as TopicalMapResolutionStatus,
+            conditions: compiled.conditions as TopicalMapRuleRequirement[],
+            evidenceRequirements: compiled.evidenceRequirements as TopicalMapRuleRequirement[],
+            reviewRequirements: compiled.reviewRequirements as TopicalMapRuleRequirement[],
+            phaseGate: compiled.phaseGate as TopicalMapPhaseGateSummary | undefined,
+            scheduleAuthorityBoundary: compiled.scheduleAuthorityBoundary as TopicalMapScheduleAuthorityBoundary | undefined,
           };
         }),
       }),

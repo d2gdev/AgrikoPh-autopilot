@@ -5,6 +5,7 @@ import { fetchGovernedRedirects, fetchGovernedStoreResources, resolveGovernedSto
 import { supersedeEquivalentAdvisories, topicalMapAdvisorySemanticKey, type AdvisoryDatabase } from "@/lib/store-tasks/topical-map-advisories";
 import { loadActiveTopicalMapCommandCenter, type TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
+import { topicalMapActionEligibility, topicalMapInternalLinkEligibility, topicalMapInternalLinkRequiresAddition, type TopicalMapResolutionStatus } from "@/lib/topical-map/action-eligibility";
 
 export type TopicalMapStoreAction = "seo_update" | "content_update" | "internal_link" | "redirect_create";
 
@@ -15,7 +16,8 @@ const GovernedUrl = z.string().refine((value) => {
 }, "Expected a governed URL");
 const AdvisoryDomain = z.enum(["content_decisions", "redirects", "canonicalization", "indexation"]);
 const AdvisoryTargetType = z.enum(["product", "collection", "page", "homepage", "blog_index", "redirect", "technical"]);
-const AdvisoryReason = z.enum(["homepage_not_governed", "blog_index_not_governed", "redirect_execution_unsupported", "redirect_conflict", "canonicalization_execution_prohibited", "indexation_execution_prohibited", "draft_unavailable"]);
+const AdvisoryReason = z.enum(["homepage_not_governed", "blog_index_not_governed", "redirect_execution_unsupported", "redirect_conflict", "canonicalization_execution_prohibited", "indexation_execution_prohibited", "draft_unavailable", "manual_gate", "activation_blocking", "conditions_unsatisfied"]);
+const ResolutionStatus = z.enum(["resolved", "manual_gate", "activation_blocking"]);
 const SourceReferences = z.array(z.object({ kind: z.enum(["rule", "command_center"]), id: z.string().min(1).max(200) }).strict()).max(25);
 const GenerationProvenance = z.enum(["deterministic", "bounded_ai_draft", "advisory_projection"]);
 const SeoBefore = z.object({ seoTitle: z.string().nullable().optional(), seoDescription: z.string().nullable().optional() }).strict();
@@ -27,9 +29,10 @@ const ExecutableSourceBase = {
   source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash,
   ruleIds: z.array(z.string().min(1)).min(1), targetType: TargetType, targetUrl: GovernedUrl,
   sourceReferences: SourceReferences, generationProvenance: GenerationProvenance,
-  observedAt: z.string().datetime().refine((value) => new Date(value).getTime() <= Date.now() + 5 * 60_000, "Observation cannot be in the future"), resourceUpdatedAt: z.string().datetime().optional(), observedStateHash: Hash, recommendationId: z.string().min(1).optional(), executable: z.literal(true),
+  observedAt: z.string().datetime().refine((value) => new Date(value).getTime() <= Date.now() + 5 * 60_000, "Observation cannot be in the future"), observationProvenance: z.string().min(1).max(500).optional(), resourceUpdatedAt: z.string().datetime().optional(), observedStateHash: Hash, recommendationId: z.string().min(1).optional(), executable: z.literal(true),
+  resolutionStatus: ResolutionStatus.optional(),
 };
-const CurrentInternalLinkSourceSchema = z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), links: z.array(z.object({ toUrl: GovernedUrl, anchor: z.string().min(1) }).strict()).min(1).max(100) }).strict();
+const CurrentInternalLinkSourceSchema = z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), links: z.array(z.object({ toUrl: GovernedUrl, anchor: z.string().min(1), currentBodyState: z.string().min(1).max(500).optional(), linkPurpose: z.string().min(1).max(500).optional(), requiredAction: z.string().min(1).max(500).optional(), verification: z.string().min(1).max(500).optional(), priority: z.string().min(1).max(40).optional(), resolutionStatus: ResolutionStatus.optional() }).strict()).min(1).max(100) }).strict();
 const ExecutableSourceSchema = z.discriminatedUnion("action", [
   z.object({ ...ExecutableSourceBase, action: z.literal("seo_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
   z.object({ ...ExecutableSourceBase, action: z.literal("content_update"), ruleDomains: z.tuple([z.literal("content_decisions")]) }).strict(),
@@ -42,10 +45,11 @@ const RedirectExecutableSourceSchema = z.object({
   action: z.literal("redirect_create"), redirectTarget: GovernedUrl,
   observedAt: z.string().datetime().refine((value) => new Date(value).getTime() <= Date.now() + 5 * 60_000, "Observation cannot be in the future"),
   observedStateHash: Hash, recommendationId: z.string().min(1).optional(), executable: z.literal(true),
+  resolutionStatus: ResolutionStatus.optional(),
 }).strict();
 const LegacyInternalLinkSourceSchema = z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), linkTargetUrl: GovernedUrl, linkAnchor: z.string().min(1) }).strict();
 const SupersedableInternalLinkSourceSchema = z.union([LegacyInternalLinkSourceSchema, CurrentInternalLinkSourceSchema]);
-const AdvisorySourceSchema = z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(AdvisoryDomain).min(1), sourceReferences: SourceReferences, generationProvenance: GenerationProvenance, targetType: AdvisoryTargetType, targetUrl: GovernedUrl, executable: z.literal(false), advisoryReason: AdvisoryReason, mapPriority: z.string().min(1).max(40).optional(), proposedCanonicalUrl: GovernedUrl.optional(), mapDecision: z.string().min(1).max(500).optional(), mapEvidence: z.string().min(1).max(2_000).optional() }).strict();
+const AdvisorySourceSchema = z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(AdvisoryDomain).min(1), sourceReferences: SourceReferences, generationProvenance: GenerationProvenance, targetType: AdvisoryTargetType, targetUrl: GovernedUrl, executable: z.literal(false), advisoryReason: AdvisoryReason, resolutionStatus: ResolutionStatus.optional(), mapPriority: z.string().min(1).max(40).optional(), proposedCanonicalUrl: GovernedUrl.optional(), mapDecision: z.string().min(1).max(500).optional(), mapEvidence: z.string().min(1).max(2_000).optional(), mapPublishingState: z.string().min(1).max(100).optional(), mapProposedRedirectTarget: GovernedUrl.optional(), observedRedirectTarget: GovernedUrl.optional(), observedRedirectId: z.string().min(1).max(500).optional(), observedAt: z.string().datetime().optional(), observedStateHash: Hash.optional() }).strict();
 export const TopicalMapStoreTaskSourceSchema = z.union([ExecutableSourceSchema, RedirectExecutableSourceSchema, AdvisorySourceSchema]);
 
 export const TopicalMapStoreTaskProposedSchema = z.discriminatedUnion("action", [
@@ -86,8 +90,8 @@ type Summary = { executable: number; advisory: number; unchanged: number; suppre
 type RuleDomain = "content_decisions" | "internal_links" | z.infer<typeof AdvisoryDomain>;
 type TaskTargetType = z.infer<typeof TargetType> | z.infer<typeof AdvisoryTargetType>;
 type TaskAdvisoryReason = z.infer<typeof AdvisoryReason>;
-type CandidateLink = { toUrl: string; anchor: string; ruleIds: string[] };
-type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: TopicalMapStoreAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resource?: GovernedStoreResource; theme?: string; links?: CandidateLink[]; redirectTarget?: string; observedAt?: Date; observedStateHash?: string; proposedCanonicalUrl?: string; mapDecision?: string; mapEvidence?: string };
+type CandidateLink = { toUrl: string; anchor: string; ruleIds: string[]; currentBodyState?: string; linkPurpose?: string; requiredAction?: string; verification?: string; priority?: string; resolutionStatus?: TopicalMapResolutionStatus };
+type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: TopicalMapStoreAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resolutionStatus?: TopicalMapResolutionStatus; resource?: GovernedStoreResource; theme?: string; links?: CandidateLink[]; redirectTarget?: string; observedRedirectTarget?: string; observedRedirectId?: string; observedAt?: Date; observedStateHash?: string; proposedCanonicalUrl?: string; mapDecision?: string; mapEvidence?: string; mapPublishingState?: string };
 type Persisted = { targetType: string; targetUrl: string; priority: string; ruleIds: string[]; ruleDomains: string[]; sourceData: z.infer<typeof TopicalMapStoreTaskSourceSchema>; proposedState: z.infer<typeof TopicalMapStoreTaskProposedSchema> };
 
 function path(value: string): string {
@@ -123,20 +127,29 @@ function grounded(draft: z.infer<typeof DraftResponse>["drafts"][number], candid
   return terms.some((term) => haystack.includes(term));
 }
 
-function candidates(center: TopicalMapCommandCenter): Candidate[] {
+function candidates(center: TopicalMapCommandCenter): { items: Candidate[]; suppressed: number } {
   const result: Candidate[] = [];
+  let suppressed = 0;
   for (const page of center.pages) {
     const url = path(page.url);
     if (/^\/blogs\/[^/]+\/[^/]+/.test(url)) continue;
+    if (!page.contentDecisionPolicy) continue;
+    const eligibility = topicalMapActionEligibility(page.contentDecisionPolicy);
+    if (!eligibility.actionable) {
+      const target = resolveGovernedStoreUrl(url);
+      const targetType = url === "/" ? "homepage" : /^\/blogs\/[^/]+$/.test(url) ? "blog_index" : target?.type;
+      if (targetType) result.push({ targetType, targetUrl: url, ruleIds: [...page.ruleIds].sort(), ruleDomains: ["content_decisions"], priority: page.priority ?? "medium", action: "advisory", advisoryReason: eligibility.reason, resolutionStatus: page.contentDecisionPolicy.resolutionStatus });
+      continue;
+    }
     if (url === "/" || /^\/blogs\/[^/]+$/.test(url)) {
-      result.push({ targetType: url === "/" ? "homepage" : "blog_index", targetUrl: url, ruleIds: [...page.ruleIds].sort(), ruleDomains: ["content_decisions"], priority: page.priority ?? "medium", action: "advisory", advisoryReason: url === "/" ? "homepage_not_governed" : "blog_index_not_governed" });
+      result.push({ targetType: url === "/" ? "homepage" : "blog_index", targetUrl: url, ruleIds: [...page.ruleIds].sort(), ruleDomains: ["content_decisions"], priority: page.priority ?? "medium", action: "advisory", advisoryReason: url === "/" ? "homepage_not_governed" : "blog_index_not_governed", resolutionStatus: page.contentDecisionPolicy.resolutionStatus });
       continue;
     }
     const target = resolveGovernedStoreUrl(url);
     if (!target || !(page.ruleDomains.content_decisions?.length)) continue;
     const action = classifyTopicalMapPageAction(page.decision);
     if (!action) continue;
-    result.push({ targetType: target.type, targetUrl: url, ruleIds: [...page.ruleDomains.content_decisions].sort(), ruleDomains: ["content_decisions"], priority: page.priority ?? "medium", action, theme: page.primaryKeywordOrTheme });
+    result.push({ targetType: target.type, targetUrl: url, ruleIds: [...page.ruleDomains.content_decisions].sort(), ruleDomains: ["content_decisions"], priority: page.priority ?? "medium", action, theme: page.primaryKeywordOrTheme, resolutionStatus: page.contentDecisionPolicy.resolutionStatus });
   }
   const linkGroups = new Map<string, Candidate>();
   for (const link of center.work.internalLinks) {
@@ -144,9 +157,14 @@ function candidates(center: TopicalMapCommandCenter): Candidate[] {
     if (/^\/blogs\/[^/]+\/[^/]+/.test(fromUrl)) continue;
     const target = resolveGovernedStoreUrl(fromUrl);
     if (!target) continue;
+    if (!topicalMapInternalLinkEligibility(link.policy, link.currentBodyState, link.requiredAction).actionable) {
+      suppressed++;
+      continue;
+    }
+    if (!topicalMapInternalLinkRequiresAddition(link.requiredAction)) continue;
     const current = linkGroups.get(fromUrl) ?? { targetType: target.type, targetUrl: fromUrl, ruleIds: [], ruleDomains: ["internal_links"], priority: link.priority ?? "medium", action: "internal_link", links: [] };
     current.ruleIds.push(...link.ruleIds);
-    current.links!.push({ toUrl: path(link.toUrl), anchor: link.recommendedAnchor ?? link.toUrl, ruleIds: [...link.ruleIds] });
+    current.links!.push({ toUrl: path(link.toUrl), anchor: link.recommendedAnchor ?? link.toUrl, ruleIds: [...link.ruleIds], currentBodyState: link.currentBodyState, linkPurpose: link.linkPurpose, requiredAction: link.requiredAction, verification: link.verification, priority: link.priority, resolutionStatus: link.policy.resolutionStatus });
     linkGroups.set(fromUrl, current);
   }
   for (const group of linkGroups.values()) {
@@ -160,15 +178,15 @@ function candidates(center: TopicalMapCommandCenter): Candidate[] {
     group.links = [...uniqueLinks.values()].sort((a, b) => a.toUrl.localeCompare(b.toUrl) || a.anchor.localeCompare(b.anchor));
     result.push(group);
   }
-  const advisory = (rule: { currentUrl: string; proposedCanonicalUrl: string; decision?: string; evidence?: string; priority?: string; ruleIds: string[] }, ruleDomain: "canonicalization" | "indexation", reason: TaskAdvisoryReason) => result.push({ targetType: "technical", targetUrl: path(rule.currentUrl), ruleIds: [...rule.ruleIds].sort(), ruleDomains: [ruleDomain], priority: rule.priority ?? "medium", action: "advisory", advisoryReason: reason, proposedCanonicalUrl: path(rule.proposedCanonicalUrl), mapDecision: rule.decision, mapEvidence: rule.evidence });
+  const advisory = (rule: { currentUrl: string; proposedCanonicalUrl: string; publishingState?: string; decision?: string; evidence?: string; priority?: string; ruleIds: string[] }, ruleDomain: "canonicalization" | "indexation", reason: TaskAdvisoryReason) => result.push({ targetType: "technical", targetUrl: path(rule.currentUrl), ruleIds: [...rule.ruleIds].sort(), ruleDomains: [ruleDomain], priority: rule.priority ?? "medium", action: "advisory", advisoryReason: reason, proposedCanonicalUrl: path(rule.proposedCanonicalUrl), mapDecision: rule.decision, mapEvidence: rule.evidence, mapPublishingState: rule.publishingState });
   for (const rule of center.work.canonicalization) advisory(rule, "canonicalization", "canonicalization_execution_prohibited");
   for (const rule of center.work.indexation) advisory(rule, "indexation", "indexation_execution_prohibited");
-  return result.sort((a, b) => a.targetUrl.localeCompare(b.targetUrl) || a.action.localeCompare(b.action) || a.ruleIds.join().localeCompare(b.ruleIds.join()));
+  return { items: result.sort((a, b) => a.targetUrl.localeCompare(b.targetUrl) || a.action.localeCompare(b.action) || a.ruleIds.join().localeCompare(b.ruleIds.join())), suppressed };
 }
 
 function advisory(center: TopicalMapCommandCenter, item: Candidate, reason: TaskAdvisoryReason): Persisted {
   return { targetType: item.targetType, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains,
-    sourceData: TopicalMapStoreTaskSourceSchema.parse({ source: "topical-map", strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceReferences: item.ruleIds.slice(0, 25).map((id) => ({ kind: "rule", id })), generationProvenance: "advisory_projection", targetType: item.targetType, targetUrl: item.targetUrl, executable: false, advisoryReason: reason, ...(item.proposedCanonicalUrl ? { mapPriority: item.priority, proposedCanonicalUrl: item.proposedCanonicalUrl, ...(item.mapDecision ? { mapDecision: item.mapDecision } : {}), ...(item.mapEvidence ? { mapEvidence: item.mapEvidence } : {}) } : {}) }),
+    sourceData: TopicalMapStoreTaskSourceSchema.parse({ source: "topical-map", strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceReferences: item.ruleIds.slice(0, 25).map((id) => ({ kind: "rule", id })), generationProvenance: "advisory_projection", targetType: item.targetType, targetUrl: item.targetUrl, executable: false, advisoryReason: reason, ...(item.resolutionStatus ? { resolutionStatus: item.resolutionStatus } : {}), ...(item.proposedCanonicalUrl ? { mapPriority: item.priority, proposedCanonicalUrl: item.proposedCanonicalUrl, ...(item.mapDecision ? { mapDecision: item.mapDecision } : {}), ...(item.mapEvidence ? { mapEvidence: item.mapEvidence } : {}), ...(item.mapPublishingState ? { mapPublishingState: item.mapPublishingState } : {}) } : {}), ...(item.redirectTarget ? { mapProposedRedirectTarget: item.redirectTarget } : {}), ...(item.observedRedirectTarget ? { observedRedirectTarget: item.observedRedirectTarget } : {}), ...(item.observedRedirectId ? { observedRedirectId: item.observedRedirectId } : {}), ...(item.observedAt ? { observedAt: item.observedAt.toISOString() } : {}), ...(item.observedStateHash ? { observedStateHash: item.observedStateHash } : {}) }),
     proposedState: { action: "advisory", advisory: reason },
   };
 }
@@ -202,7 +220,9 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
   const summary: Summary = { executable: 0, advisory: 0, unchanged: 0, suppressed: 0 };
   const center = await loadActiveTopicalMapCommandCenter(client);
   if (!center) return summary;
-  const projected = candidates(center);
+  const candidateProjection = candidates(center);
+  const projected = candidateProjection.items;
+  summary.suppressed += candidateProjection.suppressed;
   const redirectSources = [...new Set(center.work.redirects.map(rule => path(rule.source)))];
   const observedRedirects = await fetchGovernedRedirects(redirectSources);
   for (const rule of center.work.redirects) {
@@ -210,12 +230,18 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     const target = path(rule.finalTarget);
     const observed = observedRedirects.get(source);
     if (observed?.target === target) { summary.unchanged++; continue; }
+    const eligibility = topicalMapActionEligibility(rule.policy);
     if (observed) {
-      projected.push({ targetType: "redirect", targetUrl: source, ruleIds: [...rule.ruleIds].sort(), ruleDomains: ["redirects"], priority: rule.priority ?? "medium", action: "advisory", advisoryReason: "redirect_conflict" });
+      projected.push({ targetType: "redirect", targetUrl: source, ruleIds: [...rule.ruleIds].sort(), ruleDomains: ["redirects"], priority: rule.priority ?? "medium", action: "advisory", advisoryReason: "redirect_conflict", resolutionStatus: rule.policy.resolutionStatus, redirectTarget: target, observedRedirectTarget: observed.target, observedRedirectId: observed.id, observedAt: observed.capturedAt, observedStateHash: observed.stateHash });
       continue;
     }
     const observedAt = new Date();
-    projected.push({ targetType: "redirect", targetUrl: source, ruleIds: [...rule.ruleIds].sort(), ruleDomains: ["redirects"], priority: rule.priority ?? "medium", action: "redirect_create", redirectTarget: target, observedAt, observedStateHash: hash(canonical({ source, state: "absent" })) });
+    const observedStateHash = hash(canonical({ source, state: "absent" }));
+    if (!eligibility.actionable) {
+      projected.push({ targetType: "redirect", targetUrl: source, ruleIds: [...rule.ruleIds].sort(), ruleDomains: ["redirects"], priority: rule.priority ?? "medium", action: "advisory", advisoryReason: eligibility.reason, resolutionStatus: rule.policy.resolutionStatus, redirectTarget: target, observedAt, observedStateHash });
+      continue;
+    }
+    projected.push({ targetType: "redirect", targetUrl: source, ruleIds: [...rule.ruleIds].sort(), ruleDomains: ["redirects"], priority: rule.priority ?? "medium", action: "redirect_create", resolutionStatus: rule.policy.resolutionStatus, redirectTarget: target, observedAt, observedStateHash });
   }
   projected.sort((a, b) => a.targetUrl.localeCompare(b.targetUrl) || a.action.localeCompare(b.action) || a.ruleIds.join().localeCompare(b.ruleIds.join()));
   const governedUrls = [...new Set(projected.filter((item) => item.action === "seo_update" || item.action === "content_update" || item.action === "internal_link").map((item) => item.targetUrl))];
@@ -256,7 +282,7 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     if (item.action === "redirect_create") {
       return {
         targetType: "redirect", targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains,
-        sourceData: TopicalMapStoreTaskSourceSchema.parse({ source: "topical-map", strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, ruleIds: item.ruleIds, ruleDomains: ["redirects"], sourceReferences: item.ruleIds.slice(0, 25).map((id) => ({ kind: "rule", id })), generationProvenance: "deterministic", targetType: "redirect", targetUrl: item.targetUrl, action: "redirect_create", redirectTarget: item.redirectTarget, observedAt: item.observedAt!.toISOString(), observedStateHash: item.observedStateHash, executable: true }),
+        sourceData: TopicalMapStoreTaskSourceSchema.parse({ source: "topical-map", strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, ruleIds: item.ruleIds, ruleDomains: ["redirects"], sourceReferences: item.ruleIds.slice(0, 25).map((id) => ({ kind: "rule", id })), generationProvenance: "deterministic", targetType: "redirect", targetUrl: item.targetUrl, action: "redirect_create", resolutionStatus: item.resolutionStatus, redirectTarget: item.redirectTarget, observedAt: item.observedAt!.toISOString(), observedStateHash: item.observedStateHash, executable: true }),
         proposedState: { action: "redirect_create", before: { state: "absent" }, after: { target: item.redirectTarget! } },
       };
     }
@@ -272,8 +298,10 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
       targetType: resource.type,
       targetUrl: item.targetUrl,
       action: item.action,
-      ...(item.action === "internal_link" ? { links: item.links!.map(({ toUrl, anchor }) => ({ toUrl, anchor })) } : {}),
+      resolutionStatus: item.resolutionStatus,
+      ...(item.action === "internal_link" ? { links: item.links!.map(({ toUrl, anchor, currentBodyState, linkPurpose, requiredAction, verification, priority, resolutionStatus }) => ({ toUrl, anchor, ...(currentBodyState ? { currentBodyState } : {}), ...(linkPurpose ? { linkPurpose } : {}), ...(requiredAction ? { requiredAction } : {}), ...(verification ? { verification } : {}), ...(priority ? { priority } : {}), ...(resolutionStatus ? { resolutionStatus } : {}) })) } : {}),
       observedAt: resource.capturedAt.toISOString(),
+      observationProvenance: `shopify_governed_resource:${item.targetUrl}`,
       resourceUpdatedAt: resource.updatedAt.toISOString(),
       observedStateHash: resource.stateHash,
       executable: true,

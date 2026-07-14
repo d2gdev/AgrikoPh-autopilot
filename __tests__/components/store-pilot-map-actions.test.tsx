@@ -35,10 +35,10 @@ const executable = {
   id: "map-1", createdAt: "2026-07-13T04:00:00.000Z", taskType: "topical_map", targetType: "product", targetId: null,
   targetUrl: "/products/black-rice", title: "Map SEO", description: "Review map SEO", priority: "high", status: "pending",
   completedAt: null, completionNote: null,
-  sourceData: { source: "topical-map", executable: true, strategyVersionId: "strategy-v3", packageSha256: "a".repeat(64), ruleIds: ["seo:title"], observedAt: "2026-07-13T04:00:00.000Z" },
+  sourceData: { source: "topical-map", executable: true, strategyVersionId: "strategy-v3", packageSha256: "a".repeat(64), ruleIds: ["seo:title"], resolutionStatus: "resolved", observedAt: "2026-07-13T04:00:00.000Z" },
   proposedState: { action: "seo_update", before: { seoTitle: "Black Rice" }, after: { seoTitle: "Organic Black Rice" } },
 };
-const advisory = { ...executable, id: "map-2", title: "Map advisory", priority: "P0", sourceData: { ...executable.sourceData, executable: false, advisoryReason: "canonicalization_execution_prohibited", mapPriority: "P0", proposedCanonicalUrl: "/products/black-rice", mapDecision: "Use the product URL as canonical", mapEvidence: "The product owns commercial intent" }, proposedState: { action: "advisory", advisory: "canonicalization_execution_prohibited" } };
+const advisory = { ...executable, id: "map-2", title: "Map advisory", priority: "P0", sourceData: { ...executable.sourceData, executable: false, advisoryReason: "canonicalization_execution_prohibited", mapPriority: "P0", proposedCanonicalUrl: "/products/black-rice", mapDecision: "Use the product URL as canonical", mapEvidence: "The product owns commercial intent", mapPublishingState: "published" }, proposedState: { action: "advisory", advisory: "canonicalization_execution_prohibited" } };
 const ordinary = { ...executable, id: "ordinary-1", taskType: "price_review", title: "Ordinary task", sourceData: {}, proposedState: {} };
 const groupedLinks = {
   ...executable,
@@ -48,7 +48,7 @@ const groupedLinks = {
     ...executable.sourceData,
     action: "internal_link",
     links: [
-      { anchor: "shop heirloom rice", toUrl: "/products/heirloom-rice" },
+      { anchor: "shop heirloom rice", toUrl: "/products/heirloom-rice", currentBodyState: "absent", linkPurpose: "Commercial path", requiredAction: "Add exact link", verification: "Exact href present", priority: "P1", resolutionStatus: "resolved" },
       { anchor: "compare rice varieties", toUrl: "/collections/rice-varieties" },
     ],
   },
@@ -295,10 +295,28 @@ describe("MapTaskDetails disclosure", () => {
     expect(screen.getByText("Proposed target")).toBeTruthy();
     expect(screen.getByText("/products/rice")).toBeTruthy();
   });
+  it("shows the observed target for a redirect conflict advisory", () => {
+    render(<MapTaskDetails task={{
+      ...advisory,
+      id: "redirect-conflict",
+      targetUrl: "/old-rice",
+      sourceData: { ...advisory.sourceData, advisoryReason: "redirect_conflict", resolutionStatus: "resolved", mapProposedRedirectTarget: "/products/rice", observedRedirectTarget: "/pages/wrong", observedRedirectId: "redirect-7", observedStateHash: "b".repeat(64) },
+      proposedState: { action: "advisory", advisory: "redirect_conflict" },
+    } as StoreTaskView} />);
+    expect(screen.getByText("Map-proposed target:")).toBeTruthy();
+    expect(screen.getByText("/products/rice")).toBeTruthy();
+    expect(screen.getByText("Observed conflicting target:")).toBeTruthy();
+    expect(screen.getByText("/pages/wrong")).toBeTruthy();
+    expect(screen.getByText("redirect-7")).toBeTruthy();
+    expect(screen.getByText("Observed state hash:")).toBeTruthy();
+    expect(screen.getByText("b".repeat(64))).toBeTruthy();
+  });
   it("labels identity and omits a duplicate unlabelled target", () => {
     render(<MapTaskDetails task={executable as StoreTaskView} />);
     expect(screen.getByText("Strategy version:")).toBeTruthy();
     expect(screen.getByText("Package:")).toBeTruthy();
+    expect(screen.getByText("Rule status:")).toBeTruthy();
+    expect(screen.getByText("resolved")).toBeTruthy();
     expect(screen.getAllByText("/products/black-rice")).toHaveLength(1);
   });
 
@@ -309,6 +327,8 @@ describe("MapTaskDetails disclosure", () => {
     expect(screen.getByText("Proposed canonical URL:")).toBeTruthy();
     expect(screen.getByText("Use the product URL as canonical")).toBeTruthy();
     expect(screen.getByText("The product owns commercial intent")).toBeTruthy();
+    expect(screen.getByText("Publishing state:")).toBeTruthy();
+    expect(screen.getByText("published")).toBeTruthy();
   });
 
   it("bounds long values until the standard disclosure is activated", async () => {
@@ -330,6 +350,11 @@ describe("MapTaskDetails disclosure", () => {
     expect(screen.getByText("/products/heirloom-rice")).toBeTruthy();
     expect(screen.getByText("compare rice varieties")).toBeTruthy();
     expect(screen.getByText("/collections/rice-varieties")).toBeTruthy();
+    expect(screen.getByText("Commercial path")).toBeTruthy();
+    expect(screen.getByText("Add exact link")).toBeTruthy();
+    expect(screen.getByText("Exact href present")).toBeTruthy();
+    expect(screen.getByText("Map-recorded state:")).toBeTruthy();
+    expect(screen.getByText("absent")).toBeTruthy();
     expect(screen.queryByText("<p>raw current HTML</p>")).toBeNull();
     expect(screen.queryByText("<p>raw proposed HTML</p>")).toBeNull();
 

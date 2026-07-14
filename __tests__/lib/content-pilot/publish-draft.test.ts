@@ -18,6 +18,7 @@ vi.mock("@/lib/content-pilot/generate-draft", async () => {
   const { z } = await import("zod");
   const bodyHtmlSchema = z.object({ bodyHtml: z.string().trim().min(1) });
   return {
+    assertExactInternalLinkDraft: vi.fn(),
     getDraftSchema: (proposalType: string) => {
       switch (proposalType) {
         case "seo-fix":

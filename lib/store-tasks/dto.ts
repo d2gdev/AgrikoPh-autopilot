@@ -5,18 +5,23 @@ const ChangeFields = z.object({ title: z.string().max(500).optional(), seoTitle:
 const ChangeProposed = z.object({ action: z.string().max(50).refine(action => action !== "redirect_create"), before: ChangeFields.optional(), after: ChangeFields.optional(), advisory: z.string().max(200).optional() }).strict();
 const RedirectProposed = z.object({ action: z.literal("redirect_create"), before: z.object({ state: z.literal("absent") }).strict(), after: z.object({ target: Text }).strict() }).strict();
 const Proposed = z.union([RedirectProposed, ChangeProposed]);
-const SourceFields = { source: z.string().max(50).optional(), strategyVersionId: Text.optional(), packageSha256: z.string().max(64).optional(), ruleDomains: z.array(Text).max(10).optional(), targetType: Text.optional(), targetUrl: Text.optional(), executable: z.boolean().optional(), advisoryReason: Text.optional(), observedAt: Text.optional(), generationProvenance: Text.optional(), recommendationId: Text.optional(), mapPriority: z.string().max(40).optional(), proposedCanonicalUrl: Text.optional(), mapDecision: Text.optional(), mapEvidence: z.string().max(2_000).optional() };
+const SourceFields = { source: z.string().max(50).optional(), strategyVersionId: Text.optional(), packageSha256: z.string().max(64).optional(), ruleDomains: z.array(Text).max(10).optional(), targetType: Text.optional(), targetUrl: Text.optional(), executable: z.boolean().optional(), advisoryReason: Text.optional(), resolutionStatus: z.enum(["resolved", "manual_gate", "activation_blocking"]).optional(), observedAt: Text.optional(), observationProvenance: Text.optional(), observedStateHash: z.string().max(64).optional(), generationProvenance: Text.optional(), recommendationId: Text.optional(), ruleCount: z.number().int().min(0).max(10_000).optional(), mapPriority: z.string().max(40).optional(), proposedCanonicalUrl: Text.optional(), mapDecision: Text.optional(), mapEvidence: z.string().max(2_000).optional(), mapPublishingState: z.string().max(100).optional(), mapProposedRedirectTarget: Text.optional(), observedRedirectTarget: Text.optional(), observedRedirectId: Text.optional() };
 const Reference = z.object({ kind: Text, id: Text }).strict();
 const ListSource = z.object({ ...SourceFields, ruleIds: z.array(Text).max(25).optional(), sourceReferences: z.array(Reference).max(25).optional() }).strict();
-const DetailSource = z.object({ ...SourceFields, ruleIds: z.array(Text).max(100).optional(), sourceReferences: z.array(Reference).max(100).optional(), links: z.array(z.object({ toUrl: Text, anchor: Text }).strict()).max(100).optional() }).strict();
+const DetailSource = z.object({ ...SourceFields, ruleIds: z.array(Text).max(100).optional(), sourceReferences: z.array(Reference).max(100).optional(), links: z.array(z.object({ toUrl: Text, anchor: Text, currentBodyState: Text.optional(), linkPurpose: Text.optional(), requiredAction: Text.optional(), verification: Text.optional(), priority: z.string().max(40).optional(), resolutionStatus: z.enum(["resolved", "manual_gate", "activation_blocking"]).optional() }).strict()).max(100).optional() }).strict();
 const Base = z.object({ id: Text, taskType: Text, targetType: Text, targetUrl: Text.nullable(), title: Text, description: z.string().max(2_000), priority: Text, status: Text, completedAt: z.date().nullable(), completionNote: z.string().max(2_000).nullable() }).strict();
 export const StoreTaskListDtoSchema = Base.extend({ createdAt: z.date(), targetId: Text.nullable(), sourceData: ListSource, proposedState: Proposed }).strict().superRefine((v, ctx) => { if (JSON.stringify(v).length > 12_000) ctx.addIssue({ code: "custom", message: "List DTO too large" }); });
 export const StoreTaskDetailDtoSchema = z.object({ id: Text, targetUrl: Text.nullable(), status: Text, completionNote: z.string().max(2_000).nullable(), sourceData: DetailSource, proposedState: Proposed }).strict().superRefine((v, ctx) => { if (JSON.stringify(v).length > 110_000) ctx.addIssue({ code: "custom", message: "Detail DTO too large" }); });
 
 function sourceProjection(value: unknown, detail = false) {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const keys = ["source", "strategyVersionId", "packageSha256", "ruleIds", "ruleDomains", "targetType", "targetUrl", "executable", "advisoryReason", "observedAt", "generationProvenance", "sourceReferences", "recommendationId", "mapPriority", "proposedCanonicalUrl", "mapDecision", "mapEvidence", ...(detail ? ["links"] : [])];
-  return (detail ? DetailSource : ListSource).parse(Object.fromEntries(keys.filter((key) => key in raw).map((key) => [key, raw[key]])));
+  const keys = ["source", "strategyVersionId", "packageSha256", "ruleIds", "ruleDomains", "targetType", "targetUrl", "executable", "advisoryReason", "resolutionStatus", "observedAt", "observationProvenance", "observedStateHash", "generationProvenance", "sourceReferences", "recommendationId", "mapPriority", "proposedCanonicalUrl", "mapDecision", "mapEvidence", "mapPublishingState", "mapProposedRedirectTarget", "observedRedirectTarget", "observedRedirectId", ...(detail ? ["links"] : [])];
+  const projected = Object.fromEntries(keys.filter((key) => key in raw).map((key) => [key, raw[key]]));
+  if (!detail && Array.isArray(raw.ruleIds)) {
+    projected.ruleIds = raw.ruleIds.slice(0, 25);
+    projected.ruleCount = raw.ruleIds.length;
+  }
+  return (detail ? DetailSource : ListSource).parse(projected);
 }
 
 function previewFields(value: unknown) {

@@ -1,11 +1,12 @@
 import type { ContentProposal } from "@prisma/client";
-import { resolveArticleHandle, resolveInternalLinkSourceHandle } from "@/lib/content-pilot/publish-draft";
+import { resolveArticleHandle, resolveExactProposalBlogHandle, resolveInternalLinkSourceHandle } from "@/lib/content-pilot/publish-draft";
 import { sanitizeHtmlServer } from "@/lib/content-pilot/sanitize-html-server";
 import { shopifyFetch } from "@/lib/shopify-admin";
 
 type ShopifyArticle = {
   id: string;
   handle: string;
+  blog?: { handle: string } | null;
   title: string;
   body: string;
   seoTitle: { value: string | null } | null;
@@ -21,7 +22,7 @@ const ARTICLE_READ = `
   query ContentPilotPublishInspection($query: String!) {
     articles(first: 10, query: $query) {
       edges { node {
-        id handle title body
+        id handle title body blog { handle }
         seoTitle: metafield(namespace: "global", key: "title_tag") { value }
         seoDescription: metafield(namespace: "global", key: "description_tag") { value }
       } }
@@ -36,6 +37,13 @@ async function readArticles(query: string): Promise<ShopifyArticle[]> {
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function exactArticle(proposal: ContentProposal, candidates: ShopifyArticle[]): ShopifyArticle | null {
+  const exactBlogHandle = resolveExactProposalBlogHandle(proposal);
+  const exactShopifyId = typeof proposal.shopifyArticleId === "string" && proposal.shopifyArticleId ? proposal.shopifyArticleId : null;
+  const exact = candidates.filter((candidate) => (!exactShopifyId || candidate.id === exactShopifyId) && (!exactBlogHandle || candidate.blog?.handle === exactBlogHandle));
+  return exact.length === 1 ? exact[0]! : null;
 }
 
 /**
@@ -53,7 +61,7 @@ export async function inspectPublishOutcome(proposal: ContentProposal): Promise<
     const bodyHtml = typeof draft.bodyHtml === "string" ? sanitizeHtmlServer(draft.bodyHtml) : null;
     if (!title || !bodyHtml) return { kind: "ambiguous" };
     const articles = await readArticles(`title:'${title.replace(/'/g, "\\'")}'`);
-    const article = articles.find((candidate) => candidate.title === title && candidate.body.trim() === bodyHtml.trim());
+    const article = exactArticle(proposal, articles.filter((candidate) => candidate.title === title && candidate.body.trim() === bodyHtml.trim()));
     return article ? { kind: "applied", shopifyId: article.id, handle: article.handle } : { kind: "ambiguous" };
   }
 
@@ -62,7 +70,7 @@ export async function inspectPublishOutcome(proposal: ContentProposal): Promise<
     : resolveArticleHandle(proposal);
   if (!handle) return { kind: "ambiguous" };
   const articles = await readArticles(`handle:'${handle.replace(/'/g, "\\'")}'`);
-  const article = articles.find((candidate) => candidate.handle === handle);
+  const article = exactArticle(proposal, articles.filter((candidate) => candidate.handle === handle));
   if (!article) return { kind: "ambiguous" };
 
   if (proposal.proposalType === "seo-fix") {

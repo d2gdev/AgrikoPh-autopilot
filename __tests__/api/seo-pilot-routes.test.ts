@@ -66,8 +66,6 @@ const mockMaterializeJobsStatusSnapshot = vi.hoisted(() => vi.fn());
 const mockSyncTopicalMapStoreTasks = vi.hoisted(() => vi.fn());
 const mockCreateGovernedContentProposal = vi.hoisted(() => vi.fn());
 const mockGetLatestSnapshot = vi.hoisted(() => vi.fn());
-class MockStrategyChangedError extends Error {}
-
 vi.mock("@/lib/auth", () => ({
   PERMISSIONS: { CONTENT_REVIEW: "content:review" },
   requireAppAuth: mockAuth.requireAppAuth,
@@ -81,7 +79,6 @@ vi.mock("@/lib/seo/snapshot", () => ({ getLatestSnapshot: mockGetLatestSnapshot 
 vi.mock("@/lib/topical-map/compliance-store", () => ({
   createGovernedContentProposal: mockCreateGovernedContentProposal,
   createGovernedContentProposalInTransaction: mockCreateGovernedContentProposal,
-  StrategyChangedError: MockStrategyChangedError,
 }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock("@/lib/seo/data", () => mockSeoData);
@@ -112,11 +109,6 @@ function jsonRequest(path: string, body: Record<string, unknown>, method = "POST
 }
 
 const strategyIdentity = { strategyVersionId: "v3", packageSha256: "a".repeat(64) };
-function governedPromotionRequest(body: { gaps: Array<Record<string, unknown>> } & Record<string, unknown>) {
-  const capturedAt = new Date().toISOString();
-  return jsonRequest("/api/seo/gaps/promote", { ...strategyIdentity, ...body, gaps: body.gaps.map(gap => ({ priority: "high", mapEvidence: Array.isArray(gap.ruleIds) && gap.ruleIds.includes("rule:black") ? "Refresh using current search performance." : null, observedEvidence: [], observation: { source: gap.kind === "link" ? "link_inspection" : "store", capturedAt, provenance: gap.kind === "link" ? "ArticleRecord.linksData:/blogs/news/source" : "ArticleRecord:absence:/blogs/news/mapped" }, ...gap })) });
-}
-
 describe("SEO Pilot route regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -142,8 +134,8 @@ describe("SEO Pilot route regressions", () => {
         ["rule:mapped", "/blogs/news/mapped", "create"], ["rule:black", "/blogs/news/black-rice-benefits", "update"],
         ["rule:ghost", "/blogs/news/ghost-handle", "update"], ["rule:target", "/blogs/news/target-article", "update"],
         ["rule:collection", "/collections/black-rice", "update"],
-      ].map(([ruleId, currentUrl, decision]) => ({ ruleId, ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl, decision, priority: "high", ...(ruleId === "rule:mapped" ? { title: "Active Map Article Title" } : {}), ...(ruleId === "rule:black" ? { title: "Active Black Rice Map Title", evidence: "Refresh using current search performance." } : {}) }, sourceReferences: [] } })),
-        { ruleId: "rule:link", ruleType: "internal_links", sourceArtifactId: "internal-links", compiledPayload: { payload: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", currentBodyState: "absent", requiredAction: "add", recommendedAnchor: "mapped topic", linkPurpose: "supporting context", priority: "high" }, sourceReferences: [] } },
+      ].map(([ruleId, currentUrl, decision]) => ({ ruleId, ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl, decision, priority: "high", primaryKeywordOrTheme: ruleId === "rule:mapped" ? "mapped topic" : "black rice benefits", secondaryVariants: "variant one; variant two", contentKind: "article", publishingState: "published", exactTargetIfAny: currentUrl, ...(ruleId === "rule:mapped" ? { title: "Active Map Article Title" } : {}), ...(ruleId === "rule:black" ? { title: "Active Black Rice Map Title", evidence: "Refresh using current search performance." } : {}) }, sourceReferences: [], resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } })),
+        { ruleId: "rule:link", ruleType: "internal_links", sourceArtifactId: "internal-links", compiledPayload: { payload: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", currentBodyState: "absent", requiredAction: "add", recommendedAnchor: "mapped topic", linkPurpose: "supporting context", priority: "high", verification: "Exact href is present" }, sourceReferences: [], resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } },
       ],
     } });
     mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
@@ -278,8 +270,8 @@ describe("SEO Pilot route regressions", () => {
   it("uses exact blogHandle plus handle identity for recipe analysis", async () => {
     const active = await mockPrisma.topicalMapActivation.findUnique();
     const exactRules = [
-      { ruleId: "rule:news-shared", ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: "/blogs/news/shared", decision: "update", priority: "high" }, sourceReferences: [] } },
-      { ruleId: "rule:recipe", ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: "/blogs/recipes/shared", decision: "update", priority: "high" }, sourceReferences: [] } },
+      { ruleId: "rule:news-shared", ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: "/blogs/news/shared", decision: "update", priority: "high" }, sourceReferences: [], resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } },
+      { ruleId: "rule:recipe", ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: "/blogs/recipes/shared", decision: "update", priority: "high" }, sourceReferences: [], resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } },
     ];
     mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { ...active.strategyVersion, compiledRules: [...active.strategyVersion.compiledRules, ...exactRules] } });
     const capturedAt = new Date();
@@ -320,7 +312,7 @@ describe("SEO Pilot route regressions", () => {
       ...active.strategyVersion,
       compiledRules: [
         ...active.strategyVersion.compiledRules.filter((rule: { ruleId: string }) => rule.ruleId !== "rule:collection"),
-        { ruleId: "rule:product", ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: "/products/pure-ginger", decision: "update", priority: "high" }, sourceReferences: [] } },
+        { ruleId: "rule:product", ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: "/products/pure-ginger", decision: "update", priority: "high" }, sourceReferences: [], resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } },
       ],
     } });
     const capturedAt = new Date();
@@ -450,15 +442,17 @@ describe("SEO Pilot route regressions", () => {
     expect(mockSeoData.getLatestGscData).toHaveBeenCalled();
   });
 
-  it("rejects malformed content-gap promotions before DB writes", async () => {
+  it("retires body-authored topical-map promotion after authentication and permission checks", async () => {
     const { POST } = await import("@/app/api/seo/gaps/promote/route");
 
     const res = await POST(jsonRequest("/api/seo/gaps/promote", {
       gaps: [{ query: "x", suggestedTitle: "short" }],
     }));
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
+    expect(await res.json()).toEqual({ error: "This endpoint is retired. Use persisted candidate selection.", code: "ENDPOINT_RETIRED" });
     expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
   });
 
   it("creates selected persisted candidates independently and returns exact per-candidate outcomes", async () => {
@@ -489,17 +483,84 @@ describe("SEO Pilot route regressions", () => {
     expect(mockCreateGovernedContentProposal.mock.calls[0]![1].data).toMatchObject({
       title: "Active Map Article Title",
       proposedState: { title: "Active Map Article Title", targetKeyword: "mapped topic", targetUrl: "/blogs/news/mapped" },
-      sourceData: { query: "mapped topic", currentArticleTitle: null },
+      sourceData: {
+        mapTitle: "Active Map Article Title", targetKeyword: "mapped topic", targetUrl: "/blogs/news/mapped", currentArticleTitle: null,
+        mapDecision: "create", originalPriority: "high", secondaryVariants: "variant one; variant two", contentKind: "article",
+        publishingState: "published", exactTargetIfAny: "/blogs/news/mapped", resolutionStatus: "resolved",
+        observation: { capturedAt, provenance: "ArticleRecord:absence:/blogs/news/mapped" },
+      },
     });
     expect(mockCreateGovernedContentProposal.mock.calls[1]![1].data).toMatchObject({
       title: "Refresh content: Active Black Rice Map Title",
       proposedState: { articleTitle: "Active Black Rice Map Title", targetUrl: "/blogs/news/black-rice-benefits" },
-      sourceData: { query: "black rice benefits", currentArticleTitle: "Black Rice Benefits" },
+      sourceData: { mapTitle: "Active Black Rice Map Title", targetKeyword: "black rice benefits", targetUrl: "/blogs/news/black-rice-benefits", currentArticleTitle: "Black Rice Benefits", mapDecision: "update", mapEvidence: "Refresh using current search performance.", originalPriority: "high", resolutionStatus: "resolved", observation: { capturedAt, provenance: "ArticleRecord:news/black-rice-benefits" } },
     });
 
     const staleAnalysis = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: "2026-01-01T00:00:00.000Z", candidateIds: [createGap.candidateId] }));
     expect(staleAnalysis.status).toBe(409);
     expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("revalidates rule status and rejects a persisted manual-gate candidate", async () => {
+    const capturedAt = new Date().toISOString();
+    const input = { ...strategyIdentity, kind: "content" as const, state: "candidate" as const, action: "create" as const, ruleIds: ["rule:mapped"], query: "mapped topic", suggestedTitle: "Mapped topic guide", page: "/blogs/news/mapped", priority: "high", mapEvidence: null, observedEvidence: [], observation: { source: "store" as const, capturedAt, provenance: "ArticleRecord:absence:/blogs/news/mapped" } };
+    const gap = { ...input, candidateId: mapCandidateId(input) };
+    const activation = await mockPrisma.topicalMapActivation.findUnique();
+    activation.strategyVersion.compiledRules[0].compiledPayload.resolutionStatus = "manual_gate";
+    mockPrisma.topicalMapActivation.findUnique.mockResolvedValue(activation);
+    mockGetLatestSnapshot.mockResolvedValue({ payload: { schemaVersion: "2", strategy: { versionId: "v3", packageSha256: strategyIdentity.packageSha256 }, generatedAt: capturedAt, analysis: { gaps: [gap], observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: capturedAt, linkCapturedAt: null, requiredObservationFamilies: ["store"], storeInspection: { required: 1, inspected: 1 }, linkInspection: { required: 0, inspected: 0 }, maxAgeHours: 72 } }, fetchedAt: new Date(capturedAt) });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue(null);
+    const { POST } = await import("@/app/api/seo/gaps/promote-selected/route");
+
+    const response = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: capturedAt, candidateIds: [gap.candidateId] }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ results: [{ candidateId: gap.candidateId, status: "stale_or_blocked" }] });
+    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["P0", "P1"],
+    ["P1", "P1"],
+    ["P2", "P2"],
+    ["P3", "P3"],
+  ])("persists map priority %s in operational band %s", async (mapPriority, proposalPriority) => {
+    const capturedAt = new Date().toISOString();
+    const input = { ...strategyIdentity, kind: "content" as const, state: "candidate" as const, action: "create" as const, ruleIds: ["rule:mapped"], query: "mapped topic", suggestedTitle: "Mapped topic guide", page: "/blogs/news/mapped", priority: mapPriority === "P0" ? "P3" : mapPriority, mapEvidence: null, observedEvidence: [], observation: { source: "store" as const, capturedAt, provenance: "ArticleRecord:absence:/blogs/news/mapped" } };
+    const gap = { ...input, candidateId: mapCandidateId(input) };
+    const activation = await mockPrisma.topicalMapActivation.findUnique();
+    activation.strategyVersion.compiledRules[0].compiledPayload.payload.priority = mapPriority;
+    mockPrisma.topicalMapActivation.findUnique.mockResolvedValue(activation);
+    mockGetLatestSnapshot.mockResolvedValue({ payload: { schemaVersion: "2", strategy: { versionId: "v3", packageSha256: strategyIdentity.packageSha256 }, generatedAt: capturedAt, analysis: { gaps: [gap], observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: capturedAt, linkCapturedAt: null, requiredObservationFamilies: ["store"], storeInspection: { required: 1, inspected: 1 }, linkInspection: { required: 0, inspected: 0 }, maxAgeHours: 72 } }, fetchedAt: new Date(capturedAt) });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue(null);
+    const { POST } = await import("@/app/api/seo/gaps/promote-selected/route");
+
+    const response = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: capturedAt, candidateIds: [gap.candidateId] }));
+
+    expect(response.status).toBe(200);
+    expect(mockCreateGovernedContentProposal.mock.calls[0]![1].data).toMatchObject({
+      priority: proposalPriority,
+      sourceData: { originalPriority: mapPriority },
+    });
+  });
+
+  it("persists exact internal-link review context from the active map", async () => {
+    const capturedAt = new Date().toISOString();
+    const input = { ...strategyIdentity, kind: "link" as const, state: "candidate" as const, action: "update" as const, ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add exact link", page: "/blogs/news/source", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", priority: "P3", mapEvidence: null, observedEvidence: [], observation: { source: "link_inspection" as const, capturedAt, provenance: "ArticleRecord.linksData:/blogs/news/source" } };
+    const gap = { ...input, candidateId: mapCandidateId(input) };
+    mockGetLatestSnapshot.mockResolvedValue({ payload: { schemaVersion: "2", strategy: { versionId: "v3", packageSha256: strategyIdentity.packageSha256 }, generatedAt: capturedAt, analysis: { gaps: [gap], observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: null, linkCapturedAt: capturedAt, requiredObservationFamilies: ["link_inspection"], storeInspection: { required: 0, inspected: 0 }, linkInspection: { required: 1, inspected: 1 }, maxAgeHours: 72 } }, fetchedAt: new Date(capturedAt) });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue({ updatedAt: new Date(capturedAt), linksData: { internal: [] } });
+    mockCreateGovernedContentProposal.mockResolvedValue({ created: true, proposal: { id: "link-proposal" }, compliance: { result: "compliant" } });
+    const { POST } = await import("@/app/api/seo/gaps/promote-selected/route");
+
+    const response = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: capturedAt, candidateIds: [gap.candidateId] }));
+
+    expect(response.status).toBe(200);
+    expect(mockCreateGovernedContentProposal.mock.calls[0]![1].data).toMatchObject({
+      priority: "P1",
+      proposedState: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", suggestedAnchorText: "mapped topic" },
+      sourceData: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", recommendedAnchor: "mapped topic", currentBodyState: "absent", linkPurpose: "supporting context", requiredAction: "add", verification: "Exact href is present", originalPriority: "high", resolutionStatus: "resolved", observation: { capturedAt, provenance: "ArticleRecord.linksData:/blogs/news/source" }, ruleIds: ["rule:link"], strategyVersionId: "v3" },
+    });
   });
 
   it("bounds selected candidate requests at 100 IDs before database work", async () => {
@@ -516,7 +577,7 @@ describe("SEO Pilot route regressions", () => {
       return { ...input, candidateId: mapCandidateId(input) };
     });
     const active = await mockPrisma.topicalMapActivation.findUnique();
-    mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { ...active.strategyVersion, compiledRules: gaps.map((gap) => ({ ruleId: gap.ruleIds[0], ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: gap.page, decision: "create", priority: "high" }, sourceReferences: [] } })) } });
+    mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { ...active.strategyVersion, compiledRules: gaps.map((gap) => ({ ruleId: gap.ruleIds[0], ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: gap.page, decision: "create", priority: "high" }, sourceReferences: [], resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } })) } });
     mockGetLatestSnapshot.mockResolvedValue({ payload: { schemaVersion: "2", strategy: { versionId: "v3", packageSha256: strategyIdentity.packageSha256 }, generatedAt: capturedAt, analysis: { gaps, observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: capturedAt, linkCapturedAt: null, requiredObservationFamilies: ["store"], storeInspection: { required: 92, inspected: 92 }, linkInspection: { required: 0, inspected: 0 }, maxAgeHours: 72 } }, fetchedAt: new Date(capturedAt) });
     mockPrisma.articleRecord.findFirst.mockResolvedValue(null);
     mockCreateGovernedContentProposal.mockResolvedValue({ created: false, proposal: { id: "existing" }, compliance: { result: "compliant" } }).mockResolvedValueOnce({ created: true, proposal: { id: "created-first" }, compliance: { result: "compliant" } });
@@ -532,97 +593,6 @@ describe("SEO Pilot route regressions", () => {
     const retry = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: capturedAt, candidateIds: gaps.map(gap => gap.candidateId) }));
     expect((await retry.json()).counts).toEqual({ created: 0, already_existing: 92, stale_or_blocked: 0, failed: 0 });
     expect(mockPrisma.$transaction).toHaveBeenCalledTimes(184);
-  });
-
-  it("rejects promotion when the submitted strategy identity is stale", async () => {
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-    const res = await POST(governedPromotionRequest({
-      strategyVersionId: "stale-version",
-      gaps: [{ ...strategyIdentity, strategyVersionId: "stale-version", kind: "content", state: "candidate", action: "create", ruleIds: ["rule:mapped"], query: "mapped topic", suggestedTitle: "Mapped topic guide", page: "/blogs/news/mapped" }],
-    }));
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual(expect.objectContaining({ code: "STRATEGY_CHANGED" }));
-    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
-  });
-
-  it("rejects an active but unrelated rule for the submitted candidate", async () => {
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-    const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "content", state: "candidate", action: "create", ruleIds: ["rule:black"], query: "mapped topic", suggestedTitle: "Mapped topic guide", page: "/blogs/news/mapped" }] }));
-    expect(res.status).toBe(409);
-    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
-  });
-
-  it("promotes an exact existing mapped refresh candidate as governed content refresh", async () => {
-    const indexedAt = new Date();
-    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 400, updatedAt: indexedAt }]);
-    mockPrisma.contentProposal.create.mockResolvedValue({ id: "refresh-1", title: "Refresh content: Black Rice Benefits" });
-    mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "black rice benefits", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], pages: [], queryPagePairs: [{ query: "black rice benefits", page: "/blogs/news/black-rice-benefits", clicks: 4, impressions: 120, position: "9" }], fetchedAt: new Date(), source: "normalized", window: null });
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-    const gap = { ...strategyIdentity, kind: "content", state: "candidate", action: "refresh", ruleIds: ["rule:black"], query: "black rice benefits", suggestedTitle: "Black Rice Benefits", page: "/blogs/news/black-rice-benefits", priority: "high", mapEvidence: "Refresh using current search performance.", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }], observation: { source: "store", capturedAt: indexedAt.toISOString(), provenance: "ArticleRecord:black-rice-benefits" } };
-    const res = await POST(governedPromotionRequest({ gaps: [gap] }));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(expect.objectContaining({ created: 1 }));
-    expect(mockCreateGovernedContentProposal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ data: expect.objectContaining({ proposalType: "content-refresh", articleHandle: "black-rice-benefits", title: "Refresh content: Black Rice Benefits", description: expect.stringContaining("update"), proposedState: { action: "refresh", articleHandle: "black-rice-benefits", articleTitle: "Black Rice Benefits", targetUrl: "/blogs/news/black-rice-benefits", mapDecision: "update", mapEvidence: "Refresh using current search performance.", priority: "high", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] }, sourceData: expect.objectContaining({ strategyVersionId: "v3", ruleIds: ["rule:black"], mapDecision: "update", mapEvidence: "Refresh using current search performance.", observedEvidence: [{ query: "black rice benefits", impressions: 120, position: 9 }] }) }), candidate: { type: "content", action: "update", targetUrl: "/blogs/news/black-rice-benefits" } }));
-    const persisted = mockCreateGovernedContentProposal.mock.calls[0]?.[1]?.data;
-    expect(JSON.stringify(persisted)).not.toMatch(/thin/i);
-    expect(persisted?.proposedState).not.toHaveProperty("targetWordCount");
-  });
-
-  it("rejects client-authored map evidence that differs from the active projection", async () => {
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-    const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "content", state: "candidate", action: "refresh", ruleIds: ["rule:black"], query: "black rice benefits", suggestedTitle: "Black Rice Benefits", page: "/blogs/news/black-rice-benefits", priority: "high", mapEvidence: "Altered by client", observedEvidence: [] }] }));
-    expect(res.status).toBe(409);
-    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
-  });
-
-  it("maps a transaction-time strategy change to STRATEGY_CHANGED", async () => {
-    mockPrisma.articleRecord.findMany.mockResolvedValue([]);
-    mockCreateGovernedContentProposal.mockRejectedValueOnce(new MockStrategyChangedError());
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-    const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "content", state: "candidate", action: "create", ruleIds: ["rule:mapped"], query: "mapped topic", suggestedTitle: "Mapped topic guide", page: "/blogs/news/mapped" }] }));
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual(expect.objectContaining({ code: "STRATEGY_CHANGED" }));
-    expect(mockCreateGovernedContentProposal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ expectedStrategy: { versionId: "v3", packageSha256: "a".repeat(64) } }));
-  });
-
-  it("promotes a required internal link through the governed internal_link candidate", async () => {
-    const indexedAt = new Date();
-    mockPrisma.articleRecord.findUnique.mockResolvedValue({ updatedAt: indexedAt, linksData: { internal: [] } });
-    mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-link", title: "Add internal link from source to mapped" });
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-    const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "link", state: "candidate", action: "update", ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add internal link from source to mapped", type: "internal-link", page: "/blogs/news/source", fromUrl: "/blogs/news/source/../source", toUrl: "/blogs/news/mapped", observation: { source: "link_inspection", capturedAt: indexedAt.toISOString(), provenance: "ArticleRecord.linksData:/blogs/news/source" } }] }));
-    expect(res.status).toBe(200);
-    expect(mockCreateGovernedContentProposal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      candidate: { type: "internal_link", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped" },
-      data: expect.objectContaining({ proposalType: "internal-link", changeType: "internal_link", sourceData: expect.objectContaining({ ruleIds: ["rule:link"], strategyVersionId: "v3" }) }),
-    }));
-    expect(await res.json()).toEqual(expect.objectContaining({ created: 1 }));
-  });
-
-  it("rejects a create candidate when the page now exists inside the proposal transaction", async () => {
-    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "mapped", title: "Mapped topic guide", wordCount: 400, updatedAt: new Date() }]);
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-    const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "content", state: "candidate", action: "create", ruleIds: ["rule:mapped"], query: "mapped topic", suggestedTitle: "Mapped topic guide", page: "/blogs/news/mapped" }] }));
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual(expect.objectContaining({ code: "OBSERVATION_CHANGED" }));
-    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
-  });
-
-  it("rejects a link candidate when its exact inspected source changed or now contains the target", async () => {
-    const capturedAt = new Date();
-    mockPrisma.articleRecord.findUnique.mockResolvedValue({ updatedAt: capturedAt, linksData: { internal: [{ href: "/blogs/news/mapped" }] } });
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-    const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "link", state: "candidate", action: "update", ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add internal link from source to mapped", type: "internal-link", page: "/blogs/news/source", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", observation: { source: "link_inspection", capturedAt: capturedAt.toISOString(), provenance: "ArticleRecord.linksData:/blogs/news/source" } }] }));
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual(expect.objectContaining({ code: "OBSERVATION_CHANGED" }));
-    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
-  });
-
-  it("rejects an internal-link gap without its exact source and target", async () => {
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-    const res = await POST(governedPromotionRequest({ gaps: [{ ...strategyIdentity, kind: "link", state: "candidate", action: "update", ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add internal link from source to mapped", type: "internal-link", page: "/blogs/news/source", fromUrl: "/blogs/news/source" }] }));
-    expect(res.status).toBe(409);
-    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
   });
 
   it("does not report already-covered GSC queries as new content gaps", async () => {
@@ -797,99 +767,6 @@ describe("SEO Pilot route regressions", () => {
     }));
   });
 
-  it("promotes analyzed missing-meta gaps as seo-fix proposals", async () => {
-    mockSeoData.getLatestGscData.mockResolvedValue({
-      queries: [{ query: "black rice", clicks: 1, impressions: 200, ctr: "0.5%", position: "8.0" }],
-      pages: [],
-      queryPagePairs: [],
-      fetchedAt: new Date("2026-06-01T00:00:00Z"),
-      source: "normalized",
-      window: null,
-    });
-    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 760 }]);
-    mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-3", title: "Improve SERP snippet: Black Rice Benefits" });
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-
-    const res = await POST(governedPromotionRequest({
-      gaps: [{
-        ...strategyIdentity, kind: "content", state: "candidate", action: "update", ruleIds: ["rule:black"], page: "/blogs/news/black-rice-benefits",
-        query: "black rice",
-        impressions: 200,
-        position: 8,
-        suggestedTitle: "Client Supplied Title",
-        issue: "missing-meta",
-        articleHandle: "black-rice-benefits",
-        observedEvidence: [{ query: "black rice", impressions: 200, position: 8 }],
-      }],
-    }));
-
-    expect(res.status).toBe(200);
-    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        proposalType: "seo-fix",
-        articleHandle: "black-rice-benefits",
-        title: "Improve SERP snippet: Black Rice Benefits",
-        proposedState: expect.objectContaining({
-          targetQuery: "black rice",
-          articleHandle: "black-rice-benefits",
-        }),
-      }),
-    });
-  });
-
-
-  it("does not promote client-supplied SEO fix handles that do not exist server-side", async () => {
-    mockPrisma.articleRecord.findMany.mockResolvedValue([]);
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-
-    const res = await POST(governedPromotionRequest({
-      gaps: [{
-        ...strategyIdentity, kind: "content", state: "candidate", action: "update", ruleIds: ["rule:ghost"], page: "/blogs/news/ghost-handle",
-        query: "black rice",
-        impressions: 200,
-        position: 8,
-        suggestedTitle: "Black Rice Benefits",
-        issue: "missing-meta",
-        articleHandle: "ghost-handle",
-      }],
-    }));
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body).toEqual(expect.objectContaining({
-      created: 0,
-      skipped: 1,
-      skippedReasons: expect.objectContaining({ missingArticle: 1 }),
-    }));
-    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
-  });
-
-  it("promotes existing blog-page CTR opportunities as seo-fix proposals", async () => {
-    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 760 }]);
-    mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-4", title: "Improve SERP snippet: Black Rice: A Complete Guide" });
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-
-    const res = await POST(governedPromotionRequest({
-      gaps: [{
-        ...strategyIdentity, kind: "content", state: "candidate", action: "update", ruleIds: ["rule:black"],
-        query: "black rice",
-        impressions: 300,
-        position: 6,
-        suggestedTitle: "Black Rice: A Complete Guide",
-        type: "low_ctr",
-        page: "/blogs/news/black-rice-benefits",
-      }],
-    }));
-
-    expect(res.status).toBe(200);
-    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        proposalType: "seo-fix",
-        articleHandle: "black-rice-benefits",
-      }),
-    });
-  });
-
   it("retains landing-page attribution when the matching pair is beyond the display limit", async () => {
     const filler = Array.from({ length: 50 }, (_, index) => ({
       query: `filler ${index}`,
@@ -973,34 +850,6 @@ describe("SEO Pilot route regressions", () => {
     expect((await summary.json()).gscFreshness).toEqual(JSON.parse(JSON.stringify(freshness)));
     expect((await full.json()).gscFreshness).toEqual(JSON.parse(JSON.stringify(freshness)));
   });
-
-  it("promotes mapped striking-distance work as an expandable content refresh", async () => {
-    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "target-article", title: "Target Article", wordCount: 760 }]);
-    mockPrisma.contentProposal.create.mockResolvedValue({ id: "proposal-5", title: "Expand thin content: Target Article" });
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-
-    const res = await POST(governedPromotionRequest({
-      gaps: [{
-        ...strategyIdentity, kind: "content", state: "candidate", action: "update", ruleIds: ["rule:target"],
-        query: "target query",
-        impressions: 300,
-        position: 12,
-        suggestedTitle: "Target Article",
-        type: "striking_distance",
-        page: "/blogs/news/target-article",
-      }],
-    }));
-
-    expect(res.status).toBe(200);
-    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        proposalType: "content-refresh",
-        articleHandle: "target-article",
-        proposedState: expect.objectContaining({ action: "expand" }),
-      }),
-    });
-  });
-
 
   it("keeps raw search opportunities observational after the governed-map cutover", () => {
     const pageSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/page.tsx", "utf8");
@@ -1208,31 +1057,6 @@ describe("SEO Pilot route regressions", () => {
     expect(mockChatCompletion).not.toHaveBeenCalled();
   });
 
-
-  it("skips existing non-blog page opportunities instead of creating new articles", async () => {
-    const { POST } = await import("@/app/api/seo/gaps/promote/route");
-
-    const res = await POST(governedPromotionRequest({
-      gaps: [{
-        ...strategyIdentity, kind: "content", state: "candidate", action: "update", ruleIds: ["rule:collection"],
-        query: "black rice",
-        impressions: 300,
-        position: 6,
-        suggestedTitle: "Black Rice Product Page",
-        type: "low_ctr",
-        page: "/collections/black-rice",
-      }],
-    }));
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body).toEqual(expect.objectContaining({
-      created: 0,
-      skipped: 1,
-      skippedReasons: expect.objectContaining({ nonBlogExistingPage: 1 }),
-    }));
-    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
-  });
 
   it("bulk-decomposes stale missing-meta records using analyze-compatible meta signals", async () => {
     mockPrisma.articleRecord.findMany.mockResolvedValue([

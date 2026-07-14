@@ -2,7 +2,10 @@ import { ALL_TOPICAL_MAP_DOMAINS, projectTopicalMapCommandCenter, type Projectio
 import { describe, expect, it } from "vitest";
 
 const ref = (coverageUnitId: string) => ({ coverageUnitId, artifactId: "map", locator: { kind: "markdown_heading", headingPath: ["Map"], contentFingerprint: "fingerprint", lineStart: 1, lineEnd: 1 } });
-const rule = (ruleId: string, ruleType: string, payload: Record<string, unknown>, sourceArtifactId = "map"): ProjectionRule => ({ ruleId, ruleType, payload: { ...payload, rawContent: "SECRET" }, sourceArtifactId, sourceReferences: [ref(`coverage:${ruleId}`)] });
+const rule = (ruleId: string, ruleType: string, payload: Record<string, unknown>, sourceArtifactId = "map", policy: Partial<ProjectionRule> = {}): ProjectionRule => ({
+  ruleId, ruleType, payload: { ...payload, rawContent: "SECRET" }, sourceArtifactId, sourceReferences: [ref(`coverage:${ruleId}`)],
+  resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [], ...policy,
+});
 
 describe("projectTopicalMapCommandCenter", () => {
   it("projects all compiled domains into a bounded deterministic operator model", () => {
@@ -11,13 +14,18 @@ describe("projectTopicalMapCommandCenter", () => {
       rule("rule:cluster:1", "clusters", { cluster: "Black rice", memberUrls: [url] }),
       rule("rule:role:1", "page_roles", { currentUrl: url, cluster: "Black rice", role: "supporting", priority: "high" }),
       rule("rule:owner:1", "url_intent_ownership", { currentUrl: "/blogs/news/black-rice", primaryKeywordOrTheme: "black rice", dominantIntent: "informational", exclusiveIntentScope: "black rice education", priority: "high" }),
-      rule("rule:decision:1", "content_decisions", { currentUrl: url, title: "Black Rice Growing Guide", decision: "keep", exactTargetIfAny: "", priority: "high", evidence: "Traffic supported" }),
+      rule("rule:decision:1", "content_decisions", { currentUrl: url, proposedCanonicalUrl: url, title: "Black Rice Growing Guide", contentKind: "news article", publishingState: "published", secondaryVariants: "forbidden rice; purple rice", decision: "keep", exactTargetIfAny: "", priority: "high", evidence: "Traffic supported" }, "map", {
+        resolutionStatus: "manual_gate",
+        reviewRequirements: [{ kind: "source_required_manual_review", text: "Nutrition review required", sourceReferenceIds: ["coverage:review"] }],
+      }),
       rule("rule:prohibited:1", "prohibited_content", { currentUrl: url, decision: "prohibit", exactTargetIfAny: "medical claims", priority: "critical", evidence: "Unsafe" }),
       rule("rule:link:1", "internal_links", { fromUrl: url, toUrl: "/collections/rice", currentBodyState: "missing", requiredAction: "add", recommendedAnchor: "rice", linkPurpose: "commercial path", priority: "high", verification: "inspect" }, "internal-links"),
       rule("rule:redirect:1", "redirects", { redirectId: "r1", source: "/old", configuredTarget: "/blogs/news/black-rice", finalTarget: url, hopCount: "1", topicRelevant: "yes", knownState: "configured", requiredAction: "retain", priority: "high", evidence: "verified" }, "redirect-inventory"),
       rule("rule:canonical:1", "canonicalization", { currentUrl: url, proposedCanonicalUrl: "/blogs/news/black-rice", priority: "medium", decision: "review", evidence: "read only" }),
       rule("rule:index:1", "indexation", { currentUrl: url, proposedCanonicalUrl: "/blogs/news/black-rice", publishingState: "published", priority: "medium", decision: "index", evidence: "read only" }),
-      rule("rule:evidence:1", "evidence_gates", { name: "Fresh SERP evidence", literalText: "Evidence must be current" }, "evidence"),
+      rule("rule:evidence:1", "evidence_gates", { name: "Fresh SERP evidence", literalText: "Evidence must be current" }, "evidence", {
+        phaseGate: { governedAdvisoryAction: "measurement advisory review", reviewRequired: true, executionProhibited: true, blocksOnlyGovernedAction: true, defaultSatisfied: false, sourceConditions: ["raw condition"] } as any,
+      }),
       rule("rule:review:1", "high_stakes_reviews", { name: "Medical review", literalText: "Manual review required" }, "evidence"),
     ];
     const projected = projectTopicalMapCommandCenter({ strategy: { id: "v3", strategyVersion: "2026-07-12", contractRevision: "3", packageSha256: "abc", activatedAt: new Date("2026-07-12T00:00:00Z") }, rules });
@@ -26,17 +34,30 @@ describe("projectTopicalMapCommandCenter", () => {
     expect(Object.keys(projected.domainCounts).sort()).toEqual(ALL_TOPICAL_MAP_DOMAINS.slice().sort());
     expect(Object.values(projected.domainCounts)).toEqual(expect.arrayContaining(Array(11).fill(1)));
     expect(projected.clusters[0]).toMatchObject({ name: "Black rice", memberUrls: ["/blogs/news/black-rice"], ruleIds: ["rule:cluster:1"] });
-    expect(projected.pages[0]).toMatchObject({ url: "/blogs/news/black-rice", title: "Black Rice Growing Guide", primaryKeywordOrTheme: "black rice", cluster: "Black rice", role: "supporting", dominantIntent: "informational", decision: "keep", ruleIds: ["rule:decision:1", "rule:owner:1", "rule:role:1"], ruleDomains: { page_roles: ["rule:role:1"], url_intent_ownership: ["rule:owner:1"], content_decisions: ["rule:decision:1"] } });
+    expect(projected.pages[0]).toMatchObject({
+      url: "/blogs/news/black-rice", proposedCanonicalUrl: "/blogs/news/black-rice", title: "Black Rice Growing Guide", contentKind: "news article", publishingState: "published", secondaryVariants: "forbidden rice; purple rice", primaryKeywordOrTheme: "black rice", cluster: "Black rice", role: "supporting", dominantIntent: "informational", decision: "keep",
+      ruleIds: ["rule:decision:1", "rule:owner:1", "rule:role:1"], ruleDomains: { page_roles: ["rule:role:1"], url_intent_ownership: ["rule:owner:1"], content_decisions: ["rule:decision:1"] },
+      contentDecisionPolicy: { resolutionStatus: "manual_gate", conditions: [], evidenceRequirements: [], reviewRequirements: [{ kind: "source_required_manual_review", text: "Nutrition review required", sourceReferenceIds: ["coverage:review"] }] },
+    });
     expect(projected.prohibited[0]).toMatchObject({ url: "/blogs/news/black-rice", item: "medical claims", ruleIds: ["rule:prohibited:1"] });
     expect(projected.work.internalLinks[0]).toMatchObject({ fromUrl: "/blogs/news/black-rice", toUrl: "/collections/rice", ruleIds: ["rule:link:1"] });
-    expect(projected.work.redirects[0]).toMatchObject({ ruleIds: ["rule:redirect:1"], priority: "high", evidence: "verified" });
+    expect(projected.work.redirects[0]).toMatchObject({ ruleIds: ["rule:redirect:1"], priority: "high", evidence: "verified", policy: { resolutionStatus: "resolved" } });
     expect(projected.work.canonicalization[0]!.ruleIds).toEqual(["rule:canonical:1"]);
     expect(projected.work.indexation[0]!.ruleIds).toEqual(["rule:index:1"]);
-    expect(projected.blockers.evidence[0]).toMatchObject({ name: "Fresh SERP evidence", ruleIds: ["rule:evidence:1"] });
-    expect(projected.blockers.reviews[0]).toMatchObject({ name: "Medical review", ruleIds: ["rule:review:1"] });
+    expect(projected.blockers.evidence[0]).toMatchObject({ name: "Fresh SERP evidence", ruleIds: ["rule:evidence:1"], phaseGate: { governedAdvisoryAction: "measurement advisory review", reviewRequired: true, executionProhibited: true, blocksOnlyGovernedAction: true } });
+    expect(projected.blockers.evidence[0]?.phaseGate).not.toHaveProperty("sourceConditions");
+    expect(projected.blockers.evidence[0]?.phaseGate).not.toHaveProperty("defaultSatisfied");
+    expect(projected.blockers.reviews[0]).toMatchObject({ name: "Medical review", ruleIds: ["rule:review:1"], policy: { resolutionStatus: "resolved" } });
     expect(projected.provenance["rule:link:1"]).toMatchObject({ sourceArtifactId: "internal-links", sourceReferences: [expect.objectContaining({ coverageUnitId: "coverage:rule:link:1" })] });
     expect(JSON.stringify(projected)).not.toContain("rawContent");
     expect(JSON.stringify(projected)).not.toContain("SECRET");
+  });
+
+  it("projects bounded schedule authority without exposing the compiled rule", () => {
+    const projected = projectTopicalMapCommandCenter({ strategy: { id: "v", strategyVersion: "1", contractRevision: "3", packageSha256: "x", activatedAt: null }, rules: [rule("rule:schedule", "evidence_gates", { name: "Schedule obligation", literalText: "Review after 14 days" }, "map", {
+      scheduleAuthorityBoundary: { operationMode: "proposal_only", executionProhibited: true, elapsedTimeAuthorizesAction: false, satisfactionCanTriggerMutation: false, independentSafeguardsRequired: true, absentEvidenceNonExecutable: true },
+    })] });
+    expect(projected.blockers.evidence[0]?.scheduleAuthorityBoundary).toEqual({ operationMode: "proposal_only", executionProhibited: true, elapsedTimeAuthorizesAction: false, satisfactionCanTriggerMutation: false, independentSafeguardsRequired: true, absentEvidenceNonExecutable: true });
   });
 
   it("rejects unknown compiled rule domains", () => {

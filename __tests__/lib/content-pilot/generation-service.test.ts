@@ -92,6 +92,59 @@ beforeEach(() => {
 });
 
 describe("generateProposalDraft", () => {
+  it("loads the exact blog article when different blogs share a handle", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({
+      proposalType: "content-refresh",
+      articleHandle: "shared",
+      proposedState: { targetUrl: "/blogs/recipes/shared", blogHandle: "recipes" },
+    }));
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockTx.contentProposal.updateMany.mockResolvedValueOnce({ count: 1 });
+    mockFetchArticles.mockResolvedValue([
+      { handle: "shared", blogHandle: "news", title: "News owner", bodyHtml: "<p>News</p>" },
+      { handle: "shared", blogHandle: "recipes", title: "Recipe owner", bodyHtml: "<p>Recipe</p>" },
+    ]);
+
+    const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result.kind).toBe("ready");
+    expect(mockGenerateDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ articleHandle: "shared" }),
+      expect.objectContaining({ handle: "shared", blogHandle: "recipes", title: "Recipe owner" }),
+    );
+  });
+
+  it("fails closed when the exact blog article is unavailable", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({
+      proposalType: "content-refresh",
+      articleHandle: "shared",
+      proposedState: { targetUrl: "/blogs/recipes/shared", blogHandle: "recipes" },
+    }));
+    mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
+    mockFetchArticles.mockResolvedValue([
+      { handle: "shared", blogHandle: "news", title: "News owner", bodyHtml: "<p>News</p>" },
+    ]);
+
+    const result = await generateProposalDraft({
+      prismaClient: mockPrisma,
+      proposalId: "proposal-1",
+      actor: "operator",
+      generateDraftImpl: mockGenerateDraft,
+      fetchBlogArticlesImpl: mockFetchArticles,
+      collectDraftCitationsImpl: mockCollectDraftCitations,
+    });
+
+    expect(result).toEqual({ kind: "failed", error: "Exact source article /blogs/recipes/shared is unavailable" });
+    expect(mockGenerateDraft).not.toHaveBeenCalled();
+  });
+
   it("claims a generation slot and finalizes only with matching token", async () => {
     mockPrisma.contentProposal.findUnique.mockResolvedValue(proposal({}));
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });

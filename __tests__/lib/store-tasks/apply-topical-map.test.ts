@@ -15,7 +15,7 @@ function db() {
   const tx = { recommendation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, storeTask: { update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, storeTaskExecutionLock: { deleteMany: vi.fn(), create: vi.fn() }, auditLog: { create: vi.fn() } };
   return { storeTask: { findUnique: vi.fn().mockResolvedValue(task) }, $transaction: vi.fn(async (fn) => fn(tx)), _tx: tx };
 }
-beforeEach(() => { vi.clearAllMocks(); adapter.fetch.mockReset(); adapter.apply.mockReset(); adapter.fetchRedirects.mockReset(); adapter.createRedirect.mockReset(); command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [{ url: "/products/rice", decision: "Improve SEO metadata", ruleDomains: { content_decisions: ["rule-1"] } }], work: { internalLinks: [], redirects: [] } }); adapter.fetch.mockResolvedValue(resource); adapter.apply.mockResolvedValue({ ...resource, seoTitle: "New", seoDescription: "New desc", stateHash: "c".repeat(64) }); adapter.fetchRedirects.mockResolvedValue(new Map()); });
+beforeEach(() => { vi.clearAllMocks(); adapter.fetch.mockReset(); adapter.apply.mockReset(); adapter.fetchRedirects.mockReset(); adapter.createRedirect.mockReset(); command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [{ url: "/products/rice", decision: "Improve SEO metadata", contentDecisionPolicy: { resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] }, ruleDomains: { content_decisions: ["rule-1"] } }], work: { internalLinks: [], redirects: [] } }); adapter.fetch.mockResolvedValue(resource); adapter.apply.mockResolvedValue({ ...resource, seoTitle: "New", seoDescription: "New desc", stateHash: "c".repeat(64) }); adapter.fetchRedirects.mockResolvedValue(new Map()); });
 afterEach(() => vi.unstubAllEnvs());
 
 describe("topical-map approval and internal dispatch", () => {
@@ -25,7 +25,7 @@ describe("topical-map approval and internal dispatch", () => {
     const redirectRec = { ...rec, proposedValue: JSON.stringify({ taskId: "task-1", approvedProposedStateHash: hashTopicalMapProposedState(redirectProposed) }) };
     const client = db();
     client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: redirectSource, proposedState: redirectProposed });
-    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [], redirects: [{ source: "/old", finalTarget: "/products/rice", ruleIds: ["redirect:1"] }] } });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [], redirects: [{ source: "/old", finalTarget: "/products/rice", ruleIds: ["redirect:1"], policy: { resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } }] } });
     adapter.createRedirect.mockResolvedValue({ id: "gid://shopify/UrlRedirect/1", source: "/old", target: "/products/rice", capturedAt: new Date(), stateHash: "e".repeat(64) });
 
     const receipt = await dispatchClaimedTopicalMapStoreTask(client as any, redirectRec as any);
@@ -41,10 +41,22 @@ describe("topical-map approval and internal dispatch", () => {
     const redirectRec = { ...rec, proposedValue: JSON.stringify({ taskId: "task-1", approvedProposedStateHash: hashTopicalMapProposedState(redirectProposed) }) };
     const client = db();
     client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: redirectSource, proposedState: redirectProposed });
-    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [], redirects: [{ source: "/old", finalTarget: "/products/rice", ruleIds: ["redirect:1"] }] } });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [], redirects: [{ source: "/old", finalTarget: "/products/rice", ruleIds: ["redirect:1"], policy: { resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } }] } });
     adapter.fetchRedirects.mockResolvedValue(new Map([["/old", { id: "existing", source: "/old", target: "/pages/conflict", capturedAt: new Date(), stateHash: "f".repeat(64) }]]));
 
     await expect(dispatchClaimedTopicalMapStoreTask(client as any, redirectRec as any)).rejects.toMatchObject({ code: "OBSERVATION_CHANGED" });
+    expect(adapter.createRedirect).not.toHaveBeenCalled();
+  });
+  it("blocks a previously approved redirect when its active rule is now manual-gated", async () => {
+    const redirectSource = { source: "topical-map", strategyVersionId: "v1", packageSha256: "a".repeat(64), ruleIds: ["redirect:1"], ruleDomains: ["redirects"], sourceReferences: [{ kind: "rule", id: "redirect:1" }], generationProvenance: "deterministic", targetType: "redirect", targetUrl: "/old", action: "redirect_create", redirectTarget: "/products/rice", observedAt: "2026-07-14T00:00:00.000Z", observedStateHash: "d".repeat(64), recommendationId: "rec-1", executable: true };
+    const redirectProposed = { action: "redirect_create", before: { state: "absent" }, after: { target: "/products/rice" } };
+    const redirectRec = { ...rec, proposedValue: JSON.stringify({ taskId: "task-1", approvedProposedStateHash: hashTopicalMapProposedState(redirectProposed) }) };
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: redirectSource, proposedState: redirectProposed });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [], redirects: [{ source: "/old", finalTarget: "/products/rice", ruleIds: ["redirect:1"], policy: { resolutionStatus: "manual_gate", conditions: [], evidenceRequirements: [], reviewRequirements: [] } }] } });
+
+    await expect(dispatchClaimedTopicalMapStoreTask(client as any, redirectRec as any)).rejects.toMatchObject({ code: "RULE_CHANGED" });
+    expect(adapter.fetchRedirects).not.toHaveBeenCalled();
     expect(adapter.createRedirect).not.toHaveBeenCalled();
   });
   it("reports an uncertain redirect result when create fails and exact reobservation is absent", async () => {
@@ -53,7 +65,7 @@ describe("topical-map approval and internal dispatch", () => {
     const redirectRec = { ...rec, proposedValue: JSON.stringify({ taskId: "task-1", approvedProposedStateHash: hashTopicalMapProposedState(redirectProposed) }) };
     const client = db();
     client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: redirectSource, proposedState: redirectProposed });
-    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [], redirects: [{ source: "/old", finalTarget: "/products/rice", ruleIds: ["redirect:1"] }] } });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [], redirects: [{ source: "/old", finalTarget: "/products/rice", ruleIds: ["redirect:1"], policy: { resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } }] } });
     adapter.fetchRedirects.mockResolvedValueOnce(new Map()).mockResolvedValueOnce(new Map());
     adapter.createRedirect.mockRejectedValue(new Error("transport outcome unknown\nsecret"));
 
@@ -72,6 +84,18 @@ describe("topical-map approval and internal dispatch", () => {
     const client = db(); client.storeTask.findUnique.mockResolvedValue({ ...task, proposedState: { ...proposed, after: { seoTitle: "Changed", seoDescription: "New desc" } } });
     await expect(dispatchClaimedTopicalMapStoreTask(client as any, rec as any)).rejects.toMatchObject({ code: "APPROVED_BYTES_CHANGED" });
     expect(client._tx.storeTaskExecutionLock.create).not.toHaveBeenCalled(); expect(adapter.apply).not.toHaveBeenCalled();
+  });
+  it("blocks a previously approved page update when its active rule is now manual-gated", async () => {
+    const client = db();
+    command.load.mockResolvedValue({
+      identity: { versionId: "v1", packageSha256: "a".repeat(64) },
+      pages: [{ url: "/products/rice", decision: "Improve SEO metadata", contentDecisionPolicy: { resolutionStatus: "manual_gate", conditions: [], evidenceRequirements: [], reviewRequirements: [] }, ruleDomains: { content_decisions: ["rule-1"] } }],
+      work: { internalLinks: [], redirects: [] },
+    });
+
+    await expect(dispatchClaimedTopicalMapStoreTask(client as any, rec as any)).rejects.toMatchObject({ code: "RULE_CHANGED" });
+    expect(adapter.fetch).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
   });
   it("returns only a minimal verified receipt and leaves terminal finalization to execute-approved", async () => {
     const client = db(); const receipt = await dispatchClaimedTopicalMapStoreTask(client as any, rec as any);
@@ -116,13 +140,26 @@ describe("topical-map approval and internal dispatch", () => {
     const client = db();
     client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: groupedSource, proposedState: groupedProposed });
     command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [
-      { fromUrl: "/collections/rice", toUrl: "/products/black-rice", recommendedAnchor: "black rice", ruleIds: ["link:black"] },
-      { fromUrl: "/collections/rice", toUrl: "/products/red-rice", recommendedAnchor: "red rice", ruleIds: ["link:red"] },
+      { fromUrl: "/collections/rice", toUrl: "/products/black-rice", recommendedAnchor: "black rice", requiredAction: "add exact link", ruleIds: ["link:black"], policy: { resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } },
+      { fromUrl: "/collections/rice", toUrl: "/products/red-rice", recommendedAnchor: "red rice", requiredAction: "ensure exact link", ruleIds: ["link:red"], policy: { resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } },
     ] } });
     adapter.fetch.mockResolvedValue(groupedResource);
     adapter.apply.mockResolvedValue({ ...groupedResource, bodyHtml, stateHash: "c".repeat(64) });
     await dispatchClaimedTopicalMapStoreTask(client as any, groupedRec as any);
     expect(adapter.apply).toHaveBeenCalledWith(groupedResource, { bodyHtml });
+  });
+  it("blocks a previously approved internal-link task when its active rule is now manual-gated", async () => {
+    const bodyHtml = '<p>Existing.</p><a href="/products/black-rice">black rice</a>';
+    const groupedSource = { ...source, targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", ruleDomains: ["internal_links"], ruleIds: ["link:black"], sourceReferences: [{ kind: "rule", id: "link:black" }], generationProvenance: "deterministic", links: [{ toUrl: "/products/black-rice", anchor: "black rice" }] };
+    const groupedProposed = { action: "internal_link", before: { bodyHtml: "<p>Existing.</p>" }, after: { bodyHtml } };
+    const groupedRec = { ...rec, proposedValue: JSON.stringify({ taskId: "task-1", approvedProposedStateHash: hashTopicalMapProposedState(groupedProposed) }) };
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: groupedSource, proposedState: groupedProposed });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { redirects: [], internalLinks: [{ fromUrl: "/collections/rice", toUrl: "/products/black-rice", recommendedAnchor: "black rice", requiredAction: "add exact link", ruleIds: ["link:black"], policy: { resolutionStatus: "manual_gate", conditions: [], evidenceRequirements: [], reviewRequirements: [] } }] } });
+
+    await expect(dispatchClaimedTopicalMapStoreTask(client as any, groupedRec as any)).rejects.toMatchObject({ code: "RULE_CHANGED" });
+    expect(adapter.fetch).not.toHaveBeenCalled();
+    expect(adapter.apply).not.toHaveBeenCalled();
   });
   it("reconciles Shopify HTML that differs only by inter-tag formatting", async () => {
     const bodyHtml = '<p>Existing.</p><section><h2>Explore More Red Rice Recipes</h2><ul><li><a href="/blogs/recipes/red-rice">Red Rice</a></li></ul></section>';

@@ -27,13 +27,13 @@ function active(rules: unknown[] = [], overrides: Record<string, unknown> = {}):
 function rule(input: Record<string, unknown>) {
   return {
     ruleId: "rule-1", contractRuleId: "contract-rule-1", strategyVersion: "2026-07-12", packageSha256,
-    conditions: [], evidenceRequirements: [], reviewRequirements: [], sourceReferences: [], ...input,
+    conditions: [], evidenceRequirements: [], reviewRequirements: [], resolutionStatus: "resolved", sourceReferences: [], ...input,
   };
 }
 
 describe("governed operation adapter", () => {
   it("allows only the exact normalized required link pair and preserves its rule evidence", () => {
-    const policy = active([rule({ domain: "internal_links", payload: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/destination" } })]);
+    const policy = active([rule({ domain: "internal_links", payload: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/destination", requiredAction: "add exact link" } })]);
 
     const exact = evaluateGovernedOperation(policy, { type: "internal_link", fromUrl: "https://agrikoph.com/blogs/news/source/", toUrl: "/blogs/news/destination" });
     const differentSource = evaluateGovernedOperation(policy, { type: "internal_link", fromUrl: "/blogs/news/other", toUrl: "/blogs/news/destination" });

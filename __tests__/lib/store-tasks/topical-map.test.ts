@@ -16,8 +16,10 @@ import {
   selectAdvisoryDuplicateGroups,
   topicalMapAdvisorySemanticKey,
 } from "@/lib/store-tasks/topical-map-advisories";
+import type { TopicalMapRulePolicy } from "@/lib/topical-map/action-eligibility";
 
 const observedAt = new Date("2026-07-13T02:00:00.000Z");
+const resolvedPolicy: TopicalMapRulePolicy = { resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] };
 const advisoryIdentity = {
   strategyVersionId: "strategy-7",
   packageSha256: "A".repeat(64),
@@ -49,24 +51,24 @@ const center = () => ({
   identity: { versionId: "strategy-7", strategyVersion: "7", contractRevision: "3", packageSha256: "a".repeat(64), activatedAt: "2026-07-12T00:00:00.000Z" },
   domainCounts: {}, clusters: [{ name: "Philippine heirloom rice", memberUrls: [] }], prohibited: [], blockers: { evidence: [], reviews: [] }, provenance: {},
   pages: [
-    { url: "/products/black-rice", ruleIds: ["decision:product", "role:product"], ruleDomains: { content_decisions: ["decision:product"] }, primaryKeywordOrTheme: "black rice Philippines", decision: "Improve SEO metadata", priority: "high" },
-    { url: "/collections/rice", ruleIds: ["decision:collection"], ruleDomains: { content_decisions: ["decision:collection"] }, primaryKeywordOrTheme: "heirloom rice collection", decision: "Expand content", priority: "medium" },
-    { url: "/pages/our-farm", ruleIds: ["decision:page"], ruleDomains: { content_decisions: ["decision:page"] }, primaryKeywordOrTheme: "Agriko farm story", decision: "Improve SEO metadata", priority: "low" },
-    { url: "/products/missing", ruleIds: ["decision:missing"], ruleDomains: { content_decisions: ["decision:missing"] }, primaryKeywordOrTheme: "missing product", decision: "Improve SEO metadata", priority: "low" },
-    { url: "/", ruleIds: ["decision:home"], ruleDomains: { content_decisions: ["decision:home"] }, decision: "Improve homepage", priority: "high" },
-    { url: "/blogs/news", ruleIds: ["decision:blog-index"], ruleDomains: { content_decisions: ["decision:blog-index"] }, decision: "Improve blog index", priority: "medium" },
-    { url: "/blogs/news/black-rice-guide", ruleIds: ["decision:article"], ruleDomains: { content_decisions: ["decision:article"] }, decision: "Improve SEO metadata", priority: "high" },
+    { url: "/products/black-rice", ruleIds: ["decision:product", "role:product"], ruleDomains: { content_decisions: ["decision:product"] }, primaryKeywordOrTheme: "black rice Philippines", decision: "Improve SEO metadata", priority: "high", contentDecisionPolicy: resolvedPolicy },
+    { url: "/collections/rice", ruleIds: ["decision:collection"], ruleDomains: { content_decisions: ["decision:collection"] }, primaryKeywordOrTheme: "heirloom rice collection", decision: "Expand content", priority: "medium", contentDecisionPolicy: resolvedPolicy },
+    { url: "/pages/our-farm", ruleIds: ["decision:page"], ruleDomains: { content_decisions: ["decision:page"] }, primaryKeywordOrTheme: "Agriko farm story", decision: "Improve SEO metadata", priority: "low", contentDecisionPolicy: resolvedPolicy },
+    { url: "/products/missing", ruleIds: ["decision:missing"], ruleDomains: { content_decisions: ["decision:missing"] }, primaryKeywordOrTheme: "missing product", decision: "Improve SEO metadata", priority: "low", contentDecisionPolicy: resolvedPolicy },
+    { url: "/", ruleIds: ["decision:home"], ruleDomains: { content_decisions: ["decision:home"] }, decision: "Improve homepage", priority: "high", contentDecisionPolicy: resolvedPolicy },
+    { url: "/blogs/news", ruleIds: ["decision:blog-index"], ruleDomains: { content_decisions: ["decision:blog-index"] }, decision: "Improve blog index", priority: "medium", contentDecisionPolicy: resolvedPolicy },
+    { url: "/blogs/news/black-rice-guide", ruleIds: ["decision:article"], ruleDomains: { content_decisions: ["decision:article"] }, decision: "Improve SEO metadata", priority: "high", contentDecisionPolicy: resolvedPolicy },
   ],
   work: {
     internalLinks: [
-      { fromUrl: "/collections/rice", toUrl: "/products/black-rice", ruleIds: ["link:z", "link:a"], recommendedAnchor: "shop black rice", priority: "high" },
-      { fromUrl: "/collections/rice", toUrl: "/products/brown-rice", ruleIds: ["link:brown"], recommendedAnchor: "shop brown rice", priority: "medium" },
-      { fromUrl: "/collections/rice", toUrl: "/products/red-rice", ruleIds: ["link:red"], recommendedAnchor: "shop red rice", priority: "medium" },
-      { fromUrl: "/blogs/news/black-rice-guide", toUrl: "/products/black-rice", ruleIds: ["link:article"], recommendedAnchor: "black rice", priority: "high" },
+      { fromUrl: "/collections/rice", toUrl: "/products/black-rice", currentBodyState: "absent", ruleIds: ["link:z", "link:a"], recommendedAnchor: "shop black rice", linkPurpose: "Commercial path", requiredAction: "Add exact link", verification: "Exact href present", priority: "high", policy: resolvedPolicy },
+      { fromUrl: "/collections/rice", toUrl: "/products/brown-rice", ruleIds: ["link:brown"], recommendedAnchor: "shop brown rice", requiredAction: "ensure exact link", priority: "medium", policy: resolvedPolicy },
+      { fromUrl: "/collections/rice", toUrl: "/products/red-rice", ruleIds: ["link:red"], recommendedAnchor: "shop red rice", requiredAction: "ensure exact link", priority: "medium", policy: resolvedPolicy },
+      { fromUrl: "/blogs/news/black-rice-guide", toUrl: "/products/black-rice", ruleIds: ["link:article"], recommendedAnchor: "black rice", priority: "high", policy: resolvedPolicy },
     ],
-    redirects: [{ source: "/old", finalTarget: "/products/black-rice", ruleIds: ["redirect:1"] }],
-    canonicalization: [{ currentUrl: "/products/black-rice", proposedCanonicalUrl: "/products/black-rice", decision: "Use the product URL as canonical", evidence: "The product owns commercial intent", priority: "P0", ruleIds: ["canonical:1"] }],
-    indexation: [{ currentUrl: "/products/black-rice", proposedCanonicalUrl: "/products/black-rice", decision: "Keep indexed", evidence: "The product is the preferred landing page", priority: "P1", ruleIds: ["index:1"] }],
+    redirects: [{ source: "/old", configuredTarget: "/products/legacy", finalTarget: "/products/black-rice", knownState: "configured", hopCount: "1", ruleIds: ["redirect:1"], policy: resolvedPolicy }],
+    canonicalization: [{ currentUrl: "/products/black-rice", proposedCanonicalUrl: "/products/black-rice", publishingState: "published", decision: "Use the product URL as canonical", evidence: "The product owns commercial intent", priority: "P0", ruleIds: ["canonical:1"], policy: resolvedPolicy }],
+    indexation: [{ currentUrl: "/products/black-rice", proposedCanonicalUrl: "/products/black-rice", publishingState: "published", decision: "Keep indexed", evidence: "The product is the preferred landing page", priority: "P1", ruleIds: ["index:1"], policy: resolvedPolicy }],
   },
 });
 
@@ -304,8 +306,37 @@ describe("syncTopicalMapStoreTasks", () => {
     const conflicting = client();
     await syncTopicalMapStoreTasks(conflicting as any);
     const redirect = conflicting.storeTask.upsert.mock.calls.map((call: any) => call[0].create).find((task: any) => task.targetType === "redirect");
-    expect(redirect.sourceData).toMatchObject({ executable: false, advisoryReason: "redirect_conflict" });
+    expect(redirect.sourceData).toMatchObject({ executable: false, advisoryReason: "redirect_conflict", resolutionStatus: "resolved", mapProposedRedirectTarget: "/products/black-rice", observedRedirectTarget: "/pages/wrong", observedRedirectId: "r1", observedAt: expect.any(String), observedStateHash: "d".repeat(64) });
     expect(redirect.proposedState).toEqual({ action: "advisory", advisory: "redirect_conflict" });
+  });
+
+  it("keeps a missing manual-gate redirect advisory while treating a matching one as satisfied", async () => {
+    const gated = center();
+    gated.work.redirects[0]!.policy = { ...resolvedPolicy, resolutionStatus: "manual_gate" };
+    load.mockResolvedValue(gated);
+    fetchRedirects.mockResolvedValueOnce(new Map());
+    const missing = client();
+    await syncTopicalMapStoreTasks(missing as any);
+    const task = missing.storeTask.upsert.mock.calls.map((call: any) => call[0].create).find((item: any) => item.targetType === "redirect");
+    expect(task).toMatchObject({ sourceData: { executable: false, advisoryReason: "manual_gate", resolutionStatus: "manual_gate", mapProposedRedirectTarget: "/products/black-rice" }, proposedState: { action: "advisory", advisory: "manual_gate" } });
+
+    fetchRedirects.mockResolvedValueOnce(new Map([["/old", { id: "r1", source: "/old", target: "/products/black-rice", capturedAt: new Date(), stateHash: "c".repeat(64) }]]));
+    const matching = client();
+    await expect(syncTopicalMapStoreTasks(matching as any)).resolves.toMatchObject({ unchanged: 1 });
+    expect(matching.storeTask.upsert.mock.calls.map((call: any) => call[0].create).some((item: any) => item.targetType === "redirect")).toBe(false);
+  });
+
+  it("keeps manual-gate non-blog content decisions advisory", async () => {
+    const gated = center();
+    gated.pages = [{ ...gated.pages[0]!, contentDecisionPolicy: { ...resolvedPolicy, resolutionStatus: "manual_gate" } }];
+    gated.work = { internalLinks: [], redirects: [], canonicalization: [], indexation: [] };
+    load.mockResolvedValue(gated);
+    const db = client();
+    await syncTopicalMapStoreTasks(db as any);
+    const tasks = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({ sourceData: { executable: false, advisoryReason: "manual_gate", resolutionStatus: "manual_gate" }, proposedState: { action: "advisory", advisory: "manual_gate" } });
+    expect(chat).not.toHaveBeenCalled();
   });
 
   it("drafts every eligible resource in deterministic chunks of at most 25", async () => {
@@ -316,6 +347,7 @@ describe("syncTopicalMapStoreTasks", () => {
       primaryKeywordOrTheme: `item ${index} rice`,
       decision: "Improve SEO metadata",
       priority: "medium",
+      contentDecisionPolicy: resolvedPolicy,
     }));
     load.mockResolvedValue({ ...center(), pages, work: { internalLinks: [], redirects: [], canonicalization: [], indexation: [] } });
     fetchResources.mockResolvedValue(new Map(pages.map((page, index) => [page.url, resource("product", page.url, `Item ${index} Rice`)])));
@@ -340,13 +372,73 @@ describe("syncTopicalMapStoreTasks", () => {
     expect(links).toHaveLength(1);
     expect(links[0].sourceData.ruleIds).toEqual(["link:a", "link:brown", "link:red", "link:z"]);
     expect(links[0].sourceData.links).toEqual([
-      { toUrl: "/products/black-rice", anchor: "shop black rice" },
-      { toUrl: "/products/brown-rice", anchor: "shop brown rice" },
-      { toUrl: "/products/red-rice", anchor: "shop red rice" },
+      { toUrl: "/products/black-rice", anchor: "shop black rice", currentBodyState: "absent", linkPurpose: "Commercial path", requiredAction: "Add exact link", verification: "Exact href present", priority: "high", resolutionStatus: "resolved" },
+      { toUrl: "/products/brown-rice", anchor: "shop brown rice", requiredAction: "ensure exact link", priority: "medium", resolutionStatus: "resolved" },
+      { toUrl: "/products/red-rice", anchor: "shop red rice", requiredAction: "ensure exact link", priority: "medium", resolutionStatus: "resolved" },
     ]);
     expect(links[0].proposedState.after.bodyHtml).toContain('<section class="ag-related-recipes"');
     expect(links[0].proposedState.after.bodyHtml.match(/<section/g)).toHaveLength(1);
     expect(links[0].proposedState.after.bodyHtml.match(/<li>/g)).toHaveLength(3);
+  });
+
+  it("does not create a Store Task for a conditional link whose destination gate is unsatisfied", async () => {
+    const map = center();
+    map.pages = [];
+    map.work = {
+      internalLinks: [{
+        fromUrl: "/collections/rice",
+        toUrl: "/pages/brown-rice-recipes",
+        currentBodyState: "conditional; destination not created",
+        requiredAction: "add only if hub is created",
+        recommendedAnchor: "brown rice recipes",
+        linkPurpose: "Conditional recipe discovery",
+        verification: "Exact destination exists before linking",
+        priority: "P1",
+        ruleIds: ["internal-link:conditional-destination"],
+        policy: resolvedPolicy,
+      }],
+      redirects: [],
+      canonicalization: [],
+      indexation: [],
+    };
+    load.mockResolvedValue(map);
+    fetchResources.mockResolvedValue(new Map([["/collections/rice", resource("collection", "/collections/rice", "Rice")]]));
+    const db = client();
+
+    const result = await syncTopicalMapStoreTasks(db as any);
+
+    expect(result).toMatchObject({ executable: 0, suppressed: 1 });
+    expect(db.storeTask.upsert).not.toHaveBeenCalled();
+  });
+
+  it("does not turn a pure retain instruction into an append-link Store Task", async () => {
+    const map = center();
+    map.pages = [];
+    map.work = {
+      internalLinks: [{
+        fromUrl: "/collections/rice",
+        toUrl: "/products/black-rice",
+        currentBodyState: "present",
+        requiredAction: "retain",
+        recommendedAnchor: "shop black rice",
+        linkPurpose: "Keep the existing commercial path",
+        verification: "Exact href remains present",
+        priority: "P2",
+        ruleIds: ["internal-link:retain-only"],
+        policy: resolvedPolicy,
+      }],
+      redirects: [],
+      canonicalization: [],
+      indexation: [],
+    };
+    load.mockResolvedValue(map);
+    fetchResources.mockResolvedValue(new Map([["/collections/rice", resource("collection", "/collections/rice", "Rice")]]));
+    const db = client();
+
+    const result = await syncTopicalMapStoreTasks(db as any);
+
+    expect(result).toMatchObject({ executable: 0 });
+    expect(db.storeTask.upsert).not.toHaveBeenCalled();
   });
 
   it("removes rule IDs with destinations that already exist on the resource", async () => {
@@ -361,8 +453,8 @@ describe("syncTopicalMapStoreTasks", () => {
     await syncTopicalMapStoreTasks(db as any);
     const link = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create).find((task: any) => task.proposedState.action === "internal_link");
     expect(link.sourceData.links).toEqual([
-      { toUrl: "/products/black-rice", anchor: "shop black rice" },
-      { toUrl: "/products/red-rice", anchor: "shop red rice" },
+      { toUrl: "/products/black-rice", anchor: "shop black rice", currentBodyState: "absent", linkPurpose: "Commercial path", requiredAction: "Add exact link", verification: "Exact href present", priority: "high", resolutionStatus: "resolved" },
+      { toUrl: "/products/red-rice", anchor: "shop red rice", requiredAction: "ensure exact link", priority: "medium", resolutionStatus: "resolved" },
     ]);
     expect(link.sourceData.ruleIds).toEqual(["link:a", "link:red", "link:z"]);
   });
@@ -419,11 +511,11 @@ describe("syncTopicalMapStoreTasks", () => {
     expect(creates.filter((task: any) => !task.sourceData.executable).every((task: any) => !("after" in task.proposedState))).toBe(true);
     expect(creates.find((task: any) => task.sourceData.advisoryReason === "canonicalization_execution_prohibited")).toMatchObject({
       priority: "P0",
-      sourceData: { mapPriority: "P0", proposedCanonicalUrl: "/products/black-rice", mapDecision: "Use the product URL as canonical", mapEvidence: "The product owns commercial intent" },
+      sourceData: { mapPriority: "P0", proposedCanonicalUrl: "/products/black-rice", mapDecision: "Use the product URL as canonical", mapEvidence: "The product owns commercial intent", mapPublishingState: "published" },
     });
     expect(creates.find((task: any) => task.sourceData.advisoryReason === "indexation_execution_prohibited")).toMatchObject({
       priority: "P1",
-      sourceData: { mapPriority: "P1", proposedCanonicalUrl: "/products/black-rice", mapDecision: "Keep indexed", mapEvidence: "The product is the preferred landing page" },
+      sourceData: { mapPriority: "P1", proposedCanonicalUrl: "/products/black-rice", mapDecision: "Keep indexed", mapEvidence: "The product is the preferred landing page", mapPublishingState: "published" },
     });
   });
 
@@ -544,7 +636,7 @@ describe("syncTopicalMapStoreTasks", () => {
     await syncTopicalMapStoreTasks(db as any);
     const tasks = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create);
     const link = tasks.find((task: any) => task.proposedState.action === "internal_link");
-    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:brown", "link:red", "link:z"], ruleDomains: ["internal_links"], sourceReferences: [{ kind: "rule", id: "link:a" }, { kind: "rule", id: "link:brown" }, { kind: "rule", id: "link:red" }, { kind: "rule", id: "link:z" }], generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", links: [{ toUrl: "/products/black-rice", anchor: "shop black rice" }, { toUrl: "/products/brown-rice", anchor: "shop brown rice" }, { toUrl: "/products/red-rice", anchor: "shop red rice" }], observedAt: "2026-07-14T00:00:00.000Z", resourceUpdatedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
+    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:brown", "link:red", "link:z"], ruleDomains: ["internal_links"], sourceReferences: [{ kind: "rule", id: "link:a" }, { kind: "rule", id: "link:brown" }, { kind: "rule", id: "link:red" }, { kind: "rule", id: "link:z" }], generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", links: [{ toUrl: "/products/black-rice", anchor: "shop black rice", currentBodyState: "absent", linkPurpose: "Commercial path", requiredAction: "Add exact link", verification: "Exact href present", priority: "high", resolutionStatus: "resolved" }, { toUrl: "/products/brown-rice", anchor: "shop brown rice", requiredAction: "ensure exact link", priority: "medium", resolutionStatus: "resolved" }, { toUrl: "/products/red-rice", anchor: "shop red rice", requiredAction: "ensure exact link", priority: "medium", resolutionStatus: "resolved" }], observedAt: "2026-07-14T00:00:00.000Z", observationProvenance: "shopify_governed_resource:/collections/rice", resourceUpdatedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
     expect(link.proposedState).toEqual({ action: "internal_link", before: { bodyHtml: "<p>Existing Rice body.</p>" }, after: { bodyHtml: '<p>Existing Rice body.</p><section class="ag-related-recipes" aria-labelledby="ag-related-recipes-title"><h2 id="ag-related-recipes-title">Explore Related Resources</h2><ul><li><a href="/products/black-rice">shop black rice</a></li><li><a href="/products/brown-rice">shop brown rice</a></li><li><a href="/products/red-rice">shop red rice</a></li></ul></section>' } });
     expect(link.dedupeKey).toMatch(/^store-task:topical-map:[a-f0-9]{64}$/);
     expect(TopicalMapStoreTaskSourceSchema.parse(link.sourceData)).toEqual(link.sourceData);

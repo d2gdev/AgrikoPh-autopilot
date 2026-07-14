@@ -5,6 +5,8 @@ import type { BlogArticle } from "@/lib/shopify-admin";
 import { getAiClient } from "@/lib/ai/client";
 import { getBrandGuidelines } from "@/lib/content-pilot/brand-guidelines";
 import { retrieveContext, formatGroundingBlock } from "@/lib/ai/knowledge";
+import { parseArticleHtml } from "@/lib/analyzers/html-parser";
+import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
 const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro";
 const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4-pro";
@@ -16,6 +18,36 @@ export type InternalLinkDraft = { suggestedParagraph: string; anchorText: string
 export type BodyHtmlDraft = { bodyHtml: string };
 export type NewContentDraft = { title: string; bodyHtml: string; tags: string[]; metaDescription: string };
 export type DraftContent = SeoFixDraft | InternalLinkDraft | BodyHtmlDraft | NewContentDraft;
+
+function exactGovernedPath(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const normalized = normalizeGovernedUrl(value);
+    const parsed = new URL(normalized, "https://agrikoph.com");
+    const path = `${parsed.pathname.length > 1 ? parsed.pathname.replace(/\/+$/, "") : parsed.pathname}${parsed.search}${parsed.hash}`;
+    return /^(?:\/blogs\/[^/]+\/[^/]+|\/products\/[^/]+|\/collections\/[^/]+|\/pages\/[^/]+)$/.test(path) ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistedSupportingKeywords(proposal: Pick<ContentProposal, "sourceData">): string[] {
+  const source = proposal.sourceData && typeof proposal.sourceData === "object" && !Array.isArray(proposal.sourceData)
+    ? proposal.sourceData as Record<string, unknown>
+    : {};
+  if (typeof source.secondaryVariants !== "string") return [];
+  return [...new Set(source.secondaryVariants.split(/[;\n]+/).map((value) => value.trim()).filter(Boolean))]
+    .slice(0, 25)
+    .map((value) => value.slice(0, 200));
+}
+
+export function assertExactInternalLinkDraft(proposal: Pick<ContentProposal, "proposedState">, draft: InternalLinkDraft): void {
+  const state = proposal.proposedState && typeof proposal.proposedState === "object" && !Array.isArray(proposal.proposedState) ? proposal.proposedState as Record<string, unknown> : {};
+  const targetUrl = exactGovernedPath(state.toUrl);
+  const anchors = parseArticleHtml(draft.suggestedParagraph).anchors;
+  const draftTarget = anchors.length === 1 ? exactGovernedPath(anchors[0]!.href) : null;
+  if (!targetUrl || draftTarget !== targetUrl) throw new Error("Internal-link draft must contain exactly one link to the exact persisted target URL");
+}
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -252,12 +284,14 @@ Generate new metaTitle and metaDescription.`;
 async function generateInternalLink(proposal: ContentProposal, article: BlogArticle | null): Promise<InternalLinkDraft> {
   const ps = proposal.proposedState as Record<string, unknown>;
   const targetHandle = (ps.toArticle as string | undefined) ?? "";
+  const targetUrl = exactGovernedPath(ps.toUrl);
+  if (!targetUrl) throw new Error("Internal-link proposal requires an exact persisted target URL");
   const anchorHint = (ps.suggestedAnchorText as string | undefined) ?? targetHandle;
   const system = `You are a content editor for Agriko (agrikoph.com), a Philippine health food brand.
 Return ONLY a JSON object:
 { "suggestedParagraph": "...", "anchorText": "...", "targetHandle": "..." }
 Rules:
-- suggestedParagraph: 2–3 sentences that naturally introduce a link to the target article. Use <a href="/blogs/news/HANDLE">anchor text</a> HTML link syntax inside the paragraph, where HANDLE is the targetHandle value provided.
+- suggestedParagraph: 2–3 sentences that naturally introduce exactly one link. The anchor href must equal the exact targetUrl provided; never reconstruct or alter it.
 - anchorText: 3–6 words, descriptive, matches the topic of the target article
 - targetHandle: the exact handle string provided, unchanged
 - Tone: warm, informative, matches existing article voice`;
@@ -273,20 +307,25 @@ Target article handle:
 \`\`\`text
 ${fence(targetHandle)}
 \`\`\`
+Exact target URL:
+\`\`\`text
+${fence(targetUrl)}
+\`\`\`
 Suggested anchor text hint:
 \`\`\`text
 ${fence(anchorHint)}
 \`\`\`
 Write a paragraph to append at the end of the source article that links to the target.`;
 
-  const result = await callParseValidate(InternalLinkSchema, system, user);
-  return { ...result, targetHandle: targetHandle || result.targetHandle };
+  const result = { ...await callParseValidate(InternalLinkSchema, system, user), targetHandle };
+  assertExactInternalLinkDraft(proposal, result);
+  return result;
 }
 
 async function generateBodyHtml(proposal: ContentProposal, article: BlogArticle | null, mode: "refresh" | "expand"): Promise<BodyHtmlDraft> {
   const ps = proposal.proposedState as Record<string, unknown>;
   const targetKeyword = (ps.targetKeyword as string | undefined) ?? "";
-  const supportingKeywords = (ps.supportingKeywords as string[] | undefined) ?? [];
+  const supportingKeywords = (ps.supportingKeywords as string[] | undefined) ?? persistedSupportingKeywords(proposal);
   const requestedChange = [
     proposal.description,
     typeof ps.action === "string" ? `Action: ${ps.action}` : "",
@@ -347,8 +386,9 @@ ${truncateBody(article?.bodyHtml)}
 
 async function generateNewContent(proposal: ContentProposal): Promise<NewContentDraft> {
   const ps = proposal.proposedState as Record<string, unknown>;
+  const exactTitle = typeof ps.title === "string" && ps.title.trim() ? ps.title.trim() : null;
   const targetKeyword = (ps.targetKeyword as string) ?? (ps.targetQuery as string) ?? proposal.title;
-  const relatedKeywords = (ps.supportingKeywords as string[] | undefined) ?? (ps.seoKeywords as string[] | undefined) ?? [];
+  const relatedKeywords = (ps.supportingKeywords as string[] | undefined) ?? (ps.seoKeywords as string[] | undefined) ?? persistedSupportingKeywords(proposal);
   const gscPosition = ps.gscPosition as number | null ?? null;
   const gscImpressions = ps.gscImpressions as number ?? 0;
   const brief = typeof ps.brief === "string" && ps.brief.trim() ? ps.brief.trim() : "";
@@ -371,7 +411,7 @@ async function generateNewContent(proposal: ContentProposal): Promise<NewContent
 Return ONLY a JSON object:
 { "title": "...", "bodyHtml": "...", "tags": [...], "metaDescription": "..." }
 Rules:
-- title: compelling, includes target keyword naturally, 50–70 characters
+- title: ${exactTitle ? "copy the exact persisted map title provided below, unchanged" : "compelling, includes target keyword naturally, 50–70 characters"}
 - bodyHtml: full article, minimum 1,200 words, H2/H3 structure, semantic HTML (<h2>, <h3>, <p>, <ul>, <li>)
 - tags: 3–6 relevant tags as an array of lowercase strings
 - metaDescription: 140–160 characters, includes target keyword, soft CTA
@@ -385,13 +425,20 @@ Target keyword:
 \`\`\`text
 ${fence(targetKeyword)}
 \`\`\`
+${exactTitle ? `Exact persisted map title:
+\`\`\`text
+${fence(exactTitle)}
+\`\`\`` : ""}
 ${keywordContext}
 ${gscContext}
 ${briefContext}
 Write a complete, SEO-optimised blog article for Agriko.`.trim();
 
   const groundingQuery = `${proposal.title} ${proposal.articleHandle ?? ""}`;
-  return callParseValidate(NewContentSchema, system, user, 32768, groundingQuery);
+  const schema = exactTitle
+    ? NewContentSchema.refine((draft) => draft.title === exactTitle, { message: "New-content draft title must equal the exact persisted map title", path: ["title"] })
+    : NewContentSchema;
+  return callParseValidate(schema, system, user, 32768, groundingQuery);
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────

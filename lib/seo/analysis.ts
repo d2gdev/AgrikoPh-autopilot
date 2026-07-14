@@ -4,6 +4,7 @@ import type { GscQueryPageRow, GscQueryRow } from "@/lib/seo/types";
 import { z } from "zod";
 import type { TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
+import { topicalMapActionEligibility, topicalMapInternalLinkEligibility, topicalMapInternalLinkRequiresAddition } from "@/lib/topical-map/action-eligibility";
 
 const STOP_WORDS = new Set([
   "the", "and", "for", "with", "from", "that", "this", "are", "was", "how", "why",
@@ -58,6 +59,7 @@ export type MapAwareSeoGap = {
   action: "create" | "update" | "refresh";
   query: string;
   suggestedTitle: string;
+  currentArticleTitle?: string;
   page?: string;
   fromUrl?: string;
   toUrl?: string;
@@ -70,19 +72,19 @@ export type MapAwareSeoGap = {
 export type MapAwareSeoAnalysis = {
   gaps: MapAwareSeoGap[];
   observations: ProgrammaticSeoGap[];
-  suppressed: Array<{ strategyVersionId: string; packageSha256: string; page: string; reason: string; ruleIds: string[] }>;
+  suppressed: Array<{ strategyVersionId: string; packageSha256: string; page: string; reason: string; ruleIds: string[]; currentArticleTitle?: string; observation?: { source: "store"; capturedAt: string; provenance: string } }>;
 };
 
 const IdentitySchema = z.object({ versionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 const MapGapSchema = z.object({
   candidateId: z.string().regex(/^[a-f0-9]{64}$/), kind: z.enum(["content", "link"]), strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  ruleIds: z.array(z.string().min(1)).min(1), state: z.literal("candidate"), action: z.enum(["create", "update", "refresh"]), query: z.string().min(1), suggestedTitle: z.string().min(1),
+  ruleIds: z.array(z.string().min(1)).min(1), state: z.literal("candidate"), action: z.enum(["create", "update", "refresh"]), query: z.string().min(1), suggestedTitle: z.string().min(1), currentArticleTitle: z.string().min(1).max(500).optional(),
   page: z.string().min(1).optional(), fromUrl: z.string().min(1).optional(), toUrl: z.string().min(1).optional(), type: z.string().min(1).optional(),
   priority: z.string().min(1), mapEvidence: z.string().min(1).nullable(), observedEvidence: z.array(z.object({ query: z.string().min(1), impressions: z.number().nonnegative(), position: z.number().nullable() }).strict()).max(20),
   observation: z.object({ source: z.enum(["store", "link_inspection"]), capturedAt: z.string().datetime(), provenance: z.string().min(1).max(200) }).strict(),
 }).strict();
 const ObservationSchema = z.object({ query: z.string().min(1), impressions: z.number().nonnegative(), position: z.number(), suggestedTitle: z.string().min(1), issue: z.enum(["missing-meta", "thin-content"]).optional(), articleHandle: z.string().min(1).optional(), wordCount: z.number().nullable().optional() }).strict();
-const SuppressedSchema = z.object({ strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/), page: z.string().min(1), reason: z.string().min(1), ruleIds: z.array(z.string().min(1)).min(1) }).strict();
+const SuppressedSchema = z.object({ strategyVersionId: z.string().min(1), packageSha256: z.string().regex(/^[a-f0-9]{64}$/), page: z.string().min(1), reason: z.string().min(1), ruleIds: z.array(z.string().min(1)).min(1), currentArticleTitle: z.string().min(1).max(500).optional(), observation: z.object({ source: z.literal("store"), capturedAt: z.string().datetime(), provenance: z.string().min(1).max(200) }).strict().optional() }).strict();
 export const SEO_ANALYSIS_MAX_AGE_HOURS = 72;
 
 export function mapCandidateId(input: Pick<MapAwareSeoGap, "strategyVersionId" | "packageSha256" | "kind" | "action" | "ruleIds" | "page" | "fromUrl" | "toUrl">): string {
@@ -180,8 +182,25 @@ export function buildMapAwareSeoGaps(input: {
   const prohibitedByUrl = new Map(input.commandCenter.prohibited.map((item) => [item.url, item]));
   const gaps: MapAwareSeoGap[] = [];
   const suppressed: MapAwareSeoAnalysis["suppressed"] = [];
+  const suppressedStoreContext = (pageUrl: string) => {
+    const article = input.articles.find(item => articleUrl(item) === pageUrl);
+    const capturedAt = article?.updatedAt ?? input.verifiedAbsentUrls?.get(pageUrl);
+    return {
+      ...(article?.title ? { currentArticleTitle: article.title } : {}),
+      ...(capturedAt ? { observation: { source: "store" as const, capturedAt: capturedAt.toISOString(), provenance: article ? `ArticleRecord:${article.blogHandle ?? "news"}/${article.handle}` : `ArticleRecord:absence:${pageUrl}` } } : {}),
+    };
+  };
   for (const page of input.commandCenter.pages) {
     if (!page.decision) continue;
+    if (!page.contentDecisionPolicy) {
+      suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: page.url, reason: "rule_policy_unavailable", ruleIds: [...page.ruleIds] });
+      continue;
+    }
+    const eligibility = topicalMapActionEligibility(page.contentDecisionPolicy);
+    if (!eligibility.actionable) {
+      suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: page.url, reason: eligibility.reason, ruleIds: [...page.ruleIds], ...suppressedStoreContext(page.url) });
+      continue;
+    }
     const exists = existing.has(page.url);
     const isBlog = /^\/blogs\/[^/]+\/[^/]+$/.test(page.url);
     if (!exists && !isBlog) {
@@ -204,11 +223,16 @@ export function buildMapAwareSeoGaps(input: {
       continue;
     }
     const query = page.primaryKeywordOrTheme ?? page.url;
-    const gap = { kind: "content" as const, strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate" as const, action: refresh ? "refresh" as const : "create" as const, query, suggestedTitle: page.title ?? query, page: page.url, priority: page.priority ?? "unspecified", mapEvidence: page.evidence ?? null, observedEvidence: evidenceFor(query, page.url), observation: { source: "store" as const, capturedAt: capturedAt.toISOString(), provenance: exists ? `ArticleRecord:${article!.blogHandle ?? "news"}/${article!.handle}` : `ArticleRecord:absence:${page.url}` } };
+    const gap = { kind: "content" as const, strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate" as const, action: refresh ? "refresh" as const : "create" as const, query, suggestedTitle: page.title ?? query, ...(article?.title ? { currentArticleTitle: article.title } : {}), page: page.url, priority: page.priority ?? "unspecified", mapEvidence: page.evidence ?? null, observedEvidence: evidenceFor(query, page.url), observation: { source: "store" as const, capturedAt: capturedAt.toISOString(), provenance: exists ? `ArticleRecord:${article!.blogHandle ?? "news"}/${article!.handle}` : `ArticleRecord:absence:${page.url}` } };
     gaps.push({ ...gap, candidateId: mapCandidateId(gap) });
   }
   for (const link of input.commandCenter.work.internalLinks) {
-    if (!/(absent|missing|not present|add)/i.test(`${link.currentBodyState ?? ""} ${link.requiredAction ?? ""}`)) continue;
+    const eligibility = topicalMapInternalLinkEligibility(link.policy, link.currentBodyState, link.requiredAction);
+    if (!eligibility.actionable) {
+      suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: link.fromUrl, reason: eligibility.reason, ruleIds: [...link.ruleIds] });
+      continue;
+    }
+    if (!topicalMapInternalLinkRequiresAddition(link.requiredAction)) continue;
     const inspection = input.linkInspections?.get(link.fromUrl);
     if (input.linkInspections && !inspection) {
       suppressed.push({ strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, page: link.fromUrl, reason: "observation_unavailable: link source was not inspected", ruleIds: [...link.ruleIds] });

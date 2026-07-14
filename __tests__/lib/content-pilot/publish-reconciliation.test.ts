@@ -60,4 +60,33 @@ describe("inspectPublishOutcome", () => {
       draftContent: { title: "Black Rice Guide", bodyHtml: "<p>Complete guide</p>", tags: [], metaDescription: "Everything about black rice" },
     } as any)).resolves.toEqual({ kind: "ambiguous" });
   });
+
+  it("reconciles identical handles only within the exact persisted blog", async () => {
+    shopifyFetch.mockResolvedValueOnce({
+      articles: { edges: [
+        { node: { id: "gid://shopify/Article/news", handle: "shared", blog: { handle: "news" }, title: "Shared", body: "<p>Old news body</p>", seoTitle: { value: null }, seoDescription: { value: null } } },
+        { node: { id: "gid://shopify/Article/recipes", handle: "shared", blog: { handle: "recipes" }, title: "Shared", body: "<p>Recipe replacement</p>", seoTitle: { value: null }, seoDescription: { value: null } } },
+      ] },
+    });
+    const { inspectPublishOutcome } = await import("@/lib/content-pilot/shopify-publish-inspection");
+
+    await expect(inspectPublishOutcome({
+      id: "p-refresh", proposalType: "content-refresh", articleHandle: "shared",
+      proposedState: { targetUrl: "/blogs/recipes/shared", blogHandle: "recipes" },
+      draftContent: { bodyHtml: "<p>Recipe replacement</p>" },
+    } as any)).resolves.toEqual({ kind: "applied", shopifyId: "gid://shopify/Article/recipes", handle: "shared" });
+  });
+
+  it("keeps reconciliation ambiguous when only a same-handle article in another blog is observed", async () => {
+    shopifyFetch.mockResolvedValueOnce({
+      articles: { edges: [{ node: { id: "gid://shopify/Article/news", handle: "shared", blog: { handle: "news" }, title: "Shared", body: "<p>Old news body</p>", seoTitle: { value: null }, seoDescription: { value: null } } }] },
+    });
+    const { inspectPublishOutcome } = await import("@/lib/content-pilot/shopify-publish-inspection");
+
+    await expect(inspectPublishOutcome({
+      id: "p-refresh", proposalType: "content-refresh", articleHandle: "shared",
+      proposedState: { targetUrl: "/blogs/recipes/shared", blogHandle: "recipes" },
+      draftContent: { bodyHtml: "<p>Recipe replacement</p>" },
+    } as any)).resolves.toEqual({ kind: "ambiguous" });
+  });
 });

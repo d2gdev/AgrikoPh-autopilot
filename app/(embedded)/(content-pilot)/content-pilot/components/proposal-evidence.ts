@@ -28,12 +28,61 @@ export function proposalEvidenceLines(proposal: Pick<ContentProposal, "sourceDat
   const proposedState = asRecord(proposal.proposedState);
   const organicPriority = asRecord(sourceData.organicPriority);
   const evidence = asRecord(sourceData.evidence);
+  const observation = asRecord(sourceData.observation);
 
   const lines: string[] = [];
   const source = firstString(sourceData.source, sourceData.trigger, sourceData.origin, evidence.source);
   if (source) lines.push(`Source: ${prettyLabel(source)}`);
 
-  const target = firstString(
+  const mapTitle = firstString(sourceData.mapTitle);
+  if (mapTitle) lines.push(`Map title: ${mapTitle}`);
+  const targetKeyword = firstString(sourceData.targetKeyword);
+  if (targetKeyword) lines.push(`Target keyword: ${targetKeyword}`);
+  const targetUrl = firstString(sourceData.targetUrl, proposedState.targetUrl);
+  if (targetUrl) lines.push(`Governed URL: ${targetUrl}`);
+  const currentArticleTitle = firstString(sourceData.currentArticleTitle);
+  if (currentArticleTitle) lines.push(`Current Shopify title: ${currentArticleTitle}`);
+  const mapDecision = firstString(sourceData.mapDecision);
+  if (mapDecision) lines.push(`Decision: ${mapDecision}`);
+  const mapEvidence = firstString(sourceData.mapEvidence);
+  if (mapEvidence) lines.push(`Evidence: ${mapEvidence}`);
+  const originalPriority = firstString(sourceData.originalPriority);
+  if (originalPriority) lines.push(`Priority: ${originalPriority}`);
+  const resolutionStatus = firstString(sourceData.resolutionStatus);
+  if (resolutionStatus) lines.push(`Rule status: ${resolutionStatus}`);
+  const secondaryVariants = firstString(sourceData.secondaryVariants);
+  if (secondaryVariants) lines.push(`Secondary variants: ${secondaryVariants}`);
+  const contentKind = firstString(sourceData.contentKind);
+  if (contentKind) lines.push(`Content kind: ${contentKind}`);
+  const publishingState = firstString(sourceData.publishingState);
+  if (publishingState) lines.push(`Publishing state: ${publishingState}`);
+  const exactTargetIfAny = firstString(sourceData.exactTargetIfAny);
+  if (exactTargetIfAny) lines.push(`Exact target: ${exactTargetIfAny}`);
+  const strategyVersionId = firstString(sourceData.strategyVersionId);
+  if (strategyVersionId) lines.push(`Strategy version: ${strategyVersionId}`);
+  const packageSha256 = firstString(sourceData.packageSha256);
+  if (packageSha256) lines.push(`Package: ${packageSha256.slice(0, 12)}`);
+  const ruleIds = Array.isArray(sourceData.ruleIds) ? sourceData.ruleIds.filter((value): value is string => typeof value === "string" && Boolean(value)).slice(0, 100) : [];
+  if (ruleIds.length) lines.push(`Governing rules: ${ruleIds.join(", ")}`);
+  const observationProvenance = firstString(observation.provenance);
+  const observationCapturedAt = firstString(observation.capturedAt);
+  if (observationProvenance || observationCapturedAt) lines.push(`Observation: ${observationProvenance ?? "source unavailable"}${observationCapturedAt ? ` captured ${observationCapturedAt}` : ""}`);
+  const fromUrl = firstString(sourceData.fromUrl, proposedState.fromUrl);
+  const toUrl = firstString(sourceData.toUrl, proposedState.toUrl);
+  if (fromUrl) lines.push(`Exact source URL: ${fromUrl}`);
+  if (toUrl) lines.push(`Exact target URL: ${toUrl}`);
+  const anchor = firstString(sourceData.recommendedAnchor, proposedState.suggestedAnchorText);
+  if (anchor) lines.push(`Anchor: ${anchor}`);
+  const linkPurpose = firstString(sourceData.linkPurpose);
+  if (linkPurpose) lines.push(`Purpose: ${linkPurpose}`);
+  const requiredAction = firstString(sourceData.requiredAction);
+  if (requiredAction) lines.push(`Required action: ${requiredAction}`);
+  const verification = firstString(sourceData.verification);
+  if (verification) lines.push(`Verification: ${verification}`);
+  const currentBodyState = firstString(sourceData.currentBodyState);
+  if (currentBodyState) lines.push(`Map-recorded state: ${currentBodyState}`);
+
+  const target = targetKeyword ? null : firstString(
     proposedState.targetKeyword,
     proposedState.targetQuery,
     proposedState.keyword,

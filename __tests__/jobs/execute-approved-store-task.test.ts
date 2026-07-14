@@ -22,7 +22,7 @@ beforeEach(() => {
   db.jobRun.create.mockResolvedValue({ id: "run-1" }); db.jobRun.update.mockResolvedValue({}); db.recommendation.updateMany.mockResolvedValue({ count: 1 }); db.storeTask.updateMany.mockResolvedValue({ count: 1 }); db.storeTask.findUnique.mockResolvedValue({ id: "task-1", status: "pending", sourceData: source, proposedState: proposed });
   db.recommendation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([rec]);
   db.$transaction.mockImplementation(async (value) => typeof value === "function" ? value(db) : Promise.all(value));
-  command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [{ url: "/products/rice", decision: "Improve SEO metadata", ruleDomains: { content_decisions: ["rule-1"] } }], work: { internalLinks: [] } });
+  command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [{ url: "/products/rice", decision: "Improve SEO metadata", contentDecisionPolicy: { resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] }, ruleDomains: { content_decisions: ["rule-1"] } }], work: { internalLinks: [] } });
   adapter.fetch.mockResolvedValue(resource); adapter.apply.mockResolvedValue({ ...resource, seoTitle: "New", seoDescription: "New desc", stateHash: "c".repeat(64) });
 });
 describe("execute-approved governed Store Task integration", () => {

@@ -75,6 +75,7 @@ describe("maybeCreateArticleSnapshot", () => {
     const created = await maybeCreateArticleSnapshot(mockPrisma as any, state(), now);
 
     expect(created).toBe(true);
+    expect(mockPrisma.articleSnapshot.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { articleRecordId: "article-1" } }));
     expect(mockPrisma.articleSnapshot.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         handle: "organic-rice-guide",
@@ -85,6 +86,12 @@ describe("maybeCreateArticleSnapshot", () => {
         capturedAt: now,
       }),
     });
+  });
+
+  it("falls back to Shopify ID before handle for snapshot freshness identity", async () => {
+    mockPrisma.articleSnapshot.findFirst.mockResolvedValue(null);
+    await maybeCreateArticleSnapshot(mockPrisma as any, state({ articleRecordId: null, shopifyId: "gid://shopify/Article/recipes" }), now);
+    expect(mockPrisma.articleSnapshot.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { shopifyId: "gid://shopify/Article/recipes" } }));
   });
 
   it("skips unchanged recent content", async () => {

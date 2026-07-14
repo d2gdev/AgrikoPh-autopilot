@@ -53,8 +53,13 @@ export async function maybeCreateArticleSnapshot(
   state: ArticleSnapshotState,
   now = new Date(),
 ): Promise<boolean> {
+  const identity = state.articleRecordId
+    ? { articleRecordId: state.articleRecordId }
+    : state.shopifyId
+      ? { shopifyId: state.shopifyId }
+      : { handle: state.handle };
   const latest = await prismaClient.articleSnapshot.findFirst({
-    where: { handle: state.handle },
+    where: identity,
     select: { contentHash: true, capturedAt: true },
     orderBy: { capturedAt: "desc" },
   });

@@ -42,6 +42,7 @@ const mockGetAiClient = vi.hoisted(() => vi.fn());
 const mockGenerateDraft = vi.hoisted(() => vi.fn());
 const mockCollectDraftCitations = vi.hoisted(() => vi.fn());
 const mockResolveArticleHandle = vi.hoisted(() => vi.fn());
+const mockResolveExactProposalBlogHandle = vi.hoisted(() => vi.fn());
 const mockFetchBlogArticles = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
@@ -64,7 +65,7 @@ vi.mock("@/lib/content-pilot/generate-draft", () => ({
   generateDraft: mockGenerateDraft,
   collectDraftCitations: mockCollectDraftCitations,
 }));
-vi.mock("@/lib/content-pilot/publish-draft", () => ({ resolveArticleHandle: mockResolveArticleHandle }));
+vi.mock("@/lib/content-pilot/publish-draft", () => ({ resolveArticleHandle: mockResolveArticleHandle, resolveExactProposalBlogHandle: mockResolveExactProposalBlogHandle }));
 vi.mock("@/lib/shopify-admin", () => ({ fetchBlogArticles: mockFetchBlogArticles }));
 
 function jsonRequest(path: string, body: Record<string, unknown>) {
@@ -131,6 +132,7 @@ describe("embedded API-key fallback route auth", () => {
     mockPrisma.contentProposalDraftHistory.create.mockResolvedValue({});
     mockGenerateDraft.mockResolvedValue({ metaTitle: "Black Rice | Agriko", metaDescription: "Discover black rice benefits from Agriko." });
     mockResolveArticleHandle.mockReturnValue("black-rice");
+    mockResolveExactProposalBlogHandle.mockReturnValue(null);
     mockFetchBlogArticles.mockResolvedValue([{ handle: "black-rice", title: "Black Rice" }]);
   });
 

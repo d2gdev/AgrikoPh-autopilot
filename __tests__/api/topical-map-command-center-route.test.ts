@@ -14,7 +14,7 @@ const sourceReferences = [{ coverageUnitId: "unit-1", artifactId: "artifact-1", 
 const activeStrategy = (overrides: Record<string, unknown> = {}) => ({
   id: "v3", strategyVersion: "revision-3", contractRevision: 3, packageSha256: "a".repeat(64), activatedAt: new Date("2026-07-13T00:00:00.000Z"),
   lifecycle: "active", validationStatus: "valid",
-  compiledRules: ALL_TOPICAL_MAP_DOMAINS.map((ruleType, index) => ({ ruleId: `rule-${index}`, ruleType, sourceArtifactId: "artifact-1", compiledPayload: { payload: {}, sourceReferences } })),
+  compiledRules: ALL_TOPICAL_MAP_DOMAINS.map((ruleType, index) => ({ ruleId: `rule-${index}`, ruleType, sourceArtifactId: "artifact-1", compiledPayload: { payload: {}, sourceReferences, resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } })),
   ...overrides,
 });
 

@@ -10,6 +10,8 @@ import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-cen
 import { createGovernedContentProposalInTransaction } from "@/lib/topical-map/compliance-store";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 import type { StrategyProposalCandidate } from "@/lib/topical-map/proposal-context";
+import { topicalMapActionEligibility, topicalMapInternalLinkEligibility, topicalMapInternalLinkRequiresAddition } from "@/lib/topical-map/action-eligibility";
+import { normalizeTopicalMapPriority } from "@/lib/topical-map/priority";
 
 const BodySchema = z.object({
   strategyVersionId: z.string().min(1),
@@ -30,7 +32,8 @@ function blogIdentity(value: string | undefined): { blogHandle: string; handle: 
 }
 
 function priority(value: string): "P1" | "P2" | "P3" {
-  return /critical|highest|high/i.test(value) ? "P1" : /low/i.test(value) ? "P3" : "P2";
+  const band = normalizeTopicalMapPriority(value);
+  return band === "high" ? "P1" : band === "low" ? "P3" : "P2";
 }
 
 async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, commandCenter: NonNullable<Awaited<ReturnType<typeof loadActiveTopicalMapCommandCenter>>>) {
@@ -43,7 +46,7 @@ async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, comm
     const toUrl = normalizeGovernedUrl(gap.toUrl ?? "");
     const link = commandCenter.work.internalLinks.find(item => item.fromUrl === fromUrl && item.toUrl === toUrl && item.ruleIds.slice().sort().join("\0") === gap.ruleIds.slice().sort().join("\0"));
     const sourceIdentity = blogIdentity(fromUrl);
-    if (!link || !sourceIdentity) return null;
+    if (!link || !sourceIdentity || !topicalMapInternalLinkEligibility(link.policy, link.currentBodyState, link.requiredAction).actionable || !topicalMapInternalLinkRequiresAddition(link.requiredAction)) return null;
     const source = await tx.articleRecord.findFirst({ where: sourceIdentity, select: { updatedAt: true, linksData: true } });
     if (!source || source.updatedAt.toISOString() !== gap.observation.capturedAt) return null;
     const internal = source.linksData && typeof source.linksData === "object" && Array.isArray((source.linksData as { internal?: unknown }).internal) ? (source.linksData as { internal: Array<{ href?: unknown }> }).internal : [];
@@ -51,11 +54,17 @@ async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, comm
     const targetIdentity = blogIdentity(toUrl);
     const data = {
       proposalType: "internal-link", changeType: "internal_link", articleHandle: sourceIdentity.handle,
-      priority: priority(gap.priority), impact: "medium", effort: "low",
+      priority: priority(link.priority ?? gap.priority), impact: "medium", effort: "low",
       title: `Add internal link from ${sourceIdentity.handle} to ${targetIdentity?.handle ?? toUrl}`,
       description: link.linkPurpose ? `Add the required internal link for ${link.linkPurpose}.` : `Add the required internal link from ${fromUrl} to ${toUrl}.`,
       proposedState: { fromArticle: sourceIdentity.handle, toArticle: targetIdentity?.handle ?? toUrl, suggestedAnchorText: link.recommendedAnchor ?? gap.query, fromUrl, toUrl },
-      sourceData: { source: "seo-pilot", strategyVersionId: gap.strategyVersionId, packageSha256: gap.packageSha256, ruleIds: gap.ruleIds, fromUrl, toUrl, recommendedAnchor: link.recommendedAnchor ?? null },
+      sourceData: {
+        source: "seo-pilot", strategyVersionId: gap.strategyVersionId, packageSha256: gap.packageSha256, ruleIds: gap.ruleIds,
+        fromUrl, toUrl, recommendedAnchor: link.recommendedAnchor ?? null, linkPurpose: link.linkPurpose ?? null,
+        currentBodyState: link.currentBodyState ?? null, requiredAction: link.requiredAction ?? null, verification: link.verification ?? null, originalPriority: link.priority ?? null,
+        resolutionStatus: link.policy.resolutionStatus,
+        observation: { capturedAt: gap.observation.capturedAt, provenance: gap.observation.provenance },
+      },
     };
     return { data, candidate: { type: "internal_link", fromUrl, toUrl } satisfies StrategyProposalCandidate };
   }
@@ -63,19 +72,30 @@ async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, comm
   const targetUrl = normalizeGovernedUrl(gap.page ?? "");
   const page = commandCenter.pages.find(item => item.url === targetUrl && item.ruleIds.slice().sort().join("\0") === gap.ruleIds.slice().sort().join("\0"));
   const identity = blogIdentity(targetUrl);
-  if (!page || !identity) return null;
+  if (!page || !identity || !page.contentDecisionPolicy || !topicalMapActionEligibility(page.contentDecisionPolicy).actionable) return null;
   const article = await tx.articleRecord.findFirst({ where: identity, select: { handle: true, title: true, wordCount: true, updatedAt: true } });
   if (gap.action === "create" && article) return null;
   if (gap.action === "refresh" && (!article || article.updatedAt.toISOString() !== gap.observation.capturedAt)) return null;
   const isCreate = gap.action === "create";
   const proposedTitle = page.title ?? gap.suggestedTitle;
+  const targetKeyword = page.primaryKeywordOrTheme ?? gap.query;
   const currentArticleTitle = article?.title ?? null;
   const data = {
     proposalType: isCreate ? "new-content" : "content-refresh", changeType: isCreate ? "new_article" : "update", articleHandle: identity.handle,
-    priority: priority(gap.priority), impact: "medium", effort: "medium", title: isCreate ? proposedTitle : `Refresh content: ${proposedTitle}`,
-    description: isCreate ? `Create the active-map article for "${gap.query}".` : `Refresh "${proposedTitle}" according to the active map decision "${page.decision}" using only the attached current evidence.`,
-    proposedState: isCreate ? { title: proposedTitle, targetQuery: gap.query, targetKeyword: gap.query, targetUrl, blogHandle: identity.blogHandle } : { action: "refresh", articleHandle: identity.handle, articleTitle: proposedTitle, targetUrl, blogHandle: identity.blogHandle, mapDecision: page.decision, mapEvidence: page.evidence ?? null, priority: gap.priority, observedEvidence: gap.observedEvidence },
-    sourceData: { source: "seo-pilot", query: gap.query, page: targetUrl, blogHandle: identity.blogHandle, currentArticleTitle, strategyVersionId: gap.strategyVersionId, packageSha256: gap.packageSha256, ruleIds: gap.ruleIds, observedEvidence: gap.observedEvidence },
+    priority: priority(page.priority ?? gap.priority), impact: "medium", effort: "medium", title: isCreate ? proposedTitle : `Refresh content: ${proposedTitle}`,
+    description: isCreate ? `Create the active-map article for "${targetKeyword}".` : `Refresh "${proposedTitle}" according to the active map decision "${page.decision}" using only the attached current evidence.`,
+    proposedState: isCreate ? { title: proposedTitle, targetQuery: targetKeyword, targetKeyword, targetUrl, blogHandle: identity.blogHandle } : { action: "refresh", articleHandle: identity.handle, articleTitle: proposedTitle, targetKeyword, targetUrl, blogHandle: identity.blogHandle, mapDecision: page.decision, mapEvidence: page.evidence ?? null, priority: page.priority ?? gap.priority, observedEvidence: gap.observedEvidence },
+    sourceData: {
+      source: "seo-pilot", query: gap.query, page: targetUrl, blogHandle: identity.blogHandle,
+      mapTitle: proposedTitle, targetKeyword, targetUrl, currentArticleTitle,
+      mapDecision: page.decision ?? null, mapEvidence: page.evidence ?? null, originalPriority: page.priority ?? gap.priority,
+      secondaryVariants: page.secondaryVariants ?? null, contentKind: page.contentKind ?? null,
+      publishingState: page.publishingState ?? null, exactTargetIfAny: page.exactTargetIfAny ?? null,
+      resolutionStatus: page.contentDecisionPolicy.resolutionStatus,
+      observation: { capturedAt: gap.observation.capturedAt, provenance: gap.observation.provenance },
+      strategyVersionId: gap.strategyVersionId, packageSha256: gap.packageSha256, ruleIds: gap.ruleIds,
+      observedEvidence: gap.observedEvidence,
+    },
   };
   return { data, candidate: { type: "content", action: isCreate ? "create" : "update", targetUrl } satisfies StrategyProposalCandidate };
 }

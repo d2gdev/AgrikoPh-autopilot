@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 
-import { resolveArticleHandle } from "@/lib/content-pilot/publish-draft";
+import { resolveArticleHandle, resolveExactProposalBlogHandle } from "@/lib/content-pilot/publish-draft";
 import { fetchBlogArticles } from "@/lib/shopify-admin";
 import { canGenerateContentProposal, CONTENT_PROPOSAL_PUBLISHABLE_STATUSES } from "@/lib/content-pilot/proposal-state";
 import { generateDraft, collectDraftCitations, type DraftContent } from "@/lib/content-pilot/generate-draft";
@@ -270,9 +270,18 @@ export async function generateProposalDraft(input: GenerationServiceInput): Prom
       resolvedArticleHandle && !proposal.articleHandle ? { ...proposal, articleHandle: resolvedArticleHandle } : proposal;
 
     let article: BlogArticle | null = null;
+    let exactBlogHandle: string | null = null;
     if (proposalForDraft.articleHandle) {
       const articles = await fetchBlogArticlesImpl();
-      article = articles.find((item) => item.handle === proposalForDraft.articleHandle) ?? null;
+      exactBlogHandle = resolveExactProposalBlogHandle(proposalForDraft);
+      article = articles.find((item) => item.handle === proposalForDraft.articleHandle && (!exactBlogHandle || item.blogHandle === exactBlogHandle)) ?? null;
+    }
+    if (proposalForDraft.proposalType !== "new-content" && !article) {
+      const unavailable = exactBlogHandle
+        ? `Exact source article /blogs/${exactBlogHandle}/${proposalForDraft.articleHandle} is unavailable`
+        : `Source article ${proposalForDraft.articleHandle} is unavailable`;
+      const failed = await failGeneration({ prismaClient, proposalId: proposal.id, token, error: unavailable });
+      return failed.count > 0 ? { kind: "failed", error: unavailable } : { kind: "discarded", reason: "Proposal changed before unavailable source failure persistence could complete" };
     }
 
     const draftContent = await generateDraftImpl(proposalForDraft, article);

@@ -129,6 +129,7 @@ describe("topical-map command center", () => {
     expect(gaps).toContain("Select for proposal");
     expect(work).toContain("Select for proposal");
     expect(work).toContain("Managed in Store Pilot");
+    expect(work).not.toContain("Add required internal link");
     expect(work).toContain("Store Pilot observation determines");
     expect(work).not.toContain("map.work.redirects.filter(row => visible");
     expect(work).toContain("Live execution prohibited");

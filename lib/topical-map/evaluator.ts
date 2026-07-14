@@ -2,6 +2,7 @@ import type { CompiledRule, CompiledStrategyPackage } from "./compiler";
 import { normalizeProposalContext, type StrategyProposalCandidate } from "./proposal-context";
 import type { StrategyArtifactId } from "./types";
 import type { EvidenceFreshnessEntry, ValidationReport } from "./validator";
+import { topicalMapActionEligibility, topicalMapInternalLinkRequiresAddition, type TopicalMapRulePolicy } from "./action-eligibility";
 
 export type StrategyComplianceStatus = "compliant" | "conflict" | "blocked" | "needs_evidence" | "needs_high_stakes_review" | "unavailable_strategy";
 export type StrategyComplianceReasonCode =
@@ -13,6 +14,9 @@ export type StrategyComplianceReasonCode =
   | "STALE_MANDATORY_EVIDENCE"
   | "MISSING_EVIDENCE_GATE"
   | "HIGH_STAKES_MEDICAL_DOSAGE_REVIEW"
+  | "MANUAL_GATE_REQUIRED"
+  | "ACTIVATION_BLOCKING_RULE"
+  | "NON_ADDITIVE_INTERNAL_LINK_INSTRUCTION"
   | "INTERNAL_LINK_RULE_NOT_FOUND"
   | "TECHNICAL_OPERATION_RULE_NOT_FOUND";
 
@@ -54,6 +58,19 @@ function matched(rule: CompiledRule): MatchedStrategyRule {
 
 function rules(items: CompiledRule[]): MatchedStrategyRule[] {
   return items.map(matched);
+}
+
+function policy(rule: CompiledRule): TopicalMapRulePolicy {
+  return { resolutionStatus: rule.resolutionStatus, conditions: rule.conditions, evidenceRequirements: rule.evidenceRequirements, reviewRequirements: rule.reviewRequirements };
+}
+
+function ruleEligibility(active: ActiveStrategyPolicy, matchedRules: CompiledRule[], evidence: ReadonlyMap<string, "satisfied" | "unsatisfied"> = new Map()): StrategyComplianceResult | null {
+  const manual = matchedRules.filter((rule) => topicalMapActionEligibility(policy(rule), evidence).reason === "manual_gate");
+  if (manual.length) return result(active, "blocked", ["MANUAL_GATE_REQUIRED"], rules(manual), ["manual_gate"]);
+  const activationBlocking = matchedRules.filter((rule) => topicalMapActionEligibility(policy(rule), evidence).reason === "activation_blocking");
+  if (activationBlocking.length) return result(active, "blocked", ["ACTIVATION_BLOCKING_RULE"], rules(activationBlocking));
+  const conditional = matchedRules.filter((rule) => topicalMapActionEligibility(policy(rule), evidence).reason === "conditions_unsatisfied");
+  return conditional.length ? result(active, "needs_evidence", ["UNSATISFIED_SOURCE_CONDITION"], rules(conditional)) : null;
 }
 
 function sameGovernedUrl(left: string, right: string): boolean {
@@ -110,6 +127,11 @@ export function evaluateStrategyPolicy(active: ActiveStrategyPolicy | null, cand
       && typeof payload(rule).fromUrl === "string" && typeof payload(rule).toUrl === "string"
       && sameGovernedUrl(payload(rule).fromUrl as string, normalized.fromUrl)
       && sameGovernedUrl(payload(rule).toUrl as string, normalized.toUrl));
+    const eligibility = ruleEligibility(active, exactLinks);
+    if (eligibility) return eligibility;
+    if (exactLinks.length > 0 && exactLinks.some((rule) => !topicalMapInternalLinkRequiresAddition(String(payload(rule).requiredAction ?? "")))) {
+      return result(active, "conflict", ["NON_ADDITIVE_INTERNAL_LINK_INSTRUCTION"], rules(exactLinks));
+    }
     return exactLinks.length > 0
       ? result(active, "compliant", [], rules(exactLinks))
       : result(active, "conflict", ["INTERNAL_LINK_RULE_NOT_FOUND"]);
@@ -121,16 +143,15 @@ export function evaluateStrategyPolicy(active: ActiveStrategyPolicy | null, cand
   }
 
   if (normalized.type === "content") {
+    const exactDecisions = policy.filter((rule) => rule.domain === "content_decisions" && payload(rule).currentUrl === normalized.targetUrl);
+    const conditionEvidence = new Map(normalized.sourceConditionEvidence.map((entry) => [entry.coverageUnitId, entry.state] as const));
+    const eligibility = ruleEligibility(active, exactDecisions, conditionEvidence);
+    if (eligibility) return eligibility;
     const owners = policy.filter((rule) => rule.domain === "url_intent_ownership"
       && payload(rule).exclusiveIntentScope === normalized.exclusiveIntentScope
       && payload(rule).currentUrl !== normalized.targetUrl);
     if (normalized.exclusiveIntentScope && owners.length > 0) return result(active, "conflict", ["EXCLUSIVE_INTENT_OWNER_CONFLICT"], rules(owners));
-    const conditional = policy.filter((rule) => rule.domain === "content_decisions" && payload(rule).currentUrl === normalized.targetUrl && rule.conditions.length > 0);
-    if (normalized.sourceConditionEvidence.length > 0) {
-      const unmet = conditional.filter((rule) => rule.conditions.some((condition) => condition.sourceReferenceIds.some((coverageUnitId) => normalized.sourceConditionEvidence.find((entry) => entry.coverageUnitId === coverageUnitId)?.state !== "satisfied")));
-      if (unmet.length > 0) return result(active, "needs_evidence", ["UNSATISFIED_SOURCE_CONDITION"], rules(unmet));
-      if (conditional.length > 0) return result(active, "compliant", [], rules(conditional));
-    }
+    if (exactDecisions.some((rule) => rule.conditions.length > 0)) return result(active, "compliant", [], rules(exactDecisions.filter((rule) => rule.conditions.length > 0)));
     const prohibited = policy.filter((rule) => rule.domain === "prohibited_content" && payload(rule).currentUrl === normalized.targetUrl);
     if (normalized.action === "create" && prohibited.length > 0) return result(active, "blocked", ["EXPLICIT_DO_NOT_CREATE"], rules(prohibited));
     return result(active, "compliant", []);
@@ -143,6 +164,8 @@ export function evaluateStrategyPolicy(active: ActiveStrategyPolicy | null, cand
       && typeof payload(rule).currentUrl === "string" && typeof payload(rule).proposedCanonicalUrl === "string"
       && sameGovernedUrl(payload(rule).currentUrl as string, normalized.currentUrl)
       && sameGovernedUrl(payload(rule).proposedCanonicalUrl as string, normalized.proposedCanonicalUrl));
+    const eligibility = ruleEligibility(active, matching);
+    if (eligibility) return eligibility;
     return matching.length > 0
       ? result(active, "compliant", [], rules(matching), ["operator_review"])
       : result(active, "conflict", ["TECHNICAL_OPERATION_RULE_NOT_FOUND"], [], ["operator_review"]);
@@ -153,6 +176,8 @@ export function evaluateStrategyPolicy(active: ActiveStrategyPolicy | null, cand
       && typeof payload(rule).source === "string" && typeof payload(rule).finalTarget === "string"
       && sameGovernedUrl(payload(rule).source as string, normalized.fromUrl)
       && sameGovernedUrl(payload(rule).finalTarget as string, normalized.toUrl));
+    const eligibility = ruleEligibility(active, matching);
+    if (eligibility) return eligibility;
     return matching.length > 0
       ? result(active, "compliant", [], rules(matching), ["operator_review"])
       : result(active, "conflict", ["TECHNICAL_OPERATION_RULE_NOT_FOUND"], [], ["operator_review"]);

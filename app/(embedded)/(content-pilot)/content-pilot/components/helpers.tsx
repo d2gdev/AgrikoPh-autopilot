@@ -63,6 +63,8 @@ export function ProposedChangeSummary({
     if (proposedState.field) lines.push(`Field: ${proposedState.field}`);
     if (proposedState.suggestedTitleSuffix) lines.push(`Title suffix: ${proposedState.suggestedTitleSuffix}`);
   } else if (proposalType === "internal-link") {
+    if (proposedState.fromUrl) lines.push(`Exact source URL: ${proposedState.fromUrl}`);
+    if (proposedState.toUrl) lines.push(`Exact target URL: ${proposedState.toUrl}`);
     if (proposedState.fromArticle) lines.push(`Link from: ${proposedState.fromArticle}`);
     if (proposedState.toArticle) lines.push(`Link to: ${proposedState.toArticle}`);
     if (proposedState.suggestedAnchorText) lines.push(`Anchor text: "${proposedState.suggestedAnchorText}"`);
@@ -72,7 +74,8 @@ export function ProposedChangeSummary({
     if (proposedState.currentWordCount) lines.push(`Current word count: ${proposedState.currentWordCount}`);
   } else if (proposalType === "new-content") {
     if (proposedState.targetKeyword) lines.push(`Target keyword: ${proposedState.targetKeyword}`);
-    if (proposedState.suggestedTitle) lines.push(`Suggested title: ${proposedState.suggestedTitle}`);
+    if (proposedState.title) lines.push(`Proposed title: ${proposedState.title}`);
+    else if (proposedState.suggestedTitle) lines.push(`Suggested title: ${proposedState.suggestedTitle}`);
     if (proposedState.idealWordCount) lines.push(`Target length: ${proposedState.idealWordCount} words`);
   } else {
     // Unknown type — show raw JSON so nothing is silently hidden

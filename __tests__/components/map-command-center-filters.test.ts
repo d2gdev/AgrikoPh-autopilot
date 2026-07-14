@@ -4,6 +4,7 @@ import { MapOverviewPanel } from "@/app/(embedded)/(seo-pillar)/seo-pillar/compo
 import { pageMatchesBlockerFilter, pageMatchesPriorityFilter, priorityBadgeTone } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/panels/MapPagesPanel";
 
 describe("command-center filters", () => {
+  const policy = { resolutionStatus: "resolved" as const, conditions: [], evidenceRequirements: [], reviewRequirements: [] };
   it("filters work by real priority, lifecycle state, and blocker classification", () => {
     const candidate = { priority: "high", state: "candidate" as const, blocker: "clear" as const };
     expect(workRowMatchesFilters(candidate, { priority: "high", state: "candidate", blocker: "clear" })).toBe(true);
@@ -22,12 +23,13 @@ describe("command-center filters", () => {
       identity: { versionId: "v3", strategyVersion: "2026-07-12", contractRevision: "3", packageSha256: "a".repeat(64), activatedAt: null },
       domainCounts: { clusters: 0, page_roles: 0, url_intent_ownership: 0, content_decisions: 0, prohibited_content: 0, internal_links: priorities.length, redirects: 0, canonicalization: 0, indexation: 0, evidence_gates: 0, high_stakes_reviews: 0 },
       clusters: [], pages: [], prohibited: [], blockers: { evidence: [], reviews: [] }, provenance: {},
-      work: { internalLinks: priorities.map((priority, index) => ({ fromUrl: `/from-${index}`, toUrl: `/to-${index}`, priority, ruleIds: [`link:${index}`] })), redirects: [], canonicalization: [], indexation: [] },
+      work: { internalLinks: priorities.map((priority, index) => ({ fromUrl: `/from-${index}`, toUrl: `/to-${index}`, priority, policy, ruleIds: [`link:${index}`] })), redirects: [], canonicalization: [], indexation: [] },
     } } }));
     expect(rendered).toContain("237 high-priority actions");
   });
   it("hides global blockers under incompatible combined work filters", () => {
-    expect(globalBlockersVisible({ family: "all", priority: "all", state: "blocked", blocker: "review" })).toBe(true);
+    expect(globalBlockersVisible({ family: "all", priority: "all", state: "all", blocker: "review" })).toBe(true);
+    expect(globalBlockersVisible({ family: "all", priority: "all", state: "blocked", blocker: "review" })).toBe(false);
     expect(globalBlockersVisible({ family: "links", priority: "all", state: "blocked", blocker: "review" })).toBe(false);
     expect(globalBlockersVisible({ family: "all", priority: "high", state: "blocked", blocker: "review" })).toBe(false);
     expect(globalBlockersVisible({ family: "all", priority: "all", state: "candidate", blocker: "review" })).toBe(false);
@@ -47,10 +49,12 @@ describe("command-center filters", () => {
     expect(priorityBadgeTone("P3")).toBe("info");
   });
   it("presents link work without inventing an unobserved blocked state", () => {
-    const link = { fromUrl: "/blogs/news/source", toUrl: "/products/rice", ruleIds: ["link:1"] };
+    const link = { fromUrl: "/blogs/news/source", toUrl: "/products/rice", requiredAction: "add exact link", ruleIds: ["link:1"], policy };
     expect(internalLinkPresentation(link, [{ kind: "link", candidateId: "candidate", fromUrl: link.fromUrl, toUrl: link.toUrl } as any], [])).toBe("candidate");
-    expect(internalLinkPresentation({ ...link, fromUrl: "/pages/about" }, [], [])).toBe("managed");
+    expect(internalLinkPresentation({ ...link, fromUrl: "/pages/about", requiredAction: "add exact link" }, [], [])).toBe("managed");
+    expect(internalLinkPresentation({ ...link, fromUrl: "/pages/about", requiredAction: "retain" }, [], [])).toBe("neutral");
     expect(internalLinkPresentation(link, [], [{ page: link.fromUrl, ruleIds: ["link:1"], reason: "observation_unavailable: link source was not inspected" } as any])).toBe("evidence_unavailable");
+    expect(internalLinkPresentation(link, [], [{ page: link.fromUrl, ruleIds: ["link:1"], reason: "conditions_unsatisfied" } as any])).toBe("gate_required");
     expect(internalLinkPresentation(link, [], [])).toBe("neutral");
   });
 });

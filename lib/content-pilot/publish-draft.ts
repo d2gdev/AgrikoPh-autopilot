@@ -2,7 +2,7 @@
 import type { ContentProposal } from "@prisma/client";
 import { shopifyFetch } from "@/lib/shopify-admin";
 import { prisma } from "@/lib/db";
-import { getDraftSchema } from "@/lib/content-pilot/generate-draft";
+import { assertExactInternalLinkDraft, getDraftSchema, type InternalLinkDraft } from "@/lib/content-pilot/generate-draft";
 import { sanitizeHtmlServer } from "@/lib/content-pilot/sanitize-html-server";
 import { getArticleFeaturedImage } from "@/lib/content-pilot/article-featured-images";
 import {
@@ -464,7 +464,7 @@ async function publishNewContent(
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-function exactProposalBlogHandle(proposal: ContentProposal): string | null {
+export function resolveExactProposalBlogHandle(proposal: Pick<ContentProposal, "proposedState" | "sourceData">): string | null {
   const proposed = proposal.proposedState && typeof proposal.proposedState === "object" ? proposal.proposedState as Record<string, unknown> : {};
   const source = proposal.sourceData && typeof proposal.sourceData === "object" ? proposal.sourceData as Record<string, unknown> : {};
   for (const value of [proposed.targetUrl, proposed.fromUrl, source.page, source.targetUrl, source.fromUrl]) {
@@ -490,6 +490,8 @@ export async function publishDraft(
     );
   }
   const draft = parsed.data as Record<string, unknown>;
+
+  if (proposal.proposalType === "internal-link") assertExactInternalLinkDraft(proposal, draft as InternalLinkDraft);
 
   // Schema validation only guarantees JSON shape. Add stronger content checks
   // before any Shopify mutation so a corrupted/empty draft cannot be published.
@@ -519,7 +521,7 @@ export async function publishDraft(
 
   let shopifyId: string;
   let handle: string | null = resolveArticleHandle(proposal);
-  const exactBlogHandle = exactProposalBlogHandle(proposal);
+  const exactBlogHandle = resolveExactProposalBlogHandle(proposal);
 
   switch (proposal.proposalType) {
     case "seo-fix":
