@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -122,5 +122,28 @@ describe("codex agent loop clean audit passes", () => {
     expect(output.reason).toContain("5 clean passes");
     expect(state.consecutiveCleanPasses).toBe(1);
     expect(state.auditPassLedger.map((pass: { clean: boolean }) => pass.clean)).toEqual([true, true, false, true]);
+  });
+});
+
+describe("surface integrity loop command", () => {
+  it("provides a fixed five-pass profile and command usage", () => {
+    const wrapper = resolve(projectRoot, "scripts/codex-surface-loop.mjs");
+    const profile = resolve(projectRoot, "config/codex-surface-loop.json");
+    const prompt = resolve(projectRoot, "config/codex-agent-loop/prompts/surface-integrity.md");
+
+    expect(existsSync(wrapper)).toBe(true);
+    expect(existsSync(profile)).toBe(true);
+    expect(existsSync(prompt)).toBe(true);
+
+    const usage = spawnSync(process.execPath, [wrapper, "--help"], { cwd: projectRoot, encoding: "utf8" });
+    expect(usage.status).toBe(0);
+    expect(usage.stdout).toContain("start");
+    expect(usage.stdout).toContain("status");
+    expect(usage.stdout).toContain("resume");
+
+    const profileConfig = JSON.parse(readFileSync(profile, "utf8"));
+    expect(profileConfig.workingDirectory).toBe(".");
+    expect(profileConfig.requiredCleanPasses).toBe(5);
+    expect(readFileSync(prompt, "utf8")).toMatch(/five consecutive clean passes/i);
   });
 });
