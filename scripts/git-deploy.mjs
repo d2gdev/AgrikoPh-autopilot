@@ -229,6 +229,7 @@ grep -qxF '.env' .git/info/exclude 2>/dev/null || cat >> .git/info/exclude <<'EO
 .env
 .env.local
 .env.production
+google-ads-service-account.json
 node_modules/
 .next/
 .next.build/
@@ -245,7 +246,7 @@ unset GITHUB_TOKEN GIT_ASKPASS GIT_TERMINAL_PROMPT
 rm -rf "$ASKPASS_DIR"
 git reset --hard FETCH_HEAD
 git checkout -B "$BRANCH" FETCH_HEAD
-git clean -fd -e .env -e node_modules/ -e .next/ -e .next.build/ -e .next.old/ -e .npm-cache/ -e tmp/ -e .seo-cache/
+git clean -fd -e .env -e google-ads-service-account.json -e node_modules/ -e .next/ -e .next.build/ -e .next.old/ -e .npm-cache/ -e tmp/ -e .seo-cache/
 
 rm -f .env.local .env.production
 

@@ -62,4 +62,11 @@ describe("git deploy policy", () => {
     );
     expect(source).toContain("--allow-non-main");
   });
+
+  it("preserves the configured Google Ads service-account file during remote cleanup", () => {
+    const source = readFileSync(resolve(process.cwd(), "scripts/git-deploy.mjs"), "utf8");
+
+    expect(source).toContain("google-ads-service-account.json");
+    expect(source).toContain("-e google-ads-service-account.json");
+  });
 });

@@ -16,7 +16,7 @@ edges:
     condition: for why the self-hosted VPS approach was chosen
   - target: patterns/debug-pipeline.md
     condition: if a deploy breaks the pipeline
-last_updated: 2026-07-10T01:31:00Z
+last_updated: 2026-07-14T16:11:19+08:00
 ---
 
 # Deploy
@@ -54,6 +54,7 @@ App directory on server: `/opt/autopilot`
 - `scripts/git-deploy.mjs` reads `GITHUB_TOKEN` from local env / `.env`, uses temporary mode-0700 `GIT_ASKPASS` helpers, and sends the remote credential through encrypted SSH stdin. Do not put tokens in Git config arguments, SSH command arguments, remotes, or scripts.
 - SSH host-key verification must remain enabled. Verify and save the VPS fingerprint in `~/.ssh/known_hosts` before the first deploy; never add `StrictHostKeyChecking=no`.
 - The deploy build must finish before `npm run db:migrate`. The script keeps `.next.old` through a retrying post-restart health check and restores it if PM2 startup or health verification fails; migrations still need expand/contract compatibility because there are no down migrations.
+- Keep the server-owned `/opt/autopilot/google-ads-service-account.json` excluded from both Git tracking and `git clean`. Production `GA_SERVICE_ACCOUNT_JSON[_PATH]` points to that file; deleting it makes Keyword Research and aggregate Dashboard Refresh runs report `partial` without a connector error.
 - Legacy `scripts/linode-deploy.mjs` still exists as an rsync fallback, but should not be the default deploy path.
 
 ## Task: Run Database Migrations in Production
