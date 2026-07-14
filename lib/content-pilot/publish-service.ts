@@ -113,13 +113,21 @@ export async function publishContentProposal(input: { prismaClient: Client; prop
   let seoData: { score?: number; blogHandle?: string } | null = null;
   let contextWarning: string | null = null;
   try {
-    const indexed = resolvedArticleHandle ? await client.articleRecord.findFirst({ where: { handle: resolvedArticleHandle }, select: { seoData: true }, orderBy: { indexedAt: "desc" } }) : null;
+    const proposedState = fresh.proposedState && typeof fresh.proposedState === "object" && !Array.isArray(fresh.proposedState) ? fresh.proposedState as Record<string, unknown> : {};
+    const targetMatch = typeof proposedState.targetUrl === "string" ? /^\/blogs\/([^/]+)\/([^/]+)\/?$/.exec(proposedState.targetUrl) : null;
+    const exactBlogHandle = targetMatch?.[1] ?? (typeof proposedState.blogHandle === "string" ? proposedState.blogHandle : null);
+    const indexed = resolvedArticleHandle
+      ? exactBlogHandle
+        ? await client.articleRecord.findUnique({ where: { blogHandle_handle: { blogHandle: exactBlogHandle, handle: resolvedArticleHandle } }, select: { blogHandle: true, seoData: true } })
+        : await client.articleRecord.findFirst({ where: { handle: resolvedArticleHandle }, select: { blogHandle: true, seoData: true }, orderBy: { indexedAt: "desc" } })
+      : null;
     seoData = indexed?.seoData as { score?: number; blogHandle?: string } | null;
-    if (seoData?.score != null || seoData?.blogHandle) {
-      const proposedState = seoData.blogHandle ? { ...(fresh.proposedState as Record<string, unknown>), blogHandle: seoData.blogHandle } : fresh.proposedState;
+    const indexedBlogHandle = typeof indexed?.blogHandle === "string" ? indexed.blogHandle : seoData?.blogHandle;
+    if (seoData?.score != null || indexedBlogHandle) {
+      const nextProposedState = indexedBlogHandle ? { ...(fresh.proposedState as Record<string, unknown>), blogHandle: indexedBlogHandle } : fresh.proposedState;
       await client.contentProposal.updateMany({
         where: { id: proposalId, publishOperationId: operationId, draftStatus: "published" },
-        data: { proposedState, ...(seoData.score != null ? { baselineSeoScore: seoData.score } : {}) },
+        data: { proposedState: nextProposedState, ...(seoData?.score != null ? { baselineSeoScore: seoData.score } : {}) },
       });
     }
   } catch (error) {

@@ -32,18 +32,19 @@ vi.mock("@/lib/content-pilot/article-snapshots", () => ({
 vi.mock("@/lib/content-pilot/internal-link-edges", () => ({
   articleBlogHandleFromSeoData: vi.fn(() => "news"),
   replaceInternalLinkEdgesForSource: vi.fn().mockResolvedValue(0),
-  sourceUrlForArticle: vi.fn((handle: string) => `https://agrikoph.com/blogs/news/${handle}`),
+  sourceUrlForArticle: vi.fn((handle: string, blogHandle = "news") => `/blogs/${blogHandle}/${handle}`),
 }));
 
 import { prisma } from "@/lib/db";
 import { fetchBlogArticles } from "@/lib/shopify-admin";
-import { fetchBlogContentHandler } from "@/jobs/fetch-blog-content";
+import { computeContentHash, fetchBlogContentHandler } from "@/jobs/fetch-blog-content";
 
 const mockPrisma = prisma as unknown as {
   articleRecord: {
     findMany: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
+    updateMany: ReturnType<typeof vi.fn>;
   };
   jobRun: {
     update: ReturnType<typeof vi.fn>;
@@ -75,6 +76,7 @@ beforeEach(() => {
     {
       id: "record-1",
       shopifyId: "gid://shopify/Article/1",
+      blogHandle: "news",
       handle: "old-handle",
       title: "Old Handle",
       contentHash: "old-hash",
@@ -121,6 +123,7 @@ describe("fetchBlogContentHandler article identity", () => {
       {
         id: "record-handle",
         shopifyId: "gid://shopify/Article/old",
+        blogHandle: "news",
         handle: "new-handle",
         title: "Handle Owner",
         contentHash: "old-hash",
@@ -137,6 +140,7 @@ describe("fetchBlogContentHandler article identity", () => {
       {
         id: "record-shopify",
         shopifyId: "gid://shopify/Article/1",
+        blogHandle: "news",
         handle: "old-handle",
         title: "Shopify Owner",
         contentHash: "old-hash",
@@ -158,5 +162,47 @@ describe("fetchBlogContentHandler article identity", () => {
     expect(result.errors[0]).toContain("Article identity conflict");
     expect(mockPrisma.articleRecord.update).not.toHaveBeenCalled();
     expect(mockPrisma.articleRecord.create).not.toHaveBeenCalled();
+  });
+
+  it("persists a blog move even when the handle and body are unchanged", async () => {
+    const moved = article({ handle: "shared", blogHandle: "recipes" });
+    mockFetchBlogArticles.mockResolvedValue([moved]);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{
+      id: "record-1",
+      shopifyId: moved.id,
+      blogHandle: "news",
+      handle: "shared",
+      title: moved.title,
+      contentHash: computeContentHash(moved.bodyHtml),
+      wordCount: 10,
+      imageCount: 0,
+      headingCount: 1,
+      ctaCount: 0,
+      internalLinkCount: 0,
+      inboundCount: 0,
+      seoData: { blogHandle: "news" },
+      linksData: { internal: [], external: [], cta: [] },
+      topicsData: {},
+    }]);
+
+    await fetchBlogContentHandler();
+
+    expect(mockPrisma.articleRecord.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "record-1" },
+      data: expect.objectContaining({ blogHandle: "recipes", handle: "shared" }),
+    }));
+  });
+
+  it("updates inbound counts by exact blog and article handle", async () => {
+    mockFetchBlogArticles.mockResolvedValue([
+      article({ id: "gid://shopify/Article/1", blogHandle: "news", handle: "shared", bodyHtml: '<a href="/blogs/recipes/shared">Recipe</a>' }),
+      article({ id: "gid://shopify/Article/2", blogHandle: "recipes", handle: "shared", bodyHtml: "<p>Recipe target</p>" }),
+    ]);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([]);
+
+    await fetchBlogContentHandler();
+
+    expect(mockPrisma.articleRecord.updateMany).toHaveBeenCalledWith({ where: { blogHandle: "news", handle: "shared" }, data: { inboundCount: 0 } });
+    expect(mockPrisma.articleRecord.updateMany).toHaveBeenCalledWith({ where: { blogHandle: "recipes", handle: "shared" }, data: { inboundCount: 1 } });
   });
 });

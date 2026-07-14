@@ -17,9 +17,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   }
 
   try {
+    const blogHandle = new URL(req.url).searchParams.get("blogHandle") ?? "news";
+    if (!/^[\w-]+$/.test(blogHandle)) return NextResponse.json({ error: "Invalid blog handle" }, { status: 400 });
     const record = await prisma.articleRecord.findUnique({
-      where: { handle: slug },
+      where: { blogHandle_handle: { blogHandle, handle: slug } },
       select: {
+        blogHandle: true,
         handle: true,
         title: true,
         publishedAt: true,
@@ -48,6 +51,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     });
     if (!record) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({
+      blogHandle: record.blogHandle,
       handle: record.handle,
       title: record.title,
       publishedAt: record.publishedAt,

@@ -9,6 +9,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     articleRecord: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
     },
   },
 }));
@@ -52,6 +53,7 @@ const mockShopifyFetch = vi.mocked(shopifyFetch);
 const mockPrisma = prisma as unknown as {
   articleRecord: {
     findUnique: ReturnType<typeof vi.fn>;
+    findFirst: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -143,6 +145,8 @@ describe("publishDraft", () => {
     mockShopifyFetch.mockReset();
     mockPrisma.articleRecord.findUnique.mockReset();
     mockPrisma.articleRecord.findUnique.mockResolvedValue(null);
+    mockPrisma.articleRecord.findFirst.mockReset();
+    mockPrisma.articleRecord.findFirst.mockResolvedValue(null);
   });
 
   it("publishes content-refresh proposals that only carry a Shopify URL", async () => {
@@ -248,6 +252,24 @@ describe("publishDraft", () => {
         ]),
       },
     });
+  });
+
+  it("uses the exact target URL blog for new content when the duplicate field is absent", async () => {
+    let createVariables: Record<string, unknown> | undefined;
+    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+      if (query.includes("blogs(first: 20)")) return { blogs: { edges: [{ node: { id: "gid://shopify/Blog/recipes", handle: "recipes" } }] } };
+      if (query.includes("ArticleCreate")) { createVariables = variables; return { articleCreate: { article: { id: "gid://shopify/Article/recipe", handle: "shared" }, userErrors: [] } }; }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+
+    await publishDraft(proposal({ proposalType: "new-content", proposedState: { targetUrl: "/blogs/recipes/shared" }, draftContent: { title: "Recipe", bodyHtml: "<h2>Recipe</h2><p>Useful copy.</p>", tags: [], metaDescription: "Recipe description" } }));
+
+    expect(createVariables).toMatchObject({ article: { blogId: "gid://shopify/Blog/recipes" } });
+  });
+
+  it("fails closed when new-content blog fields disagree", async () => {
+    await expect(publishDraft(proposal({ proposalType: "new-content", proposedState: { targetUrl: "/blogs/recipes/shared", blogHandle: "news" }, draftContent: { title: "Recipe", bodyHtml: "<h2>Recipe</h2><p>Useful copy.</p>", tags: [], metaDescription: "Recipe description" } }))).rejects.toThrow(/blog identity/i);
+    expect(mockShopifyFetch).not.toHaveBeenCalled();
   });
 
   it("sets templateSuffix from article handle when publishing new content", async () => {
@@ -704,7 +726,7 @@ describe("publishDraft", () => {
   });
 
   it("falls back to indexed Shopify article ids when handle search returns no result", async () => {
-    mockPrisma.articleRecord.findUnique.mockResolvedValue({ shopifyId: "gid://shopify/Article/indexed" });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue({ shopifyId: "gid://shopify/Article/indexed" });
     mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
       if (query.includes("ArticleByHandle")) {
         expect(variables).toEqual({ query: "handle:'indexed-article'" });
@@ -742,14 +764,34 @@ describe("publishDraft", () => {
     );
 
     expect(result).toEqual({ shopifyId: "gid://shopify/Article/indexed", handle: "indexed-article" });
-    expect(mockPrisma.articleRecord.findUnique).toHaveBeenCalledWith({
+    expect(mockPrisma.articleRecord.findFirst).toHaveBeenCalledWith({
       where: { handle: "indexed-article" },
       select: { shopifyId: true },
+      orderBy: { indexedAt: "desc" },
     });
   });
 
+  it("revalidates an update against the exact blog and handle identity", async () => {
+    mockPrisma.articleRecord.findUnique.mockResolvedValue({ shopifyId: "gid://shopify/Article/recipes" });
+    mockShopifyFetch.mockImplementation(async (query: string) => {
+      if (query.includes("ArticleExists")) return { article: { id: "gid://shopify/Article/recipes" } };
+      if (query.includes("MetafieldsSet")) return { metafieldsSet: { metafields: [{ id: "meta-1" }], userErrors: [] } };
+      throw new Error(`Unexpected query: ${query}`);
+    });
+
+    await publishDraft(proposal({
+      proposalType: "seo-fix",
+      articleHandle: "shared",
+      proposedState: { targetUrl: "/blogs/recipes/shared" },
+      draftContent: { metaTitle: "Recipe title", metaDescription: "Recipe description" },
+    }));
+
+    expect(mockPrisma.articleRecord.findUnique).toHaveBeenCalledWith({ where: { blogHandle_handle: { blogHandle: "recipes", handle: "shared" } }, select: { shopifyId: true } });
+    expect(mockShopifyFetch).not.toHaveBeenCalledWith(expect.stringContaining("ArticleByHandle"), expect.anything());
+  });
+
   it("rejects stale indexed article ids when Shopify no longer has the article", async () => {
-    mockPrisma.articleRecord.findUnique.mockResolvedValue({ shopifyId: "gid://shopify/Article/stale" });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue({ shopifyId: "gid://shopify/Article/stale" });
     mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
       if (query.includes("ArticleByHandle")) {
         expect(variables).toEqual({ query: "handle:'stale-article'" });

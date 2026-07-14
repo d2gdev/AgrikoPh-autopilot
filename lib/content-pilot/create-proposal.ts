@@ -37,9 +37,12 @@ export async function createContentProposalOnce<TProposal>(
 ): Promise<{ proposal: TProposal; created: boolean }> {
   const keyed = withContentProposalDedupeKey(data);
   const articleHandle = typeof keyed.articleHandle === "string" ? keyed.articleHandle.trim() : "";
+  const proposedState = keyed.proposedState && typeof keyed.proposedState === "object" && !Array.isArray(keyed.proposedState) ? keyed.proposedState as Record<string, unknown> : {};
+  const hasExactBlogTarget = [proposedState.targetUrl, proposedState.fromUrl].some(value => typeof value === "string" && /^\/blogs\/[^/]+\/[^/]+\/?$/.test(value));
   if (
     keyed.proposalType.trim().toLowerCase() === "seo-fix" &&
     articleHandle &&
+    !hasExactBlogTarget &&
     client.contentProposal.findFirst
   ) {
     const existing = await client.contentProposal.findFirst({

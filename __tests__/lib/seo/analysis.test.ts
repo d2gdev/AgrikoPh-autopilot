@@ -140,6 +140,39 @@ describe("map-aware SEO analysis", () => {
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", query: "source topic", priority: "medium", mapEvidence: "Preserve the winning intent while improving clarity.", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
   });
 
+  it("matches identical article handles only within the exact blog URL", () => {
+    const asOf = new Date("2026-07-13T00:00:00.000Z");
+    const exactMap: TopicalMapCommandCenter = {
+      ...commandCenter,
+      pages: [
+        { ...commandCenter.pages[0]!, url: "/blogs/news/shared", decision: "optimize", ruleIds: ["rule:news"] },
+        { ...commandCenter.pages[0]!, url: "/blogs/recipes/shared", decision: "optimize", ruleIds: ["rule:recipes"] },
+      ],
+      prohibited: [],
+      work: { ...commandCenter.work, internalLinks: [] },
+    };
+
+    const result = buildMapAwareSeoGaps({
+      strategy: identity,
+      commandCenter: exactMap,
+      queries: [],
+      queryPagePairs: [],
+      articles: [
+        { blogHandle: "news", handle: "shared", title: "News", wordCount: 500, internalLinkCount: 0, seoData: {}, updatedAt: asOf },
+        { blogHandle: "recipes", handle: "shared", title: "Recipe", wordCount: 500, internalLinkCount: 0, seoData: {}, updatedAt: asOf },
+      ],
+      asOf,
+    });
+
+    expect(result.gaps.map((gap) => gap.page)).toEqual(["/blogs/news/shared", "/blogs/recipes/shared"]);
+    expect(result.gaps.map((gap) => gap.observation.provenance)).toEqual([
+      "ArticleRecord:news/shared",
+      "ArticleRecord:recipes/shared",
+    ]);
+    expect(result.gaps.map((gap) => gap.candidateId)).toEqual([expect.stringMatching(/^[a-f0-9]{64}$/), expect.stringMatching(/^[a-f0-9]{64}$/)]);
+    expect(result.gaps[0]!.candidateId).not.toBe(result.gaps[1]!.candidateId);
+  });
+
   it("requires exact inspected link absence and blocks present or uninspectable pairs", () => {
     const base = { strategy: identity, commandCenter, queries: [], queryPagePairs: [], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {} }] };
     const absent = buildMapAwareSeoGaps({ ...base, linkInspections: new Map([["/blogs/news/source", { capturedAt: new Date(), targets: new Set<string>() }]]) });

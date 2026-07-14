@@ -190,7 +190,21 @@ function assertNoUserErrors(errors: UserError[]): void {
   }
 }
 
-async function getArticleGid(handle: string): Promise<string> {
+async function verifiedIndexedArticleId(handle: string, blogHandle?: string | null): Promise<string | null> {
+  const indexed = blogHandle
+    ? await prisma.articleRecord.findUnique({ where: { blogHandle_handle: { blogHandle, handle } }, select: { shopifyId: true } })
+    : await prisma.articleRecord.findFirst({ where: { handle }, select: { shopifyId: true }, orderBy: { indexedAt: "desc" } });
+  if (!indexed?.shopifyId) return null;
+  const current = await shopifyFetch<ArticleExistsResponse>(`query ArticleExists($id: ID!) { article(id: $id) { id } }`, { id: indexed.shopifyId });
+  return current.article?.id ?? null;
+}
+
+async function getArticleGid(handle: string, blogHandle?: string | null): Promise<string> {
+  if (blogHandle) {
+    const exact = await verifiedIndexedArticleId(handle, blogHandle);
+    if (exact) return exact;
+    throw new Error(`Article /blogs/${blogHandle}/${handle} is unavailable in the current Shopify index`);
+  }
   const data = await shopifyFetch<{ articles: { edges: Array<{ node: { id: string } }> } }>(
     `query ArticleByHandle($query: String!) {
       articles(first: 1, query: $query) {
@@ -201,19 +215,8 @@ async function getArticleGid(handle: string): Promise<string> {
   );
   const gid = data.articles.edges[0]?.node?.id;
   if (!gid) {
-    const indexed = await prisma.articleRecord.findUnique({
-      where: { handle },
-      select: { shopifyId: true },
-    });
-    if (indexed?.shopifyId) {
-      const current = await shopifyFetch<ArticleExistsResponse>(
-        `query ArticleExists($id: ID!) {
-          article(id: $id) { id }
-        }`,
-        { id: indexed.shopifyId }
-      );
-      if (current.article?.id) return current.article.id;
-    }
+    const indexed = await verifiedIndexedArticleId(handle);
+    if (indexed) return indexed;
   }
   if (!gid) {
     // The target article no longer exists in Shopify (e.g. deleted after the
@@ -252,9 +255,10 @@ async function getBlogIdByHandle(handle: string): Promise<string> {
 
 async function publishSeoFix(
   articleHandle: string,
-  draft: { metaTitle: string; metaDescription: string }
+  draft: { metaTitle: string; metaDescription: string },
+  blogHandle?: string | null,
 ): Promise<string> {
-  const articleId = await getArticleGid(articleHandle);
+  const articleId = await getArticleGid(articleHandle, blogHandle);
   // ArticleUpdateInput has no `seo` field — SEO title/description are stored as
   // metafields under the `global` namespace (title_tag / description_tag).
   const data = await shopifyFetch<MetafieldsSetResponse>(
@@ -290,9 +294,10 @@ async function publishSeoFix(
 async function publishInternalLink(
   articleHandle: string,
   draft: { suggestedParagraph: string },
-  proposalId: string
+  proposalId: string,
+  blogHandle?: string | null,
 ): Promise<string> {
-  const articleId = await getArticleGid(articleHandle);
+  const articleId = await getArticleGid(articleHandle, blogHandle);
 
   // Fetch current body
   const current = await shopifyFetch<{ article: { body: string } | null }>(
@@ -329,9 +334,10 @@ async function publishInternalLink(
 
 async function publishBodyHtml(
   articleHandle: string,
-  draft: { bodyHtml: string }
+  draft: { bodyHtml: string },
+  blogHandle?: string | null,
 ): Promise<string> {
-  const articleId = await getArticleGid(articleHandle);
+  const articleId = await getArticleGid(articleHandle, blogHandle);
   const data = await shopifyFetch<ArticleUpdateResponse>(
     `mutation ArticleUpdate($id: ID!, $article: ArticleUpdateInput!) {
       articleUpdate(id: $id, article: $article) {
@@ -458,6 +464,17 @@ async function publishNewContent(
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+function exactProposalBlogHandle(proposal: ContentProposal): string | null {
+  const proposed = proposal.proposedState && typeof proposal.proposedState === "object" ? proposal.proposedState as Record<string, unknown> : {};
+  const source = proposal.sourceData && typeof proposal.sourceData === "object" ? proposal.sourceData as Record<string, unknown> : {};
+  for (const value of [proposed.targetUrl, proposed.fromUrl, source.page, source.targetUrl, source.fromUrl]) {
+    if (typeof value !== "string") continue;
+    const match = /^\/blogs\/([^/]+)\/[^/]+$/.exec(value);
+    if (match) return match[1]!;
+  }
+  return typeof proposed.blogHandle === "string" && proposed.blogHandle ? proposed.blogHandle : null;
+}
+
 export async function publishDraft(
   proposal: ContentProposal
 ): Promise<{ shopifyId: string; handle: string | null }> {
@@ -502,12 +519,14 @@ export async function publishDraft(
 
   let shopifyId: string;
   let handle: string | null = resolveArticleHandle(proposal);
+  const exactBlogHandle = exactProposalBlogHandle(proposal);
 
   switch (proposal.proposalType) {
     case "seo-fix":
       shopifyId = await publishSeoFix(
         requireArticleHandle(proposal),
-        draft as { metaTitle: string; metaDescription: string }
+        draft as { metaTitle: string; metaDescription: string },
+        exactBlogHandle,
       );
       break;
     case "internal-link":
@@ -515,12 +534,15 @@ export async function publishDraft(
       shopifyId = await publishInternalLink(
         handle,
         draft as { suggestedParagraph: string },
-        proposal.id
+        proposal.id,
+        exactBlogHandle,
       );
       break;
     case "new-content": {
       const ps = proposal.proposedState as Record<string, unknown>;
-      const blogHandle = typeof ps.blogHandle === "string" && ps.blogHandle ? ps.blogHandle : null;
+      const declaredBlogHandle = typeof ps.blogHandle === "string" && ps.blogHandle ? ps.blogHandle : null;
+      if (exactBlogHandle && declaredBlogHandle && exactBlogHandle !== declaredBlogHandle) throw new Error("New-content blog identity does not match its exact target URL");
+      const blogHandle = exactBlogHandle ?? declaredBlogHandle;
       const targetKeyword =
         typeof ps.targetKeyword === "string" && ps.targetKeyword ? ps.targetKeyword : null;
       const articleHandle =
@@ -542,7 +564,8 @@ export async function publishDraft(
       // content-refresh, thin-content
       shopifyId = await publishBodyHtml(
         requireArticleHandle(proposal),
-        draft as { bodyHtml: string }
+        draft as { bodyHtml: string },
+        exactBlogHandle,
       );
   }
 

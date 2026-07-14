@@ -24,4 +24,4 @@ export type MapAnalysisState =
   | { state: "strategy_identity_stale" | "evidence_stale" | "observation_unavailable"; analysis: null }
   | { state: "stale"; analysis: null }
   | { state: "empty"; analysis: null; generatedAt: string | null }
-  | { state: "ready"; analysis: MapAwareSeoAnalysis };
+  | { state: "ready"; analysis: MapAwareSeoAnalysis; generatedAt: string };

@@ -12,6 +12,7 @@ const advisoryReasons: Record<string, string> = {
   homepage_not_governed: "Homepage changes are not governed for execution from Store Pilot.",
   blog_index_not_governed: "Blog index changes are not governed for execution from Store Pilot.",
   redirect_execution_unsupported: "Redirect changes are not supported for execution from Store Pilot.",
+  redirect_conflict: "An exact-source redirect already points elsewhere. This conflict is advisory and will not be updated automatically.",
   canonicalization_execution_prohibited: "Canonicalization changes cannot be executed from Store Pilot.",
   indexation_execution_prohibited: "Indexation changes cannot be executed from Store Pilot.",
   draft_unavailable: "A grounded draft is unavailable, so this task cannot be executed.",

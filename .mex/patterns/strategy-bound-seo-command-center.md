@@ -10,7 +10,7 @@ edges:
     condition: when changing the authenticated command-center projection or five-job UI
   - target: seo-pilot-proposal-actions.md
     condition: when changing governed Content Pilot proposal creation
-last_updated: 2026-07-13T22:11:00+08:00
+last_updated: 2026-07-14T11:10:00+08:00
 ---
 
 # Strategy-bound SEO Command Center
@@ -30,9 +30,10 @@ SEO observations are evidence, not governance. Only the active `agrikoph.com` to
 3. On read, return `stale` with `analysis: null` when the cached identity differs; never leak or render the old findings.
 4. Keep unmapped GSC demand in the separately labelled observation view. Do not provide a promotion action until an active map rule governs it.
 5. For content or internal-link promotion, reconstruct the candidate from the current server projection and reject stale identity, unrelated rule IDs, altered evidence, or incomplete link pairs before persistence.
-6. Preserve evaluator/compliance/dedupe evidence in the existing transaction. Redirect persistence remains unsupported; canonicalization and indexation remain advisory-only and must never advertise live execution.
-7. When removing a legacy strategy surface, delete its module, unreachable panels/handlers/tabs, and add a recursive runtime-source regression scan so hidden fallback code cannot return.
-8. After the exact active-map analysis snapshot is persisted, synchronize non-blog Store Tasks as an independent best-effort step. Return only bounded counts, preserve analysis readiness on sync failure, and keep the standalone sync route for operator retry.
+6. Persist a deterministic candidate ID from strategy identity, kind/action, normalized URLs, and sorted rule IDs. Selected promotion sends the exact analysis timestamp/strategy identity plus at most 100 IDs, reloads current server evidence, and commits each candidate independently through the existing evaluator/compliance/dedupe transaction.
+7. Redirects use the existing Store Task lifecycle only for create-when-exact-source-is-absent. Matching redirects are satisfied; conflicting exact sources stay advisory and are never updated automatically. Canonicalization and indexation remain advisory-only.
+8. When removing a legacy strategy surface, delete its module, unreachable panels/handlers/tabs, and add a recursive runtime-source regression scan so hidden fallback code cannot return.
+9. After the exact active-map analysis snapshot is persisted, synchronize non-blog Store Tasks as an independent best-effort step. Return only bounded counts, preserve analysis readiness on sync failure, and keep the standalone sync route for operator retry.
 
 ## Gotchas
 
@@ -43,6 +44,8 @@ SEO observations are evidence, not governance. Only the active `agrikoph.com` to
 - Local builds must use the exact non-production `autopilot_test` URL and include `connection_limit` and `pool_timeout`; never source production credentials for a build.
 - Inspection completeness must use the same executable scope as analysis. Non-blog Shopify objects that Content Pilot deliberately suppresses must remain visible as unsupported findings, but must not make fully inspected blog actions globally unavailable.
 - Never route governed blog articles into Store Tasks; blog create/refresh/link work remains in Content Pilot, while Store Tasks cover supported non-blog Shopify resources.
+- Treat a blog article as `(blogHandle, handle)` everywhere. Normalize exact `/blogs/<blogHandle>/<handle>` paths for absence, links, reconstruction, and publish revalidation; a same-handle article in another blog is not evidence.
+- Shopify resource `updatedAt` detects source changes; local `capturedAt` establishes observation freshness. For AI drafts, keep each request at 25 candidates but iterate every deterministic chunk so later candidates are not starved.
 
 ## Verify
 

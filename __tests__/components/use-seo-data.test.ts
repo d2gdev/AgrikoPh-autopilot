@@ -10,12 +10,12 @@ const commandCenter = { identity: identityV3, domainCounts: { clusters: 0, page_
 describe("active topical-map loading", () => {
   it("rejects analysis for a different active strategy as stale", () => {
     expect(resolveMapAnalysisState({ active: identityV3, envelope: envelopeV2 })).toEqual({ state: "stale", analysis: null });
-    expect(resolveMapAnalysisState({ active: identityV3, envelope: envelopeV3 })).toEqual({ state: "ready", analysis });
+    expect(resolveMapAnalysisState({ active: identityV3, envelope: envelopeV3 })).toEqual({ state: "ready", analysis, generatedAt: "2026-07-13T00:00:00.000Z" });
   });
 
   it("distinguishes no active strategy from empty findings", () => {
     expect(resolveMapAnalysisState({ active: null, envelope: envelopeV3 })).toEqual({ state: "no_active_strategy", analysis: null });
-    expect(resolveMapAnalysisState({ active: identityV3, envelope: envelopeV3 })).toEqual({ state: "ready", analysis });
+    expect(resolveMapAnalysisState({ active: identityV3, envelope: envelopeV3 })).toEqual({ state: "ready", analysis, generatedAt: "2026-07-13T00:00:00.000Z" });
   });
 
   it("loads command-center identity before requesting cached analysis", async () => {

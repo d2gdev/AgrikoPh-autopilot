@@ -19,6 +19,12 @@ class ObservationConflictError extends Error {
   constructor(readonly code: "OBSERVATION_CHANGED" | "OBSERVATION_STALE") { super(code); }
 }
 
+function blogIdentity(value: string | undefined | null): { blogHandle: string; handle: string } | null {
+  if (!value) return null;
+  const match = /^\/blogs\/([^/]+)\/([^/]+)$/.exec(normalizeGovernedUrl(value));
+  return match ? { blogHandle: match[1]!, handle: match[2]! } : null;
+}
+
 const GapInputSchema = z.object({
   query: z.string().trim().min(1).max(160),
   impressions: z.coerce.number().int().nonnegative().max(10_000_000).optional(),
@@ -109,8 +115,7 @@ export async function POST(req: NextRequest) {
   // Candidate titles/handles from the input (deduped, valid gaps only).
   const contentGaps = gaps.filter((gap) => gap.kind === "content");
   const candidateTitles = Array.from(new Set(contentGaps.map((g) => g.suggestedTitle)));
-  const gapHandles = contentGaps.map((g) => g.articleHandle ?? articleHandleFromBlogPage(g.page)).filter((h): h is string => Boolean(h));
-  const candidateHandles = Array.from(new Set(gapHandles));
+  const candidateIdentities = contentGaps.map(g => blogIdentity(g.page)).filter((identity): identity is { blogHandle: string; handle: string } => Boolean(identity));
   const skippedReasons = { duplicate: 0, missingArticle: 0, nonBlogExistingPage: 0, missingGovernedContext: 0 };
 
   let created;
@@ -120,13 +125,13 @@ export async function POST(req: NextRequest) {
         where: {
           OR: [
             { title: { in: candidateTitles, mode: "insensitive" } },
-            ...(candidateHandles.length > 0 ? [{ handle: { in: candidateHandles } }] : []),
+            ...candidateIdentities,
           ],
         },
-        select: { handle: true, title: true, wordCount: true, updatedAt: true, linksData: true },
+        select: { blogHandle: true, handle: true, title: true, wordCount: true, updatedAt: true, linksData: true },
       });
 
-    const articleByHandle = new Map(existingArticles.map((a) => [a.handle.toLowerCase(), a]));
+    const articleByUrl = new Map(existingArticles.map((a) => [`/blogs/${a.blogHandle || "news"}/${a.handle}`, a]));
     const articleByTitle = new Map(existingArticles.map((a) => [a.title.toLowerCase(), a]));
 
     const seenInBatch = new Set<string>();
@@ -140,9 +145,10 @@ export async function POST(req: NextRequest) {
         const fromUrl = normalizeGovernedUrl(gap.fromUrl!);
         const toUrl = normalizeGovernedUrl(gap.toUrl!);
         const governedLink = commandCenter.work.internalLinks.find((link) => link.fromUrl === fromUrl && link.toUrl === toUrl)!;
-        const fromArticle = articleHandleFromBlogPage(fromUrl) ?? fromUrl;
+        const fromIdentity = blogIdentity(fromUrl);
+        const fromArticle = fromIdentity?.handle ?? fromUrl;
         const toArticle = articleHandleFromBlogPage(toUrl) ?? toUrl;
-        const currentSource = await tx.articleRecord.findUnique({ where: { handle: fromArticle }, select: { updatedAt: true, linksData: true } });
+        const currentSource = fromIdentity ? await tx.articleRecord.findUnique({ where: { blogHandle_handle: fromIdentity }, select: { updatedAt: true, linksData: true } }) : null;
         if (!currentSource || !(currentSource.updatedAt instanceof Date)) throw new ObservationConflictError("OBSERVATION_CHANGED");
         if (currentSource.updatedAt.toISOString() !== gap.observation.capturedAt) throw new ObservationConflictError("OBSERVATION_CHANGED");
         const internal = currentSource.linksData && typeof currentSource.linksData === "object" && Array.isArray((currentSource.linksData as { internal?: unknown }).internal) ? (currentSource.linksData as { internal: Array<{ href?: unknown }> }).internal : [];
@@ -164,9 +170,10 @@ export async function POST(req: NextRequest) {
       const impressions = gap.impressions ?? knownQuery?.impressions ?? 0;
       const position = gap.position ?? (knownQuery ? Number(knownQuery.position) : undefined);
       const inputTitle = gap.suggestedTitle;
-      const requestedHandle = gap.articleHandle ?? articleHandleFromBlogPage(gap.page);
-      const matchedArticle = requestedHandle
-        ? articleByHandle.get(requestedHandle.toLowerCase())
+      const requestedIdentity = blogIdentity(gap.page);
+      const requestedHandle = requestedIdentity?.handle ?? gap.articleHandle ?? articleHandleFromBlogPage(gap.page);
+      const matchedArticle = requestedIdentity
+        ? articleByUrl.get(`/blogs/${requestedIdentity.blogHandle}/${requestedIdentity.handle}`)
         : articleByTitle.get(inputTitle.toLowerCase());
       if (gap.action === "create" && matchedArticle) throw new ObservationConflictError("OBSERVATION_CHANGED");
       if (gap.action === "refresh" && (!matchedArticle || !(matchedArticle.updatedAt instanceof Date) || matchedArticle.updatedAt.toISOString() !== gap.observation.capturedAt)) throw new ObservationConflictError("OBSERVATION_CHANGED");

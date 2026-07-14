@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import type { NextRequest } from "next/server";
+import { mapCandidateId, type MapAwareSeoGap } from "@/lib/seo/analysis";
 
 const mockAuth = vi.hoisted(() => ({
   requireAppAuth: vi.fn(),
@@ -12,6 +13,7 @@ const mockAuth = vi.hoisted(() => ({
 const mockPrisma = vi.hoisted(() => ({
   $transaction: vi.fn(),
   articleRecord: {
+    findFirst: vi.fn(),
     findUnique: vi.fn(),
     findMany: vi.fn(),
   },
@@ -236,7 +238,11 @@ describe("SEO Pilot route regressions", () => {
     const post = await POST(jsonRequest("/api/seo/analyze", {}));
     expect(post.status).toBe(200);
     const posted = await post.json();
-    expect(mockPrisma.articleRecord.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { handle: { in: expect.arrayContaining(["mapped", "black-rice-benefits", "source"]) } } }));
+    expect(mockPrisma.articleRecord.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { OR: expect.arrayContaining([
+      { blogHandle: "news", handle: "mapped" },
+      { blogHandle: "news", handle: "black-rice-benefits" },
+      { blogHandle: "news", handle: "source" },
+    ]) } }));
     const payload = mockPrisma.rawSnapshot.upsert.mock.calls.at(-1)?.[0]?.update?.payload;
     expect(payload.analysis).toEqual(posted.mapAnalysis);
     expect(payload.analysis).toEqual({ gaps: expect.any(Array), observations: expect.any(Array), suppressed: expect.any(Array) });
@@ -267,6 +273,30 @@ describe("SEO Pilot route regressions", () => {
     const { GET } = await import("@/app/api/seo/analysis/route");
     const get = await GET(new Request("http://test.local/api/seo/analysis") as NextRequest);
     expect(await get.json()).toEqual(expect.objectContaining({ state: "ready", analysis: expect.objectContaining({ gaps: [] }) }));
+  });
+
+  it("uses exact blogHandle plus handle identity for recipe analysis", async () => {
+    const active = await mockPrisma.topicalMapActivation.findUnique();
+    const exactRules = [
+      { ruleId: "rule:news-shared", ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: "/blogs/news/shared", decision: "update", priority: "high" }, sourceReferences: [] } },
+      { ruleId: "rule:recipe", ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: "/blogs/recipes/shared", decision: "update", priority: "high" }, sourceReferences: [] } },
+    ];
+    mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { ...active.strategyVersion, compiledRules: [...active.strategyVersion.compiledRules, ...exactRules] } });
+    const capturedAt = new Date();
+    mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "shared recipe", clicks: 1, impressions: 40, ctr: "2%", position: "8" }], pages: [], queryPagePairs: [], fetchedAt: capturedAt, source: "normalized", window: null });
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      { blogHandle: "news", handle: "shared", title: "News Shared", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: {}, updatedAt: capturedAt },
+      { blogHandle: "recipes", handle: "shared", title: "Recipe Shared", wordCount: 500, internalLinkCount: 1, seoData: {}, linksData: {}, updatedAt: capturedAt },
+    ]);
+
+    const { POST } = await import("@/app/api/seo/analyze/route");
+    const response = await POST(jsonRequest("/api/seo/analyze", {}));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.mapAnalysis.gaps).toContainEqual(expect.objectContaining({ page: "/blogs/news/shared", action: "refresh", ruleIds: ["rule:news-shared"] }));
+    expect(body.mapAnalysis.gaps).toContainEqual(expect.objectContaining({ page: "/blogs/recipes/shared", action: "refresh", ruleIds: ["rule:recipe"] }));
+    expect(body.mapAnalysis.gaps.find((gap: any) => gap.page === "/blogs/recipes/shared")?.observation.provenance).toBe("ArticleRecord:recipes/shared");
   });
 
   it("withholds a persisted zero-gap map when a required link inspection is missing", async () => {
@@ -429,6 +459,69 @@ describe("SEO Pilot route regressions", () => {
 
     expect(res.status).toBe(400);
     expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+  });
+
+  it("creates selected persisted candidates independently and returns exact per-candidate outcomes", async () => {
+    const capturedAt = new Date().toISOString();
+    const makeGap = (input: Omit<MapAwareSeoGap, "candidateId">): MapAwareSeoGap => ({ ...input, candidateId: mapCandidateId(input) });
+    const createGap = makeGap({ ...strategyIdentity, kind: "content", state: "candidate", action: "create", ruleIds: ["rule:mapped"], query: "mapped topic", suggestedTitle: "Mapped topic guide", page: "/blogs/news/mapped", priority: "high", mapEvidence: null, observedEvidence: [], observation: { source: "store", capturedAt, provenance: "ArticleRecord:absence:/blogs/news/mapped" } });
+    const refreshGap = makeGap({ ...strategyIdentity, kind: "content", state: "candidate", action: "refresh", ruleIds: ["rule:black"], query: "black rice benefits", suggestedTitle: "Black Rice Benefits", page: "/blogs/news/black-rice-benefits", priority: "high", mapEvidence: "Refresh using current search performance.", observedEvidence: [], observation: { source: "store", capturedAt, provenance: "ArticleRecord:news/black-rice-benefits" } });
+    mockGetLatestSnapshot.mockResolvedValue({ payload: { schemaVersion: "2", strategy: { versionId: "v3", packageSha256: strategyIdentity.packageSha256 }, generatedAt: capturedAt, analysis: { gaps: [createGap, refreshGap], observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: capturedAt, linkCapturedAt: null, requiredObservationFamilies: ["store"], storeInspection: { required: 2, inspected: 2 }, linkInspection: { required: 0, inspected: 0 }, maxAgeHours: 72 } }, fetchedAt: new Date(capturedAt) });
+    mockPrisma.articleRecord.findFirst.mockImplementation(async ({ where }) => where.handle === "mapped" ? null : { blogHandle: "news", handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 400, updatedAt: new Date(capturedAt), linksData: { internal: [] } });
+    mockCreateGovernedContentProposal
+      .mockResolvedValueOnce({ created: true, proposal: { id: "created-1", title: "Mapped topic guide" }, compliance: { result: "compliant" } })
+      .mockRejectedValueOnce(new Error("isolated persistence failure"));
+    const { POST } = await import("@/app/api/seo/gaps/promote-selected/route");
+
+    const response = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: capturedAt, candidateIds: [createGap.candidateId, refreshGap.candidateId, "f".repeat(64)] }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.results).toEqual([
+      { candidateId: createGap.candidateId, status: "created", proposalId: "created-1" },
+      { candidateId: refreshGap.candidateId, status: "failed" },
+      { candidateId: "f".repeat(64), status: "stale_or_blocked" },
+    ]);
+    expect(body.counts).toEqual({ created: 1, already_existing: 0, stale_or_blocked: 1, failed: 1 });
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "seo_map_candidate_promoted", entityId: "created-1", meta: expect.objectContaining({ candidateId: createGap.candidateId }) }) });
+
+    const staleAnalysis = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: "2026-01-01T00:00:00.000Z", candidateIds: [createGap.candidateId] }));
+    expect(staleAnalysis.status).toBe(409);
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds selected candidate requests at 100 IDs before database work", async () => {
+    const { POST } = await import("@/app/api/seo/gaps/promote-selected/route");
+    const response = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: new Date().toISOString(), candidateIds: Array.from({ length: 101 }, (_, index) => index.toString(16).padStart(64, "0")) }));
+    expect(response.status).toBe(400);
+    expect(mockGetLatestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("processes the current 92-candidate selection without truncation and retries idempotently", async () => {
+    const capturedAt = new Date().toISOString();
+    const gaps = Array.from({ length: 92 }, (_, index) => {
+      const input = { ...strategyIdentity, kind: "content" as const, state: "candidate" as const, action: "create" as const, ruleIds: [`rule:batch:${index}`], query: `mapped topic ${index}`, suggestedTitle: `Mapped topic guide ${index}`, page: `/blogs/news/mapped-${index}`, priority: "high", mapEvidence: null, observedEvidence: [], observation: { source: "store" as const, capturedAt, provenance: `ArticleRecord:absence:/blogs/news/mapped-${index}` } };
+      return { ...input, candidateId: mapCandidateId(input) };
+    });
+    const active = await mockPrisma.topicalMapActivation.findUnique();
+    mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { ...active.strategyVersion, compiledRules: gaps.map((gap) => ({ ruleId: gap.ruleIds[0], ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl: gap.page, decision: "create", priority: "high" }, sourceReferences: [] } })) } });
+    mockGetLatestSnapshot.mockResolvedValue({ payload: { schemaVersion: "2", strategy: { versionId: "v3", packageSha256: strategyIdentity.packageSha256 }, generatedAt: capturedAt, analysis: { gaps, observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: capturedAt, linkCapturedAt: null, requiredObservationFamilies: ["store"], storeInspection: { required: 92, inspected: 92 }, linkInspection: { required: 0, inspected: 0 }, maxAgeHours: 72 } }, fetchedAt: new Date(capturedAt) });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue(null);
+    mockCreateGovernedContentProposal.mockResolvedValue({ created: false, proposal: { id: "existing" }, compliance: { result: "compliant" } }).mockResolvedValueOnce({ created: true, proposal: { id: "created-first" }, compliance: { result: "compliant" } });
+    const { POST } = await import("@/app/api/seo/gaps/promote-selected/route");
+
+    const response = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: capturedAt, candidateIds: gaps.map(gap => gap.candidateId) }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.results).toHaveLength(92);
+    expect(body.counts).toEqual({ created: 1, already_existing: 91, stale_or_blocked: 0, failed: 0 });
+
+    const retry = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: capturedAt, candidateIds: gaps.map(gap => gap.candidateId) }));
+    expect((await retry.json()).counts).toEqual({ created: 0, already_existing: 92, stale_or_blocked: 0, failed: 0 });
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(184);
   });
 
   it("rejects promotion when the submitted strategy identity is stale", async () => {

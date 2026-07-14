@@ -97,7 +97,7 @@ export async function replaceInternalLinkEdgesForSource(
   await prismaClient.internalLinkEdge.deleteMany({
     where: {
       sourceType: input.sourceType,
-      sourceHandle: input.sourceHandle,
+      ...(input.sourceUrl ? { sourceUrl: input.sourceUrl } : { sourceHandle: input.sourceHandle }),
     },
   });
 

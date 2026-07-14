@@ -14,12 +14,28 @@ export interface GovernedStoreResource {
   seoTitle: string | null;
   seoDescription: string | null;
   bodyHtml: string;
+  capturedAt: Date;
   updatedAt: Date;
   stateHash: string;
   internalTargets: string[];
 }
 
 export type GovernedStoreResourceChange = Partial<Pick<GovernedStoreResource, "seoTitle" | "seoDescription" | "title" | "bodyHtml">>;
+
+export interface GovernedRedirect {
+  id: string;
+  source: string;
+  target: string;
+  capturedAt: Date;
+  stateHash: string;
+}
+
+function governedPath(value: string): string {
+  const normalized = normalizeGovernedUrl(value);
+  if (normalized.startsWith("/")) return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized;
+  const parsed = new URL(normalized);
+  return `${parsed.pathname.length > 1 ? parsed.pathname.replace(/\/+$/, "") : parsed.pathname}${parsed.search}${parsed.hash}`;
+}
 
 export function resolveGovernedStoreUrl(value: string): { type: GovernedStoreTargetType; handle: string } | null {
   let normalized: string;
@@ -63,7 +79,7 @@ function resource(type: GovernedStoreTargetType, node: Node): GovernedStoreResou
       return [`${parsed.pathname}${parsed.search}${parsed.hash}`];
     } catch { return []; }
   });
-  return { id: node.id, type, url, handle: node.handle, title: node.title, seoTitle, seoDescription, bodyHtml, updatedAt, stateHash: createHash("sha256").update(canonical).digest("hex"), internalTargets };
+  return { id: node.id, type, url, handle: node.handle, title: node.title, seoTitle, seoDescription, bodyHtml, capturedAt: new Date(), updatedAt, stateHash: createHash("sha256").update(canonical).digest("hex"), internalTargets };
 }
 
 export async function fetchGovernedStoreResources(urls: string[]): Promise<Map<string, GovernedStoreResource>> {
@@ -92,6 +108,52 @@ export async function fetchGovernedStoreResource(url: string): Promise<GovernedS
   if (!resolved) return null;
   const canonical = `/${resolved.type === "product" ? "products" : resolved.type === "collection" ? "collections" : "pages"}/${resolved.handle}`;
   return (await fetchGovernedStoreResources([canonical])).get(canonical) ?? null;
+}
+
+export async function fetchGovernedRedirects(sources: string[]): Promise<Map<string, GovernedRedirect>> {
+  const requested = new Set(sources.map(governedPath));
+  const result = new Map<string, GovernedRedirect>();
+  let after: string | null = null;
+  do {
+    const data: { urlRedirects: Connection & { edges: Array<{ node: { id: string; path: string; target: string } }> } } = await shopifyFetch(`
+      query GovernedUrlRedirects($after: String) {
+        urlRedirects(first: 250, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          edges { node { id path target } }
+        }
+      }
+    `, { after });
+    for (const { node } of data.urlRedirects.edges) {
+      const source = governedPath(node.path);
+      if (!requested.has(source)) continue;
+      const target = governedPath(node.target);
+      const capturedAt = new Date();
+      result.set(source, { id: node.id, source, target, capturedAt, stateHash: createHash("sha256").update(JSON.stringify({ id: node.id, source, target })).digest("hex") });
+    }
+    after = data.urlRedirects.pageInfo.hasNextPage ? data.urlRedirects.pageInfo.endCursor : null;
+  } while (after);
+  return result;
+}
+
+export async function createGovernedRedirect(sourceValue: string, targetValue: string): Promise<GovernedRedirect> {
+  const source = governedPath(sourceValue);
+  const target = governedPath(targetValue);
+  const data = await shopifyFetch<{ urlRedirectCreate: { urlRedirect: { id: string; path: string; target: string } | null; userErrors: Array<{ field?: string[]; message: string }> } }>(`
+    mutation CreateGovernedUrlRedirect($urlRedirect: UrlRedirectInput!) {
+      urlRedirectCreate(urlRedirect: $urlRedirect) {
+        urlRedirect { id path target }
+        userErrors { field message }
+      }
+    }
+  `, { urlRedirect: { path: source, target } });
+  const error = data.urlRedirectCreate.userErrors[0];
+  if (error) throw new Error(error.message);
+  const created = data.urlRedirectCreate.urlRedirect;
+  if (!created) throw new Error("Shopify did not return the created redirect");
+  const createdSource = governedPath(created.path);
+  const createdTarget = governedPath(created.target);
+  if (createdSource !== source || createdTarget !== target) throw new Error("Shopify returned a different redirect than requested");
+  return { id: created.id, source, target, capturedAt: new Date(), stateHash: createHash("sha256").update(JSON.stringify({ id: created.id, source, target })).digest("hex") };
 }
 
 export async function applyGovernedStoreResourceChange(resource: GovernedStoreResource, proposed: GovernedStoreResourceChange): Promise<GovernedStoreResource> {

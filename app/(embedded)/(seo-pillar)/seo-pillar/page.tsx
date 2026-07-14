@@ -2,7 +2,7 @@
 
 import {
   Page, Layout, Card, Text, Badge, InlineStack, BlockStack, Banner,
-  Button, Spinner, Tooltip,
+  Button, Modal, Spinner, Tooltip,
 } from "@shopify/polaris";
 import { useState, useCallback } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
@@ -15,8 +15,7 @@ import { SeoPilotNavigation } from "./components/SeoPilotNavigation";
 import { MapOverviewPanel } from "./components/panels/MapOverviewPanel";
 import { MapPagesPanel } from "./components/panels/MapPagesPanel";
 import { MapWorkPanel } from "./components/panels/MapWorkPanel";
-import type { MapAwareSeoGap } from "@/lib/seo/analysis";
-import { submitMapProposal } from "./components/map-proposal-action";
+import { applySelectedProposalResults, selectVisibleCandidateIds, submitSelectedMapProposals } from "./components/map-proposal-action";
 
 // render a page path/url as a subdued span (or link when it looks like a path/url)
 const pagePath = (p: string | null | undefined) => {
@@ -54,8 +53,10 @@ export default function SeoPillarReportPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  const [promotingMap, setPromotingMap] = useState<Set<string>>(new Set());
+  const [selectedMap, setSelectedMap] = useState<Set<string>>(new Set());
   const [promotedMap, setPromotedMap] = useState<Set<string>>(new Set());
+  const [confirmSelected, setConfirmSelected] = useState(false);
+  const [submittingSelected, setSubmittingSelected] = useState(false);
   // AI SEO brief (ported from the retired /seo page)
   const [brief, setBrief] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
@@ -82,16 +83,32 @@ export default function SeoPillarReportPage() {
     finally { setAnalyzing(false); }
   }, [authFetch, reloadCommandCenter, setAnalysis, setAnalysisAt, setToast]);
 
-  const proposeMapGap = useCallback(async (gap: MapAwareSeoGap) => {
-    const key = gap.ruleIds.join("|");
-    setPromotingMap(current => new Set([...current, key]));
+  const toggleMapCandidate = useCallback((candidateId: string) => setSelectedMap(current => {
+    const next = new Set(current);
+    if (next.has(candidateId)) next.delete(candidateId);
+    else if (next.size < 100) next.add(candidateId);
+    return next;
+  }), []);
+  const selectVisibleMapCandidates = useCallback((candidateIds: string[], select: boolean) => setSelectedMap(current => {
+    const bounded = select ? candidateIds.slice(0, Math.max(0, 100 - current.size)) : candidateIds;
+    return selectVisibleCandidateIds(current, bounded, select);
+  }), []);
+  const submitSelected = useCallback(async () => {
+    if (mapState.state !== "ready" || mapAnalysisState.state !== "ready" || selectedMap.size === 0) return;
+    setSubmittingSelected(true);
     try {
-      const result = await submitMapProposal(authFetch, gap);
-      if (result.resolved) setPromotedMap(current => new Set([...current, key]));
-      setToast(result.message);
-    } catch { setToast("Could not create governed proposal."); }
-    finally { setPromotingMap(current => { const next = new Set(current); next.delete(key); return next; }); }
-  }, [authFetch]);
+      const result = await submitSelectedMapProposals(authFetch, {
+        strategyVersionId: mapState.commandCenter.identity.versionId,
+        packageSha256: mapState.commandCenter.identity.packageSha256,
+        analysisGeneratedAt: mapAnalysisState.generatedAt,
+      }, [...selectedMap]);
+      const next = applySelectedProposalResults(selectedMap, promotedMap, result.results);
+      setSelectedMap(next.selected);
+      setPromotedMap(next.done);
+      setToast(`${result.counts.created} created, ${result.counts.already_existing} already handled, ${result.counts.stale_or_blocked} stale or blocked, ${result.counts.failed} failed.`);
+    } catch (error) { setToast(error instanceof Error ? error.message : "Could not create governed proposals."); }
+    finally { setSubmittingSelected(false); setConfirmSelected(false); }
+  }, [authFetch, mapAnalysisState, mapState, promotedMap, selectedMap, setToast]);
 
   // ── derived metrics ──
   const t = data?.trends;
@@ -189,6 +206,9 @@ export default function SeoPillarReportPage() {
         { content: "Generate SEO Brief", onAction: generateBrief, loading: briefLoading },
       ]}
     >
+      <Modal open={confirmSelected} onClose={() => setConfirmSelected(false)} title="Create selected governed proposals?" primaryAction={{ content: `Create ${selectedMap.size} proposals`, onAction: submitSelected, loading: submittingSelected, disabled: selectedMap.size === 0 }} secondaryActions={[{ content: "Cancel", onAction: () => setConfirmSelected(false) }]}>
+        <Modal.Section><Text as="p">The server will reload the current analysis and strategy, revalidate each selected candidate independently, and keep failed selections available for retry.</Text></Modal.Section>
+      </Modal>
       <Layout>
         {loadError && (
           <Layout.Section>
@@ -217,6 +237,7 @@ export default function SeoPillarReportPage() {
         )}
 
         <Layout.Section>
+          {selectedMap.size > 0 && <Card><InlineStack align="space-between" blockAlign="center" wrap><Text as="p">{selectedMap.size} candidate{selectedMap.size === 1 ? "" : "s"} selected</Text><InlineStack gap="200"><Button variant="plain" onClick={() => setSelectedMap(new Set())}>Clear selection</Button><Button variant="primary" onClick={() => setConfirmSelected(true)}>Create selected proposals</Button></InlineStack></InlineStack></Card>}
           <Card padding="0">
             <SeoPilotNavigation tabs={tabs} selected={tab} onSelect={setTab} />
             <div style={{ padding: "var(--p-space-400)" }}>
@@ -225,18 +246,18 @@ export default function SeoPillarReportPage() {
               ) : (
                 <>
                   {/* ── OVERVIEW ── */}
-                  {tab === 0 && (mapState.state === "ready" ? <MapOverviewPanel mapState={mapState}/> : <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} busy={promotingMap} done={promotedMap} onPropose={proposeMapGap}/>)}
+                  {tab === 0 && (mapState.state === "ready" ? <MapOverviewPanel mapState={mapState}/> : <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} selected={selectedMap} done={promotedMap} onToggle={toggleMapCandidate} onSelectVisible={selectVisibleMapCandidates}/>)}
 
                   {/* ── OPPORTUNITIES ── */}
-                  {tab === 1 && (mapState.state === "ready" ? <MapPagesPanel map={mapState.commandCenter}/> : <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} busy={promotingMap} done={promotedMap} onPropose={proposeMapGap}/>)}
+                  {tab === 1 && (mapState.state === "ready" ? <MapPagesPanel map={mapState.commandCenter}/> : <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} selected={selectedMap} done={promotedMap} onToggle={toggleMapCandidate} onSelectVisible={selectVisibleMapCandidates}/>)}
 
                   {/* ── CONTENT GAPS ── */}
                   {tab === 2 && (
-                    <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} busy={promotingMap} done={promotedMap} onPropose={proposeMapGap}/>
+                    <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} selected={selectedMap} done={promotedMap} onToggle={toggleMapCandidate} onSelectVisible={selectVisibleMapCandidates}/>
                   )}
 
                   {/* ── ON-PAGE HEALTH ── */}
-                  {tab === 3 && (mapState.state === "ready" ? <MapWorkPanel map={mapState.commandCenter} gaps={mapAnalysisState.state === "ready" ? mapAnalysisState.analysis.gaps : []} busy={promotingMap} done={promotedMap} onPropose={proposeMapGap}/> : <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} busy={promotingMap} done={promotedMap} onPropose={proposeMapGap}/>)}
+                  {tab === 3 && (mapState.state === "ready" ? <MapWorkPanel map={mapState.commandCenter} gaps={mapAnalysisState.state === "ready" ? mapAnalysisState.analysis.gaps : []} selected={selectedMap} done={promotedMap} onToggle={toggleMapCandidate} onSelectVisible={selectVisibleMapCandidates}/> : <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} selected={selectedMap} done={promotedMap} onToggle={toggleMapCandidate} onSelectVisible={selectVisibleMapCandidates}/>)}
 
                   {/* ── KEYWORDS ── */}
                   {tab === 4 && <BlockStack gap="500"><OverviewPanel brief={brief} cur={cur} prev={prev} gscFetchedAt={data?.gscFetchedAt} gscFreshness={data?.gscFreshness} ga4FetchedAt={data?.ga4FetchedAt} ga4Freshness={data?.ga4Freshness} previousFetchedAt={t?.previousFetchedAt} trend={trend} trendFirst={trendFirst} trendLast={trendLast} moverRows={moverRows} pageRows={pageRows} queryRows={queryRows} gscPages={data?.gscPages ?? []} queryPagePairs={data?.queryPagePairs ?? []}/><OpportunitiesPanel oppCount={visibleOpportunities.length} oppSearch={oppSearch} setOppSearch={setOppSearch} oppType={oppType} setOppType={setOppType} oppTypeOptions={oppTypeOptions} oppRows={oppRows} oppSort={oppSort} setOppSort={setOppSort}/></BlockStack>}

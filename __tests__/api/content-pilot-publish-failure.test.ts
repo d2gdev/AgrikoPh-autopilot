@@ -18,6 +18,7 @@ const mockPrisma = vi.hoisted(() => ({
     updateMany: vi.fn(),
   },
   articleRecord: {
+    findUnique: vi.fn(),
     findFirst: vi.fn(),
   },
   $transaction: vi.fn(),
@@ -84,6 +85,7 @@ describe("Content Pilot publish failure recovery", () => {
     mockPrisma.contentProposal.update.mockResolvedValue({});
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.articleRecord.findFirst.mockResolvedValue(null);
+    mockPrisma.articleRecord.findUnique.mockResolvedValue(null);
     mockPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockPrisma) => unknown) => fn(mockPrisma));
     mockResolveArticleHandle.mockReturnValue("creating-your-own-herbal-blends-a-practical-guide-for-everyday-use");
     mockFetchBlogContentHandler.mockResolvedValue({});
@@ -107,6 +109,20 @@ describe("Content Pilot publish failure recovery", () => {
 
     expect(res.status).toBe(409);
     expect(mockPublishDraft).not.toHaveBeenCalled();
+  });
+
+  it("reconstructs post-publish context from the exact blog and handle", async () => {
+    mockPrisma.contentProposal.findUnique.mockResolvedValue({ ...readyRefreshProposal(), proposedState: { targetUrl: "/blogs/recipes/shared" }, articleHandle: "shared" });
+    mockResolveArticleHandle.mockReturnValue("shared");
+    mockPublishDraft.mockResolvedValue({ shopifyId: "gid://shopify/Article/recipes", handle: "shared" });
+    mockPrisma.articleRecord.findUnique.mockResolvedValue({ blogHandle: "recipes", seoData: { score: 82 } });
+    const { POST } = await import("@/app/api/content-pilot/proposals/[id]/publish/route");
+
+    const res = await POST(new Request("http://test.local/api/content-pilot/proposals/proposal-1/publish", { method: "POST" }), { params: Promise.resolve({ id: "proposal-1" }) });
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.articleRecord.findUnique).toHaveBeenCalledWith({ where: { blogHandle_handle: { blogHandle: "recipes", handle: "shared" } }, select: { blogHandle: true, seoData: true } });
+    expect(mockPrisma.articleRecord.findFirst).not.toHaveBeenCalled();
   });
 
   it("authenticates the embedded publish route before permission", async () => {
