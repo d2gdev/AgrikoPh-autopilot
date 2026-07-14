@@ -24,6 +24,54 @@ async function getAccessToken(): Promise<string> {
   return token.token;
 }
 
+export type GscPageMetrics = {
+  clicks: number;
+  impressions: number;
+  ctr: number | null;
+  avgPosition: number | null;
+};
+
+export async function fetchGscPageMetrics(input: {
+  startDate: string;
+  endDate: string;
+  pageUrl: string;
+}): Promise<GscPageMetrics | null> {
+  const token = await getAccessToken();
+  const siteUrl = await getSecret("GSC_SITE_URL");
+  const body = {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    dataState: "final",
+    aggregationType: "byPage",
+    dimensionFilterGroups: [{
+      groupType: "and",
+      filters: [{ dimension: "page", operator: "equals", expression: input.pageUrl }],
+    }],
+    rowLimit: 1,
+  };
+
+  const res = await fetch(
+    `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!res.ok) throw new Error(`GSC API error ${res.status}`);
+
+  const data = await res.json() as { rows?: Array<Record<string, unknown>> };
+  const row = data.rows?.[0];
+  if (!row) return null;
+  return {
+    clicks: Number(row.clicks ?? 0),
+    impressions: Number(row.impressions ?? 0),
+    ctr: typeof row.ctr === "number" ? row.ctr : null,
+    avgPosition: typeof row.position === "number" ? row.position : null,
+  };
+}
+
 export async function fetchGscData(opts: { start: Date; end: Date }): Promise<Record<string, unknown>> {
   const token = await getAccessToken();
   const siteUrl = await getSecret("GSC_SITE_URL");
