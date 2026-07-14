@@ -11,7 +11,6 @@ import {
   contentProposalDedupeKey,
   filterBlockedContentProposalInputs,
 } from "@/lib/content-pilot/proposal-dedupe";
-import { createContentProposalOnce, withContentProposalDedupeKey } from "@/lib/content-pilot/create-proposal";
 import { replacePendingContentProposals } from "@/lib/content-pilot/proposal-replacement";
 
 export async function POST(req: Request) {

@@ -138,7 +138,7 @@ describe("saveOpenDailyMarketInsight idempotency", () => {
     await saveOpenDailyMarketInsight(baseInsight(), CAPTURED_AT);
 
     expect(mockMarketInsight.upsert).toHaveBeenCalledOnce();
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const call = mockMarketInsight.upsert.mock.calls[0]![0];
     const expectedDay = "2026-06-25";
     expect(call.where.dedupeKey).toBe(
@@ -253,7 +253,7 @@ describe("saveShoppingPriceHistory context isolation", () => {
   it("uses 'unknown' contextKey when neither marketKeywordId nor competitorId is provided", async () => {
     await saveShoppingPriceHistory(basePriceHistory());
 
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const call = mockPriceHistory.upsert.mock.calls[0]![0];
     expect(call.create.contextKey).toBe("unknown");
     expect(call.where.productKey_captureDate_contextKey.contextKey).toBe("unknown");
@@ -315,7 +315,7 @@ describe("saveShoppingResult productIdentityHash", () => {
     await saveShoppingResult(baseShoppingResult());
 
     expect(mockShoppingResult.upsert).toHaveBeenCalledOnce();
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const call = mockShoppingResult.upsert.mock.calls[0]![0];
     expect(call.create.productIdentityHash).toMatch(/^[0-9a-f]{16}$/);
   });
@@ -325,9 +325,9 @@ describe("saveShoppingResult productIdentityHash", () => {
     await saveShoppingResult(baseShoppingResult());
 
     const calls = mockShoppingResult.upsert.mock.calls;
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const hash1 = calls[0]![0].create.productIdentityHash;
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     const hash2 = calls[1]![0].create.productIdentityHash;
     expect(hash1).toBe(hash2);
   });

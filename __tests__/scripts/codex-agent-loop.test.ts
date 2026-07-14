@@ -45,7 +45,7 @@ function plannerDecision(action: "run" | "done") {
   };
 }
 
-function runLoop(replies: unknown[]) {
+function runLoop(replies: unknown[], executorModel = "fake") {
   const directory = mkdtempSync(join(tmpdir(), "codex-surface-loop-"));
   temporaryDirectories.push(directory);
   const fakeCodex = join(directory, "fake-codex.mjs");
@@ -58,7 +58,7 @@ function runLoop(replies: unknown[]) {
   writeFileSync(repliesPath, JSON.stringify(replies));
   writeFileSync(cursorPath, "0");
   writeFileSync(configPath, JSON.stringify({
-    executor: { model: "fake", reasoning: "low", sandbox: "workspace-write" },
+    executor: { model: executorModel, reasoning: "low", sandbox: "workspace-write" },
     planner: { model: "fake", reasoning: "low", sandbox: "read-only" },
     workingDirectory: projectRoot,
     maxIterations: 12,
@@ -87,11 +87,31 @@ writeFileSync(${JSON.stringify(cursorPath)}, String(cursor + 1));
   ], { cwd: projectRoot, encoding: "utf8" });
 
   const output = JSON.parse(result.stdout.trim());
-  const statePath = join(runRoot, ".codex-agent-loop", "runs", output.runId, "state.json");
-  return { output, state: JSON.parse(readFileSync(statePath, "utf8")) };
+  const state = output.runId
+    ? JSON.parse(readFileSync(join(runRoot, ".codex-agent-loop", "runs", output.runId, "state.json"), "utf8"))
+    : null;
+  return { output, state };
 }
 
 describe("codex agent loop clean audit passes", () => {
+  it("falls back from a Sol executor to Terra medium", () => {
+    const replies = [
+      executionReport(true), plannerDecision("run"),
+      executionReport(true), plannerDecision("run"),
+      executionReport(true), plannerDecision("run"),
+      executionReport(true), plannerDecision("run"),
+      executionReport(true), plannerDecision("done"),
+    ];
+
+    const { output, state } = runLoop(replies, "sol-xhigh");
+
+    expect(output.status).toBe("completed");
+    expect(state.config.executor).toMatchObject({
+      model: "gpt-5.6-terra",
+      reasoning: "medium",
+    });
+  });
+
   it("completes only after five consecutive clean audit passes", () => {
     const replies = [
       executionReport(true), plannerDecision("run"),

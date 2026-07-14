@@ -155,11 +155,6 @@ function captureDayRange(capturedAt: Date) {
   return { start, end };
 }
 
-function nullableStringFilter(value: string | null | undefined): string | null {
-  const normalized = (value ?? "").trim();
-  return normalized === "" ? null : normalized;
-}
-
 type FetchMarketIntelOptions = MarketIntelRunOptions & { runId?: string };
 
 async function getOrCreateRunId(runId?: string): Promise<string> {
@@ -221,7 +216,10 @@ export async function saveShoppingResult(data: Prisma.ShoppingResultUncheckedCre
     ),
   } as Prisma.ShoppingResultUncheckedCreateInput;
 
-  const { captureDate: _cd, keyword: _kw, productKey: _pk, ...shoppingUpdatePayload } = payload;
+  const shoppingUpdatePayload = { ...payload };
+  delete shoppingUpdatePayload.captureDate;
+  delete shoppingUpdatePayload.keyword;
+  delete shoppingUpdatePayload.productKey;
   await prisma.shoppingResult.upsert({
     where: {
       keyword_productKey_captureDate: {
@@ -265,7 +263,10 @@ export async function saveShoppingPriceHistory(data: Prisma.ShoppingPriceHistory
     contextKey,
   } as Prisma.ShoppingPriceHistoryUncheckedCreateInput;
 
-  const { captureDate: _cd2, productKey: _pk2, contextKey: _ck, ...priceUpdatePayload } = payload;
+  const priceUpdatePayload = { ...payload };
+  delete priceUpdatePayload.captureDate;
+  delete priceUpdatePayload.productKey;
+  delete priceUpdatePayload.contextKey;
   await prisma.shoppingPriceHistory.upsert({
     where: {
       productKey_captureDate_contextKey: {

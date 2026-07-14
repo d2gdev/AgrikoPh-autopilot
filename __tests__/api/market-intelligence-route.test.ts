@@ -75,6 +75,26 @@ describe("market-intelligence GET route", () => {
     });
   });
 
+  it("does not reuse an in-flight ordinary read for an explicit refresh", async () => {
+    let resolveInsights!: (value: []) => void;
+    const initialInsights = new Promise<[]>((resolve) => { resolveInsights = resolve; });
+    mockPrisma.marketInsight.findMany
+      .mockImplementationOnce(() => initialInsights)
+      .mockResolvedValue([]);
+
+    const ordinary = GET(new Request("http://test.local/api/market-intelligence"));
+    await vi.waitFor(() => expect(mockPrisma.marketInsight.findMany).toHaveBeenCalledTimes(1));
+    const refresh = GET(new Request("http://test.local/api/market-intelligence?refresh=1"));
+
+    const refreshStarted = vi.waitFor(() => expect(mockPrisma.marketInsight.findMany).toHaveBeenCalledTimes(2));
+    try {
+      await refreshStarted;
+    } finally {
+      resolveInsights([]);
+      await Promise.all([ordinary, refresh]);
+    }
+  });
+
   it("computes openInsights using a full count, not the capped insights list", async () => {
     const openRows = Array.from({ length: 60 }, (_, i) => ({
       id: `insight-${i}`,
@@ -129,4 +149,5 @@ describe("market-intelligence GET route", () => {
     expect((await first).status).toBe(200);
     expect((await second).status).toBe(200);
   });
+
 });

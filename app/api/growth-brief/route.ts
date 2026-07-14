@@ -36,6 +36,7 @@ const QUEUE_OVERFETCH = 32;
 const CACHE_TTL_MS = 60_000;
 let cachedBrief: { expiresAt: number; payload: unknown } | null = null;
 let briefInFlight: Promise<unknown> | null = null;
+let cacheVersion = 0;
 
 function priorityTone(priority: string | null | undefined): BriefTone {
   const rank = priorityRank(priority);
@@ -491,11 +492,23 @@ async function buildGrowthBrief() {
 export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
-  if (cachedBrief && cachedBrief.expiresAt > Date.now()) return NextResponse.json(cachedBrief.payload);
+  const forceRefresh = new URL(req.url).searchParams.get("refresh") === "1";
+  if (!forceRefresh && cachedBrief && cachedBrief.expiresAt > Date.now()) return NextResponse.json(cachedBrief.payload);
+  if (forceRefresh) {
+    const refreshVersion = ++cacheVersion;
+    try {
+      const payload = await buildGrowthBrief();
+      if (refreshVersion === cacheVersion) cachedBrief = { expiresAt: Date.now() + CACHE_TTL_MS, payload };
+      return NextResponse.json(payload);
+    } catch {
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    }
+  }
   if (!briefInFlight) {
+    const buildVersion = ++cacheVersion;
     briefInFlight = buildGrowthBrief()
       .then((payload) => {
-        cachedBrief = { expiresAt: Date.now() + CACHE_TTL_MS, payload };
+        if (buildVersion === cacheVersion) cachedBrief = { expiresAt: Date.now() + CACHE_TTL_MS, payload };
         return payload;
       })
       .finally(() => { briefInFlight = null; });

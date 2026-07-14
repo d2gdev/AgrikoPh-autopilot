@@ -80,7 +80,6 @@ describe("createContentProposalOnce", () => {
   });
 
   it("rethrows a unique conflict when the competing row cannot be found", async () => {
-    const error = Object.assign(new Error("unique"), { code: "P2002" });
     const client = {
       contentProposal: {
         createMany: vi.fn().mockResolvedValue({ count: 0 }),

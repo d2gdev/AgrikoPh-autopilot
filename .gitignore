@@ -13,6 +13,7 @@ prisma/*.db
 *.pem
 *.key
 *service-account*.json
+docs/*service-account*.json*
 *client_secret*.json
 scripts/gen-lang-client-*.json
 scripts/.linode-ip

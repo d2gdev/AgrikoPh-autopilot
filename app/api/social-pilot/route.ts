@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     posts.sort((a, b) => (b.likes + b.comments + b.shares) - (a.likes + a.comments + a.shares));
 
     return NextResponse.json({ posts, pages, activePage: { id: pageId, name: pageName } });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Internal server error", posts: [], pages: [] }, { status: 500 });
   }
 }

@@ -85,7 +85,7 @@ export default function ImagesPage() {
       if (d.error) throw new Error(d.error);
       setSuggestions((p) => ({ ...p, [img.imageId]: d.altText }));
       return d.altText as string;
-    } catch (e) {
+    } catch {
       setErrors((p) => ({ ...p, [img.imageId]: "Failed — retry" }));
       return null;
     } finally {

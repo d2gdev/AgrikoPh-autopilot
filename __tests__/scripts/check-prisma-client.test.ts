@@ -24,7 +24,7 @@ function makeFixture({ stampHash }: { stampHash?: string } = {}) {
   return rootDir;
 }
 
-function expectedHash(rootDir: string) {
+function expectedHash() {
   const hash = createHash("sha256");
   const hashInputs: Array<[string, string]> = [
     ["prisma/schema.prisma", "generator client { provider = \"prisma-client-js\" }\n"],
@@ -41,7 +41,7 @@ function expectedHash(rootDir: string) {
 function writeMatchingStamp(rootDir: string) {
   const stampPath = join(rootDir, "node_modules/.cache/autopilot/prisma-generate.json");
   mkdirSync(join(rootDir, "node_modules/.cache/autopilot"), { recursive: true });
-  writeFileSync(stampPath, JSON.stringify({ hash: expectedHash(rootDir) }));
+  writeFileSync(stampPath, JSON.stringify({ hash: expectedHash() }));
 }
 
 afterEach(() => {

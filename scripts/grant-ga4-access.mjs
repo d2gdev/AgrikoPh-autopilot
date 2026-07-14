@@ -3,8 +3,6 @@
 // Run: node scripts/grant-ga4-access.mjs
 
 import { createServer } from "http";
-import { execSync } from "child_process";
-import { readFileSync } from "fs";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;

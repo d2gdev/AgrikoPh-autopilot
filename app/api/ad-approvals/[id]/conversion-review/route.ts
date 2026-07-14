@@ -2,7 +2,6 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/db";
 import { STATUS, REVIEW_STAGE, DECISION, CONVERSION_QUESTION_COUNT } from "@/lib/ad-approval/constants";
 import { evaluateConversion } from "@/lib/ad-approval/scoring";
 import { transition } from "@/lib/ad-approval/state-machine";

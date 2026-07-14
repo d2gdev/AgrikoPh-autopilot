@@ -520,10 +520,8 @@ export function QueueTab({
   };
 
   const toggleSelect = (id: string) =>
-    setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setSelectedIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
-  const pendingInView = proposals.filter((p) => p.status === "pending");
-  const approvedNoDraftInView = proposals.filter((p) => p.status === "approved" && !p.draftStatus);
   const selectableInView = proposals.filter((proposal) =>
     proposal.status === "pending" ||
     (proposal.status === "approved" && !proposal.draftStatus) ||
@@ -611,7 +609,7 @@ export function QueueTab({
   const handleCancelSchedule = () => setScheduleOpenId(null);
 
   const handleToggleFullExpand = (id: string) =>
-    setExpandedFullIds((prev) => { const n = new Set(prev); expandedFullIds.has(id) ? n.delete(id) : n.add(id); return n; });
+    setExpandedFullIds((prev) => { const n = new Set(prev); if (expandedFullIds.has(id)) n.delete(id); else n.add(id); return n; });
 
   const handleClosePublishModal = () => setShowPublishModal(false);
   const handleConfirmPublishAll = () => { setShowPublishModal(false); bulkPublishReady(); };

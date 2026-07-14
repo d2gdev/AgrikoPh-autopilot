@@ -263,14 +263,14 @@ export default function MarketIntelligencePage() {
           setOurProducts(d.products ?? []);
         }
       })
-      .catch((_err) => {
+      .catch(() => {
         setError("Could not load your products from Shopify. Check credentials in Settings.");
         setOurProducts([]);
       })
       .finally(() => setOurProductsLoading(false));
   }, [authFetch]);
 
-  const runCapture = useCallback(async () => {
+  async function runCapture() {
     setRunning(true);
     setNotice(null);
     setError(null);
@@ -301,9 +301,9 @@ export default function MarketIntelligencePage() {
     } finally {
       setRunning(false);
     }
-  }, [authFetch, load, pollJobRun]);
+  }
 
-  const runKeywordResearch = useCallback(async () => {
+  async function runKeywordResearch() {
     setResearching(true);
     setNotice(null);
     setError(null);
@@ -334,7 +334,7 @@ export default function MarketIntelligencePage() {
     } finally {
       setResearching(false);
     }
-  }, [authFetch, load, pollJobRun]);
+  }
 
   const saveKeyword = useCallback(async () => {
     if (!keyword.trim()) return;
@@ -493,13 +493,9 @@ export default function MarketIntelligencePage() {
   // Competitor ads as creative cards (filtered like the old table).
   // Ads that have been *running* 60+ days (by ad start date) — proven, durable
   // competitor creative. Distinct from `cutoff`, which filters by capture date.
-  const longRunCutoff = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 60);
-    return d;
-  }, []);
-
   const adCards = useMemo(() => {
+    const longRunCutoff = new Date();
+    longRunCutoff.setDate(longRunCutoff.getDate() - 60);
     const filtered = (data?.competitorAds ?? []).filter((ad) => {
       if (cutoff && new Date(ad.capturedAt) < cutoff) return false;
       const name = (ad.competitor?.name ?? ad.pageName ?? "").toLowerCase();

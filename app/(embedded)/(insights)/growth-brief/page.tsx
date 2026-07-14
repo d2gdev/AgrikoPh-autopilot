@@ -176,10 +176,11 @@ export default function GrowthBriefPage() {
   const load = useCallback(async (force = false) => {
     const request = requestsRef.current.start({ background: false });
     if (!request) return;
-    force ? setRefreshing(true) : setLoading(true);
+    if (force) setRefreshing(true);
+    else setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(CACHE_KEY, { signal: request.signal });
+      const res = await authFetch(force ? `${CACHE_KEY}?refresh=1` : CACHE_KEY, { signal: request.signal });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error ?? "Growth Brief failed to load.");
       if (!requestsRef.current.isCurrent(request)) return;

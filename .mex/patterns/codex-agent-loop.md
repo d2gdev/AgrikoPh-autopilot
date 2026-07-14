@@ -1,7 +1,7 @@
 ---
 name: codex-agent-loop
 description: Run, inspect, resume, and approve a finite local Codex implementation-plan loop without broadening authority.
-last_updated: 2026-07-14
+last_updated: 2026-07-14T19:53:00+08:00
 ---
 
 # Codex Agent Loop
@@ -11,7 +11,7 @@ Use this procedure only for an already approved Markdown implementation plan who
 ## Start
 
 1. Confirm `config/codex-agent-loop.json` points at the intended worktree, readable plan, additional workspace directories, finite `maxIterations`, and finite `maxAutomaticWindows`.
-2. Confirm the executor sandbox is `workspace-write`, the planner sandbox is `read-only`, and the protected approval scopes remain present.
+2. Confirm the executor sandbox is `workspace-write`, the planner sandbox is `read-only`, and the protected approval scopes remain present. If a Sol-named model is present, the controller uses `gpt-5.6-terra` at `medium` reasoning in memory instead; config files are not rewritten.
 3. Put the objective in a local prompt file and run:
 
    ```bash
@@ -43,6 +43,12 @@ The controller records every pass and exits only after five consecutive clean
 passes. A defect resets the counter even when it is repaired in the same pass.
 The profile remains local-only: protected actions pause for explicit operator
 authority, and all run evidence remains private under `.codex-agent-loop/runs/`.
+
+When auditing an explicit UI refresh over a local response cache, test the
+ordinary-in-flight → forced-refresh overlap and the late completion order. A
+forced refresh must not await an ordinary in-flight promise, and older reads
+must not overwrite refreshed cache data; use separate forced-flight state and
+monotonic cache versions where concurrent requests are supported.
 
 ## Resume
 

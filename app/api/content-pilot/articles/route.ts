@@ -54,7 +54,7 @@ export async function GET(req: Request) {
     });
 
     return NextResponse.json({ articles, total, page, pages: Math.ceil(total / limit) });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

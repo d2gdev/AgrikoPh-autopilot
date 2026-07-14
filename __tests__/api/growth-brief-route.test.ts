@@ -37,8 +37,8 @@ vi.mock("@/lib/shopify-admin", () => ({
   fetchProductImages: mockShopifyAdmin.fetchProductImages,
 }));
 
-function request() {
-  return new Request("http://test.local/api/growth-brief") as NextRequest;
+function request(query = "") {
+  return new Request(`http://test.local/api/growth-brief${query}`) as NextRequest;
 }
 
 describe("growth-brief route", () => {
@@ -59,6 +59,32 @@ describe("growth-brief route", () => {
     mockPrisma.pageAnalytics.findFirst.mockResolvedValue(null);
     mockPrisma.jobRun.findFirst.mockResolvedValue(null);
     mockShopifyAdmin.fetchProductImages.mockResolvedValue([]);
+  });
+
+  it("bypasses the cached brief when the operator explicitly refreshes", async () => {
+    const { GET } = await import("@/app/api/growth-brief/route");
+
+    await GET(request());
+    await GET(request("?refresh=1"));
+
+    expect(mockPrisma.rawSnapshot.findFirst).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not coalesce an explicit refresh into an in-flight cached read", async () => {
+    let resolveInitialRead!: (value: null) => void;
+    const initialRead = new Promise<null>((resolve) => { resolveInitialRead = resolve; });
+    mockPrisma.rawSnapshot.findFirst
+      .mockImplementationOnce(() => initialRead)
+      .mockResolvedValue(null);
+    const { GET } = await import("@/app/api/growth-brief/route");
+
+    const initial = GET(request());
+    await vi.waitFor(() => expect(mockPrisma.rawSnapshot.findFirst).toHaveBeenCalledTimes(1));
+    const refresh = GET(request("?refresh=1"));
+
+    await vi.waitFor(() => expect(mockPrisma.rawSnapshot.findFirst).toHaveBeenCalledTimes(2));
+    resolveInitialRead(null);
+    await Promise.all([initial, refresh]);
   });
 
   it("overfetches proposal and opportunity queues before trimming to the top operator-facing items", async () => {

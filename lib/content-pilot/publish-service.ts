@@ -5,7 +5,6 @@ import { contentProposalPublishRecoveryStatus } from "@/lib/content-pilot/publis
 import { CONTENT_PROPOSAL_PUBLISHABLE_STATUSES } from "@/lib/content-pilot/proposal-state";
 import { markContentProposalOpportunityResolved } from "@/lib/opportunities/content-proposal-outcomes";
 import { runFetchBlogContentLocked } from "@/jobs/fetch-blog-content";
-
 type Client = any;
 export type PublishResult =
   | { kind: "published"; shopifyId: string; handle: string | null }
@@ -150,4 +149,3 @@ export async function publishContentProposal(input: { prismaClient: Client; prop
     return { kind: "published_with_warnings", ...external, warning };
   }
 }
-/* eslint-disable @typescript-eslint/no-explicit-any */

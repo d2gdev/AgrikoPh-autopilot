@@ -40,6 +40,7 @@ export default function SocialPilotPage() {
     bestTime?: string;
     recommendations?: string[];
   } | null>(null);
+  const [analysisGeneratedAt, setAnalysisGeneratedAt] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
@@ -78,6 +79,7 @@ export default function SocialPilotPage() {
         return;
       }
       setAnalysis(d.analysis);
+      setAnalysisGeneratedAt(new Date().toISOString());
     } catch (err) {
       console.error("[social-pilot] analysis error", err);
       setAnalysisError("AI analysis failed. Please try again.");
@@ -196,6 +198,10 @@ export default function SocialPilotPage() {
                 <Card>
                   <BlockStack gap="300">
                     <Text variant="headingMd" as="h2">AI Insights</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Temporary analysis of the currently loaded posts; it is not persisted.
+                      {analysisGeneratedAt ? <> Generated {timeAgo(analysisGeneratedAt)} from {posts.length} loaded posts.</> : null}
+                    </Text>
                     {analysis.summary && <Text as="p">{analysis.summary}</Text>}
                     {analysis.bestContentType && (
                       <Text as="p"><strong>Best content type:</strong> {analysis.bestContentType}</Text>

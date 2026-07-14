@@ -50,6 +50,8 @@ Set these in `.env` (copy from `.env.example`).
 | `GSC_SITE_URL` | Optional | e.g. `https://agrikoph.com` |
 | `GSC_SERVICE_ACCOUNT_JSON_PATH` | Optional | Path to service account JSON file |
 | `GSC_SERVICE_ACCOUNT_JSON` | Optional | Service account JSON inline (paste full JSON string) |
+| `GOOGLE_MERCHANT_ID` | Optional | Google Merchant Center account ID |
+| `GOOGLE_MERCHANT_ACCOUNT_JSON` | Optional | Relative path to Google Merchant service account JSON file |
 | `KLAVIYO_API_KEY` | Optional | Klaviyo private API key |
 
 ---

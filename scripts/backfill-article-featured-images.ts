@@ -51,7 +51,7 @@ interface ArticleUpdateResponse {
 }
 
 function log(...args: unknown[]) {
-  // eslint-disable-next-line no-console
+
   console.log(...args);
 }
 
@@ -171,7 +171,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
+
   console.error(err);
   process.exit(1);
 });

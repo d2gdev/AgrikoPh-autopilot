@@ -220,7 +220,7 @@ describe("executeApprovedHandler", () => {
       // $transaction should have been called with the executed status update
       expect(mockPrisma.$transaction).toHaveBeenCalled();
       const txCalls = mockPrisma.$transaction.mock.calls;
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
       const lastTxArgs = txCalls.at(-1)![0] as unknown[];
       // The last transaction should include both a recommendation.update and auditLog.create
       expect(lastTxArgs).toHaveLength(2);
@@ -256,7 +256,7 @@ describe("executeApprovedHandler", () => {
       expect(mockExecuteRecommendation).not.toHaveBeenCalled();
       expect(mockPrisma.$transaction).toHaveBeenCalled();
       const txCalls = mockPrisma.$transaction.mock.calls;
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
       const lastArgs = txCalls.at(-1)![0] as unknown[];
       // Should have two ops: recommendation.update (failed) and auditLog.create
       expect(lastArgs).toHaveLength(2);
@@ -286,7 +286,7 @@ describe("executeApprovedHandler", () => {
 
       expect(mockPrisma.$transaction).toHaveBeenCalled();
       const txCalls = mockPrisma.$transaction.mock.calls;
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
       const lastArgs = txCalls.at(-1)![0] as unknown[];
       // Should have two ops: recommendation.update (failed) + auditLog.create (execution_failed)
       expect(lastArgs).toHaveLength(2);

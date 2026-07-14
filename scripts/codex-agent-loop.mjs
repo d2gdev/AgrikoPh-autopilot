@@ -60,6 +60,13 @@ function loadConfig(path) {
     if (!config[role]?.model || !config[role]?.reasoning || !config[role]?.sandbox) {
       throw new Error(`Controller config is missing ${role} model, reasoning, or sandbox`);
     }
+    if (/\bsol\b/i.test(config[role].model)) {
+      config[role] = {
+        ...config[role],
+        model: "gpt-5.6-terra",
+        reasoning: "medium",
+      };
+    }
   }
   if (config.executor.sandbox !== "workspace-write") throw new Error("Executor sandbox must be workspace-write");
   if (config.planner.sandbox !== "read-only") throw new Error("Planner sandbox must be read-only");
@@ -72,7 +79,20 @@ function loadConfig(path) {
   if (!Number.isInteger(requiredCleanPasses) || requiredCleanPasses < 0) {
     throw new Error("requiredCleanPasses must be a non-negative integer");
   }
-  return { ...config, requiredCleanPasses };
+  const executorRetryLimit = config.executorRetryLimit ?? 2;
+  if (!Number.isInteger(executorRetryLimit) || executorRetryLimit < 0) {
+    throw new Error("executorRetryLimit must be a non-negative integer");
+  }
+  const executorRetryDelayMs = config.executorRetryDelayMs ?? 1000;
+  if (!Number.isInteger(executorRetryDelayMs) || executorRetryDelayMs < 0) {
+    throw new Error("executorRetryDelayMs must be a non-negative integer");
+  }
+  return {
+    ...config,
+    requiredCleanPasses,
+    executorRetryLimit,
+    executorRetryDelayMs,
+  };
 }
 
 function runLayout(runRoot, runId) {
@@ -120,6 +140,43 @@ function appendEvent(layout, state, type, details = {}) {
   };
   const previous = existsSync(layout.events) ? readFileSync(layout.events, "utf8") : "";
   writePrivate(layout.events, `${previous}${JSON.stringify(event)}\n`);
+}
+
+function readUsageLimitMessageFromEvents(directory) {
+  try {
+    const eventsPath = resolve(directory, "executor-events.jsonl");
+    if (!existsSync(eventsPath)) return null;
+    const raw = readFileSync(eventsPath, "utf8").trim();
+    if (!raw) return null;
+    const lines = raw.split(/\r?\n/).reverse();
+    for (const line of lines) {
+      let parsed;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const message =
+        parsed?.message ??
+        parsed?.error?.message ??
+        parsed?.details?.message ??
+        null;
+      if (typeof message === "string" && /usage limit/i.test(message)) {
+        return message;
+      }
+      if (parsed?.type === "error" && typeof parsed?.error?.message === "string") {
+        if (/usage limit/i.test(parsed.error.message)) return parsed.error.message;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function delay(ms) {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function processAlive(pid) {
@@ -322,6 +379,7 @@ async function continueRun(layout, state, config, executable) {
       state.iteration += 1;
       state.status = "running";
       state.operatorAnswer = null;
+      if (state.executorRetryCount === undefined) state.executorRetryCount = 0;
       const directory = iterationDirectory(layout, state.iteration);
       writePrivate(resolve(directory, "executor-prompt.md"), `${state.currentPrompt.trim()}\n`);
       saveState(layout, state);
@@ -348,10 +406,43 @@ async function continueRun(layout, state, config, executable) {
           });
         }
         state.phase = "planner";
+        state.executorRetryCount = 0;
         saveState(layout, state);
         appendEvent(layout, state, "executor_completed", { status: state.lastReport.status });
       } catch (error) {
-        return pause(layout, state, `Executor stopped without a valid report: ${error.message}. Authorize retry after reviewing the run logs?`, ["retry_executor"], "retry_executor");
+        const usageLimitMessage = readUsageLimitMessageFromEvents(directory);
+        if (usageLimitMessage) {
+          state.executorRetryCount = 0;
+          return pause(
+            layout,
+            state,
+            `Codex usage limit reached: ${usageLimitMessage}. Retry will fail until usage resets or credits are added.`,
+            ["retry_executor"],
+            "retry_executor"
+          );
+        }
+        const nextRetryCount = (state.executorRetryCount ?? 0) + 1;
+        if (nextRetryCount <= config.executorRetryLimit) {
+          state.executorRetryCount = nextRetryCount;
+          state.status = "running";
+          state.pending = null;
+          saveState(layout, state);
+          appendEvent(layout, state, "executor_retry", {
+            iteration: state.iteration,
+            retryCount: nextRetryCount,
+            retryLimit: config.executorRetryLimit,
+            error: error.message,
+          });
+          await delay(config.executorRetryDelayMs);
+          continue;
+        }
+        return pause(
+          layout,
+          state,
+          `Executor stopped without a valid report: ${error.message} after ${nextRetryCount} attempts. Authorize retry after reviewing the run logs?`,
+          ["retry_executor"],
+          "retry_executor"
+        );
       }
     }
 
@@ -404,6 +495,7 @@ async function continueRun(layout, state, config, executable) {
       }
       state.currentPrompt = state.lastDecision.next_prompt;
       state.operatorAnswer = null;
+      state.executorRetryCount = 0;
       state.phase = "executor";
       saveState(layout, state);
     }
@@ -426,6 +518,7 @@ function createState(prompt, config) {
     operatorAnswer: null,
     pending: null,
     result: null,
+    executorRetryCount: 0,
     consecutiveCleanPasses: 0,
     auditPassLedger: [],
     config,
@@ -485,6 +578,9 @@ async function main() {
       writePrivate(storedAnswer, `${answer}\n`);
       state.operatorAnswer = answer;
       state.phase = state.pending.kind === "retry_executor" ? "executor" : "planner";
+      if (state.pending.kind === "retry_executor") {
+        state.executorRetryCount = 0;
+      }
       state.pending = null;
       state.status = "running";
       saveState(layout, state);

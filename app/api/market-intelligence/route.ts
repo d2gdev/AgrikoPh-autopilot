@@ -14,32 +14,40 @@ const MARKET_INTELLIGENCE_CACHE_TTL_MS = 60_000;
 
 let marketIntelligenceCache: { expiresAt: number; payload: MarketIntelligencePayload } | null = null;
 let marketIntelligenceInFlight: Promise<MarketIntelligencePayload> | null = null;
+let marketIntelligenceRefreshInFlight: Promise<MarketIntelligencePayload> | null = null;
+let marketIntelligenceCacheVersion = 0;
 
 async function loadMarketIntelligencePayload(forceRefresh: boolean): Promise<MarketIntelligencePayload> {
   const now = Date.now();
   if (!forceRefresh && marketIntelligenceCache && marketIntelligenceCache.expiresAt > now) {
     return marketIntelligenceCache.payload;
   }
-  if (marketIntelligenceInFlight) return marketIntelligenceInFlight;
+  if (forceRefresh && marketIntelligenceRefreshInFlight) return marketIntelligenceRefreshInFlight;
+  if (!forceRefresh && marketIntelligenceInFlight) return marketIntelligenceInFlight;
 
+  const cacheVersion = ++marketIntelligenceCacheVersion;
   const request = buildMarketIntelligencePayload().then((payload) => {
     const cachedPayload = {
       ...payload,
       cachedAt: new Date().toISOString(),
       cacheTtlMs: MARKET_INTELLIGENCE_CACHE_TTL_MS,
     };
-    marketIntelligenceCache = {
-      expiresAt: Date.now() + MARKET_INTELLIGENCE_CACHE_TTL_MS,
-      payload: cachedPayload,
-    };
+    if (cacheVersion === marketIntelligenceCacheVersion) {
+      marketIntelligenceCache = {
+        expiresAt: Date.now() + MARKET_INTELLIGENCE_CACHE_TTL_MS,
+        payload: cachedPayload,
+      };
+    }
     return cachedPayload;
   });
 
-  marketIntelligenceInFlight = request;
+  if (forceRefresh) marketIntelligenceRefreshInFlight = request;
+  else marketIntelligenceInFlight = request;
   try {
     return await request;
   } finally {
-    if (marketIntelligenceInFlight === request) marketIntelligenceInFlight = null;
+    if (forceRefresh && marketIntelligenceRefreshInFlight === request) marketIntelligenceRefreshInFlight = null;
+    if (!forceRefresh && marketIntelligenceInFlight === request) marketIntelligenceInFlight = null;
   }
 }
 
@@ -177,7 +185,11 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
   const cleanInsights = insights
     .filter((i) => !(i.ad && isSpamStoryAd(i.ad)))
     .slice(0, 25)
-    .map(({ ad: _ad, ...insight }) => insight);
+    .map((item) => {
+      const insight = { ...item };
+      delete insight.ad;
+      return insight;
+    });
 
   // De-noised 7d-median price per shopping result, so the Price Comparison card
   // can show operators WHY a price-gap task did (or didn't) fire — the same

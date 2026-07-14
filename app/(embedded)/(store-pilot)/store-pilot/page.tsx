@@ -119,6 +119,7 @@ export default function StorePilotReportPage() {
   const [tasksLoading, setTasksLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [taskError, setTaskError] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [syncingMap, setSyncingMap] = useState(false);
   const [applyingTaskId, setApplyingTaskId] = useState<string | null>(null);
@@ -194,10 +195,18 @@ export default function StorePilotReportPage() {
   }, [authFetch, executionClass, page, status, submittedSearch]);
 
   useEffect(() => {
+    setImageError(null);
     authFetch("/api/images")
-      .then((response) => response.json())
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error ?? "Images failed to load.");
+        return payload;
+      })
       .then((nextData) => { setCache("/api/images", nextData); setData(nextData); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch((error) => {
+        setImageError(error instanceof Error ? error.message : "Images failed to load.");
+        setLoading(false);
+      });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -436,11 +445,12 @@ export default function StorePilotReportPage() {
           <Card>
             <BlockStack gap="300">
               <Text variant="headingMd" as="h2">Image optimization</Text>
+              {imageError ? <Banner tone="critical">{imageError}</Banner> : null}
               <InlineStack gap="400" wrap>
                 {[["Total Images", total], ["Alt Text Missing", missing], ["Optimized", optimized], ["SEO Coverage", `${pct}%`]].map(([label, value]) => (
                   <BlockStack key={label} gap="100">
                     <Text variant="headingSm" as="h3" tone="subdued">{label}</Text>
-                    <Text variant="heading2xl" as="p">{loading ? "—" : value}</Text>
+                    <Text variant="heading2xl" as="p">{loading || imageError ? "—" : value}</Text>
                   </BlockStack>
                 ))}
               </InlineStack>
@@ -458,7 +468,7 @@ export default function StorePilotReportPage() {
           <Card>
             <BlockStack gap="300">
               <Text variant="headingMd" as="h2">By Product</Text>
-              {loading ? <Text as="p" tone="subdued">Loading…</Text> : rows.length === 0 ? <Text as="p" tone="subdued">No products found.</Text> : (
+              {loading ? <Text as="p" tone="subdued">Loading…</Text> : imageError ? <Text as="p" tone="critical">Image catalog unavailable.</Text> : rows.length === 0 ? <Text as="p" tone="subdued">No products found.</Text> : (
                 <DataTable columnContentTypes={["text", "numeric", "text"]} headings={["Product", "Images", "Alt Text Status"]} rows={rows} />
               )}
             </BlockStack>

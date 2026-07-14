@@ -21,7 +21,7 @@
  */
 
 import { APPLY, log, banner, gql, assertNoUserErrors, summary } from "./_lib";
-import { REDIRECTS, type Redirect } from "./_data";
+import { REDIRECTS } from "./_data";
 
 // ---------------------------------------------------------------------------
 // GraphQL shapes

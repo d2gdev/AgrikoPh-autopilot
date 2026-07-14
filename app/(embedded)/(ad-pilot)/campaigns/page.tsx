@@ -175,7 +175,8 @@ export default function CampaignsPage() {
   async function toggleRecs(campaignId: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(campaignId) ? next.delete(campaignId) : next.add(campaignId);
+      if (next.has(campaignId)) next.delete(campaignId);
+      else next.add(campaignId);
       return next;
     });
     if (!campaignRecs[campaignId] && !recsLoading.has(campaignId)) {

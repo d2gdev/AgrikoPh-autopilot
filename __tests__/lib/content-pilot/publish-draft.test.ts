@@ -151,7 +151,7 @@ describe("publishDraft", () => {
   });
 
   it("publishes content-refresh proposals that only carry a Shopify URL", async () => {
-    mockShopifyFetch.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
+    mockShopifyFetch.mockImplementation(async (query: string) => {
       if (query.includes("ArticleByHandle")) {
         return { articles: { edges: [{ node: { id: "gid://shopify/Article/123" } }] } };
       }

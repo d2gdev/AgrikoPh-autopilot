@@ -21,6 +21,7 @@ const IMAGE_CACHE_TTL_MS = 60_000;
 
 let imagesCache: { expiresAt: number; payload: ImagesPayload } | null = null;
 let imagesInFlight: Promise<ImagesPayload> | null = null;
+let imagesCacheVersion = 0;
 
 const AltTextInput = z.object({
   imageId: z.string().max(100),
@@ -45,6 +46,7 @@ async function loadImagesPayload(forceRefresh: boolean): Promise<ImagesPayload> 
   }
   if (!forceRefresh && imagesInFlight) return imagesInFlight;
 
+  const cacheVersion = ++imagesCacheVersion;
   const request = (async () => {
     const images = await fetchProductImages();
     const payload: ImagesPayload = {
@@ -54,7 +56,7 @@ async function loadImagesPayload(forceRefresh: boolean): Promise<ImagesPayload> 
       cachedAt: new Date().toISOString(),
       cacheTtlMs: IMAGE_CACHE_TTL_MS,
     };
-    imagesCache = { expiresAt: Date.now() + IMAGE_CACHE_TTL_MS, payload };
+    if (cacheVersion === imagesCacheVersion) imagesCache = { expiresAt: Date.now() + IMAGE_CACHE_TTL_MS, payload };
     return payload;
   })();
 
@@ -73,7 +75,7 @@ export async function GET(req: Request) {
   try {
     const forceRefresh = new URL(req.url).searchParams.get("refresh") === "1";
     return NextResponse.json(await loadImagesPayload(forceRefresh));
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -121,7 +123,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "AI returned invalid alt text" }, { status: 502 });
     }
     return NextResponse.json({ altText: validated.data, imageId, productId });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -75,7 +75,7 @@ function validateDraftContent(proposal: DraftPersistedProposal, draftContent: Dr
 
   const targetWordCount = (proposedState?.targetWordCount as number | null | undefined)
     ?? (proposedState?.idealWordCount as number | null | undefined);
-  const { text, count: wordCount } = parseWordCount(bodyHtml);
+  const { count: wordCount } = parseWordCount(bodyHtml);
   const action = typeof proposedState?.action === "string"
     ? String(proposedState.action)
     : null;
@@ -215,7 +215,6 @@ export async function generateProposalDraft(input: GenerationServiceInput): Prom
     prismaClient,
     proposalId,
     actor,
-    preservePublishedReceipt = false,
     generateDraftImpl = generateDraft,
     resolveArticleHandleImpl = resolveArticleHandle,
     fetchBlogArticlesImpl = fetchBlogArticles,

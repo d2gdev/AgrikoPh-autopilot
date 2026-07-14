@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { contentProposalQueueStage } from "@/app/(embedded)/(content-pilot)/content-pilot/components/queue-stage";
 
+describe("Growth Brief refresh", () => {
+  it("requests a fresh authoritative brief when the operator chooses Refresh", () => {
+    const source = readFileSync("app/(embedded)/(insights)/growth-brief/page.tsx", "utf8");
+
+    expect(source).toContain('authFetch(force ? `${CACHE_KEY}?refresh=1` : CACHE_KEY');
+  });
+});
+
 describe("Content Pilot queue publication stages", () => {
   it.each([
     ["publishing", "publishing"],

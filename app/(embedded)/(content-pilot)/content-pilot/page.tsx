@@ -1,7 +1,5 @@
 "use client";
 
-import { getCache, setCache } from "@/lib/client-cache";
-
 // Safely parse a Response as JSON. If the body is not JSON (e.g. an HTML error
 // page from a proxy or Next.js itself), returns { error: <raw text> } rather
 // than throwing SyntaxError: Unexpected token '<'.
@@ -16,45 +14,19 @@ import {
   Layout,
   Card,
   Text,
-  Badge,
   InlineStack,
   BlockStack,
-  DataTable,
-  Spinner,
   Banner,
   Tabs,
-  Button,
   Box,
-  TextField,
-  Select,
-  Checkbox,
-  Divider,
-  Modal,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
-import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
 import { loadAllArticlePages, type ArticlePage } from "@/lib/content-pilot/article-pagination";
 import { contentIndexFeedback, overviewLoadWarning } from "@/lib/content-pilot/operator-feedback";
 import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-import type { ArticleRow, TopicCluster, LinkGraphData, ContentProposal } from "./components/types";
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-import {
-  countWordsFromHtml,
-  fmt,
-  ScoreBadge,
-  PriorityBadge,
-  ImpactBadge,
-  SeoDeltaBadge,
-  draftFailureMessage,
-  ProposedChangeSummary,
-} from "./components/helpers";
 
 // ── Overview Tab ───────────────────────────────────────────────────────────
 

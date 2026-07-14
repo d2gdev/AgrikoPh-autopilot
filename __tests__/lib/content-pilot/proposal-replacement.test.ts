@@ -43,7 +43,7 @@ describe("replacePendingContentProposals", () => {
   });
 
   it("derives opportunities only from rows returned by canonical inserts", async () => {
-    const { root, tx } = client();
+    const { root } = client();
     const { opportunityFromProposal } = await import("@/lib/opportunities/generate");
     await replacePendingContentProposals(root, [input]);
     expect(opportunityFromProposal).toHaveBeenCalledWith(expect.objectContaining({ id: "new" }));

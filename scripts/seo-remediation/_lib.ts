@@ -15,7 +15,7 @@ import { shopifyFetch } from "../../lib/shopify-admin";
 export const APPLY = process.env.APPLY === "1" || process.env.APPLY === "true";
 
 export function log(...args: unknown[]) {
-  // eslint-disable-next-line no-console
+
   console.log(...args);
 }
 

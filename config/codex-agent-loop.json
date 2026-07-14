@@ -5,8 +5,8 @@
     "sandbox": "workspace-write"
   },
   "planner": {
-    "model": "gpt-5.6-sol",
-    "reasoning": "xhigh",
+    "model": "gpt-5.6-terra",
+    "reasoning": "medium",
     "sandbox": "read-only"
   },
   "workingDirectory": "/home/sean/Agriko/auto-pilot/.worktrees/feat-topical-map-strategy-persistence",
@@ -15,6 +15,8 @@
   ],
   "maxIterations": 30,
   "timeoutMinutes": 60,
+  "executorRetryLimit": 0,
+  "executorRetryDelayMs": 1000,
   "protectedApprovalScopes": [
     "new_authority",
     "production_access",

@@ -169,14 +169,17 @@ export function useDashboardData() {
     return () => clearInterval(id);
   }, [load]);
 
+  const activeRunId = activeRun?.runId;
+  const activeRunStatus = activeRun?.status;
+
   useEffect(() => {
-    if (!activeRun || TERMINAL_RUN_STATUSES.has(activeRun.status)) return;
+    if (!activeRunId || !activeRunStatus || TERMINAL_RUN_STATUSES.has(activeRunStatus)) return;
 
     const controller = new AbortController();
     const id = setInterval(() => {
       void (async () => {
         try {
-          const res = await authFetch(`/api/jobs/status?runId=${encodeURIComponent(activeRun.runId)}`, {
+          const res = await authFetch(`/api/jobs/status?runId=${encodeURIComponent(activeRunId)}`, {
             signal: controller.signal,
           });
           if (!res.ok) throw new Error(await responseError(res, "Run status request failed"));
@@ -206,7 +209,7 @@ export function useDashboardData() {
       controller.abort();
       clearInterval(id);
     };
-  }, [activeRun?.runId, activeRun?.status, authFetch, load]);
+  }, [activeRunId, activeRunStatus, authFetch, load]);
 
   async function triggerAll() {
     setTriggering(true);

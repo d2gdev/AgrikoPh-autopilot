@@ -86,11 +86,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
             },
           });
           stored++;
-        } catch (e) { /* unique dupe — skip */ }
+        } catch { /* unique dupe — skip */ }
       }
       console.log(`  candidates: ${candidates.length}, stored so far: ${stored}`);
-    } catch (e) {
-      console.log(`  ERR ${String(e).slice(0, 120)}`);
+    } catch (error) {
+      console.log(`  ERR ${String(error).slice(0, 120)}`);
     } finally {
       await page.close().catch(() => {});
     }

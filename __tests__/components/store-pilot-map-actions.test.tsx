@@ -107,6 +107,19 @@ describe("Store Pilot topical-map workflow", () => {
     expect((screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("keeps a failed image summary visibly unavailable instead of treating it as an empty catalog", async () => {
+    authFetch.mockImplementation((url: string) => {
+      if (url === "/api/images") return response({ error: "Shopify image read failed" }, false);
+      if (url.startsWith("/api/store-tasks?")) return storeTaskResponse(url);
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    await renderPage();
+
+    expect((await screen.findAllByRole("alert")).some((alert) => alert.textContent?.includes("Shopify image read failed"))).toBe(true);
+    expect(screen.queryByText("No products found.")).toBeNull();
+  });
+
   it("queries the selected page and keeps advisory references dismiss-only", async () => {
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Next page" }));

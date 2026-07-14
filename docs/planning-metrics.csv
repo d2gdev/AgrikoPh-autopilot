@@ -5,3 +5,5 @@ date,task,plan_level,gate_yes_count,planning_minutes,execution_minutes,notes
 2026-07-14,topical-map-ui-persistence-audit-loop,lean,1,0.5,20,Iterative test-first audit used a four-step in-turn checklist and no standalone plan document
 2026-07-14,topical-map-five-clean-pass-audit-loop,lean,1,0.5,30,Five distinct audit lenses; defects reset the counter and exit required five consecutive clean passes
 2026-07-14,surface-integrity-loop,lean,1,0.5,15,Minimal controller profile and five-clean-pass gate; user explicitly requested no over-engineering
+2026-07-14,local-surface-integrity-audit,lean,1,0.5,30,One local audit pass across operator surfaces; four defects repaired test-first and protected boundaries retained
+2026-07-14,prohibit-sol-loop-models,lean,1,0.5,5,Single config normalization with a test proving Sol falls back to Terra medium before loop execution

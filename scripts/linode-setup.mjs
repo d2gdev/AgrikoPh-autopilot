@@ -63,8 +63,6 @@ function rsync(localPath, remotePath, exclude = []) {
   if (r.status !== 0) throw new Error('rsync failed: ' + r.stderr);
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
 async function main() {
   // 1. Install dependencies
   console.log('==> Installing server dependencies...');

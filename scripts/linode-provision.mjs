@@ -12,6 +12,7 @@ import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
+import { execSync } from 'child_process';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const ROOT  = resolve(__dir, '..');
@@ -52,22 +53,7 @@ function api(method, path, body) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-function getSshPublicKey() {
-  const { spawnSync } = require('child_process');
-  for (const p of [`${process.env.HOME}/.ssh/id_ed25519.pub`, `${process.env.HOME}/.ssh/id_rsa.pub`]) {
-    if (existsSync(p)) return readFileSync(p, 'utf8').trim();
-  }
-  // Generate one
-  const { execSync } = require('child_process');
-  execSync(`ssh-keygen -t ed25519 -N "" -f "${process.env.HOME}/.ssh/id_ed25519" -C "autopilot-linode"`, { stdio: 'inherit' });
-  return readFileSync(`${process.env.HOME}/.ssh/id_ed25519.pub`, 'utf8').trim();
-}
-
 async function main() {
-  const { createRequire } = await import('module');
-  const require = createRequire(import.meta.url);
-  const { execSync } = require('child_process');
-
   // Check if already provisioned
   const ipFile = resolve(__dir, '.linode-ip');
   if (existsSync(ipFile)) {

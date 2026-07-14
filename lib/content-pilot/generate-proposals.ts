@@ -88,12 +88,6 @@ function businessRelevanceForQuery(query: string): "high" | "medium" {
     : "medium";
 }
 
-function proposalEffort(changeType: string): "low" | "medium" | "high" {
-  if (changeType === "metadata" || changeType === "internal_link") return "low";
-  if (changeType === "new_article") return "medium";
-  return "medium";
-}
-
 function contentProposalPriority(priority: OrganicPriority["priority"]): "P1" | "P2" | "P3" {
   if (priority === "P0" || priority === "P1") return "P1";
   if (priority === "P2") return "P2";

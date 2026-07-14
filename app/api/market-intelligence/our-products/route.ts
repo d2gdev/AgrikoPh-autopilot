@@ -25,6 +25,8 @@ const PRODUCTS_CACHE_TTL_MS = 60_000;
 
 let productsCache: { expiresAt: number; payload: ProductsPayload } | null = null;
 let productsInFlight: Promise<ProductsPayload> | null = null;
+let productsRefreshInFlight: Promise<ProductsPayload> | null = null;
+let productsCacheVersion = 0;
 
 const QUERY = `
   query OurProducts($after: String) {
@@ -48,8 +50,10 @@ async function loadProductsPayload(forceRefresh: boolean): Promise<ProductsPaylo
   if (!forceRefresh && productsCache && productsCache.expiresAt > now) {
     return productsCache.payload;
   }
+  if (forceRefresh && productsRefreshInFlight) return productsRefreshInFlight;
   if (!forceRefresh && productsInFlight) return productsInFlight;
 
+  const cacheVersion = ++productsCacheVersion;
   const request = (async () => {
     const products: ProductsPayload["products"] = [];
     let after: string | null = null;
@@ -74,14 +78,18 @@ async function loadProductsPayload(forceRefresh: boolean): Promise<ProductsPaylo
       cachedAt: new Date().toISOString(),
       cacheTtlMs: PRODUCTS_CACHE_TTL_MS,
     };
-    productsCache = { expiresAt: Date.now() + PRODUCTS_CACHE_TTL_MS, payload };
+    if (cacheVersion === productsCacheVersion) {
+      productsCache = { expiresAt: Date.now() + PRODUCTS_CACHE_TTL_MS, payload };
+    }
     return payload;
   })();
 
-  productsInFlight = request;
+  if (forceRefresh) productsRefreshInFlight = request;
+  else productsInFlight = request;
   try {
     return await request;
   } finally {
+    if (forceRefresh && productsRefreshInFlight === request) productsRefreshInFlight = null;
     if (productsInFlight === request) productsInFlight = null;
   }
 }

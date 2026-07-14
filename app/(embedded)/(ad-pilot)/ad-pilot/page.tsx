@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, DataTable, Button, Banner,
+  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, DataTable, Banner,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -58,8 +58,6 @@ export default function AdPilotReportPage() {
   useEffect(() => { load(); }, [load]);
 
   const active = campaigns.filter((c) => c.status === "ACTIVE").length;
-  const totalPendingRecs = campaigns.reduce((s, c) => s + c.pendingRecs, 0);
-
   const rows = campaigns.map((c) => [
     c.name,
     <Badge tone={campaignStatusTone(c.status)}>{c.status}</Badge>,
