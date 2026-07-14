@@ -217,9 +217,9 @@ export async function saveShoppingResult(data: Prisma.ShoppingResultUncheckedCre
   } as Prisma.ShoppingResultUncheckedCreateInput;
 
   const shoppingUpdatePayload = { ...payload };
-  delete shoppingUpdatePayload.captureDate;
-  delete shoppingUpdatePayload.keyword;
-  delete shoppingUpdatePayload.productKey;
+  Reflect.deleteProperty(shoppingUpdatePayload, "captureDate");
+  Reflect.deleteProperty(shoppingUpdatePayload, "keyword");
+  Reflect.deleteProperty(shoppingUpdatePayload, "productKey");
   await prisma.shoppingResult.upsert({
     where: {
       keyword_productKey_captureDate: {
@@ -264,9 +264,9 @@ export async function saveShoppingPriceHistory(data: Prisma.ShoppingPriceHistory
   } as Prisma.ShoppingPriceHistoryUncheckedCreateInput;
 
   const priceUpdatePayload = { ...payload };
-  delete priceUpdatePayload.captureDate;
-  delete priceUpdatePayload.productKey;
-  delete priceUpdatePayload.contextKey;
+  Reflect.deleteProperty(priceUpdatePayload, "captureDate");
+  Reflect.deleteProperty(priceUpdatePayload, "productKey");
+  Reflect.deleteProperty(priceUpdatePayload, "contextKey");
   await prisma.shoppingPriceHistory.upsert({
     where: {
       productKey_captureDate_contextKey: {

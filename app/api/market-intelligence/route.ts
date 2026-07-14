@@ -187,7 +187,7 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
     .slice(0, 25)
     .map((item) => {
       const insight = { ...item };
-      delete insight.ad;
+      Reflect.deleteProperty(insight, "ad");
       return insight;
     });
 

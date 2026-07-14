@@ -21,9 +21,11 @@ import {
   Box,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { loadAllArticlePages, type ArticlePage } from "@/lib/content-pilot/article-pagination";
 import { contentIndexFeedback, overviewLoadWarning } from "@/lib/content-pilot/operator-feedback";
 import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
+import type { ArticleRow, TopicCluster, LinkGraphData } from "./components/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

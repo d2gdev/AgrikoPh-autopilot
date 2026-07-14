@@ -130,6 +130,7 @@ describe("pilot usability helper regressions", () => {
   it("prevents older overview loads from replacing a newer refresh", () => {
     const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/page.tsx", "utf8");
 
+    expect(source).toContain('import { useAuthFetch } from "@/hooks/use-auth-fetch";');
     expect(source).toContain("createLatestRequestCoordinator");
     expect(source).toContain("overviewRequestsRef.current.isCurrent(request)");
   });
