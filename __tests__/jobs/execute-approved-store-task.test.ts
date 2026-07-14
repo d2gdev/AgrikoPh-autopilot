@@ -26,6 +26,37 @@ beforeEach(() => {
   adapter.fetch.mockResolvedValue(resource); adapter.apply.mockResolvedValue({ ...resource, seoTitle: "New", seoDescription: "New desc", stateHash: "c".repeat(64) });
 });
 describe("execute-approved governed Store Task integration", () => {
+  it("selects and recovers only the explicitly requested recommendation", async () => {
+    const selected = { ...rec, id: "selected-rec" };
+    const unrelatedApproved = { ...rec, id: "other-rec", targetEntityId: "task-2" };
+    const unrelatedStale = { ...rec, id: "stale-rec", status: "executing", updatedAt: new Date(0) };
+    db.recommendation.findMany.mockReset();
+    db.recommendation.findMany.mockImplementation(async ({ where }: any) => {
+      if (where.status === "executing") return where.id === "selected-rec" ? [] : [unrelatedStale];
+      return where.id === "selected-rec" ? [selected] : [selected, unrelatedApproved];
+    });
+    db.storeTask.findUnique.mockResolvedValue({ id: "task-1", status: "pending", sourceData: { ...source, recommendationId: "selected-rec" }, proposedState: proposed });
+
+    await executeApprovedHandler({
+      liveRequested: true,
+      triggeredBy: "store-pilot:operator-1",
+      recommendationId: "selected-rec",
+    });
+
+    expect(db.recommendation.findMany).toHaveBeenNthCalledWith(1, {
+      where: expect.objectContaining({ status: "executing", id: "selected-rec" }),
+    });
+    expect(db.recommendation.findMany).toHaveBeenNthCalledWith(2, {
+      where: { status: { in: ["approved", "override_approved"] }, id: "selected-rec" },
+      take: 1,
+      orderBy: { reviewedAt: "asc" },
+    });
+    expect(adapter.apply).toHaveBeenCalledTimes(1);
+    expect(db.recommendation.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: "stale-rec" }),
+    }));
+  });
+
   it("mutates only approved hash-matching work and jointly finalizes minimal receipts", async () => {
     await executeApprovedHandler({ liveRequested: true });
     expect(adapter.apply).toHaveBeenCalledWith(resource, { seoTitle: "New", seoDescription: "New desc" });
@@ -36,7 +67,50 @@ describe("execute-approved governed Store Task integration", () => {
     db.storeTask.findUnique.mockResolvedValue({ id: "task-1", status: "pending", sourceData: source, proposedState: { ...proposed, after: { seoTitle: "Changed", seoDescription: "New desc" } } });
     await executeApprovedHandler({ liveRequested: true });
     expect(adapter.fetch).not.toHaveBeenCalled(); expect(adapter.apply).not.toHaveBeenCalled();
-    expect(db.recommendation.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }));
+    expect(db.recommendation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "rejected" }) }));
+  });
+
+  it.each(["APPROVED_BYTES_CHANGED", "OBSERVATION_CHANGED", "STRATEGY_CHANGED", "RULE_CHANGED"])(
+    "classifies %s as superseded instead of failed",
+    async (code) => {
+      if (code === "APPROVED_BYTES_CHANGED") {
+        db.storeTask.findUnique.mockResolvedValue({ id: "task-1", status: "pending", sourceData: source, proposedState: { ...proposed, after: { seoTitle: "Changed", seoDescription: "New desc" } } });
+      } else if (code === "OBSERVATION_CHANGED") {
+        adapter.fetch.mockResolvedValue({ ...resource, stateHash: "d".repeat(64) });
+      } else if (code === "STRATEGY_CHANGED") {
+        command.load.mockResolvedValue({ identity: { versionId: "v2", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [] } });
+      } else {
+        command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [] } });
+      }
+
+      const result = await executeApprovedHandler({ liveRequested: true });
+
+      expect(result.summary).toMatchObject({ superseded: 1, failed: 0 });
+      expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "dismissed", completionNote: expect.stringContaining(`Superseded (${code})`) }) }));
+      expect(db.recommendation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "rejected" }) }));
+      expect(db.storeTaskExecutionLock.deleteMany).toHaveBeenCalledWith({ where: { taskId: "task-1", ownerId: "rec-1" } });
+      expect(db.$transaction).toHaveBeenCalledWith(expect.arrayContaining([
+        expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+      ]));
+    },
+  );
+  it("keeps genuine Shopify uncertainty in reconciliation with bounded durable diagnostics", async () => {
+    adapter.apply.mockRejectedValue(Object.assign(new Error("Title is too long"), {
+      token: "shpat_secret",
+      variables: { input: "private bytes" },
+    }));
+
+    const result = await executeApprovedHandler({ liveRequested: true });
+
+    expect(result.summary).toMatchObject({ superseded: 0, failed: 1 });
+    expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "reconciliation_needed" }) }));
+    expect(db.recommendation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      executionResult: expect.objectContaining({ code: "SHOPIFY_VERIFICATION_UNCERTAIN", mutationSent: true, shopifyMessage: "Title is too long", reobservation: "different_state" }),
+    }) }));
+    const durableAudit = db.auditLog.create.mock.calls.find(([arg]: any[]) => arg.data.action === "execution_failed");
+    expect(durableAudit?.[0].data.after).toMatchObject({ code: "SHOPIFY_VERIFICATION_UNCERTAIN", mutationSent: true, shopifyMessage: "Title is too long", reobservation: "different_state" });
+    expect(JSON.stringify(durableAudit)).not.toContain("shpat_secret");
+    expect(JSON.stringify(durableAudit)).not.toContain("private bytes");
   });
   it("does not mutate when live execution is disabled", async () => {
     process.env.EXECUTE_APPROVED_LIVE_ENABLED = "false";

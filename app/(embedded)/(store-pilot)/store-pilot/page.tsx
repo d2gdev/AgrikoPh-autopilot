@@ -122,6 +122,8 @@ export default function StorePilotReportPage() {
   const [syncingMap, setSyncingMap] = useState(false);
   const [applyingTaskId, setApplyingTaskId] = useState<string | null>(null);
   const [selectedMapTask, setSelectedMapTask] = useState<StoreTask | null>(null);
+  const [mapTaskStage, setMapTaskStage] = useState<"review" | "approved">("review");
+  const [approvedRecommendationId, setApprovedRecommendationId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const mutationBusyRef = useRef(false);
   const mutationBusy = Boolean(syncingMap || applyingTaskId || updatingTaskId);
@@ -231,9 +233,9 @@ export default function StorePilotReportPage() {
       const response = await authFetch(`/api/store-tasks/${selectedMapTask.id}/apply`, { method: "POST" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Topical-map change could not be applied.");
-      setSelectedMapTask(null);
-      await loadTasks();
-      setToastMessage("The topical-map change was approved and queued.");
+      if (typeof payload.recommendationId !== "string") throw new Error("The approved recommendation linkage is unavailable.");
+      setApprovedRecommendationId(payload.recommendationId);
+      setMapTaskStage("approved");
     } catch (err) {
       setTaskError(err instanceof Error ? err.message : "Topical-map change could not be applied.");
     } finally {
@@ -242,8 +244,39 @@ export default function StorePilotReportPage() {
     }
   }
 
+  async function executeSelectedMapTask() {
+    if (!selectedMapTask || !approvedRecommendationId || !beginMutation()) return;
+    setApplyingTaskId(selectedMapTask.id);
+    setTaskError(null);
+    try {
+      const response = await authFetch(`/api/store-tasks/${selectedMapTask.id}/execute`, { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "The approved topical-map change could not be executed.");
+      if (payload.summary?.dryRun === true) {
+        setToastMessage("The live execution gate is disabled; the approved recommendation remains queued and Shopify was not changed.");
+      } else if (payload.task?.status === "dismissed" && String(payload.task?.completionNote ?? "").startsWith("Superseded (")) {
+        setToastMessage("This task was superseded because the strategy or store state changed. Sync topical map to create current work.");
+      } else if (payload.task?.status === "completed") {
+        setToastMessage("The approved topical-map change was executed and verified.");
+      } else {
+        setToastMessage("The execution request finished; review the task status before retrying.");
+      }
+      setSelectedMapTask(null);
+      setApprovedRecommendationId(null);
+      setMapTaskStage("review");
+      await loadTasks();
+    } catch (err) {
+      setTaskError(err instanceof Error ? err.message : "The approved topical-map change could not be executed.");
+    } finally {
+      setApplyingTaskId(null);
+      endMutation();
+    }
+  }
+
   async function selectMapTask(task: StoreTask) {
     setTaskError(null);
+    setMapTaskStage("review");
+    setApprovedRecommendationId(null);
     try {
       const response = await authFetch(`/api/store-tasks/${task.id}`);
       const payload = await response.json();
@@ -418,10 +451,12 @@ export default function StorePilotReportPage() {
       <ApplyMapTaskModal
         open={Boolean(selectedMapTask)}
         task={selectedMapTask}
+        stage={mapTaskStage}
         loading={Boolean(selectedMapTask && applyingTaskId === selectedMapTask.id)}
         disabled={mutationBusy}
-        onClose={() => setSelectedMapTask(null)}
-        onConfirm={applySelectedMapTask}
+        onClose={() => { setSelectedMapTask(null); setMapTaskStage("review"); setApprovedRecommendationId(null); }}
+        onApprove={applySelectedMapTask}
+        onExecute={executeSelectedMapTask}
       />
       {toastMessage ? <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} /> : null}
     </Page>

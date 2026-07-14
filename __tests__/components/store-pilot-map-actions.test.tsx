@@ -74,13 +74,14 @@ function storeTaskResponse(url: string) {
   }
   return response({ tasks: [], total: status === "pending" ? 1 : 0, page: 1, pageSize, hasMore: false });
 }
-function installFetch(applyResponse: { ok: boolean; error?: string } = { ok: true }) {
+function installFetch(applyResponse: { ok: boolean; error?: string } = { ok: true }, executeResponse: any = { runId: "run-1", status: "success", summary: { considered: 1, dryRun: false }, errors: [], task: { id: "map-1", status: "completed", completionNote: "Shopify update verified." } }) {
   authFetch.mockImplementation((url: string) => {
     if (url === "/api/images") return response({ images: [], total: 0, missingAltText: 0 });
     if (url.startsWith("/api/store-tasks?")) return storeTaskResponse(url);
     if (url === "/api/store-tasks/topical-map/sync") return response({ executable: 1 });
     if (url === "/api/store-tasks/map-1") return response({ task: executable });
-    if (url === "/api/store-tasks/map-1/apply") return response(applyResponse.ok ? { task: executable } : { error: applyResponse.error }, applyResponse.ok);
+    if (url === "/api/store-tasks/map-1/apply") return response(applyResponse.ok ? { taskId: "map-1", recommendationId: "rec-1", status: "queued" } : { error: applyResponse.error }, applyResponse.ok);
+    if (url === "/api/store-tasks/map-1/execute") return response(executeResponse, executeResponse.ok !== false);
     if (url === "/api/store-tasks") return response({ task: ordinary });
     throw new Error(`Unexpected URL ${url}`);
   });
@@ -125,7 +126,7 @@ describe("Store Pilot topical-map workflow", () => {
     expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?"))).toHaveLength(18);
   });
 
-  it("opens Apply confirmation and calls apply only after confirmation", async () => {
+  it("requires separate approval and exact-target execution confirmations", async () => {
     await renderPage();
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
     const dialog = screen.getByRole("dialog", { name: "Approve topical-map change" });
@@ -133,9 +134,35 @@ describe("Store Pilot topical-map workflow", () => {
     expect(within(dialog).getByText("/products/black-rice")).toBeTruthy();
     const confirm = within(dialog).getByRole("button", { name: "Approve and queue" });
     fireEvent.click(confirm); fireEvent.click(confirm);
-    await screen.findByText("The topical-map change was approved and queued.");
+    const executeDialog = await screen.findByRole("dialog", { name: "Execute approved topical-map change" });
     expect(authFetch.mock.calls.filter(([url]) => url === "/api/store-tasks/map-1/apply")).toHaveLength(1);
+    expect(authFetch.mock.calls.some(([url]) => url === "/api/store-tasks/map-1/execute")).toBe(false);
+    expect(within(executeDialog).getByText(/execution is limited to this target/i)).toBeTruthy();
+    fireEvent.click(within(executeDialog).getByRole("button", { name: "Execute approved change" }));
+    await screen.findByText("The approved topical-map change was executed and verified.");
+    expect(authFetch.mock.calls.filter(([url]) => url === "/api/store-tasks/map-1/execute")).toHaveLength(1);
     expect(authFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/store-tasks?"))).toHaveLength(18);
+  });
+
+  it("explains a live-gate dry run without claiming Shopify changed", async () => {
+    authFetch.mockReset();
+    installFetch({ ok: true }, { runId: "run-1", status: "success", summary: { considered: 1, dryRun: true, simulated: 1 }, errors: [], task: { id: "map-1", status: "pending", completionNote: "Approved and queued for guarded execution." } });
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+    await userEvent.click(screen.getByRole("button", { name: "Approve and queue" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Execute approved change" }));
+    expect(await screen.findByText("The live execution gate is disabled; the approved recommendation remains queued and Shopify was not changed.")).toBeTruthy();
+  });
+
+  it("explains superseded work and keeps sync available", async () => {
+    authFetch.mockReset();
+    installFetch({ ok: true }, { runId: "run-1", status: "success", summary: { considered: 1, dryRun: false, superseded: 1 }, errors: [], task: { id: "map-1", status: "dismissed", completionNote: "Superseded (STRATEGY_CHANGED). Sync topical map to create current work." } });
+    await renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+    await userEvent.click(screen.getByRole("button", { name: "Approve and queue" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Execute approved change" }));
+    expect(await screen.findByText("This task was superseded because the strategy or store state changed. Sync topical map to create current work.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sync topical map" })).toBeTruthy();
   });
 
   it.each([
