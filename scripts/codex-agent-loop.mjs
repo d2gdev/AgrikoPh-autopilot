@@ -68,7 +68,11 @@ function loadConfig(path) {
     if (!existsSync(directory)) throw new Error(`Additional directory does not exist: ${directory}`);
   }
   if (!Number.isInteger(config.maxIterations) || config.maxIterations < 1) throw new Error("maxIterations must be positive");
-  return config;
+  const requiredCleanPasses = config.requiredCleanPasses ?? 0;
+  if (!Number.isInteger(requiredCleanPasses) || requiredCleanPasses < 0) {
+    throw new Error("requiredCleanPasses must be a non-negative integer");
+  }
+  return { ...config, requiredCleanPasses };
 }
 
 function runLayout(runRoot, runId) {
@@ -147,7 +151,7 @@ function acquireLock(layout, runId) {
   };
 }
 
-function validateReport(report) {
+function validateReport(report, requiredCleanPasses) {
   if (!report || !["complete", "blocked", "failed"].includes(report.status)) throw new Error("Invalid execution report status");
   if (typeof report.outcome !== "string" || !report.outcome.trim()) throw new Error("Invalid execution report outcome");
   if (typeof report.approval_required !== "boolean") throw new Error("Invalid execution report approval_required");
@@ -158,6 +162,18 @@ function validateReport(report) {
   if (!Array.isArray(report.blockers)) throw new Error("Invalid execution report blockers");
   for (const key of ["production_accessed", "deployed", "live_changes_made"]) {
     if (typeof report.runtime_impact?.[key] !== "boolean") throw new Error(`Invalid runtime_impact.${key}`);
+  }
+  const auditPass = report.audit_pass;
+  if (requiredCleanPasses > 0 && !auditPass) throw new Error("Audit profile report is missing audit_pass");
+  if (auditPass !== null && auditPass !== undefined) {
+    if (typeof auditPass.clean !== "boolean" || !Array.isArray(auditPass.defects) || !Array.isArray(auditPass.fixes) || !Array.isArray(auditPass.verification)) {
+      throw new Error("Invalid audit_pass");
+    }
+    if (!auditPass.verification.length || auditPass.verification.some((value) => typeof value !== "string" || !value.trim())) {
+      throw new Error("Audit pass requires verification evidence");
+    }
+    if (auditPass.clean && (auditPass.defects.length || auditPass.fixes.length)) throw new Error("Clean audit pass cannot report defects or fixes");
+    if (!auditPass.clean && !auditPass.defects.length) throw new Error("Unclean audit pass requires a defect");
   }
   return report;
 }
@@ -231,17 +247,20 @@ async function runCodex({ executable, role, config, prompt, schema, directory })
   }
   if (!existsSync(temporaryFinal)) throw new Error(`${role} did not produce a final JSON file`);
   const parsed = readJson(temporaryFinal, `${role} final response`);
-  if (role === "executor") validateReport(parsed);
+  if (role === "executor") validateReport(parsed, config.requiredCleanPasses);
   else validateDecision(parsed);
   renameSync(temporaryFinal, finalPath);
   chmodSync(finalPath, 0o600);
   return { parsed, finalPath, eventsPath, stderrPath };
 }
 
-function executorPrompt(task) {
+function executorPrompt(task, config) {
+  const auditInstruction = config.requiredCleanPasses > 0
+    ? `\nThis is an audit pass. Populate audit_pass with clean=true only when no defect was found. Any defect found during this pass, even if repaired, requires clean=false and lists the defect, local fix, and verification evidence.`
+    : "";
   return `${task.trim()}
 
-Return exactly one JSON execution report matching the supplied schema. Set approval_required=true whenever a new operator decision or authority is needed. Do not include prose outside the JSON object.`;
+Return exactly one JSON execution report matching the supplied schema. Set approval_required=true whenever a new operator decision or authority is needed.${auditInstruction} Do not include prose outside the JSON object.`;
 }
 
 function plannerPrompt(state, config) {
@@ -253,7 +272,7 @@ ${state.objective}
 Latest Terra execution report:
 ${JSON.stringify(state.lastReport, null, 2)}
 
-${state.operatorAnswer ? `Operator answer for the pending question:\n${state.operatorAnswer}\n` : ""}
+${state.operatorAnswer ? `Operator answer for the pending question:\n${state.operatorAnswer}\n` : ""}${config.requiredCleanPasses > 0 ? `Consecutive clean audit passes: ${state.consecutiveCleanPasses}/${config.requiredCleanPasses}. Do not return done until the requirement is met.\n` : ""}
 Decide exactly one action:
 - run: create the next complete, self-contained Terra prompt, but only for work already authorized.
 - ask_user: pause for any new authority, production access, deployment, live Shopify/Meta write, production database change, credential change, destructive action, scope expansion, strategy activation, or material operator judgment.
@@ -312,11 +331,22 @@ async function continueRun(layout, state, config, executable) {
           executable,
           role: "executor",
           config,
-          prompt: executorPrompt(state.currentPrompt),
+          prompt: executorPrompt(state.currentPrompt, config),
           schema: executionSchema,
           directory,
         });
         state.lastReport = execution.parsed;
+        if (state.lastReport.audit_pass) {
+          const auditPass = state.lastReport.audit_pass;
+          state.consecutiveCleanPasses = auditPass.clean ? state.consecutiveCleanPasses + 1 : 0;
+          state.auditPassLedger.push({
+            iteration: state.iteration,
+            clean: auditPass.clean,
+            defects: auditPass.defects,
+            fixes: auditPass.fixes,
+            verification: auditPass.verification,
+          });
+        }
         state.phase = "planner";
         saveState(layout, state);
         appendEvent(layout, state, "executor_completed", { status: state.lastReport.status });
@@ -357,6 +387,13 @@ async function continueRun(layout, state, config, executable) {
         return pause(layout, state, state.lastDecision.question, state.lastDecision.approval_scope, "planner");
       }
       if (state.lastDecision.action === "done") {
+        if (config.requiredCleanPasses > 0 && state.consecutiveCleanPasses < config.requiredCleanPasses) {
+          state.status = "interrupted";
+          state.result = { reason: `Planner attempted completion before ${config.requiredCleanPasses} clean passes.` };
+          saveState(layout, state);
+          appendEvent(layout, state, "clean_pass_gate_rejected", state.result);
+          return publicStatus(layout, state);
+        }
         state.status = "completed";
         state.phase = null;
         state.pending = null;
@@ -389,6 +426,8 @@ function createState(prompt, config) {
     operatorAnswer: null,
     pending: null,
     result: null,
+    consecutiveCleanPasses: 0,
+    auditPassLedger: [],
     config,
     createdAt: timestamp,
     updatedAt: timestamp,

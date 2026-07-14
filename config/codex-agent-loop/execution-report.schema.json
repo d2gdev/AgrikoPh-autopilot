@@ -8,7 +8,8 @@
     "approval_question",
     "blockers",
     "recommended_next_step",
-    "runtime_impact"
+    "runtime_impact",
+    "audit_pass"
   ],
   "properties": {
     "status": { "enum": ["complete", "blocked", "failed"] },
@@ -20,6 +21,17 @@
       "items": { "type": "string", "minLength": 1 }
     },
     "recommended_next_step": { "type": ["string", "null"] },
+    "audit_pass": {
+      "type": ["object", "null"],
+      "required": ["clean", "defects", "fixes", "verification"],
+      "properties": {
+        "clean": { "type": "boolean" },
+        "defects": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "fixes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "verification": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
     "runtime_impact": {
       "type": "object",
       "required": ["production_accessed", "deployed", "live_changes_made"],
