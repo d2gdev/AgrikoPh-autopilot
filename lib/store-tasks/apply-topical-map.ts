@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { Prisma, type Recommendation } from "@prisma/client";
 import { applyGovernedStoreResourceChange, createGovernedRedirect, fetchGovernedRedirects, fetchGovernedStoreResource, resolveGovernedStoreUrl, type GovernedStoreResource } from "@/lib/shopify-governed-resources";
-import { appendInternalLinkMarkup, hashTopicalMapProposedState, TopicalMapStoreTaskProposedSchema, TopicalMapStoreTaskSourceSchema } from "@/lib/store-tasks/topical-map";
+import { appendInternalLinkMarkup, classifyTopicalMapPageAction, hashTopicalMapProposedState, TopicalMapStoreTaskProposedSchema, TopicalMapStoreTaskSourceSchema } from "@/lib/store-tasks/topical-map";
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
@@ -49,7 +49,7 @@ function stillGoverned(center: Awaited<ReturnType<typeof loadActiveTopicalMapCom
     return governedLinks.size === source.links.length && source.links.every((link) => governedLinks.has(`${link.toUrl}\u0000${link.anchor}`)) && sameStrings(governed.flatMap((item) => item.ruleIds), source.ruleIds);
   }
   const page = center.pages.find((item) => path(item.url) === source.targetUrl);
-  const action = /(seo|meta|title|description)/.test(page?.decision?.toLowerCase() ?? "") ? "seo_update" : "content_update";
+  const action = classifyTopicalMapPageAction(page?.decision);
   return !!page && action === source.action && sameStrings(page.ruleDomains.content_decisions ?? [], source.ruleIds);
 }
 function expectedChanges(proposed: ExecutableProposed, current: GovernedStoreResource, source: ExecutableSource): Record<string, string> {

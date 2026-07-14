@@ -1,4 +1,5 @@
 import type { BadgeProps } from "@shopify/polaris";
+import { normalizeTopicalMapPriority } from "@/lib/topical-map/priority";
 
 export type Tone = BadgeProps["tone"];
 
@@ -32,8 +33,9 @@ export function recommendationStatusTone(s: string): Tone {
 
 // P0–P3 priority.
 export function priorityTone(p: string): Tone {
-  if (p === "P0" || p === "P1") return "critical";
-  if (p === "P2") return "attention";
+  const priority = normalizeTopicalMapPriority(p);
+  if (priority === "high") return "critical";
+  if (priority === "medium") return "attention";
   return "info";
 }
 

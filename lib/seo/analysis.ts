@@ -204,7 +204,7 @@ export function buildMapAwareSeoGaps(input: {
       continue;
     }
     const query = page.primaryKeywordOrTheme ?? page.url;
-    const gap = { kind: "content" as const, strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate" as const, action: refresh ? "refresh" as const : "create" as const, query, suggestedTitle: query, page: page.url, priority: page.priority ?? "unspecified", mapEvidence: page.evidence ?? null, observedEvidence: evidenceFor(query, page.url), observation: { source: "store" as const, capturedAt: capturedAt.toISOString(), provenance: exists ? `ArticleRecord:${article!.blogHandle ?? "news"}/${article!.handle}` : `ArticleRecord:absence:${page.url}` } };
+    const gap = { kind: "content" as const, strategyVersionId: input.strategy.versionId, packageSha256: input.strategy.packageSha256, ruleIds: [...page.ruleIds], state: "candidate" as const, action: refresh ? "refresh" as const : "create" as const, query, suggestedTitle: page.title ?? query, page: page.url, priority: page.priority ?? "unspecified", mapEvidence: page.evidence ?? null, observedEvidence: evidenceFor(query, page.url), observation: { source: "store" as const, capturedAt: capturedAt.toISOString(), provenance: exists ? `ArticleRecord:${article!.blogHandle ?? "news"}/${article!.handle}` : `ArticleRecord:absence:${page.url}` } };
     gaps.push({ ...gap, candidateId: mapCandidateId(gap) });
   }
   for (const link of input.commandCenter.work.internalLinks) {

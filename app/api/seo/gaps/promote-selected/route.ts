@@ -68,13 +68,14 @@ async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, comm
   if (gap.action === "create" && article) return null;
   if (gap.action === "refresh" && (!article || article.updatedAt.toISOString() !== gap.observation.capturedAt)) return null;
   const isCreate = gap.action === "create";
-  const title = article?.title ?? gap.suggestedTitle;
+  const proposedTitle = page.title ?? gap.suggestedTitle;
+  const currentArticleTitle = article?.title ?? null;
   const data = {
     proposalType: isCreate ? "new-content" : "content-refresh", changeType: isCreate ? "new_article" : "update", articleHandle: identity.handle,
-    priority: priority(gap.priority), impact: "medium", effort: "medium", title: isCreate ? title : `Refresh content: ${title}`,
-    description: isCreate ? `Create the active-map article for "${gap.query}".` : `Refresh "${title}" according to the active map decision "${page.decision}" using only the attached current evidence.`,
-    proposedState: isCreate ? { title, targetQuery: gap.query, targetKeyword: gap.query, targetUrl, blogHandle: identity.blogHandle } : { action: "refresh", articleHandle: identity.handle, articleTitle: title, targetUrl, blogHandle: identity.blogHandle, mapDecision: page.decision, mapEvidence: page.evidence ?? null, priority: gap.priority, observedEvidence: gap.observedEvidence },
-    sourceData: { source: "seo-pilot", query: gap.query, page: targetUrl, blogHandle: identity.blogHandle, strategyVersionId: gap.strategyVersionId, packageSha256: gap.packageSha256, ruleIds: gap.ruleIds, observedEvidence: gap.observedEvidence },
+    priority: priority(gap.priority), impact: "medium", effort: "medium", title: isCreate ? proposedTitle : `Refresh content: ${proposedTitle}`,
+    description: isCreate ? `Create the active-map article for "${gap.query}".` : `Refresh "${proposedTitle}" according to the active map decision "${page.decision}" using only the attached current evidence.`,
+    proposedState: isCreate ? { title: proposedTitle, targetQuery: gap.query, targetKeyword: gap.query, targetUrl, blogHandle: identity.blogHandle } : { action: "refresh", articleHandle: identity.handle, articleTitle: proposedTitle, targetUrl, blogHandle: identity.blogHandle, mapDecision: page.decision, mapEvidence: page.evidence ?? null, priority: gap.priority, observedEvidence: gap.observedEvidence },
+    sourceData: { source: "seo-pilot", query: gap.query, page: targetUrl, blogHandle: identity.blogHandle, currentArticleTitle, strategyVersionId: gap.strategyVersionId, packageSha256: gap.packageSha256, ruleIds: gap.ruleIds, observedEvidence: gap.observedEvidence },
   };
   return { data, candidate: { type: "content", action: isCreate ? "create" : "update", targetUrl } satisfies StrategyProposalCandidate };
 }

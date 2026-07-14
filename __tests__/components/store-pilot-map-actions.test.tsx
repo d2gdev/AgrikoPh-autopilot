@@ -38,7 +38,7 @@ const executable = {
   sourceData: { source: "topical-map", executable: true, strategyVersionId: "strategy-v3", packageSha256: "a".repeat(64), ruleIds: ["seo:title"], observedAt: "2026-07-13T04:00:00.000Z" },
   proposedState: { action: "seo_update", before: { seoTitle: "Black Rice" }, after: { seoTitle: "Organic Black Rice" } },
 };
-const advisory = { ...executable, id: "map-2", title: "Map advisory", sourceData: { ...executable.sourceData, executable: false, advisoryReason: "canonicalization_execution_prohibited" }, proposedState: { action: "advisory", advisory: "canonicalization_execution_prohibited" } };
+const advisory = { ...executable, id: "map-2", title: "Map advisory", priority: "P0", sourceData: { ...executable.sourceData, executable: false, advisoryReason: "canonicalization_execution_prohibited", mapPriority: "P0", proposedCanonicalUrl: "/products/black-rice", mapDecision: "Use the product URL as canonical", mapEvidence: "The product owns commercial intent" }, proposedState: { action: "advisory", advisory: "canonicalization_execution_prohibited" } };
 const ordinary = { ...executable, id: "ordinary-1", taskType: "price_review", title: "Ordinary task", sourceData: {}, proposedState: {} };
 const groupedLinks = {
   ...executable,
@@ -282,11 +282,33 @@ describe("Store Pilot topical-map workflow", () => {
 });
 
 describe("MapTaskDetails disclosure", () => {
+  it("shows the exact redirect source and proposed target", () => {
+    render(<MapTaskDetails task={{
+      ...executable,
+      id: "redirect-1",
+      targetUrl: "/old-rice",
+      sourceData: { ...executable.sourceData, targetType: "redirect", action: "redirect_create", redirectTarget: "/products/rice" },
+      proposedState: { action: "redirect_create", before: { state: "absent" }, after: { target: "/products/rice" } },
+    } as StoreTaskView} />);
+    expect(screen.getByText("Redirect source")).toBeTruthy();
+    expect(screen.getByText("/old-rice")).toBeTruthy();
+    expect(screen.getByText("Proposed target")).toBeTruthy();
+    expect(screen.getByText("/products/rice")).toBeTruthy();
+  });
   it("labels identity and omits a duplicate unlabelled target", () => {
     render(<MapTaskDetails task={executable as StoreTaskView} />);
     expect(screen.getByText("Strategy version:")).toBeTruthy();
     expect(screen.getByText("Package:")).toBeTruthy();
     expect(screen.getAllByText("/products/black-rice")).toHaveLength(1);
+  });
+
+  it("shows bounded canonicalization and indexation advisory instructions", () => {
+    render(<MapTaskDetails task={advisory as StoreTaskView} />);
+    expect(screen.getByText("Original priority:")).toBeTruthy();
+    expect(screen.getByText("P0")).toBeTruthy();
+    expect(screen.getByText("Proposed canonical URL:")).toBeTruthy();
+    expect(screen.getByText("Use the product URL as canonical")).toBeTruthy();
+    expect(screen.getByText("The product owns commercial intent")).toBeTruthy();
   });
 
   it("bounds long values until the standard disclosure is activated", async () => {

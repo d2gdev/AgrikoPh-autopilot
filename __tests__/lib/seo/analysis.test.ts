@@ -107,7 +107,7 @@ describe("map-aware SEO analysis", () => {
     domainCounts: { clusters: 0, page_roles: 0, url_intent_ownership: 0, content_decisions: 2, prohibited_content: 1, internal_links: 1, redirects: 0, canonicalization: 0, indexation: 0, evidence_gates: 0, high_stakes_reviews: 0 },
     clusters: [],
     pages: [
-      { url: "/blogs/news/mapped", decision: "create", primaryKeywordOrTheme: "mapped topic", priority: "high", ruleIds: ["rule:decision:1"], ruleDomains: { content_decisions: ["rule:decision:1"] } },
+      { url: "/blogs/news/mapped", title: "Mapped Topic Guide", decision: "create", primaryKeywordOrTheme: "mapped topic", priority: "high", ruleIds: ["rule:decision:1"], ruleDomains: { content_decisions: ["rule:decision:1"] } },
       { url: "/blogs/news/prohibited", decision: "create", primaryKeywordOrTheme: "medical cure", ruleIds: ["rule:decision:2"], ruleDomains: { content_decisions: ["rule:decision:2"] } },
     ],
     prohibited: [{ url: "/blogs/news/prohibited", item: "Do not publish medical cure claims", ruleIds: ["rule:prohibited:1"] }],
@@ -127,6 +127,7 @@ describe("map-aware SEO analysis", () => {
     });
     expect(result.observations).toEqual([expect.objectContaining({ query: "unmapped popular query" })]);
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", strategyVersionId: "v3", ruleIds: ["rule:decision:1"], state: "candidate" }));
+    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", query: "mapped topic", suggestedTitle: "Mapped Topic Guide" }));
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", priority: "high", observedEvidence: [] }));
     expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "link", ruleIds: ["rule:link:1"], state: "candidate" }));
     expect(result.gaps).not.toEqual(expect.arrayContaining([expect.objectContaining({ query: "unmapped popular query" })]));

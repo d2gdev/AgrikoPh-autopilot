@@ -11,7 +11,7 @@ describe("projectTopicalMapCommandCenter", () => {
       rule("rule:cluster:1", "clusters", { cluster: "Black rice", memberUrls: [url] }),
       rule("rule:role:1", "page_roles", { currentUrl: url, cluster: "Black rice", role: "supporting", priority: "high" }),
       rule("rule:owner:1", "url_intent_ownership", { currentUrl: "/blogs/news/black-rice", primaryKeywordOrTheme: "black rice", dominantIntent: "informational", exclusiveIntentScope: "black rice education", priority: "high" }),
-      rule("rule:decision:1", "content_decisions", { currentUrl: url, decision: "keep", exactTargetIfAny: "", priority: "high", evidence: "Traffic supported" }),
+      rule("rule:decision:1", "content_decisions", { currentUrl: url, title: "Black Rice Growing Guide", decision: "keep", exactTargetIfAny: "", priority: "high", evidence: "Traffic supported" }),
       rule("rule:prohibited:1", "prohibited_content", { currentUrl: url, decision: "prohibit", exactTargetIfAny: "medical claims", priority: "critical", evidence: "Unsafe" }),
       rule("rule:link:1", "internal_links", { fromUrl: url, toUrl: "/collections/rice", currentBodyState: "missing", requiredAction: "add", recommendedAnchor: "rice", linkPurpose: "commercial path", priority: "high", verification: "inspect" }, "internal-links"),
       rule("rule:redirect:1", "redirects", { redirectId: "r1", source: "/old", configuredTarget: "/blogs/news/black-rice", finalTarget: url, hopCount: "1", topicRelevant: "yes", knownState: "configured", requiredAction: "retain", priority: "high", evidence: "verified" }, "redirect-inventory"),
@@ -26,7 +26,7 @@ describe("projectTopicalMapCommandCenter", () => {
     expect(Object.keys(projected.domainCounts).sort()).toEqual(ALL_TOPICAL_MAP_DOMAINS.slice().sort());
     expect(Object.values(projected.domainCounts)).toEqual(expect.arrayContaining(Array(11).fill(1)));
     expect(projected.clusters[0]).toMatchObject({ name: "Black rice", memberUrls: ["/blogs/news/black-rice"], ruleIds: ["rule:cluster:1"] });
-    expect(projected.pages[0]).toMatchObject({ url: "/blogs/news/black-rice", cluster: "Black rice", role: "supporting", dominantIntent: "informational", decision: "keep", ruleIds: ["rule:decision:1", "rule:owner:1", "rule:role:1"], ruleDomains: { page_roles: ["rule:role:1"], url_intent_ownership: ["rule:owner:1"], content_decisions: ["rule:decision:1"] } });
+    expect(projected.pages[0]).toMatchObject({ url: "/blogs/news/black-rice", title: "Black Rice Growing Guide", primaryKeywordOrTheme: "black rice", cluster: "Black rice", role: "supporting", dominantIntent: "informational", decision: "keep", ruleIds: ["rule:decision:1", "rule:owner:1", "rule:role:1"], ruleDomains: { page_roles: ["rule:role:1"], url_intent_ownership: ["rule:owner:1"], content_decisions: ["rule:decision:1"] } });
     expect(projected.prohibited[0]).toMatchObject({ url: "/blogs/news/black-rice", item: "medical claims", ruleIds: ["rule:prohibited:1"] });
     expect(projected.work.internalLinks[0]).toMatchObject({ fromUrl: "/blogs/news/black-rice", toUrl: "/collections/rice", ruleIds: ["rule:link:1"] });
     expect(projected.work.redirects[0]).toMatchObject({ ruleIds: ["rule:redirect:1"], priority: "high", evidence: "verified" });

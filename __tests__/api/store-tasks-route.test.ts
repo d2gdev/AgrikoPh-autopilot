@@ -102,6 +102,22 @@ describe("Store Task GET inventory", () => {
     expect(error).toHaveBeenCalledWith("[store-tasks] invalid list DTO:", "task-1");
     error.mockRestore();
   });
+
+  it("does not let a valid persisted redirect make the task list fail", async () => {
+    db.storeTask.findMany.mockResolvedValue([listRow, {
+      ...listRow,
+      id: "redirect-1",
+      targetType: "redirect",
+      targetId: null,
+      targetUrl: "/old-rice",
+      sourceData: { ...source, targetType: "redirect", targetUrl: "/old-rice", action: "redirect_create", redirectTarget: "/products/rice" },
+      proposedState: { action: "redirect_create", before: { state: "absent" }, after: { target: "/products/rice" } },
+    }]);
+
+    const response = await (await import("@/app/api/store-tasks/route")).GET(new Request("http://test.local/api/store-tasks"));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ tasks: [{ id: "task-1" }, { id: "redirect-1", proposedState: { after: { target: "/products/rice" } } }] });
+  });
 });
 
 describe("legacy Store Task PATCH", () => {
@@ -120,5 +136,21 @@ describe("legacy Store Task PATCH", () => {
     db.storeTask.findUnique.mockResolvedValue({ id: "task-1", status: "pending", ...extra });
     const response = await (await import("@/app/api/store-tasks/route")).PATCH(request(status));
     expect(response.status).toBe(200); expect(db.storeTask.update).toHaveBeenCalled();
+  });
+});
+
+describe("Store Task detail GET", () => {
+  it("returns a persisted create-only redirect through the strict detail DTO", async () => {
+    db.storeTask.findUnique.mockResolvedValue({
+      id: "redirect-1", targetUrl: "/old-rice", status: "pending", completionNote: null,
+      sourceData: { ...source, targetType: "redirect", targetUrl: "/old-rice", action: "redirect_create", redirectTarget: "/products/rice" },
+      proposedState: { action: "redirect_create", before: { state: "absent" }, after: { target: "/products/rice" } },
+    });
+    const response = await (await import("@/app/api/store-tasks/[id]/route")).GET(
+      new Request("http://test.local/api/store-tasks/redirect-1"),
+      { params: Promise.resolve({ id: "redirect-1" }) },
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ task: { id: "redirect-1", targetUrl: "/old-rice", proposedState: { after: { target: "/products/rice" } } } });
   });
 });

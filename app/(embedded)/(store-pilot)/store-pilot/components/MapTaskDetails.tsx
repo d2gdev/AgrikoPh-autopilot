@@ -82,10 +82,16 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
   const rules = Array.isArray(task.sourceData.ruleIds) ? task.sourceData.ruleIds.filter((rule): rule is string => typeof rule === "string") : [];
   const observedAt = typeof task.sourceData.observedAt === "string" ? task.sourceData.observedAt : null;
   const reason = typeof task.sourceData.advisoryReason === "string" ? advisoryReasons[task.sourceData.advisoryReason] ?? task.sourceData.advisoryReason : null;
+  const mapPriority = typeof task.sourceData.mapPriority === "string" ? task.sourceData.mapPriority : null;
+  const proposedCanonicalUrl = typeof task.sourceData.proposedCanonicalUrl === "string" ? task.sourceData.proposedCanonicalUrl : null;
+  const mapDecision = typeof task.sourceData.mapDecision === "string" ? task.sourceData.mapDecision : null;
+  const mapEvidence = typeof task.sourceData.mapEvidence === "string" ? task.sourceData.mapEvidence : null;
   const internalLinkTask = task.proposedState.action === "internal_link";
+  const redirectTask = task.proposedState.action === "redirect_create";
+  const redirectTarget = redirectTask && typeof record(task.proposedState.after).target === "string" ? String(record(task.proposedState.after).target) : null;
   const links = internalLinkTask ? boundedLinks(task.sourceData.links) : [];
   const allFields = changedFields(task);
-  const fields = internalLinkTask ? allFields.filter((field) => field.key !== "bodyHtml") : allFields;
+  const fields = redirectTask ? [] : internalLinkTask ? allFields.filter((field) => field.key !== "bodyHtml") : allFields;
   const rawHtmlFields = internalLinkTask ? allFields.filter((field) => field.key === "bodyHtml") : [];
 
   return (
@@ -97,10 +103,7 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
         {typeof task.sourceData.strategyVersionId === "string" ? <Text as="p" variant="bodySm"><strong>Strategy version:</strong> {task.sourceData.strategyVersionId}</Text> : null}
         {typeof task.sourceData.packageSha256 === "string" ? <Text as="p" variant="bodySm"><strong>Package:</strong> {task.sourceData.packageSha256.slice(0, 12)}</Text> : null}
       </InlineStack>
-      <BlockStack gap="100">
-        <Text as="p" variant="bodySm" tone="subdued">Target</Text>
-        <Text as="p">{task.targetUrl ?? "No target provided"}</Text>
-      </BlockStack>
+      {redirectTask ? <InlineStack gap="600" wrap><BlockStack gap="100"><Text as="p" variant="bodySm" tone="subdued">Redirect source</Text><Text as="p">{task.targetUrl ?? "No source provided"}</Text></BlockStack><BlockStack gap="100"><Text as="p" variant="bodySm" tone="subdued">Proposed target</Text><Text as="p">{redirectTarget ?? "No target provided"}</Text></BlockStack></InlineStack> : <BlockStack gap="100"><Text as="p" variant="bodySm" tone="subdued">Target</Text><Text as="p">{task.targetUrl ?? "No target provided"}</Text></BlockStack>}
       {rules.length ? (
         <BlockStack gap="100">
           <Text as="p" variant="bodySm" tone="subdued">Governing rules</Text>
@@ -109,6 +112,14 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
       ) : null}
       {observedAt ? <Text as="p" variant="bodySm" tone="subdued">Evidence observed {new Date(observedAt).toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</Text> : <Text as="p" variant="bodySm" tone="subdued">Observation time unavailable or not required for this advisory task.</Text>}
       {reason ? <Text as="p" tone="subdued">{reason}</Text> : null}
+      {mapPriority || proposedCanonicalUrl || mapDecision || mapEvidence ? (
+        <BlockStack gap="100">
+          {mapPriority ? <Text as="p"><strong>Original priority:</strong> {mapPriority}</Text> : null}
+          {proposedCanonicalUrl ? <Text as="p"><strong>Proposed canonical URL:</strong> {proposedCanonicalUrl}</Text> : null}
+          {mapDecision ? <Text as="p"><strong>Decision:</strong> {mapDecision}</Text> : null}
+          {mapEvidence ? <Text as="p"><strong>Evidence:</strong> {mapEvidence}</Text> : null}
+        </BlockStack>
+      ) : null}
       {links.length ? (
         <BlockStack gap="200">
           <Text as="h3" variant="headingSm">Links to add ({links.length})</Text>

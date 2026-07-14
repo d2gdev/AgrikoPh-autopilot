@@ -49,4 +49,9 @@ it("renders a mapped refresh candidate as an actionable refresh", () => {
   expect(rendered).toContain("Refresh content");
   expect(rendered).toContain("Select for proposal");
   expect(rendered).toContain("20 impressions");
+  expect(rendered).toContain("Mapped guide");
+  expect(rendered).toContain("Target keyword:");
+  expect(rendered).toContain("mapped");
+  expect(rendered).toContain("Governed target URL:");
+  expect(rendered).toContain("/blogs/news/mapped");
 });

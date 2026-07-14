@@ -6,6 +6,7 @@ vi.mock("@/lib/shopify-governed-resources", async (importOriginal) => ({ ...(awa
 vi.mock("@/lib/ai/client", () => ({ chatCompletionWithFailover: chat }));
 
 import {
+  classifyTopicalMapPageAction,
   TopicalMapStoreTaskProposedSchema,
   TopicalMapStoreTaskSourceSchema,
   syncTopicalMapStoreTasks,
@@ -64,12 +65,12 @@ const center = () => ({
       { fromUrl: "/blogs/news/black-rice-guide", toUrl: "/products/black-rice", ruleIds: ["link:article"], recommendedAnchor: "black rice", priority: "high" },
     ],
     redirects: [{ source: "/old", finalTarget: "/products/black-rice", ruleIds: ["redirect:1"] }],
-    canonicalization: [{ currentUrl: "/products/black-rice", proposedCanonicalUrl: "/products/black-rice", ruleIds: ["canonical:1"] }],
-    indexation: [{ currentUrl: "/products/black-rice", proposedCanonicalUrl: "/products/black-rice", ruleIds: ["index:1"] }],
+    canonicalization: [{ currentUrl: "/products/black-rice", proposedCanonicalUrl: "/products/black-rice", decision: "Use the product URL as canonical", evidence: "The product owns commercial intent", priority: "P0", ruleIds: ["canonical:1"] }],
+    indexation: [{ currentUrl: "/products/black-rice", proposedCanonicalUrl: "/products/black-rice", decision: "Keep indexed", evidence: "The product is the preferred landing page", priority: "P1", ruleIds: ["index:1"] }],
   },
 });
 
-function client(existing: Record<string, { status: string; id?: string; createdAt?: Date; targetUrl?: string; sourceData?: unknown; executionReceipt?: unknown }> = {}) {
+function client(existing: Record<string, { status: string; id?: string; createdAt?: Date; targetUrl?: string; sourceData?: unknown; proposedState?: unknown; priority?: string; executionReceipt?: unknown }> = {}) {
   const rows = new Map(Object.entries(existing).map(([dedupeKey, row]) => [dedupeKey, { dedupeKey, createdAt: new Date("2026-07-01T00:00:00Z"), ...row }]));
   let sequence = 0;
   const db: any = {
@@ -271,6 +272,19 @@ describe("topical-map advisory identity", () => {
 });
 
 describe("syncTopicalMapStoreTasks", () => {
+  it.each([
+    ["Keep", null],
+    ["Keep; refresh copy if merchandising changes", null],
+    ["Preserve redirect", null],
+    ["Keep noindex", null],
+    ["Remain unpublished unless the product returns", null],
+    ["Optimize this page", null],
+    ["Strengthen the page", null],
+    ["Improve SEO metadata", "seo_update"],
+    ["Update body content with sourcing details", "content_update"],
+  ])("classifies non-blog decision %s fail-closed", (decision, expected) => {
+    expect(classifyTopicalMapPageAction(decision)).toBe(expected);
+  });
   it("makes only an absent exact redirect executable", async () => {
     fetchRedirects.mockResolvedValueOnce(new Map());
     const db = client();
@@ -403,6 +417,14 @@ describe("syncTopicalMapStoreTasks", () => {
       "blog_index_not_governed", "canonicalization_execution_prohibited", "homepage_not_governed", "indexation_execution_prohibited", "redirect_conflict",
     ]);
     expect(creates.filter((task: any) => !task.sourceData.executable).every((task: any) => !("after" in task.proposedState))).toBe(true);
+    expect(creates.find((task: any) => task.sourceData.advisoryReason === "canonicalization_execution_prohibited")).toMatchObject({
+      priority: "P0",
+      sourceData: { mapPriority: "P0", proposedCanonicalUrl: "/products/black-rice", mapDecision: "Use the product URL as canonical", mapEvidence: "The product owns commercial intent" },
+    });
+    expect(creates.find((task: any) => task.sourceData.advisoryReason === "indexation_execution_prohibited")).toMatchObject({
+      priority: "P1",
+      sourceData: { mapPriority: "P1", proposedCanonicalUrl: "/products/black-rice", mapDecision: "Keep indexed", mapEvidence: "The product is the preferred landing page" },
+    });
   });
 
   it("supersedes a historical-key advisory once and treats the retained semantic advisory as unchanged", async () => {
@@ -482,6 +504,39 @@ describe("syncTopicalMapStoreTasks", () => {
       entityId: "canonical-failed",
       after: expect.objectContaining({ replacementTaskId: "historical-pending" }),
     }) }));
+  });
+
+  it("refreshes a retained canonical advisory in place and is idempotent", async () => {
+    const semanticKey = topicalMapAdvisorySemanticKey({
+      strategyVersionId: "strategy-7",
+      packageSha256: "a".repeat(64),
+      targetUrl: "/products/black-rice",
+      advisoryReason: "canonicalization_execution_prohibited",
+      ruleIds: ["canonical:1"],
+    });
+    const db = client({
+      [`store-task:topical-map:advisory:${semanticKey}`]: {
+        id: "canonical-existing",
+        status: "pending",
+        targetUrl: "/products/black-rice",
+        priority: "medium",
+        proposedState: { action: "advisory", advisory: "canonicalization_execution_prohibited" },
+        sourceData: advisorySource({
+          packageSha256: "a".repeat(64), ruleIds: ["canonical:1"], ruleDomains: ["canonicalization"],
+          targetType: "technical", targetUrl: "/products/black-rice", advisoryReason: "canonicalization_execution_prohibited",
+        }),
+      },
+    });
+
+    await syncTopicalMapStoreTasks(db as any);
+    expect(db.storeTask.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { dedupeKey: `store-task:topical-map:advisory:${semanticKey}` },
+      update: expect.objectContaining({ priority: "P0", sourceData: expect.objectContaining({ mapPriority: "P0", proposedCanonicalUrl: "/products/black-rice", mapDecision: "Use the product URL as canonical", mapEvidence: "The product owns commercial intent" }) }),
+    }));
+
+    db.storeTask.upsert.mockClear();
+    await syncTopicalMapStoreTasks(db as any);
+    expect(db.storeTask.upsert.mock.calls.some((call: any) => call[0].where.dedupeKey === `store-task:topical-map:advisory:${semanticKey}`)).toBe(false);
   });
 
   it("persists exact provenance/current state and deterministic sanitized internal-link output", async () => {
@@ -564,6 +619,7 @@ describe("syncTopicalMapStoreTasks", () => {
   it("rejects arbitrary advisory source types, reasons, domains, hashes, and URLs", () => {
     const valid = { source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], ruleDomains: ["redirects"], sourceReferences: [{ kind: "rule", id: "rule:1" }], generationProvenance: "advisory_projection", targetType: "redirect", targetUrl: "/old", executable: false, advisoryReason: "redirect_execution_unsupported" };
     expect(TopicalMapStoreTaskSourceSchema.safeParse(valid).success).toBe(true);
+    expect(TopicalMapStoreTaskSourceSchema.safeParse({ ...valid, mapPriority: "P0", proposedCanonicalUrl: "/products/rice", mapDecision: "Keep canonical", mapEvidence: "Intent ownership evidence" }).success).toBe(true);
     for (const bad of [{ ...valid, targetType: "anything" }, { ...valid, advisoryReason: "anything" }, { ...valid, ruleDomains: ["anything"] }, { ...valid, packageSha256: "short" }, { ...valid, targetUrl: "javascript:alert(1)" }]) {
       expect(TopicalMapStoreTaskSourceSchema.safeParse(bad).success).toBe(false);
     }

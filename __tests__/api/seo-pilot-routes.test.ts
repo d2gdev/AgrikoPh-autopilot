@@ -142,7 +142,7 @@ describe("SEO Pilot route regressions", () => {
         ["rule:mapped", "/blogs/news/mapped", "create"], ["rule:black", "/blogs/news/black-rice-benefits", "update"],
         ["rule:ghost", "/blogs/news/ghost-handle", "update"], ["rule:target", "/blogs/news/target-article", "update"],
         ["rule:collection", "/collections/black-rice", "update"],
-      ].map(([ruleId, currentUrl, decision]) => ({ ruleId, ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl, decision, priority: "high", ...(ruleId === "rule:black" ? { evidence: "Refresh using current search performance." } : {}) }, sourceReferences: [] } })),
+      ].map(([ruleId, currentUrl, decision]) => ({ ruleId, ruleType: "content_decisions", sourceArtifactId: "map", compiledPayload: { payload: { currentUrl, decision, priority: "high", ...(ruleId === "rule:mapped" ? { title: "Active Map Article Title" } : {}), ...(ruleId === "rule:black" ? { title: "Active Black Rice Map Title", evidence: "Refresh using current search performance." } : {}) }, sourceReferences: [] } })),
         { ruleId: "rule:link", ruleType: "internal_links", sourceArtifactId: "internal-links", compiledPayload: { payload: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", currentBodyState: "absent", requiredAction: "add", recommendedAnchor: "mapped topic", linkPurpose: "supporting context", priority: "high" }, sourceReferences: [] } },
       ],
     } });
@@ -486,6 +486,16 @@ describe("SEO Pilot route regressions", () => {
     expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2);
     expect(mockPrisma.auditLog.create).toHaveBeenCalledTimes(1);
     expect(mockPrisma.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "seo_map_candidate_promoted", entityId: "created-1", meta: expect.objectContaining({ candidateId: createGap.candidateId }) }) });
+    expect(mockCreateGovernedContentProposal.mock.calls[0]![1].data).toMatchObject({
+      title: "Active Map Article Title",
+      proposedState: { title: "Active Map Article Title", targetKeyword: "mapped topic", targetUrl: "/blogs/news/mapped" },
+      sourceData: { query: "mapped topic", currentArticleTitle: null },
+    });
+    expect(mockCreateGovernedContentProposal.mock.calls[1]![1].data).toMatchObject({
+      title: "Refresh content: Active Black Rice Map Title",
+      proposedState: { articleTitle: "Active Black Rice Map Title", targetUrl: "/blogs/news/black-rice-benefits" },
+      sourceData: { query: "black rice benefits", currentArticleTitle: "Black Rice Benefits" },
+    });
 
     const staleAnalysis = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: "2026-01-01T00:00:00.000Z", candidateIds: [createGap.candidateId] }));
     expect(staleAnalysis.status).toBe(409);

@@ -7,7 +7,7 @@ describe("Store Task DTOs", () => {
   it("projects an explicit small source allowlist and bounded list previews", () => {
     const dto = toStoreTaskListDto(base);
     expect(dto.sourceData).not.toHaveProperty("secretNested");
-    expect(dto.proposedState.before?.bodyHtml).toHaveLength(401);
+    expect(dto.proposedState).toMatchObject({ before: { bodyHtml: expect.stringMatching(/^b{400}…$/) } });
     expect(JSON.stringify(dto).length).toBeLessThan(12_000);
   });
   it("allows schema-capped exact detail but rejects aggregate overflow", () => {
@@ -23,5 +23,22 @@ describe("Store Task DTOs", () => {
     expect(grouped.sourceData.ruleIds).toHaveLength(26);
     expect(grouped.sourceData.links).toHaveLength(25);
     expect(() => toStoreTaskDetailDto({ ...base, sourceData: { ...base.sourceData, ruleIds: Array.from({ length: 101 }, (_, index) => `r-${index}`) } })).toThrow();
+  });
+  it("projects bounded topical-map advisory instructions", () => {
+    const sourceData = { ...base.sourceData, executable: false, advisoryReason: "canonicalization_execution_prohibited", mapPriority: "P0", proposedCanonicalUrl: "/products/rice", mapDecision: "Use the product canonical", mapEvidence: "The product owns commercial intent" };
+    expect(toStoreTaskDetailDto({ ...base, priority: "P0", sourceData }).sourceData).toMatchObject({ mapPriority: "P0", proposedCanonicalUrl: "/products/rice", mapDecision: "Use the product canonical", mapEvidence: "The product owns commercial intent" });
+    expect(toStoreTaskListDto({ ...base, priority: "P0", sourceData }).sourceData).toMatchObject({ mapPriority: "P0", proposedCanonicalUrl: "/products/rice" });
+  });
+  it("projects persisted create-only redirects in list and detail DTOs", () => {
+    const redirect = {
+      ...base,
+      targetType: "redirect",
+      targetUrl: "/old-rice",
+      sourceData: { ...base.sourceData, action: "redirect_create", redirectTarget: "/products/rice" },
+      proposedState: { action: "redirect_create", before: { state: "absent" }, after: { target: "/products/rice" } },
+    };
+    expect(toStoreTaskListDto(redirect).proposedState).toEqual(redirect.proposedState);
+    expect(toStoreTaskDetailDto(redirect).proposedState).toEqual(redirect.proposedState);
+    expect(() => toStoreTaskDetailDto({ ...redirect, proposedState: { action: "redirect_create", before: { bodyHtml: "old" }, after: { bodyHtml: "new" } } })).toThrow();
   });
 });

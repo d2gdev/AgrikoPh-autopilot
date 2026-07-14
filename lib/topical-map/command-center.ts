@@ -1,4 +1,5 @@
 import { normalizeGovernedUrl } from "./url-normalizer";
+import { normalizeTopicalMapPriority } from "./priority";
 
 export const ALL_TOPICAL_MAP_DOMAINS = ["clusters", "page_roles", "url_intent_ownership", "content_decisions", "prohibited_content", "internal_links", "redirects", "canonicalization", "indexation", "evidence_gates", "high_stakes_reviews"] as const;
 export type TopicalMapDomain = typeof ALL_TOPICAL_MAP_DOMAINS[number];
@@ -11,7 +12,7 @@ export type InputSourceReference = { coverageUnitId?: unknown; artifactId?: unkn
 export type ProjectionRule = { ruleId: string; ruleType: string; payload: unknown; sourceArtifactId: string; sourceReferences: InputSourceReference[] };
 export type ProjectionInput = { strategy: { id: string; strategyVersion: string; contractRevision: string; packageSha256: string; activatedAt: Date | string | null }; rules: ProjectionRule[] };
 type RuleEvidence = { ruleIds: string[] };
-export type CommandCenterPage = RuleEvidence & { url: string; ruleDomains: Partial<Record<"page_roles" | "url_intent_ownership" | "content_decisions", string[]>>; cluster?: string; role?: string; dominantIntent?: string; primaryKeywordOrTheme?: string; exclusiveIntentScope?: string; decision?: string; exactTargetIfAny?: string; priority?: string; evidence?: string };
+export type CommandCenterPage = RuleEvidence & { url: string; ruleDomains: Partial<Record<"page_roles" | "url_intent_ownership" | "content_decisions", string[]>>; title?: string; cluster?: string; role?: string; dominantIntent?: string; primaryKeywordOrTheme?: string; exclusiveIntentScope?: string; decision?: string; exactTargetIfAny?: string; priority?: string; evidence?: string };
 export type TopicalMapCommandCenter = {
   identity: { versionId: string; strategyVersion: string; contractRevision: string; packageSha256: string; activatedAt: string | null };
   domainCounts: DomainCounts;
@@ -33,7 +34,7 @@ function assertDomain(value: string): TopicalMapDomain { if (!domainSet.has(valu
 function object(value: unknown): Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function text(payload: Record<string, unknown>, key: string): string | undefined { return typeof payload[key] === "string" && payload[key] !== "" ? payload[key] as string : undefined; }
 function url(value: string | undefined): string { if (!value) return ""; const normalized = normalizeGovernedUrl(value); if (normalized.startsWith("/")) return normalized; const parsed = new URL(normalized); return `${parsed.pathname}${parsed.search}${parsed.hash}`; }
-function priority(value?: string): number { const ranks: Record<string, number> = { critical: 0, highest: 0, high: 1, medium: 2, low: 3 }; return ranks[value?.toLowerCase() ?? ""] ?? 4; }
+function priority(value?: string): number { return { high: 1, medium: 2, low: 3, unspecified: 4 }[normalizeTopicalMapPriority(value)]; }
 function ordered<T extends { ruleIds: string[]; priority?: string }>(values: T[], key: (v: T) => string): T[] { return values.sort((a, b) => priority(a.priority) - priority(b.priority) || key(a).localeCompare(key(b)) || a.ruleIds.join().localeCompare(b.ruleIds.join())); }
 function projectedReference(value: InputSourceReference): SourceReference {
   if (typeof value.coverageUnitId !== "string" || typeof value.artifactId !== "string") throw new Error("INVALID_SOURCE_REFERENCE");
@@ -53,7 +54,7 @@ export function projectTopicalMapCommandCenter(input: ProjectionInput): TopicalM
   const rules = (domain: TopicalMapDomain) => (byDomain.get(domain) ?? []).slice().sort((a, b) => a.ruleId.localeCompare(b.ruleId));
   const clusters = rules("clusters").map((r) => { const p = object(r.payload); return { name: text(p, "cluster") ?? "", memberUrls: Array.isArray(p.memberUrls) ? p.memberUrls.filter((v): v is string => typeof v === "string").map((v) => url(v)).sort() : [], ruleIds: [r.ruleId] }; }).sort((a, b) => a.name.localeCompare(b.name));
   const pageMap = new Map<string, CommandCenterPage>();
-  for (const domain of ["page_roles", "url_intent_ownership", "content_decisions"] as const) for (const r of rules(domain)) { const p = object(r.payload); const normalized = url(text(p, "currentUrl")); if (!normalized) continue; const page = pageMap.get(normalized) ?? { url: normalized, ruleIds: [], ruleDomains: {} }; page.ruleIds.push(r.ruleId); page.ruleDomains[domain] = [...(page.ruleDomains[domain] ?? []), r.ruleId]; for (const key of ["cluster", "role", "dominantIntent", "primaryKeywordOrTheme", "exclusiveIntentScope", "decision", "exactTargetIfAny", "priority", "evidence"] as const) { const value = text(p, key); if (value !== undefined) page[key] = value; } pageMap.set(normalized, page); }
+  for (const domain of ["page_roles", "url_intent_ownership", "content_decisions"] as const) for (const r of rules(domain)) { const p = object(r.payload); const normalized = url(text(p, "currentUrl")); if (!normalized) continue; const page = pageMap.get(normalized) ?? { url: normalized, ruleIds: [], ruleDomains: {} }; page.ruleIds.push(r.ruleId); page.ruleDomains[domain] = [...(page.ruleDomains[domain] ?? []), r.ruleId]; for (const key of ["title", "cluster", "role", "dominantIntent", "primaryKeywordOrTheme", "exclusiveIntentScope", "decision", "exactTargetIfAny", "priority", "evidence"] as const) { const value = text(p, key); if (value !== undefined) page[key] = value; } pageMap.set(normalized, page); }
   const pages = ordered([...pageMap.values()].map((p) => ({ ...p, ruleIds: p.ruleIds.sort(), ruleDomains: Object.fromEntries(Object.entries(p.ruleDomains).map(([domain, ids]) => [domain, ids.sort()])) })), (p) => p.url);
   const prohibited = ordered(rules("prohibited_content").map((r) => { const p = object(r.payload); return { url: url(text(p, "currentUrl")), item: text(p, "exactTargetIfAny") ?? text(p, "decision") ?? "", priority: text(p, "priority"), evidence: text(p, "evidence"), ruleIds: [r.ruleId] }; }), (v) => v.url);
   const internalLinks = ordered(rules("internal_links").map((r) => { const p = object(r.payload); return { fromUrl: url(text(p, "fromUrl")), toUrl: url(text(p, "toUrl")), currentBodyState: text(p, "currentBodyState"), requiredAction: text(p, "requiredAction"), recommendedAnchor: text(p, "recommendedAnchor"), linkPurpose: text(p, "linkPurpose"), priority: text(p, "priority"), verification: text(p, "verification"), ruleIds: [r.ruleId] }; }), (v) => `${v.fromUrl}\0${v.toUrl}`);

@@ -128,12 +128,21 @@ describe("topical-map command center", () => {
   it("keeps governed actions capable and technical execution truthful", () => {
     expect(gaps).toContain("Select for proposal");
     expect(work).toContain("Select for proposal");
-    expect(work).toContain("Create-only Store Task");
+    expect(work).toContain("Managed in Store Pilot");
+    expect(work).toContain("Store Pilot observation determines");
+    expect(work).not.toContain("map.work.redirects.filter(row => visible");
     expect(work).toContain("Live execution prohibited");
     expect(work).toContain("canonical live execution is prohibited");
     expect(work).toContain("indexation live execution is prohibited");
     expect(work).toContain("conflicting source redirects remain advisory");
     expect(work).not.toContain("Execution blocked");
+  });
+
+  it("uses accurate gate and review terminology", () => {
+    expect(overview).toContain("evidence gates");
+    expect(overview).toContain("high-stakes review requirements");
+    expect(overview).not.toContain("evidence blockers");
+    expect(overview).not.toContain("review blockers");
   });
 
   it("separates raw observations and renders five distinct unavailable states", () => {
