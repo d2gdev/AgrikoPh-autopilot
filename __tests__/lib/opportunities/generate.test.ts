@@ -202,7 +202,7 @@ describe("upsertOpportunities", () => {
 });
 
 describe("generateContentOpportunities", () => {
-  it("does not upsert content opportunities blocked by existing active proposals", async () => {
+  it("does not turn a third-party keyword gap into Content Pilot work", async () => {
     mockPrisma.marketInsight.findMany.mockResolvedValue([
       {
         id: "market-gap-1",
@@ -213,24 +213,13 @@ describe("generateContentOpportunities", () => {
           competitorPosition: 3,
           searchVolume: 1200,
         },
-        createdAt: new Date("2026-07-01T00:00:00.000Z"),
+        createdAt: new Date(),
       },
     ]);
-    mockPrisma.contentProposal.findMany.mockResolvedValue([
-      {
-        articleHandle: null,
-        proposalType: "new-content",
-        title: "Existing black rice proposal",
-        proposedState: { targetKeyword: "black rice benefits" },
-      },
-    ]);
-
     const result = await generateContentOpportunities(mockPrisma as any);
 
     expect(result).toEqual({ generated: 0, upserted: 0 });
-    expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { status: { in: expect.arrayContaining(["pending", "approved", "override_approved", "published"]) } },
-    }));
+    expect(mockPrisma.contentProposal.findMany).not.toHaveBeenCalled();
     expect(mockPrisma.opportunity.upsert).not.toHaveBeenCalled();
   });
 });

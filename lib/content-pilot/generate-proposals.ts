@@ -502,8 +502,10 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
   const articlesByHandle = new Map(articles.map((article) => [article.handle, article]));
   const queryLandingMap = buildQueryLandingMap(queryPagePairs, new Set(articlesByHandle.keys()));
 
-  const competitorProposals = competitorFindings(competitorInsight);
-  const keywordGapProposals = keywordGapFindings(keywordGapInsights);
+  // Ad tests and third-party keyword gaps remain Market Intelligence evidence
+  // until an operator maps them to an exact governed content target.
+  const competitorProposals: ProposalInput[] = [];
+  const keywordGapProposals: ProposalInput[] = [];
 
   if (
     articles.length === 0 &&
@@ -671,7 +673,7 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
   }
 
   for (const q of gscQueries) {
-    if (q.position <= 20 || q.impressions < 5) continue;
+    if (q.position <= 20 || q.impressions < 50 || queryLandingMap.has(q.query)) continue;
     const words = q.query.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
     // "covered" requires majority overlap — a single shared word (e.g. "rice") is not enough.
     // Require that ≥50% of the query's meaningful words appear in the same article title,

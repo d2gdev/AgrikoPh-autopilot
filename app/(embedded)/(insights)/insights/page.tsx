@@ -13,7 +13,7 @@ import { ListSkeleton } from "@/components/ui/states";
 interface PilotCard {
   name: string;
   path: string;
-  status: "active" | "planned";
+  status: "active" | "planned" | "degraded";
   metrics: { label: string; value: string }[];
   loading: boolean;
 }
@@ -38,6 +38,7 @@ export default function InsightsPilotPage() {
 
   const [storeMetrics, setStoreMetrics] = useState<{ label: string; value: string }[]>(() => getCache<{ label: string; value: string }[]>("/api/images:insights-metrics") ?? []);
   const [storeLoading, setStoreLoading] = useState(() => !getCache("/api/images:insights-metrics"));
+  const [socialStatus, setSocialStatus] = useState<"active" | "degraded">("active");
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -96,6 +97,10 @@ export default function InsightsPilotPage() {
       })
       .catch(fail)
       .finally(() => setStoreLoading(false));
+
+    authFetch("/api/social-pilot")
+      .then((r) => setSocialStatus(r.ok ? "active" : "degraded"))
+      .catch(() => setSocialStatus("degraded"));
   }, [authFetch]);
 
   useEffect(() => { loadAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -132,7 +137,7 @@ export default function InsightsPilotPage() {
     {
       name: "Social Pilot",
       path: "/social-pilot",
-      status: "active",
+      status: socialStatus,
       metrics: [],
       loading: false,
     },
@@ -203,8 +208,8 @@ export default function InsightsPilotPage() {
                     <BlockStack gap="300">
                       <InlineStack align="space-between" blockAlign="start">
                         <Text variant="headingMd" as="h3">{pilot.name}</Text>
-                        <Badge tone={pilot.status === "active" ? "success" : "info"}>
-                          {pilot.status === "active" ? "Live" : "Planned"}
+                        <Badge tone={pilot.status === "active" ? "success" : pilot.status === "degraded" ? "critical" : "info"}>
+                          {pilot.status === "active" ? "Live" : pilot.status === "degraded" ? "Action needed" : "Planned"}
                         </Badge>
                       </InlineStack>
 
@@ -221,6 +226,8 @@ export default function InsightsPilotPage() {
                         </InlineStack>
                       ) : pilot.status === "planned" ? (
                         <Text as="p" tone="subdued">Coming soon</Text>
+                      ) : pilot.status === "degraded" ? (
+                        <Text as="p" tone="critical">Connection needs attention</Text>
                       ) : null}
 
                       {pilot.status === "active" && (

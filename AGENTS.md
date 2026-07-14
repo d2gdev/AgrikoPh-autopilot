@@ -15,6 +15,7 @@ A private Shopify embedded app that pulls ad, SEO, blog, and market-intelligence
 - Every embedded app API route must call `await requireAppAuth(req)` as the first statement; every cron route must call `requireCronAuth(req)` (sync) then `acquireJobLock`
 - `AUTOPILOT_API_KEY` is server-side only — never prefix with `NEXT_PUBLIC_`
 - `pause_ad` is NOT in `CONVERSION_SENSITIVE_ACTIONS` in `lib/guardrails.ts` — it must always be executable (do not add it to that set)
+- Never report an audit as `clean`, `fixed`, or `complete` without inspecting the authenticated UI, tracing every displayed finding to its API and persisted record, and recording the evidence. Any displayed item not individually reviewed remains an open audit item. Do not modify, commit, or deploy audit fixes until the operator approves the issue list.
 
 ## Commands
 - Dev: `npm run dev`

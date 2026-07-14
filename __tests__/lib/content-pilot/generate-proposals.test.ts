@@ -329,7 +329,7 @@ describe("generateProposals", () => {
     });
   });
 
-  it("seeds counter-angle new-content proposals from the latest competitor-analysis insight", async () => {
+  it("does not turn competitor ad tests into publishable SEO article proposals", async () => {
     mockPrisma.skillInsight.findFirst.mockResolvedValue({
       id: "insight-1",
       items: [
@@ -347,18 +347,7 @@ describe("generateProposals", () => {
     });
 
     const result = await generateProposals(mockPrisma as any);
-    const competitorProposals = result.filter((p) => p.title.startsWith("Counter-angle:"));
-
-    expect(competitorProposals).toHaveLength(2);
-    for (const p of competitorProposals) {
-      expect(p.proposalType).toBe("new-content");
-      expect(p.changeType).toBe("new_article");
-      expect(p.articleHandle).toBeNull();
-      expect(p.proposedState.competitor).toBe("RiceCo");
-      expect(p.description).toContain("RiceCo");
-    }
-    const targetKeywords = competitorProposals.map((p) => p.proposedState.targetKeyword);
-    expect(new Set(targetKeywords).size).toBe(2);
+    expect(result.some((p) => p.title.startsWith("Counter-angle:"))).toBe(false);
   });
 
   it("produces zero competitor proposals when no competitor-analysis insight exists, without affecting other findings", async () => {
@@ -381,7 +370,48 @@ describe("generateProposals", () => {
     expect(result.some((p) => p.proposalType === "seo-fix")).toBe(true);
   });
 
-  it("seeds new-content proposals from open keyword_gap MarketInsights", async () => {
+  it("does not create a new article proposal when the query already has a known landing article", async () => {
+    const window = {
+      dateRangeStart: new Date("2026-05-27T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-24T00:00:00.000Z"),
+      capturedAt: new Date("2026-06-24T12:00:00.000Z"),
+    };
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      {
+        handle: "turmeric-dosage-safety",
+        title: "Turmeric Dosage and Safety",
+        publishedAt: new Date("2026-01-01"), wordCount: 1200, inboundCount: 2, internalLinkCount: 2,
+        seoData: { score: 88, issues: [] }, topicsData: [],
+      },
+    ]);
+    mockPrisma.gscQuery.findFirst.mockResolvedValue(window);
+    mockPrisma.gscQuery.findMany.mockResolvedValue([
+      { query: "dose curcumin", page: "https://agrikoph.com/blogs/news/turmeric-dosage-safety", clicks: 0, impressions: 100, position: 38, ctr: 0 },
+    ]);
+
+    const result = await generateProposals(mockPrisma as any);
+
+    expect(result.some((p) => p.title.includes("dose curcumin"))).toBe(false);
+  });
+
+  it("does not promote low-evidence queries into article work", async () => {
+    const window = {
+      dateRangeStart: new Date("2026-05-27T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-24T00:00:00.000Z"),
+      capturedAt: new Date("2026-06-24T12:00:00.000Z"),
+    };
+    mockPrisma.articleRecord.findMany.mockResolvedValue([]);
+    mockPrisma.gscQuery.findFirst.mockResolvedValue(window);
+    mockPrisma.gscQuery.findMany.mockResolvedValue([
+      { query: "unrelated low volume phrase", page: "https://agrikoph.com/collections/shop-all", clicks: 0, impressions: 22, position: 34, ctr: 0 },
+    ]);
+
+    const result = await generateProposals(mockPrisma as any);
+
+    expect(result).toEqual([]);
+  });
+
+  it("keeps open keyword-gap MarketInsights out of the publishable content queue", async () => {
     mockPrisma.marketInsight.findMany.mockResolvedValue([
       {
         id: "mi-1",
@@ -410,31 +440,7 @@ describe("generateProposals", () => {
     const result = await generateProposals(mockPrisma as any);
     const gapProposals = result.filter((p) => p.title.startsWith("Keyword gap:"));
 
-    expect(gapProposals).toHaveLength(2);
-    for (const p of gapProposals) {
-      expect(p.proposalType).toBe("new-content");
-      expect(p.changeType).toBe("new_article");
-      expect(p.articleHandle).toBeNull();
-      expect(typeof p.proposedState.targetKeyword).toBe("string");
-      expect(p.proposedState.targetKeyword).toBeTruthy();
-    }
-
-    const targetKeywords = gapProposals.map((p) => p.proposedState.targetKeyword);
-    expect(new Set(targetKeywords).size).toBe(2);
-
-    const highVolume = gapProposals.find((p) => p.proposedState.targetKeyword === "organic black rice benefits");
-    const lowVolume = gapProposals.find((p) => p.proposedState.targetKeyword === "turmeric tea for inflammation");
-    expect(highVolume?.priorityScore).toBeGreaterThan(lowVolume?.priorityScore ?? 0);
-    expect(highVolume?.priority).toMatch(/^P[0-3]$/);
-    expect(lowVolume?.priority).toMatch(/^P[0-3]$/);
-
-    const sourceData = highVolume?.sourceData as Record<string, unknown>;
-    expect(sourceData.marketInsightId).toBe("mi-1");
-    expect(sourceData.competitorId).toBe("comp-1");
-    expect(sourceData.organicPriority).toMatchObject({
-      score: highVolume?.priorityScore,
-      priority: highVolume?.priority,
-    });
+    expect(gapProposals).toEqual([]);
   });
 
   it("produces zero keyword-gap proposals when no open insights exist, without affecting other findings", async () => {
@@ -457,7 +463,7 @@ describe("generateProposals", () => {
     expect(result.some((p) => p.proposalType === "seo-fix")).toBe(true);
   });
 
-  it("skips malformed keyword_gap evidence without throwing", async () => {
+  it("does not expose malformed or ungoverned keyword-gap evidence as content work", async () => {
     mockPrisma.marketInsight.findMany.mockResolvedValue([
       { id: "mi-bad-1", competitorId: "comp-1", evidence: { competitorDomain: "riceco.com", competitorPosition: 3, searchVolume: 1500 } }, // missing keyword
       { id: "mi-bad-2", competitorId: "comp-1", evidence: { keyword: 42, competitorDomain: "riceco.com", competitorPosition: 3, searchVolume: 1500 } }, // wrong type keyword
@@ -473,7 +479,6 @@ describe("generateProposals", () => {
 
     const result = await generateProposals(mockPrisma as any);
     const gapProposals = result.filter((p) => p.title.startsWith("Keyword gap:"));
-    expect(gapProposals).toHaveLength(1);
-    expect(gapProposals[0]?.proposedState.targetKeyword).toBe("good keyword");
+    expect(gapProposals).toEqual([]);
   });
 });

@@ -125,6 +125,20 @@ describe("market-intelligence GET route", () => {
     expect(mockPrisma.marketInsight.findMany).toHaveBeenCalledTimes(1);
   });
 
+  it("paginates the insight feed instead of silently hiding the backlog", async () => {
+    mockPrisma.marketInsight.count.mockResolvedValue(120);
+
+    const res = await GET(new Request("http://test.local/api/market-intelligence?refresh=1&insightsPage=2"));
+    const payload = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.marketInsight.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      skip: 60,
+      take: 60,
+    }));
+    expect(payload.insightsPageInfo).toEqual({ page: 2, pageSize: 60, total: 120, hasMore: false });
+  });
+
   it("rejects forced refreshes before starting database aggregation when rate limited", async () => {
     mockCheckRateLimit.mockReturnValueOnce(false);
 

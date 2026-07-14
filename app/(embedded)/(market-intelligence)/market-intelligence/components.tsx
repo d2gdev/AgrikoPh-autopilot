@@ -215,6 +215,8 @@ export function InsightGroupCard({
   typeLabel,
   severity,
   insights,
+  onResolve,
+  resolvingId,
 }: {
   label: string;
   typeLabel: string;

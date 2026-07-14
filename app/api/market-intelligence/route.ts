@@ -11,13 +11,17 @@ import { smoothedMedian } from "@/lib/market-intel/price-signal";
 type MarketIntelligencePayload = Record<string, unknown>;
 
 const MARKET_INTELLIGENCE_CACHE_TTL_MS = 60_000;
+const INSIGHTS_PAGE_SIZE = 60;
 
 let marketIntelligenceCache: { expiresAt: number; payload: MarketIntelligencePayload } | null = null;
 let marketIntelligenceInFlight: Promise<MarketIntelligencePayload> | null = null;
 let marketIntelligenceRefreshInFlight: Promise<MarketIntelligencePayload> | null = null;
 let marketIntelligenceCacheVersion = 0;
 
-async function loadMarketIntelligencePayload(forceRefresh: boolean): Promise<MarketIntelligencePayload> {
+async function loadMarketIntelligencePayload(forceRefresh: boolean, insightsPage = 1): Promise<MarketIntelligencePayload> {
+  // The cached dashboard payload is page-one only. Other pages must be read
+  // independently so an operator can reach the whole persisted backlog.
+  if (insightsPage !== 1) return buildMarketIntelligencePayload(insightsPage);
   const now = Date.now();
   if (!forceRefresh && marketIntelligenceCache && marketIntelligenceCache.expiresAt > now) {
     return marketIntelligenceCache.payload;
@@ -26,7 +30,7 @@ async function loadMarketIntelligencePayload(forceRefresh: boolean): Promise<Mar
   if (!forceRefresh && marketIntelligenceInFlight) return marketIntelligenceInFlight;
 
   const cacheVersion = ++marketIntelligenceCacheVersion;
-  const request = buildMarketIntelligencePayload().then((payload) => {
+  const request = buildMarketIntelligencePayload(insightsPage).then((payload) => {
     const cachedPayload = {
       ...payload,
       cachedAt: new Date().toISOString(),
@@ -90,7 +94,7 @@ async function fetchRecentAdsPerCompetitor() {
   return perCompetitor.flat().sort((a, b) => b.capturedAt.getTime() - a.capturedAt.getTime());
 }
 
-async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePayload> {
+async function buildMarketIntelligencePayload(insightsPage = 1): Promise<MarketIntelligencePayload> {
   const [
     insights,
     shoppingResults,
@@ -105,7 +109,8 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
   ] = await Promise.all([
     prisma.marketInsight.findMany({
       orderBy: { createdAt: "desc" },
-      take: 60,
+      skip: (insightsPage - 1) * INSIGHTS_PAGE_SIZE,
+      take: INSIGHTS_PAGE_SIZE,
       select: {
         id: true,
         createdAt: true,
@@ -184,7 +189,6 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
   // underlying ad is spam (keyword-search captures content-farm story ads).
   const cleanInsights = insights
     .filter((i) => !(i.ad && isSpamStoryAd(i.ad)))
-    .slice(0, 25)
     .map((item) => {
       const insight = { ...item };
       Reflect.deleteProperty(insight, "ad");
@@ -225,6 +229,12 @@ async function buildMarketIntelligencePayload(): Promise<MarketIntelligencePaylo
 
   return {
     insights: cleanInsights,
+    insightsPageInfo: {
+      page: insightsPage,
+      pageSize: INSIGHTS_PAGE_SIZE,
+      total: openInsights,
+      hasMore: insightsPage * INSIGHTS_PAGE_SIZE < openInsights,
+    },
     shoppingResults: shoppingResultsWithSmoothed,
     competitorAds: cleanCompetitorAds,
     // BigInt columns (bid micros) cannot be serialized by JSON.stringify — cast to string.
@@ -250,14 +260,19 @@ export async function GET(req: Request) {
   if (authError) return authError;
 
   try {
-    const forceRefresh = new URL(req.url).searchParams.get("refresh") === "1";
+    const params = new URL(req.url).searchParams;
+    const forceRefresh = params.get("refresh") === "1";
+    const insightsPage = Number(params.get("insightsPage") ?? "1");
+    if (!Number.isInteger(insightsPage) || insightsPage < 1) {
+      return NextResponse.json({ error: "Invalid insights page" }, { status: 400 });
+    }
     if (forceRefresh) {
       const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
       if (!checkRateLimit(`market-intelligence-refresh:${actor}`, 10, 60_000)) {
         return NextResponse.json({ error: "Rate limit exceeded — max 10 refreshes per minute" }, { status: 429 });
       }
     }
-    return NextResponse.json(await loadMarketIntelligencePayload(forceRefresh));
+    return NextResponse.json(await loadMarketIntelligencePayload(forceRefresh, insightsPage));
   } catch (error) {
     // Always return a JSON body so the client surfaces the real cause instead of
     // failing on an empty-body 500 ("Unexpected end of JSON input").

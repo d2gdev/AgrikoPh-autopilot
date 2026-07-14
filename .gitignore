@@ -30,6 +30,7 @@ repomix-plans.xml
 .codesight/
 .seo-cache/
 .surface-fix/
+.surface-ui-loop/
 .codex-agent-loop/
 .worktrees/
 

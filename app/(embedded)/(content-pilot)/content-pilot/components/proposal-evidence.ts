@@ -27,6 +27,7 @@ export function proposalEvidenceLines(proposal: Pick<ContentProposal, "sourceDat
   const sourceData = asRecord(proposal.sourceData);
   const proposedState = asRecord(proposal.proposedState);
   const organicPriority = asRecord(sourceData.organicPriority);
+  const strategyCompliance = asRecord(sourceData.strategyCompliance);
   const evidence = asRecord(sourceData.evidence);
   const observation = asRecord(sourceData.observation);
 
@@ -100,6 +101,9 @@ export function proposalEvidenceLines(proposal: Pick<ContentProposal, "sourceDat
 
   const position = firstNumber(sourceData.position, evidence.position);
   if (position !== null) lines.push(`Avg position: ${position.toFixed(1)}`);
+
+  const governance = firstString(strategyCompliance.result);
+  if (governance) lines.push(`Governance: ${prettyLabel(governance)}`);
 
   const issue = firstString(sourceData.issue, proposedState.issue, evidence.issue);
   if (issue) lines.push(`Issue: ${prettyLabel(issue)}`);

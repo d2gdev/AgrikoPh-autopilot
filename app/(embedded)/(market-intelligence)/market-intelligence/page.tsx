@@ -68,6 +68,7 @@ interface KeywordResearchResult {
 
 interface MarketData {
   insights: MarketInsight[];
+  insightsPageInfo?: { page: number; pageSize: number; total: number; hasMore: boolean };
   shoppingResults: ShoppingResult[];
   competitorAds: CompetitorAd[];
   keywordResearch: KeywordResearchResult[];
@@ -218,6 +219,7 @@ export default function MarketIntelligencePage() {
   const [pageId, setPageId] = useState("");
 
   const [selectedTab, setSelectedTab] = useState(0);
+  const [insightsPage, setInsightsPage] = useState(1);
 
   const [filterDays, setFilterDays] = useState("30");
   const [filterKeyword, setFilterKeyword] = useState("");
@@ -229,15 +231,18 @@ export default function MarketIntelligencePage() {
   const [ourProducts, setOurProducts] = useState<OurProduct[]>(() => getCache<OurProduct[]>("/api/market-intelligence/our-products") ?? []);
   const [ourProductsLoading, setOurProductsLoading] = useState(() => !getCache("/api/market-intelligence/our-products"));
 
-  const load = useCallback(async (forceRefresh = false) => {
+  const load = useCallback(async (forceRefresh = false, page = insightsPage) => {
     const requestId = ++loadRequestIdRef.current;
+    setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(forceRefresh ? `${MARKET_INTELLIGENCE_CACHE_KEY}?refresh=1` : MARKET_INTELLIGENCE_CACHE_KEY);
+      const params = new URLSearchParams({ insightsPage: String(page) });
+      if (forceRefresh) params.set("refresh", "1");
+      const res = await authFetch(`${MARKET_INTELLIGENCE_CACHE_KEY}?${params.toString()}`);
       const payload = await readJson(res, "Market Intelligence request failed");
       if (!res.ok) throw new Error((payload.error as string) ?? "Market Intelligence request failed");
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) return;
-      setCache(MARKET_INTELLIGENCE_CACHE_KEY, payload);
+      if (page === 1) setCache(MARKET_INTELLIGENCE_CACHE_KEY, payload);
       setData(payload as unknown as MarketData);
     } catch (err) {
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) return;
@@ -245,7 +250,7 @@ export default function MarketIntelligencePage() {
     } finally {
       if (isMountedRef.current && requestId === loadRequestIdRef.current) setLoading(false);
     }
-  }, [authFetch]);
+  }, [authFetch, insightsPage]);
 
   useEffect(() => {
     load();
@@ -705,6 +710,25 @@ export default function MarketIntelligencePage() {
                         <InsightCard key={item.id} insight={item.insight} onResolve={resolveInsight} resolving={resolvingInsightId === item.insight.id} />
                       ))}
                     </BlockStack>
+                  )}
+                  {!loading && data?.insightsPageInfo && data.insightsPageInfo.total > data.insightsPageInfo.pageSize && (
+                    <InlineStack align="space-between" blockAlign="center">
+                      <Button
+                        disabled={data.insightsPageInfo.page === 1}
+                        onClick={() => setInsightsPage((page) => Math.max(1, page - 1))}
+                      >
+                        Previous page
+                      </Button>
+                      <Text as="p" tone="subdued">
+                        Page {data.insightsPageInfo.page} · {data.insightsPageInfo.total} open insights
+                      </Text>
+                      <Button
+                        disabled={!data.insightsPageInfo.hasMore}
+                        onClick={() => setInsightsPage((page) => page + 1)}
+                      >
+                        Next page
+                      </Button>
+                    </InlineStack>
                   )}
                 </BlockStack>
               )}

@@ -34,7 +34,16 @@ export async function GET(req: Request) {
     posts.sort((a, b) => (b.likes + b.comments + b.shares) - (a.likes + a.comments + a.shares));
 
     return NextResponse.json({ posts, pages, activePage: { id: pageId, name: pageName } });
-  } catch {
-    return NextResponse.json({ error: "Internal server error", posts: [], pages: [] }, { status: 500 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/\"code\"\s*:\s*(190|463)|\bcode\s+(190|463)\b/.test(message)) {
+      return NextResponse.json({
+        error: "Meta access token expired",
+        code: "META_TOKEN_EXPIRED",
+        posts: [],
+        pages: [],
+      }, { status: 424 });
+    }
+    return NextResponse.json({ error: "Social data could not be loaded", code: "META_FETCH_FAILED", posts: [], pages: [] }, { status: 502 });
   }
 }

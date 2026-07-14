@@ -39,6 +39,7 @@ describe("pilot usability helper regressions", () => {
         impressions: 1200,
         position: 8.25,
         organicPriority: { score: 87.4 },
+        strategyCompliance: { result: "compliant" },
       },
     })).toEqual([
       "Source: seo pilot",
@@ -46,6 +47,7 @@ describe("pilot usability helper regressions", () => {
       "Score: 87",
       "Impressions: 1,200",
       "Avg position: 8.3",
+      "Governance: compliant",
       "Article: black-rice",
     ]);
   });
@@ -138,5 +140,14 @@ describe("pilot usability helper regressions", () => {
   it("keeps a direct next step for overview content findings", () => {
     const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/OverviewTab.tsx", "utf8");
     expect(source).toContain("Create brief");
+  });
+
+  it("marks suspicious persisted image alt text for review before claiming it is optimized", () => {
+    const source = readFileSync("app/(embedded)/(store-pilot)/images/page.tsx", "utf8");
+
+    expect(source).toContain("needsAltReview");
+    expect(source).toContain("Needs review");
+    expect(source).toContain("Regenerate");
+    expect(source).toContain('label: "Needs review"');
   });
 });

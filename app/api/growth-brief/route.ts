@@ -114,6 +114,17 @@ function evidenceMeta(input: {
   ].filter(Boolean) as string[];
 }
 
+function contentProposalNeedsEvidenceReview(proposal: {
+  proposalType: string;
+  sourceData: unknown;
+}): boolean {
+  if (proposal.proposalType !== "new-content") return false;
+  const sourceData = asRecord(proposal.sourceData);
+  const impressions = numberValue(sourceData.impressions);
+  if (impressions != null && impressions < 50) return true;
+  return typeof sourceData.insightId === "string" || typeof sourceData.marketInsightId === "string";
+}
+
 function compareBriefItems(a: BriefItem, b: BriefItem): number {
   return priorityRank(a.sortPriority ?? a.priority) - priorityRank(b.sortPriority ?? b.priority)
     || (b.sortScore ?? 0) - (a.sortScore ?? 0);
@@ -350,6 +361,23 @@ async function buildGrowthBrief() {
           ? organicPriority.priority
           : null;
       const proposalScore = numberValue(organicPriority.score);
+      if (contentProposalNeedsEvidenceReview(proposal)) {
+        needsAttention.push(asItem({
+          id: `content-review:${proposal.id}`,
+          title: `Verify content proposal evidence — ${proposal.title}`,
+          description: "This proposal is not backed by sufficient first-party GSC evidence and cannot be approved from Growth Brief.",
+          source: "Content Pilot",
+          priority: "P2",
+          tone: "warning",
+          href: "/content-pilot",
+          meta: evidenceMeta({
+            score: proposalScore,
+            extra: [proposal.proposalType, "evidence review required"],
+          }),
+          sortScore: proposalScore,
+        }));
+        continue;
+      }
       readyToApprove.push(asItem({
         id: `content:${proposal.id}`,
         title: proposal.title,

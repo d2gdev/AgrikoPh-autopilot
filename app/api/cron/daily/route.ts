@@ -142,7 +142,7 @@ export async function GET(req: Request) {
                     title: p.title,
                     description: p.description,
                     proposedState: p.proposedState as object,
-                    sourceData: p.sourceData as object })));
+                    sourceData: p.sourceData as object })), [], { governed: true });
             results.generateProposals = { created: replacement.created, total: proposals.length };
           } else {
             results.generateProposals = { created: 0, total: proposals.length };

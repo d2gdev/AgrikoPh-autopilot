@@ -34,6 +34,7 @@ export default function SocialPilotPage() {
   const [loading, setLoading] = useState(() => !getCache("/api/social-pilot:posts"));
   const [error, setError] = useState<string | null>(null);
   const [notConfigured, setNotConfigured] = useState(false);
+  const [expiredToken, setExpiredToken] = useState(false);
   const [analysis, setAnalysis] = useState<{
     summary?: string;
     bestContentType?: string;
@@ -49,7 +50,9 @@ export default function SocialPilotPage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.error) {
-          if (d.code === "META_NOT_CONFIGURED" || d.error.includes("META_ACCESS_TOKEN")) {
+          if (d.code === "META_TOKEN_EXPIRED") {
+            setExpiredToken(true);
+          } else if (d.code === "META_NOT_CONFIGURED" || d.error.includes("META_ACCESS_TOKEN")) {
             setNotConfigured(true);
           } else {
             setError(d.error);
@@ -110,18 +113,19 @@ export default function SocialPilotPage() {
     ];
   });
 
-  if (!loading && notConfigured) {
+  if (!loading && (notConfigured || expiredToken)) {
     return (
       <Page title="Social Pilot" subtitle="Organic social performance">
         <Layout>
           <Layout.Section>
             <CalloutCard
-              title="Connect Meta (Facebook)"
+              title={expiredToken ? "Meta access token expired" : "Connect Meta (Facebook)"}
               illustration="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
               primaryAction={{ content: "Meta App Settings", url: "https://developers.facebook.com/apps", external: true }}
             >
               <Text as="p">
-                Add your Meta User Access Token as <strong>META_ACCESS_TOKEN</strong> in the server environment.
+                {expiredToken ? "Update META_ACCESS_TOKEN in Settings or the server environment, then reload this page. " : "Add your Meta User Access Token as "}
+                {!expiredToken && <strong>META_ACCESS_TOKEN</strong>}
                 The token needs <strong>pages_show_list</strong> and <strong>pages_read_engagement</strong> permissions.
                 Optionally set <strong>META_PAGE_ID</strong> to pin a specific Facebook Page.
               </Text>

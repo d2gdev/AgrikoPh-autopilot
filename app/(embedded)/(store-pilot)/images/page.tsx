@@ -39,6 +39,7 @@ interface PageData {
 const FILTERS = [
   { id: "all", label: "All" },
   { id: "missing", label: "Missing" },
+  { id: "review", label: "Needs review" },
   { id: "suggested", label: "Suggested" },
   { id: "set", label: "Set" },
 ] as const;
@@ -46,6 +47,11 @@ const FILTERS = [
 type FilterId = (typeof FILTERS)[number]["id"];
 
 const IMAGES_CACHE_KEY = "/api/images";
+
+function needsAltReview(altText: string | null): boolean {
+  const value = altText?.trim().toLowerCase() ?? "";
+  return /\.(?:avif|gif|jpe?g|png|webp)$/.test(value) || /\bsigned\s+[\p{L}]/u.test(value);
+}
 
 export default function ImagesPage() {
   const authFetch = useAuthFetch();
@@ -145,14 +151,16 @@ export default function ImagesPage() {
   const filterCounts: Record<FilterId, number> = {
     all: allImages.length,
     missing: allImages.filter((i) => !i.altText && !suggestions[i.imageId]).length,
+    review: allImages.filter((i) => !!i.altText && needsAltReview(i.altText) && !suggestions[i.imageId]).length,
     suggested: allImages.filter((i) => !!suggestions[i.imageId]).length,
-    set: allImages.filter((i) => !!i.altText).length,
+    set: allImages.filter((i) => !!i.altText && !needsAltReview(i.altText)).length,
   };
   const query = searchQuery.trim().toLowerCase();
   const filteredImages = allImages.filter((img) => {
     if (filter === "missing" && (img.altText || suggestions[img.imageId])) return false;
+    if (filter === "review" && (!img.altText || !needsAltReview(img.altText) || suggestions[img.imageId])) return false;
     if (filter === "suggested" && !suggestions[img.imageId]) return false;
-    if (filter === "set" && !img.altText) return false;
+    if (filter === "set" && (!img.altText || needsAltReview(img.altText))) return false;
     return !query || img.productTitle.toLowerCase().includes(query);
   });
 
@@ -160,6 +168,7 @@ export default function ImagesPage() {
     const suggestion = suggestions[img.imageId];
     const isGenerating = generating.has(img.imageId);
     const hasError = errors[img.imageId];
+    const requiresReview = needsAltReview(img.altText);
 
     const altTextCell = hasError ? (
       <Badge tone="critical">{hasError}</Badge>
@@ -167,7 +176,7 @@ export default function ImagesPage() {
       <Text as="span" variant="bodySm">{suggestion}</Text>
     ) : img.altText ? (
       <InlineStack gap="200" align="start">
-        <Badge tone="success">Set</Badge>
+        <Badge tone={requiresReview ? "warning" : "success"}>{requiresReview ? "Needs review" : "Set"}</Badge>
         <Text as="span" variant="bodySm" tone="subdued">{img.altText}</Text>
       </InlineStack>
     ) : (
@@ -186,7 +195,13 @@ export default function ImagesPage() {
         </Button>
       </InlineStack>
     ) : img.altText && !hasError ? (
+      requiresReview ? (
+        <Button size="slim" onClick={() => generate(img)} loading={isGenerating}>
+          Regenerate
+        </Button>
+      ) : (
       <></>
+      )
     ) : (
       <Button size="slim" onClick={() => generate(img)} loading={isGenerating}>
         {hasError ? "Retry" : "Generate"}

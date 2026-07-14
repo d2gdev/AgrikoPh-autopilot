@@ -77,7 +77,7 @@ export async function POST(req: Request) {
             title: p.title,
             description: p.description,
             proposedState: p.proposedState as object,
-            sourceData: p.sourceData as object })), toDelete.map((p) => p.id));
+            sourceData: p.sourceData as object })), toDelete.map((p) => p.id), { governed: true });
     return NextResponse.json({
       created: replacement.created,
       proposals: replacement.proposals,

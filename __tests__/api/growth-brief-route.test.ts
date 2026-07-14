@@ -371,6 +371,54 @@ describe("growth-brief route", () => {
     ]);
   });
 
+  it("keeps low-evidence and competitor-angle content proposals out of Ready to Approve", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValue([
+      {
+        id: "low-gsc-gap",
+        title: 'New article opportunity — "five impressions"',
+        description: "Low evidence proposal",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { query: "five impressions", impressions: 5 },
+      },
+      {
+        id: "competitor-angle",
+        title: "Counter-angle: unverified ad idea",
+        description: "Competitor-derived proposal",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { insightId: "competitor-insight" },
+      },
+      {
+        id: "gsc-backed",
+        title: 'New article opportunity — "organic rice philippines"',
+        description: "Sufficient first-party evidence",
+        priority: "P2",
+        proposalType: "new-content",
+        changeType: "new_article",
+        articleHandle: null,
+        sourceData: { query: "organic rice philippines", impressions: 120 },
+      },
+    ]);
+
+    const { GET } = await import("@/app/api/growth-brief/route");
+
+    const body = await (await GET(request())).json();
+
+    expect(body.sections.readyToApprove.map((item: { id: string }) => item.id)).toEqual(["content:gsc-backed"]);
+    expect(body.sections.needsAttention.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining([
+      "content-review:low-gsc-gap",
+      "content-review:competitor-angle",
+    ]));
+    expect(body.sections.needsAttention.map((item: { description: string }) => item.description)).toEqual(expect.arrayContaining([
+      expect.stringMatching(/cannot be approved/i),
+    ]));
+  });
+
   it("sorts operator queues by priority rank then score evidence and surfaces source diagnostics", async () => {
     mockPrisma.contentProposal.findMany.mockResolvedValue([
       {

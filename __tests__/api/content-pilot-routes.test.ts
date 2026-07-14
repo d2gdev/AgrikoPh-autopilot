@@ -252,7 +252,7 @@ describe("Content Pilot route regressions", () => {
     expect(body.stageCounts).toMatchObject({ ready: 2, scheduled: 3 });
   });
 
-  it("only upserts opportunities for proposals that survive active duplicate filtering", async () => {
+  it("does not create an ungoverned proposal from the generation endpoint", async () => {
     const duplicate = proposal("Keyword gap: black rice benefits", "black rice benefits");
     const fresh = proposal("Keyword gap: moringa tea", "moringa tea");
     mockGenerateProposals.mockResolvedValue([duplicate, fresh]);
@@ -273,23 +273,12 @@ describe("Content Pilot route regressions", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual(expect.objectContaining({ created: 1, opportunities: 1 }));
-    expect(mockPrisma.contentProposal.create).toHaveBeenCalledTimes(1);
-    expect(mockPrisma.contentProposal.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        title: "Keyword gap: moringa tea",
-        proposedState: { targetKeyword: "moringa tea" },
-      }),
-    });
-    expect(mockOpportunityFromProposal).toHaveBeenCalledTimes(1);
-    expect(mockOpportunityFromProposal.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
-      title: fresh.title,
-      proposedState: fresh.proposedState,
-    }));
-    expect(mockOpportunityFromProposal.mock.calls.map((call) => call[0])).toHaveLength(1);
+    expect(body).toEqual(expect.objectContaining({ created: 0, opportunities: 0 }));
+    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+    expect(mockOpportunityFromProposal).not.toHaveBeenCalled();
   });
 
-  it("keeps distinct handle-less new-content proposals in the same generation batch", async () => {
+  it("does not create handle-less generated content without an exact governed target", async () => {
     const blackRice = proposal("Keyword gap: black rice benefits", "black rice benefits");
     const moringa = proposal("Keyword gap: moringa tea", "moringa tea");
     mockGenerateProposals.mockResolvedValue([blackRice, moringa]);
@@ -303,9 +292,9 @@ describe("Content Pilot route regressions", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual(expect.objectContaining({ created: 2, opportunities: 2 }));
-    expect(mockPrisma.contentProposal.create).toHaveBeenCalledTimes(2);
-    expect(mockOpportunityFromProposal.mock.calls.map((call) => call[0].title)).toEqual([blackRice.title, moringa.title]);
+    expect(body).toEqual(expect.objectContaining({ created: 0, opportunities: 0 }));
+    expect(mockPrisma.contentProposal.create).not.toHaveBeenCalled();
+    expect(mockOpportunityFromProposal).not.toHaveBeenCalled();
   });
 
   it("does not recreate rejected proposals as fresh pending ideas", async () => {

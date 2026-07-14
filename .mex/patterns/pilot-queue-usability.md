@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-13T22:11:00+08:00
+last_updated: 2026-07-15T01:22:00+08:00
 ---
 
 # Pilot Queue Usability
@@ -26,7 +26,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 1. Preserve terminal history rows; do not delete rejected/published/executed/dismissed rows just to make a queue look clean.
 2. Confirm list APIs return the lightweight evidence fields the UI needs. For Content Pilot this includes `ContentProposal.sourceData`; keep full draft HTML out of list responses.
 3. Add a visible "why shown" or reason summary before the primary action buttons.
-4. Filter AI-generated strategy bullets before display. Keep only items grounded in real articles, GSC queries, or current issue counts, and render per-item evidence beside every visible quick win/recommendation.
+4. Filter AI-generated strategy bullets before display. Keep only items grounded in real articles, GSC queries, or current issue counts, and render per-item evidence beside every visible quick win/recommendation. A low-impression GSC new-content gap or competitor/market angle without first-party GSC backing is evidence review, never “Ready to Approve.”
 5. Empty states must distinguish:
    - truly no rows,
    - current filters/search hiding rows,
