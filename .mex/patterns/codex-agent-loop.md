@@ -1,7 +1,7 @@
 ---
 name: codex-agent-loop
 description: Run, inspect, resume, and approve a finite local Codex implementation-plan loop without broadening authority.
-last_updated: 2026-07-12
+last_updated: 2026-07-14
 ---
 
 # Codex Agent Loop
@@ -25,6 +25,24 @@ Use this procedure only for an already approved Markdown implementation plan who
    ```
 
 Private prompts, reports, decisions, stderr, state, and `events.jsonl` are stored under the returned evidence directory. Do not publish those artifacts: they may contain source or prompt material.
+
+## Surface integrity profile
+
+Use the fixed local-only surface audit when reviewing Campaigns, SEO Pilot,
+Store Pilot, Content Pilot, Social Pilot, Market Intelligence, Growth Brief,
+and Unified Report. It uses the versioned prompt and portable current-workspace
+profile; do not supply a replacement prompt.
+
+```bash
+npm run codex:surface-loop -- start
+npm run codex:surface-loop -- status <run-id>
+npm run codex:surface-loop -- resume <run-id> [--answer-file /absolute/path/to/answer.md]
+```
+
+The controller records every pass and exits only after five consecutive clean
+passes. A defect resets the counter even when it is repaired in the same pass.
+The profile remains local-only: protected actions pause for explicit operator
+authority, and all run evidence remains private under `.codex-agent-loop/runs/`.
 
 ## Resume
 

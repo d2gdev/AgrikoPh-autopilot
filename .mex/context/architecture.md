@@ -74,7 +74,7 @@ External services accessed via HTTP/REST. Connectors live in `lib/connectors/`.
 
 ## Local Development Controller Boundary
 
-`scripts/codex-agent-loop.mjs` is a local, file-backed development orchestrator, not part of the Next.js application or production job pipeline. In plan mode it runs one workspace-writing executor and one read-only planner sequentially, persists private evidence under `.codex-agent-loop/runs/`, and may roll over only through a configured finite number of iteration windows.
+`scripts/codex-agent-loop.mjs` is a local, file-backed development orchestrator, not part of the Next.js application or production job pipeline. In plan mode it runs one workspace-writing executor and one read-only planner sequentially, persists private evidence under `.codex-agent-loop/runs/`, and may roll over only through a configured finite number of iteration windows. Its `requiredCleanPasses` profile option requires a structured audit-pass ledger and rejects completion before the configured number of consecutive clean passes; `scripts/codex-surface-loop.mjs` uses that boundary with a fixed requirement of five.
 
 An approved plan authorizes bounded local implementation, verification, documentation, and commits only. Plan text never grants production access, deployment, live Shopify or Meta writes, production database changes, credential or permission changes, destructive actions, scope expansion, strategy activation, or material operator judgment. Those boundaries still produce `awaiting_user`; neither resume nor automatic window rollover weakens the configured Codex sandboxes.
 

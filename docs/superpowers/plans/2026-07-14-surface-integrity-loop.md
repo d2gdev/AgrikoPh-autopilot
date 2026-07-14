@@ -250,11 +250,11 @@ npm run typecheck
 npm run typecheck:test
 npm run lint
 node -e 'for (const p of ["config/codex-agent-loop/execution-report.schema.json", "config/codex-surface-loop.json"]) JSON.parse(require("fs").readFileSync(p, "utf8"));'
-! rg -n "dangerously-bypass-approvals-and-sandbox|dangerously-bypass" scripts/codex-agent-loop.mjs scripts/codex-surface-loop.mjs config/codex-surface-loop.json
+test "$(rg -n "dangerously-bypass-approvals-and-sandbox|dangerously-bypass" scripts/codex-agent-loop.mjs scripts/codex-surface-loop.mjs config/codex-surface-loop.json | wc -l)" -eq 1
 git diff --check
 ```
 
-Expected: focused tests and both type checks pass; lint has zero errors; both JSON files parse; the dangerous-bypass search returns success with no matches; diff check produces no output. Report unchanged lint warnings by exact count if any remain.
+Expected: focused tests and both type checks pass; lint has zero errors; both JSON files parse; the only dangerous-bypass match is the existing controller guard that rejects such arguments; diff check produces no output. Report unchanged lint warnings by exact count if any remain.
 
 - [ ] **Step 3: Review scope and commit**
 
