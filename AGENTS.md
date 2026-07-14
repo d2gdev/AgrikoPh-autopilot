@@ -1,7 +1,7 @@
 ---
 name: agents
 description: Always-loaded project anchor. Read this first. Contains project identity, non-negotiables, commands, and pointer to ROUTER.md for full context.
-last_updated: 2026-07-11
+last_updated: 2026-07-14
 ---
 
 # Agriko Autopilot
@@ -26,6 +26,12 @@ A private Shopify embedded app that pulls ad, SEO, blog, and market-intelligence
 - Lint: `npm run lint`
 - Data health: `npm run data:audit`
 - Prod server: `ssh autopilot-prod` → app at `/opt/autopilot`
+
+## Planning Default
+- Use the project-local `lean-planning` skill whenever implementation planning is appropriate.
+- Run its four-question gate before choosing plan depth. Use `superpowers:writing-plans` only when two or more answers are yes or the user explicitly requests a comprehensive plan.
+- Do not create permanent plan or design documents for routine or moderate work unless the user asks for them.
+- For the next 10 tasks that use a plan, append one row to `docs/planning-metrics.csv`; keep measurement under 30 seconds and review the threshold after row 10.
 
 ## After Every Task
 After meaningful work, run GROW:

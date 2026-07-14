@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lean Planning"
+  short_description: "Choose proportional planning depth for Agriko work"
+  default_prompt: "Evaluate the task quickly, then create the smallest plan that safely supports implementation."
