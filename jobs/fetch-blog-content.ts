@@ -10,7 +10,6 @@ import {
   type ArticleSnapshotState,
 } from "@/lib/content-pilot/article-snapshots";
 import {
-  articleBlogHandleFromSeoData,
   replaceInternalLinkEdgesForSource,
   sourceUrlForArticle,
 } from "@/lib/content-pilot/internal-link-edges";
@@ -26,22 +25,31 @@ export function computeContentHash(bodyHtml: string): string {
 export function computeInboundCounts(
   linksMap: Record<string, LinksAnalysis>
 ): Record<string, number> {
+  const exact = computeInboundCountsByArticlePath(linksMap);
+  const counts: Record<string, number> = {};
+  for (const [path, count] of Object.entries(exact)) {
+    const handle = path.split("/").filter(Boolean)[2];
+    if (handle) counts[handle] = (counts[handle] ?? 0) + count;
+  }
+  return counts;
+}
+
+export function computeInboundCountsByArticlePath(linksMap: Record<string, LinksAnalysis>): Record<string, number> {
   const counts: Record<string, number> = {};
 
   for (const links of Object.values(linksMap)) {
     for (const link of links.internal) {
-      let handle: string;
+      let path: string;
       try {
         const segments = new URL(link.href, "https://agrikoph.com").pathname
           .split("/")
           .filter(Boolean);
-        // Must be /blogs/<blog-name>/<handle> — ignore product, page, collection links
-        handle = segments[0] === "blogs" && segments.length === 3 ? segments[2]! : ""; // safe: length === 3 guarantees index 2 exists
+        path = segments[0] === "blogs" && segments.length === 3 ? `/blogs/${segments[1]}/${segments[2]}` : "";
       } catch {
-        handle = "";
+        path = "";
       }
-      if (!handle) continue;
-      counts[handle] = (counts[handle] ?? 0) + 1;
+      if (!path) continue;
+      counts[path] = (counts[path] ?? 0) + 1;
     }
   }
 
@@ -100,7 +108,7 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
     lap("fetchShopify");
     const linksMap: Record<string, LinksAnalysis> = {};
     const pendingSnapshots: ArticleSnapshotState[] = [];
-    const seoDataByHandle = new Map<string, unknown>();
+    const pendingSnapshotPaths = new Map<string, string>();
 
     const handles = articles.map((a: { handle: string }) => a.handle);
     const shopifyIds = articles.map((a: { id: string }) => a.id);
@@ -114,6 +122,7 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
       select: {
         id: true,
         shopifyId: true,
+        blogHandle: true,
         handle: true,
         title: true,
         contentHash: true,
@@ -128,7 +137,9 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
         topicsData: true,
       },
     });
-    const existingMap = new Map(existingRecords.map((r) => [r.handle, r]));
+    const articleKey = (blogHandle: string, handle: string) => `${blogHandle}\u0000${handle}`;
+    const articlePath = (blogHandle: string, handle: string) => sourceUrlForArticle(handle, blogHandle);
+    const existingMap = new Map(existingRecords.map((r) => [articleKey(r.blogHandle, r.handle), r]));
     const existingByShopifyId = new Map(existingRecords.map((r) => [r.shopifyId, r]));
     lap("loadExisting");
 
@@ -136,7 +147,7 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
       try {
         const contentHash = computeContentHash(article.bodyHtml);
 
-        const existingByHandle = existingMap.get(article.handle) ?? null;
+        const existingByHandle = existingMap.get(articleKey(article.blogHandle, article.handle)) ?? null;
         const existingByShopify = existingByShopifyId.get(article.id) ?? null;
         if (existingByHandle && existingByShopify && existingByHandle.id !== existingByShopify.id) {
           errors.push(
@@ -148,11 +159,11 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
 
         const existing = existingByShopify ?? existingByHandle;
 
-        if (existing?.contentHash === contentHash && existing.handle === article.handle) {
+        if (existing?.contentHash === contentHash && existing.handle === article.handle && existing.blogHandle === article.blogHandle) {
           if (existing.linksData) {
-            linksMap[article.handle] = existing.linksData as unknown as LinksAnalysis;
+            linksMap[articleKey(article.blogHandle, article.handle)] = existing.linksData as unknown as LinksAnalysis;
           }
-          seoDataByHandle.set(article.handle, existing.seoData);
+          pendingSnapshotPaths.set(existing.id, articlePath(article.blogHandle, article.handle));
           pendingSnapshots.push({
             articleRecordId: existing.id,
             shopifyId: existing.shopifyId,
@@ -184,8 +195,7 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
         const linksData = analyzeLinks(parsed);
         const topicsData = analyzeTopics(article.title, parsed.textContent, article.tags);
 
-        linksMap[article.handle] = linksData;
-        seoDataByHandle.set(article.handle, seoData);
+        linksMap[articleKey(article.blogHandle, article.handle)] = linksData;
 
         const scalars = {
           author: article.authorName ?? null,
@@ -197,6 +207,7 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
 
         const articleData = {
           shopifyId: article.id,
+          blogHandle: article.blogHandle,
           handle: article.handle,
           title: article.title,
           publishedAt: article.publishedAt ? new Date(article.publishedAt) : null,
@@ -232,14 +243,15 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
           topicsData,
           ...scalars,
         });
+        pendingSnapshotPaths.set(saved.id, articlePath(article.blogHandle, article.handle));
 
         indexed++;
       } catch (err) {
         errors.push(`${article.handle}: ${String(err)}`);
         // Preserve existing link data so this article's outbound links still count toward inbound totals
-        const existing = existingMap.get(article.handle) ?? existingByShopifyId.get(article.id) ?? null;
+        const existing = existingMap.get(articleKey(article.blogHandle, article.handle)) ?? existingByShopifyId.get(article.id) ?? null;
         if (existing?.linksData) {
-          linksMap[article.handle] = existing.linksData as unknown as LinksAnalysis;
+          linksMap[articleKey(article.blogHandle, article.handle)] = existing.linksData as unknown as LinksAnalysis;
         }
       }
     }
@@ -247,15 +259,16 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
     lap("indexLoop");
 
     // Phase 2: compute and patch inbound counts
-    const inboundCounts = computeInboundCounts(linksMap);
+    const inboundCounts = computeInboundCountsByArticlePath(linksMap);
 
     // Zero-fill EVERY current article handle first, then overlay the computed
     // counts. Without this, an article whose inbound links dropped to zero this
     // run (and which is therefore absent from the computed counts) would retain
     // its stale non-zero inboundCount instead of being decremented to 0.
-    for (const handle of handles) {
-      if (!(handle in inboundCounts)) {
-        inboundCounts[handle] = 0;
+    for (const article of articles) {
+      const path = articlePath(article.blogHandle, article.handle);
+      if (!(path in inboundCounts)) {
+        inboundCounts[path] = 0;
       }
     }
 
@@ -264,12 +277,15 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
     if (inboundHandles.length > 0) {
       try {
         await prisma.$transaction(
-          inboundHandles.map((handle) =>
+          inboundHandles.map((path) => {
+            const segments = path.split("/").filter(Boolean);
+            return (
             prisma.articleRecord.updateMany({
-              where: { handle },
-              data: { inboundCount: inboundCounts[handle] ?? 0 },
+              where: { blogHandle: segments[1]!, handle: segments[2]! },
+              data: { inboundCount: inboundCounts[path] ?? 0 },
             })
-          )
+            );
+          })
         );
       } catch (err) {
         errors.push(`inbound-count-batch: ${String(err)}`);
@@ -277,13 +293,14 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
     }
     lap("inboundUpdate");
 
-    for (const [handle, linksData] of Object.entries(linksMap)) {
+    for (const [key, linksData] of Object.entries(linksMap)) {
+      const [blogHandle, handle] = key.split("\u0000");
       try {
         linkEdgesWritten += await replaceInternalLinkEdgesForSource(prisma, {
           jobRunId: runId,
           sourceType: "article",
-          sourceHandle: handle,
-          sourceUrl: sourceUrlForArticle(handle, articleBlogHandleFromSeoData(seoDataByHandle.get(handle))),
+          sourceHandle: handle!,
+          sourceUrl: sourceUrlForArticle(handle!, blogHandle),
           linksData,
         });
       } catch (err) {
@@ -298,7 +315,6 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
           prisma.articleRecord.deleteMany({
             where: {
               AND: [
-                { handle: { notIn: handles } },
                 { shopifyId: { notIn: shopifyIds } },
               ],
             },
@@ -306,7 +322,7 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
           prisma.internalLinkEdge.deleteMany({
             where: {
               sourceType: "article",
-              sourceHandle: { notIn: handles },
+              sourceUrl: { notIn: articles.map(article => articlePath(article.blogHandle, article.handle)) },
             },
           }),
         ]);
@@ -322,7 +338,7 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
       try {
         const created = await maybeCreateArticleSnapshot(prisma, {
           ...snapshot,
-          inboundCount: inboundCounts[snapshot.handle] ?? snapshot.inboundCount,
+          inboundCount: inboundCounts[snapshot.articleRecordId ? pendingSnapshotPaths.get(snapshot.articleRecordId) ?? "" : ""] ?? snapshot.inboundCount ?? 0,
         });
         if (created) snapshotsCreated++;
       } catch (err) {

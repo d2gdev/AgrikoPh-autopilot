@@ -8,6 +8,20 @@ import {
 } from "@/lib/content-pilot/proposal-dedupe";
 
 describe("content proposal dedupe", () => {
+  it("keeps identical handles in different blogs distinct, including link destinations", () => {
+    const news = contentProposalDedupeKey({ articleHandle: "shared", proposalType: "content-refresh", title: "Refresh", proposedState: { targetUrl: "/blogs/news/shared" } });
+    const recipes = contentProposalDedupeKey({ articleHandle: "shared", proposalType: "content-refresh", title: "Refresh", proposedState: { targetUrl: "/blogs/recipes/shared" } });
+    const newsLink = contentProposalDedupeKey({ articleHandle: "source", proposalType: "internal-link", title: "Link", proposedState: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/shared", toArticle: "shared" } });
+    const recipeLink = contentProposalDedupeKey({ articleHandle: "source", proposalType: "internal-link", title: "Link", proposedState: { fromUrl: "/blogs/news/source", toUrl: "/blogs/recipes/shared", toArticle: "shared" } });
+    expect(news).not.toBe(recipes);
+    expect(newsLink).not.toBe(recipeLink);
+  });
+
+  it("keeps same-keyword new content in different blogs distinct", () => {
+    const news = contentProposalDedupeKey({ articleHandle: null, proposalType: "new-content", title: "Guide", proposedState: { targetKeyword: "shared", targetUrl: "/blogs/news/shared" } });
+    const recipes = contentProposalDedupeKey({ articleHandle: null, proposalType: "new-content", title: "Guide", proposedState: { targetKeyword: "shared", targetUrl: "/blogs/recipes/shared" } });
+    expect(news).not.toBe(recipes);
+  });
   it("uses target keyword/title for handle-less new-content proposals", () => {
     const a = contentProposalDedupeKey({
       articleHandle: null,

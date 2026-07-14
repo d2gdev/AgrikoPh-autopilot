@@ -6,6 +6,7 @@ import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "
 import { prisma } from "@/lib/db";
 import { createGovernedContentProposal } from "@/lib/topical-map/compliance-store";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
 const PromoteBodySchema = z.object({
   handle: z.string().trim().min(1).max(180),
@@ -32,9 +33,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "handle, title, and issue are required" }, { status: 400 });
   }
   const { handle, issue, targetUrl, highStakesTopics } = parsed.data;
+  const targetMatch = /^\/blogs\/([^/]+)\/([^/]+)$/.exec(normalizeGovernedUrl(targetUrl));
+  if (!targetMatch || targetMatch[2] !== handle) return NextResponse.json({ error: "Exact blog article target is required" }, { status: 400 });
 
   const article = await prisma.articleRecord.findUnique({
-    where: { handle },
+    where: { blogHandle_handle: { blogHandle: targetMatch[1]!, handle } },
     select: { handle: true, title: true, wordCount: true },
   });
   if (!article) {

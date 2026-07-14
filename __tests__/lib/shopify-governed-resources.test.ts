@@ -13,6 +13,8 @@ vi.mock("@/lib/shopify-admin", () => ({
 
 import {
   applyGovernedStoreResourceChange,
+  createGovernedRedirect,
+  fetchGovernedRedirects,
   fetchGovernedStoreResource,
   fetchGovernedStoreResources,
   resolveGovernedStoreUrl,
@@ -81,10 +83,22 @@ describe("fetchGovernedStoreResources", () => {
     mockShopifyFetch.mockResolvedValue({ products: page([{ node }]) });
     expect((await fetchGovernedStoreResource("https://agrikoph.com/products/pure-ginger"))?.stateHash).toBe(first?.stateHash);
   });
+
+  it("records capture time separately from Shopify resource updatedAt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-14T08:00:00.000Z"));
+    mockShopifyFetch.mockResolvedValue({ products: page([{ node: { id: "p1", handle: "pure-ginger", title: "Ginger", descriptionHtml: "", updatedAt: "2025-01-01T00:00:00.000Z", seo: {} } }]) });
+
+    const observed = await fetchGovernedStoreResource("/products/pure-ginger");
+
+    expect(observed?.capturedAt.toISOString()).toBe("2026-07-14T08:00:00.000Z");
+    expect(observed?.updatedAt.toISOString()).toBe("2025-01-01T00:00:00.000Z");
+    vi.useRealTimers();
+  });
 });
 
 describe("applyGovernedStoreResourceChange", () => {
-  const base = { id: "gid://shopify/Product/1", type: "product" as const, url: "/products/pure-ginger", handle: "pure-ginger", title: "Ginger", seoTitle: null, seoDescription: null, bodyHtml: "", updatedAt: new Date("2026-07-01T00:00:00Z"), stateHash: "a", internalTargets: [] };
+  const base = { id: "gid://shopify/Product/1", type: "product" as const, url: "/products/pure-ginger", handle: "pure-ginger", title: "Ginger", seoTitle: null, seoDescription: null, bodyHtml: "", capturedAt: new Date("2026-07-14T00:00:00Z"), updatedAt: new Date("2026-07-01T00:00:00Z"), stateHash: "a", internalTargets: [] };
 
   beforeEach(() => { mockUpdateProduct.mockReset(); mockUpdateCollection.mockReset(); mockUpdatePage.mockReset(); mockShopifyFetch.mockReset(); });
 
@@ -134,5 +148,30 @@ describe("applyGovernedStoreResourceChange", () => {
     mockUpdateProduct.mockResolvedValue({ id: base.id });
     mockShopifyFetch.mockResolvedValue({ products: page([]) });
     await expect(applyGovernedStoreResourceChange(base, { bodyHtml: "<p>Changed</p>" })).rejects.toThrow(/not return updated/i);
+  });
+});
+
+describe("governed redirects", () => {
+  beforeEach(() => mockShopifyFetch.mockReset());
+
+  it("paginates redirects and returns exact requested source observations", async () => {
+    mockShopifyFetch
+      .mockResolvedValueOnce({ urlRedirects: page([{ node: { id: "r1", path: "/old", target: "/products/rice" } }], true, "next") })
+      .mockResolvedValueOnce({ urlRedirects: page([{ node: { id: "r2", path: "/other", target: "/pages/about" } }]) });
+
+    const redirects = await fetchGovernedRedirects(["/old", "/missing"]);
+
+    expect(mockShopifyFetch.mock.calls.map((call) => call[1])).toEqual([{ after: null }, { after: "next" }]);
+    expect(redirects.get("/old")).toMatchObject({ id: "r1", source: "/old", target: "/products/rice" });
+    expect(redirects.has("/missing")).toBe(false);
+  });
+
+  it("creates only the exact redirect and rejects Shopify user errors", async () => {
+    mockShopifyFetch.mockResolvedValueOnce({ urlRedirectCreate: { urlRedirect: { id: "r1", path: "/old", target: "/products/rice" }, userErrors: [] } });
+    await expect(createGovernedRedirect("/old", "/products/rice")).resolves.toMatchObject({ id: "r1", source: "/old", target: "/products/rice" });
+    expect(mockShopifyFetch).toHaveBeenCalledWith(expect.stringContaining("urlRedirectCreate"), { urlRedirect: { path: "/old", target: "/products/rice" } });
+
+    mockShopifyFetch.mockResolvedValueOnce({ urlRedirectCreate: { urlRedirect: null, userErrors: [{ field: ["path"], message: "Path has already been taken" }] } });
+    await expect(createGovernedRedirect("/old", "/products/rice")).rejects.toThrow("Path has already been taken");
   });
 });

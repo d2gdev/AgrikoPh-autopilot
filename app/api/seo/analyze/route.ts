@@ -107,26 +107,32 @@ export async function POST(req: NextRequest) {
   const ARTICLE_LIMIT = 200;
   const commandCenter = await loadActiveTopicalMapCommandCenter(prisma);
   if (!commandCenter) return NextResponse.json({ error: "Active topical-map strategy is unavailable", code: "ACTIVE_STRATEGY_UNAVAILABLE" }, { status: 409 });
-  const governedPageHandles = [...new Set(commandCenter.pages.map(page => /^\/blogs\/[^/]+\/([^/]+)$/.exec(page.url)?.[1]).filter((value): value is string => Boolean(value)))];
-  const governedBlogHandles = [...new Set([...governedPageHandles, ...commandCenter.work.internalLinks.map(link => /^\/blogs\/[^/]+\/([^/]+)$/.exec(link.fromUrl)?.[1]).filter((value): value is string => Boolean(value))])];
+  const blogIdentity = (url: string) => {
+    const match = /^\/blogs\/([^/]+)\/([^/]+)$/.exec(normalizeGovernedUrl(url));
+    return match ? { blogHandle: match[1]!, handle: match[2]!, url: `/blogs/${match[1]}/${match[2]}` } : null;
+  };
+  const articleUrl = (article: { blogHandle?: string; handle: string }) => `/blogs/${article.blogHandle ?? "news"}/${article.handle}`;
+  const governedPageIdentities = commandCenter.pages.map(page => blogIdentity(page.url)).filter((value): value is NonNullable<typeof value> => value !== null);
+  const governedArticleIdentities = [...new Map([...governedPageIdentities, ...commandCenter.work.internalLinks.map(link => blogIdentity(link.fromUrl)).filter((value): value is NonNullable<typeof value> => value !== null)].map(identity => [identity.url, identity])).values()];
   const [gscData, articleCandidates, governedArticles] = await Promise.all([
     getLatestGscData(),
     prisma.articleRecord.findMany({
-      select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, updatedAt: true },
+      select: { blogHandle: true, handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, updatedAt: true },
       orderBy: [{ updatedAt: "desc" }, { handle: "asc" }],
       take: ARTICLE_LIMIT + 1,
     }),
-    prisma.articleRecord.findMany({ where: { handle: { in: governedBlogHandles } }, select: { handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, linksData: true, updatedAt: true } }),
+    prisma.articleRecord.findMany({ where: { OR: governedArticleIdentities.map(({ blogHandle, handle }) => ({ blogHandle, handle })) }, select: { blogHandle: true, handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, linksData: true, updatedAt: true } }),
   ]);
 
   const topQueries = gscData.queries.slice(0, 30);
   const articleRecords = articleCandidates.slice(0, ARTICLE_LIMIT);
-  const mapArticles = [...new Map([...governedArticles, ...articleRecords].map(article => [article.handle, article])).values()];
+  const mapArticles = [...new Map([...governedArticles, ...articleRecords].map(article => [articleUrl(article), article])).values()];
   const analysisAsOf = new Date();
-  const verifiedAbsentUrls = new Map(governedPageHandles.filter(handle => !governedArticles.some(article => article.handle === handle)).flatMap(handle => commandCenter.pages.filter(page => page.url.endsWith(`/${handle}`)).map(page => [page.url, analysisAsOf] as const)));
+  const verifiedAbsentUrls = new Map(governedPageIdentities.filter(identity => !governedArticles.some(article => articleUrl(article) === identity.url)).map(identity => [identity.url, analysisAsOf] as const));
   const linkInspections = new Map<string, { capturedAt: Date; targets: Set<string> }>();
   for (const article of governedArticles) {
-    const source = commandCenter.work.internalLinks.find(link => link.fromUrl.endsWith(`/${article.handle}`))?.fromUrl;
+    const sourceUrl = articleUrl(article);
+    const source = commandCenter.work.internalLinks.find(link => normalizeGovernedUrl(link.fromUrl) === sourceUrl)?.fromUrl;
     if (!source || !(article.updatedAt instanceof Date)) continue;
     const internal = article.linksData && typeof article.linksData === "object" && Array.isArray((article.linksData as { internal?: unknown }).internal) ? (article.linksData as { internal: Array<{ href?: unknown }> }).internal : [];
     linkInspections.set(source, { capturedAt: article.updatedAt, targets: new Set(internal.flatMap(link => typeof link.href === "string" ? [normalizeGovernedUrl(link.href)] : [])) });
@@ -188,9 +194,7 @@ export async function POST(req: NextRequest) {
     // those unsupported objects as missing evidence for the blog action set.
     const requiredStoreUrls = [...new Set(commandCenter.pages.map(page => page.url).filter(url => /^\/blogs\/[^/]+\/[^/]+$/.test(url)))];
     const storeObservations = requiredStoreUrls.flatMap(url => {
-      const match = /^\/blogs\/[^/]+\/([^/]+)$/.exec(url);
-      if (!match) return [];
-      const article = governedArticles.find(item => item.handle === match[1]);
+      const article = governedArticles.find(item => articleUrl(item) === url);
       const capturedAt = article?.updatedAt instanceof Date ? article.updatedAt : verifiedAbsentUrls.get(url);
       return capturedAt ? [capturedAt] : [];
     });

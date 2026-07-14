@@ -126,12 +126,13 @@ describe("topical-map command center", () => {
   });
 
   it("keeps governed actions capable and technical execution truthful", () => {
-    expect(gaps).toContain("Create proposal");
-    expect(work).toContain("Create link proposal");
+    expect(gaps).toContain("Select for proposal");
+    expect(work).toContain("Select for proposal");
+    expect(work).toContain("Create-only Store Task");
     expect(work).toContain("Live execution prohibited");
     expect(work).toContain("canonical live execution is prohibited");
     expect(work).toContain("indexation live execution is prohibited");
-    expect(work).toContain("Redirect proposal persistence is not supported by Content Pilot");
+    expect(work).toContain("conflicting source redirects remain advisory");
     expect(work).not.toContain("Execution blocked");
   });
 

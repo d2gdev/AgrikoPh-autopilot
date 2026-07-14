@@ -52,8 +52,17 @@ function normalizeKeyPart(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function exactBlogPath(value: unknown): string | null {
+  const candidate = text(value);
+  if (!candidate) return null;
+  const match = /^\/blogs\/([^/?#]+)\/([^/?#]+)\/?$/.exec(candidate);
+  return match ? `/blogs/${normalizeKeyPart(match[1]!)}/${normalizeKeyPart(match[2]!)}` : null;
+}
+
 function handlelessDiscriminator(input: ContentProposalDedupeInput): string {
   const proposedState = asRecord(input.proposedState);
+  const exactTarget = exactBlogPath(proposedState.targetUrl);
+  if (exactTarget) return exactTarget;
   return normalizeKeyPart(
     text(proposedState.targetKeyword) ??
       text(proposedState.targetQuery) ??
@@ -67,11 +76,13 @@ export function contentProposalDedupeKey(input: ContentProposalDedupeInput): str
   const proposalType = normalizeKeyPart(input.proposalType);
   const articleHandle = text(input.articleHandle);
   if (articleHandle) {
-    const base = `${proposalType}:article:${normalizeKeyPart(articleHandle)}`;
     const proposedState = asRecord(input.proposedState);
+    const exactSource = exactBlogPath(proposedState.fromUrl) ?? exactBlogPath(proposedState.targetUrl);
+    const base = exactSource ? `${proposalType}:article-url:${exactSource}` : `${proposalType}:article:${normalizeKeyPart(articleHandle)}`;
 
     if (proposalType === "internal-link") {
       const destination =
+        exactBlogPath(proposedState.toUrl) ??
         text(proposedState.toArticle) ??
         text(proposedState.targetArticle) ??
         text(proposedState.suggestedAnchorText) ??

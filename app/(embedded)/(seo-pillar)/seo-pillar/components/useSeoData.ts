@@ -39,7 +39,7 @@ export function resolveMapAnalysisState(input: { active: MapIdentity | null; env
     return { state: "stale", analysis: null };
   }
   if (!input.envelope.analysis) return { state: "empty", analysis: null, generatedAt: input.envelope.generatedAt };
-  return { state: "ready", analysis: input.envelope.analysis };
+  return { state: "ready", analysis: input.envelope.analysis, generatedAt: input.envelope.generatedAt };
 }
 
 export async function loadCommandCenterAndAnalysis(authFetch: AuthFetch): Promise<{ mapState: MapLoadState; mapAnalysisState: MapAnalysisState }> {

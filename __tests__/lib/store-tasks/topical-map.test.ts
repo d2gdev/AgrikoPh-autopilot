@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { load, fetchResources, chat } = vi.hoisted(() => ({ load: vi.fn(), fetchResources: vi.fn(), chat: vi.fn() }));
+const { load, fetchResources, fetchRedirects, chat } = vi.hoisted(() => ({ load: vi.fn(), fetchResources: vi.fn(), fetchRedirects: vi.fn(), chat: vi.fn() }));
 vi.mock("@/lib/topical-map/command-center", () => ({ loadActiveTopicalMapCommandCenter: load }));
-vi.mock("@/lib/shopify-governed-resources", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/shopify-governed-resources")>()), fetchGovernedStoreResources: fetchResources }));
+vi.mock("@/lib/shopify-governed-resources", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/shopify-governed-resources")>()), fetchGovernedStoreResources: fetchResources, fetchGovernedRedirects: fetchRedirects }));
 vi.mock("@/lib/ai/client", () => ({ chatCompletionWithFailover: chat }));
 
 import {
@@ -21,7 +21,7 @@ const advisoryIdentity = {
   strategyVersionId: "strategy-7",
   packageSha256: "A".repeat(64),
   targetUrl: "https://agrikoph.com/old/",
-  advisoryReason: "redirect_execution_unsupported",
+  advisoryReason: "redirect_conflict",
   ruleIds: ["r1", "r2"],
 };
 const advisorySource = (overrides: Record<string, unknown> = {}) => ({
@@ -41,7 +41,7 @@ const advisorySource = (overrides: Record<string, unknown> = {}) => ({
 const resource = (type: "product" | "collection" | "page", url: string, title: string) => ({
   id: `gid://${url}`, type, url, handle: url.split("/").at(-1), title,
   seoTitle: `Old ${title}`, seoDescription: `Old description for ${title}`,
-  bodyHtml: `<p>Existing ${title} body.</p>`, updatedAt: observedAt,
+  bodyHtml: `<p>Existing ${title} body.</p>`, updatedAt: observedAt, capturedAt: new Date("2026-07-14T00:00:00.000Z"),
   stateHash: "b".repeat(64), internalTargets: [] as string[],
 });
 const center = () => ({
@@ -109,6 +109,7 @@ beforeEach(() => {
     ["/collections/rice", resource("collection", "/collections/rice", "Rice")],
     ["/pages/our-farm", resource("page", "/pages/our-farm", "Our Farm")],
   ]));
+  fetchRedirects.mockResolvedValue(new Map([["/old", { id: "r-default", source: "/old", target: "/pages/conflict", capturedAt: new Date("2026-07-14T00:00:00Z"), stateHash: "d".repeat(64) }]]));
   chat.mockResolvedValue({ content: JSON.stringify({ drafts: [
     { url: "/products/black-rice", seoTitle: "Black Rice Philippines | Philippine Heirloom Rice", seoDescription: "Shop Agriko black rice from the Philippines, grounded in our Philippine heirloom rice collection." },
     { url: "/collections/rice", sectionText: "Explore Agriko's Philippine heirloom rice collection." },
@@ -270,6 +271,52 @@ describe("topical-map advisory identity", () => {
 });
 
 describe("syncTopicalMapStoreTasks", () => {
+  it("makes only an absent exact redirect executable", async () => {
+    fetchRedirects.mockResolvedValueOnce(new Map());
+    const db = client();
+    const result = await syncTopicalMapStoreTasks(db as any);
+    const redirect = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create).find((task: any) => task.proposedState.action === "redirect_create");
+    expect(redirect).toMatchObject({ targetType: "redirect", targetUrl: "/old", sourceData: { executable: true, action: "redirect_create", redirectTarget: "/products/black-rice" }, proposedState: { action: "redirect_create", before: { state: "absent" }, after: { target: "/products/black-rice" } } });
+    expect(result.executable).toBe(5);
+  });
+
+  it("treats a matching redirect as satisfied and a conflicting redirect as advisory", async () => {
+    fetchRedirects.mockResolvedValueOnce(new Map([["/old", { id: "r1", source: "/old", target: "/products/black-rice", capturedAt: new Date(), stateHash: "c".repeat(64) }]]));
+    const matching = client();
+    await expect(syncTopicalMapStoreTasks(matching as any)).resolves.toMatchObject({ unchanged: 1 });
+    expect(matching.storeTask.upsert.mock.calls.map((call: any) => call[0].create).some((task: any) => task.targetType === "redirect")).toBe(false);
+
+    fetchRedirects.mockResolvedValueOnce(new Map([["/old", { id: "r1", source: "/old", target: "/pages/wrong", capturedAt: new Date(), stateHash: "d".repeat(64) }]]));
+    const conflicting = client();
+    await syncTopicalMapStoreTasks(conflicting as any);
+    const redirect = conflicting.storeTask.upsert.mock.calls.map((call: any) => call[0].create).find((task: any) => task.targetType === "redirect");
+    expect(redirect.sourceData).toMatchObject({ executable: false, advisoryReason: "redirect_conflict" });
+    expect(redirect.proposedState).toEqual({ action: "advisory", advisory: "redirect_conflict" });
+  });
+
+  it("drafts every eligible resource in deterministic chunks of at most 25", async () => {
+    const pages = Array.from({ length: 26 }, (_, index) => ({
+      url: `/products/item-${String(index).padStart(2, "0")}`,
+      ruleIds: [`decision:${index}`],
+      ruleDomains: { content_decisions: [`decision:${index}`] },
+      primaryKeywordOrTheme: `item ${index} rice`,
+      decision: "Improve SEO metadata",
+      priority: "medium",
+    }));
+    load.mockResolvedValue({ ...center(), pages, work: { internalLinks: [], redirects: [], canonicalization: [], indexation: [] } });
+    fetchResources.mockResolvedValue(new Map(pages.map((page, index) => [page.url, resource("product", page.url, `Item ${index} Rice`)])));
+    chat.mockImplementation(async ({ messages }: any) => {
+      const request = JSON.parse(messages[1].content);
+      return { content: JSON.stringify({ drafts: request.draftsRequested.map((item: any) => ({ url: item.url, seoTitle: `${item.theme} | Agriko`, seoDescription: `Shop ${item.theme} from Agriko.` })) }) };
+    });
+
+    const result = await syncTopicalMapStoreTasks(client() as any);
+
+    expect(chat).toHaveBeenCalledTimes(2);
+    expect(chat.mock.calls.map((call: any) => JSON.parse(call[0].messages[1].content).draftsRequested.length)).toEqual([25, 1]);
+    expect(result.executable).toBe(26);
+  });
+
   it("groups internal links for one source into one deterministic section", async () => {
     const db = client();
     await syncTopicalMapStoreTasks(db as any);
@@ -353,7 +400,7 @@ describe("syncTopicalMapStoreTasks", () => {
     ]);
     expect(creates.some((task: any) => task.targetUrl === "/blogs/news/black-rice-guide")).toBe(false);
     expect(creates.filter((task: any) => !task.sourceData.executable).map((task: any) => task.sourceData.advisoryReason).sort()).toEqual([
-      "blog_index_not_governed", "canonicalization_execution_prohibited", "homepage_not_governed", "indexation_execution_prohibited", "redirect_execution_unsupported",
+      "blog_index_not_governed", "canonicalization_execution_prohibited", "homepage_not_governed", "indexation_execution_prohibited", "redirect_conflict",
     ]);
     expect(creates.filter((task: any) => !task.sourceData.executable).every((task: any) => !("after" in task.proposedState))).toBe(true);
   });
@@ -404,7 +451,7 @@ describe("syncTopicalMapStoreTasks", () => {
       strategyVersionId: "strategy-7",
       packageSha256: "a".repeat(64),
       targetUrl: "/old",
-      advisoryReason: "redirect_execution_unsupported",
+      advisoryReason: "redirect_conflict",
       ruleIds: ["redirect:1"],
     });
     const db = client({
@@ -442,7 +489,7 @@ describe("syncTopicalMapStoreTasks", () => {
     await syncTopicalMapStoreTasks(db as any);
     const tasks = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create);
     const link = tasks.find((task: any) => task.proposedState.action === "internal_link");
-    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:brown", "link:red", "link:z"], ruleDomains: ["internal_links"], sourceReferences: [{ kind: "rule", id: "link:a" }, { kind: "rule", id: "link:brown" }, { kind: "rule", id: "link:red" }, { kind: "rule", id: "link:z" }], generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", links: [{ toUrl: "/products/black-rice", anchor: "shop black rice" }, { toUrl: "/products/brown-rice", anchor: "shop brown rice" }, { toUrl: "/products/red-rice", anchor: "shop red rice" }], observedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
+    expect(link.sourceData).toEqual({ source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["link:a", "link:brown", "link:red", "link:z"], ruleDomains: ["internal_links"], sourceReferences: [{ kind: "rule", id: "link:a" }, { kind: "rule", id: "link:brown" }, { kind: "rule", id: "link:red" }, { kind: "rule", id: "link:z" }], generationProvenance: "deterministic", targetType: "collection", targetUrl: "/collections/rice", action: "internal_link", links: [{ toUrl: "/products/black-rice", anchor: "shop black rice" }, { toUrl: "/products/brown-rice", anchor: "shop brown rice" }, { toUrl: "/products/red-rice", anchor: "shop red rice" }], observedAt: "2026-07-14T00:00:00.000Z", resourceUpdatedAt: observedAt.toISOString(), observedStateHash: "b".repeat(64), executable: true });
     expect(link.proposedState).toEqual({ action: "internal_link", before: { bodyHtml: "<p>Existing Rice body.</p>" }, after: { bodyHtml: '<p>Existing Rice body.</p><section class="ag-related-recipes" aria-labelledby="ag-related-recipes-title"><h2 id="ag-related-recipes-title">Explore Related Resources</h2><ul><li><a href="/products/black-rice">shop black rice</a></li><li><a href="/products/brown-rice">shop brown rice</a></li><li><a href="/products/red-rice">shop red rice</a></li></ul></section>' } });
     expect(link.dedupeKey).toMatch(/^store-task:topical-map:[a-f0-9]{64}$/);
     expect(TopicalMapStoreTaskSourceSchema.parse(link.sourceData)).toEqual(link.sourceData);

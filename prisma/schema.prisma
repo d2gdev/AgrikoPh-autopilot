@@ -218,7 +218,8 @@ model GuardrailConfig {
 model ArticleRecord {
   id               String    @id @default(cuid())
   shopifyId        String    @unique
-  handle           String    @unique
+  blogHandle       String    @default("news")
+  handle           String
   title            String
   author           String?
   publishedAt      DateTime?
@@ -238,6 +239,7 @@ model ArticleRecord {
 
   @@index([contentHash])
   @@index([handle])
+  @@unique([blogHandle, handle])
   @@index([publishedAt])
   @@index([indexedAt])
   @@index([inboundCount])
