@@ -123,9 +123,12 @@ export default function AdApprovalsPage() {
 
   async function markAllRead() {
     try {
-      await authFetch(`/api/notifications`, { method: "PATCH", body: JSON.stringify({ all: true }) });
+      const response = await authFetch(`/api/notifications`, { method: "PATCH", body: JSON.stringify({ all: true }) });
+      if (!response.ok) throw new Error("Could not mark notifications as read.");
       setUnread([]);
-    } catch { /* non-fatal */ }
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not mark notifications as read.");
+    }
   }
 
   function bucket(tab: string): Approval[] {

@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, ProgressBar, DataTable, Tabs, Button, Banner, Toast, Select, TextField,
+  Page, Layout, Card, Text, Badge, InlineStack, BlockStack, ProgressBar, DataTable, Tabs, Button, Banner, Toast, Select, TextField, Modal,
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -119,6 +119,8 @@ export default function StorePilotReportPage() {
   const [tasksLoading, setTasksLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [taskError, setTaskError] = useState<string | null>(null);
+  const [completionTask, setCompletionTask] = useState<StoreTask | null>(null);
+  const [completionNote, setCompletionNote] = useState("");
   const [imageError, setImageError] = useState<string | null>(null);
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [syncingMap, setSyncingMap] = useState(false);
@@ -213,20 +215,22 @@ export default function StorePilotReportPage() {
     loadTasks();
   }, [loadTasks]);
 
-  async function updateTask(id: string, nextStatus: "completed" | "dismissed") {
-    if (!beginMutation()) return;
+  async function updateTask(id: string, nextStatus: "completed" | "dismissed", note?: string): Promise<boolean> {
+    if (!beginMutation()) return false;
     setUpdatingTaskId(id);
     setTaskError(null);
     try {
       const response = await authFetch("/api/store-tasks", {
         method: "PATCH",
-        body: JSON.stringify({ id, status: nextStatus }),
+        body: JSON.stringify({ id, status: nextStatus, completionNote: note }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Task update failed.");
       await loadTasks();
+      return true;
     } catch (err) {
       setTaskError(err instanceof Error ? err.message : "Task update failed.");
+      return false;
     } finally {
       setUpdatingTaskId(null);
       endMutation();
@@ -363,7 +367,7 @@ export default function StorePilotReportPage() {
       status === "pending" ? (
         <InlineStack key={`${task.id}-actions`} gap="200" wrap={false}>
           {executionClass === "actionable" && mapTask && executable ? <Button size="slim" onClick={() => selectMapTask(task)} disabled={mutationBusy}>Apply</Button> : null}
-          {executionClass === "actionable" && !mapTask ? <Button size="slim" onClick={() => updateTask(task.id, "completed")} loading={updatingTaskId === task.id} disabled={mutationBusy}>Complete</Button> : null}
+          {executionClass === "actionable" && !mapTask ? <Button size="slim" onClick={() => { setCompletionTask(task); setCompletionNote(""); }} disabled={mutationBusy}>Record completion</Button> : null}
           <Button size="slim" tone="critical" variant="plain" onClick={() => updateTask(task.id, "dismissed")} loading={updatingTaskId === task.id} disabled={mutationBusy}>Dismiss</Button>
         </InlineStack>
       ) : status === "failed" ? (
@@ -485,6 +489,31 @@ export default function StorePilotReportPage() {
         onApprove={applySelectedMapTask}
         onExecute={executeSelectedMapTask}
       />
+      <Modal
+        open={Boolean(completionTask)}
+        title="Record completed work"
+        onClose={() => { setCompletionTask(null); setCompletionNote(""); }}
+        primaryAction={{
+          content: "Record completion",
+          loading: Boolean(completionTask && updatingTaskId === completionTask.id),
+          disabled: !completionNote.trim() || mutationBusy,
+          onAction: async () => {
+            if (!completionTask) return;
+            if (await updateTask(completionTask.id, "completed", completionNote.trim())) {
+              setCompletionTask(null);
+              setCompletionNote("");
+            }
+          },
+        }}
+        secondaryActions={[{ content: "Cancel", onAction: () => { setCompletionTask(null); setCompletionNote(""); }, disabled: mutationBusy }]}
+      >
+        <Modal.Section>
+          <BlockStack gap="300">
+            <Text as="p">Record what was completed and where it was verified. This does not execute a Shopify change.</Text>
+            <TextField label="Completion evidence" value={completionNote} onChange={setCompletionNote} multiline={3} autoComplete="off" />
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
       {toastMessage ? <Toast content={toastMessage} onDismiss={() => setToastMessage(null)} /> : null}
     </Page>
   );

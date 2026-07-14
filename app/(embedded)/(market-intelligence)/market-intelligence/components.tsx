@@ -182,7 +182,7 @@ export function IntelHero({
 }
 
 /** One insight as a severity-toned card — the page's "what changed" headline unit. */
-export function InsightCard({ insight }: { insight: MarketInsight }) {
+export function InsightCard({ insight, onResolve, resolving }: { insight: MarketInsight; onResolve: (id: string) => void; resolving: boolean }) {
   const source = insight.competitor?.name ?? insight.keyword?.keyword ?? null;
   return (
     <Card>
@@ -198,6 +198,7 @@ export function InsightCard({ insight }: { insight: MarketInsight }) {
           <Text as="span" variant="bodySm" tone="subdued">· {relativeTime(insight.createdAt)}</Text>
           {insight.status && <Text as="span" variant="bodySm" tone="subdued">· {insight.status}</Text>}
         </InlineStack>
+        {insight.status === "open" ? <Button size="slim" onClick={() => onResolve(insight.id)} loading={resolving}>Resolve</Button> : null}
       </BlockStack>
     </Card>
   );
@@ -219,6 +220,8 @@ export function InsightGroupCard({
   typeLabel: string;
   severity: string;
   insights: MarketInsight[];
+  onResolve: (id: string) => void;
+  resolvingId: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const latest = insights.reduce<string | null>(
@@ -244,7 +247,10 @@ export function InsightGroupCard({
             <Divider />
             {insights.map((i) => (
               <BlockStack key={i.id} gap="050">
-                <Text as="p" fontWeight="medium" variant="bodySm">{i.title}</Text>
+                <InlineStack align="space-between" blockAlign="center" wrap>
+                  <Text as="p" fontWeight="medium" variant="bodySm">{i.title}</Text>
+                  {i.status === "open" ? <Button size="slim" onClick={() => onResolve(i.id)} loading={resolvingId === i.id}>Resolve</Button> : null}
+                </InlineStack>
                 {i.summary && <Text as="p" tone="subdued" variant="bodySm">{i.summary}</Text>}
               </BlockStack>
             ))}

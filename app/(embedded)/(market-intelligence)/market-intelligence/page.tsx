@@ -125,6 +125,7 @@ export default function MarketIntelligencePage() {
   const [savingCompetitor, setSavingCompetitor] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [resolvingInsightId, setResolvingInsightId] = useState<string | null>(null);
   const runningPollRef = useRef(false);
   const keywordPollRef = useRef(false);
   const loadRequestIdRef = useRef(0);
@@ -333,6 +334,26 @@ export default function MarketIntelligencePage() {
       setError(String(err));
     } finally {
       setResearching(false);
+    }
+  }
+
+  async function resolveInsight(id: string) {
+    setResolvingInsightId(id);
+    setError(null);
+    try {
+      const response = await authFetch(`/api/market-intelligence/insights/${encodeURIComponent(id)}`, { method: "PATCH" });
+      const payload = await readJson(response, "Insight resolution failed");
+      if (!response.ok) throw new Error((payload.error as string) ?? "Insight resolution failed");
+      setData((current) => current ? {
+        ...current,
+        insights: current.insights.filter((insight) => insight.id !== id),
+        stats: { ...current.stats, openInsights: Math.max(0, current.stats.openInsights - 1) },
+      } : current);
+      setNotice("Insight resolved.");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setResolvingInsightId(null);
     }
   }
 
@@ -677,9 +698,11 @@ export default function MarketIntelligencePage() {
                           typeLabel={item.typeLabel}
                           severity={item.severity}
                           insights={item.insights}
+                          onResolve={resolveInsight}
+                          resolvingId={resolvingInsightId}
                         />
                       ) : (
-                        <InsightCard key={item.id} insight={item.insight} />
+                        <InsightCard key={item.id} insight={item.insight} onResolve={resolveInsight} resolving={resolvingInsightId === item.insight.id} />
                       ))}
                     </BlockStack>
                   )}

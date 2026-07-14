@@ -1,5 +1,6 @@
 import {
   Badge,
+  Button,
   BlockStack,
   Box,
   DataTable,
@@ -17,12 +18,14 @@ export function OverviewTab({
   linkGraph,
   loading,
   articlesError,
+  onOpenBrief,
 }: {
   articles: ArticleRow[];
   clusters: TopicCluster[];
   linkGraph: LinkGraphData | null;
   loading: boolean;
   articlesError: boolean; // Fix #3 — distinguish timeout from genuinely empty
+  onOpenBrief: () => void;
 }) {
   const articleRows = articles.map((a) => [
     a.title,
@@ -78,11 +81,14 @@ export function OverviewTab({
             Run the indexer to populate topic data.
           </Text>
         ) : (
-          <DataTable
-            columnContentTypes={["text", "numeric", "numeric", "text"]}
-            headings={["Topic", "Articles", "Keywords", "Gap Score"]}
-            rows={clusterRows}
-          />
+          <BlockStack gap="200">
+            <DataTable
+              columnContentTypes={["text", "numeric", "numeric", "text"]}
+              headings={["Topic", "Articles", "Keywords", "Gap Score"]}
+              rows={clusterRows}
+            />
+            <Button onClick={onOpenBrief}>Create brief from a gap</Button>
+          </BlockStack>
         )}
       </BlockStack>
 
@@ -99,12 +105,15 @@ export function OverviewTab({
               <Text as="p" tone="subdued">
                 No orphans found.
               </Text>
-            ) : (
-              <DataTable
-                columnContentTypes={["text", "numeric"]}
-                headings={["Article", "Out-links"]}
-                rows={orphanRows}
-              />
+              ) : (
+                <BlockStack gap="200">
+                  <DataTable
+                    columnContentTypes={["text", "numeric"]}
+                    headings={["Article", "Out-links"]}
+                    rows={orphanRows}
+                  />
+                  <Button onClick={onOpenBrief}>Create brief to address an orphan</Button>
+                </BlockStack>
             )}
           </BlockStack>
         </Box>

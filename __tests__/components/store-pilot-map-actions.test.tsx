@@ -249,10 +249,14 @@ describe("Store Pilot topical-map workflow", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(message);
   });
 
-  it("preserves ordinary Complete and Dismiss mutations", async () => {
+  it("requires completion evidence before recording ordinary task completion", async () => {
     await renderPage();
-    await userEvent.click(screen.getByRole("button", { name: "Complete" }));
-    expect(authFetch).toHaveBeenCalledWith("/api/store-tasks", expect.objectContaining({ body: JSON.stringify({ id: "ordinary-1", status: "completed" }) }));
+    await userEvent.click(screen.getByRole("button", { name: "Record completion" }));
+    const dialog = screen.getByRole("dialog", { name: "Record completed work" });
+    expect((within(dialog).getByRole("button", { name: "Record completion" }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Completion evidence" }), "Verified in Shopify Admin");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Record completion" }));
+    expect(authFetch).toHaveBeenCalledWith("/api/store-tasks", expect.objectContaining({ body: JSON.stringify({ id: "ordinary-1", status: "completed", completionNote: "Verified in Shopify Admin" }) }));
     await userEvent.click(screen.getAllByRole("button", { name: "Dismiss" }).at(-1)!);
     expect(authFetch).toHaveBeenCalledWith("/api/store-tasks", expect.objectContaining({ body: JSON.stringify({ id: "ordinary-1", status: "dismissed" }) }));
   });
@@ -271,7 +275,7 @@ describe("Store Pilot topical-map workflow", () => {
     await userEvent.click(screen.getByRole("button", { name: "Sync topical map" }));
     await waitFor(() => expect((screen.getByRole("button", { name: /Sync topical map/ }) as HTMLButtonElement).disabled).toBe(true));
     expect((screen.getByRole("button", { name: "Apply" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Complete" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Record completion" }) as HTMLButtonElement).disabled).toBe(true);
     screen.getAllByRole("button", { name: "Dismiss" }).forEach((button) => expect((button as HTMLButtonElement).disabled).toBe(true));
     release();
   });

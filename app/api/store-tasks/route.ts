@@ -113,7 +113,6 @@ export async function PATCH(req: Request) {
   if (!["completed", "dismissed"].includes(status)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
-
   try {
     const task = await prisma.storeTask.findUnique({ where: { id } });
     if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -125,6 +124,9 @@ export async function PATCH(req: Request) {
       : null;
     if (status === "completed" && rawSource?.source === "topical-map" && rawSource.executable === true) {
       return NextResponse.json({ error: "Executable topical-map tasks must use the confirmed apply route." }, { status: 409 });
+    }
+    if (status === "completed" && !completionNote?.trim()) {
+      return NextResponse.json({ error: "Completion evidence is required" }, { status: 400 });
     }
 
     const updated = await prisma.storeTask.update({

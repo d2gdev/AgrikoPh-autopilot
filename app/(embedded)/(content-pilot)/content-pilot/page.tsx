@@ -259,6 +259,7 @@ export default function ContentPilotPage() {
                     linkGraph={linkGraph}
                     loading={loading}
                     articlesError={articlesError}
+                    onOpenBrief={() => setSelectedTab(2)}
                   />
                 </div>
                 <div style={{ display: selectedTab === 1 ? undefined : "none" }}>

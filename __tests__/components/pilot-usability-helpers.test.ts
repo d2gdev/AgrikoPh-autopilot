@@ -134,4 +134,9 @@ describe("pilot usability helper regressions", () => {
     expect(source).toContain("createLatestRequestCoordinator");
     expect(source).toContain("overviewRequestsRef.current.isCurrent(request)");
   });
+
+  it("keeps a direct next step for overview content findings", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/OverviewTab.tsx", "utf8");
+    expect(source).toContain("Create brief");
+  });
 });
