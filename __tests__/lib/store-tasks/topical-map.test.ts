@@ -10,8 +10,34 @@ import {
   TopicalMapStoreTaskSourceSchema,
   syncTopicalMapStoreTasks,
 } from "@/lib/store-tasks/topical-map";
+import {
+  cleanupTopicalMapAdvisories,
+  selectAdvisoryDuplicateGroups,
+  topicalMapAdvisorySemanticKey,
+} from "@/lib/store-tasks/topical-map-advisories";
 
 const observedAt = new Date("2026-07-13T02:00:00.000Z");
+const advisoryIdentity = {
+  strategyVersionId: "strategy-7",
+  packageSha256: "A".repeat(64),
+  targetUrl: "https://agrikoph.com/old/",
+  advisoryReason: "redirect_execution_unsupported",
+  ruleIds: ["r1", "r2"],
+};
+const advisorySource = (overrides: Record<string, unknown> = {}) => ({
+  source: "topical-map",
+  strategyVersionId: advisoryIdentity.strategyVersionId,
+  packageSha256: advisoryIdentity.packageSha256,
+  ruleIds: advisoryIdentity.ruleIds,
+  ruleDomains: ["redirects"],
+  sourceReferences: [{ kind: "rule", id: "r1" }],
+  generationProvenance: "advisory_projection",
+  targetType: "redirect",
+  targetUrl: advisoryIdentity.targetUrl,
+  executable: false,
+  advisoryReason: advisoryIdentity.advisoryReason,
+  ...overrides,
+});
 const resource = (type: "product" | "collection" | "page", url: string, title: string) => ({
   id: `gid://${url}`, type, url, handle: url.split("/").at(-1), title,
   seoTitle: `Old ${title}`, seoDescription: `Old description for ${title}`,
@@ -43,27 +69,34 @@ const center = () => ({
   },
 });
 
-function client(existing: Record<string, { status: string; id?: string; targetUrl?: string; sourceData?: unknown }> = {}) {
-  const rows = new Map(Object.entries(existing).map(([dedupeKey, row]) => [dedupeKey, { dedupeKey, ...row }]));
+function client(existing: Record<string, { status: string; id?: string; createdAt?: Date; targetUrl?: string; sourceData?: unknown; executionReceipt?: unknown }> = {}) {
+  const rows = new Map(Object.entries(existing).map(([dedupeKey, row]) => [dedupeKey, { dedupeKey, createdAt: new Date("2026-07-01T00:00:00Z"), ...row }]));
   let sequence = 0;
   const db: any = {
     topicalMapActivation: { findUnique: vi.fn() },
     storeTask: {
       findUnique: vi.fn(async ({ where }: any) => rows.get(where.dedupeKey) ?? null),
-      findMany: vi.fn(async ({ where }: any) => [...rows.values()].filter((row: any) => row.targetUrl === where.targetUrl && where.status.in.includes(row.status))),
-      upsert: vi.fn(async ({ where, create, update }: any) => { const prior = rows.get(where.dedupeKey) as any; rows.set(where.dedupeKey, { id: prior?.id ?? `task-${++sequence}`, ...create, ...update, status: "pending" }); return rows.get(where.dedupeKey); }),
+      findFirst: vi.fn(async ({ where }: any) => [...rows.values()].find((row: any) =>
+        (where.id === undefined || row.id === where.id)
+        && (where.status === undefined || where.status.in.includes(row.status))
+        && (where.executionReceipt === undefined || row.executionReceipt == null)) ?? null),
+      findMany: vi.fn(async ({ where }: any) => [...rows.values()].filter((row: any) =>
+        (where.targetUrl === undefined || row.targetUrl === where.targetUrl)
+        && (where.status === undefined || where.status.in.includes(row.status))
+        && (where.executionReceipt === undefined || row.executionReceipt == null))),
+      upsert: vi.fn(async ({ where, create, update }: any) => { const prior = rows.get(where.dedupeKey) as any; rows.set(where.dedupeKey, { id: prior?.id ?? `task-${++sequence}`, createdAt: prior?.createdAt ?? new Date("2026-07-14T00:00:00Z"), ...create, ...update, status: "pending" }); return rows.get(where.dedupeKey); }),
       update: vi.fn(),
       updateMany: vi.fn(async ({ where, data }: any) => {
-        const entry = [...rows.entries()].find(([, row]: any) => row.id === where.id && where.status.in.includes(row.status));
-        if (!entry) return { count: 0 };
-        rows.set(entry[0], { ...entry[1], ...data });
-        return { count: 1 };
+        const ids = typeof where.id === "string" ? [where.id] : where.id?.in ?? [];
+        const entries = [...rows.entries()].filter(([, row]: any) => ids.includes(row.id) && where.status.in.includes(row.status));
+        for (const entry of entries) rows.set(entry[0], { ...entry[1], ...data });
+        return { count: entries.length };
       }),
     },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(async (run: any) => run(db)),
     rawSnapshot: { findFirst: vi.fn().mockResolvedValue({ id: "seo-snapshot-1" }) },
-    recommendation: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(async () => ({ id: `rec-${sequence}`, status: "pending" })), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    recommendation: { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(async () => ({ id: `rec-${sequence}`, status: "pending" })), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
   };
   return db;
 }
@@ -81,6 +114,159 @@ beforeEach(() => {
     { url: "/collections/rice", sectionText: "Explore Agriko's Philippine heirloom rice collection." },
     { url: "/pages/our-farm", seoTitle: "Our Farm | Agriko Philippine Heirloom Rice", seoDescription: "Learn about the Agriko farm story and our Philippine heirloom rice." },
   ] }), provider: "deepseek", model: "test" });
+});
+
+describe("topical-map advisory identity", () => {
+  it("uses one semantic identity regardless of rule order", () => {
+    expect(topicalMapAdvisorySemanticKey({ ...advisoryIdentity, ruleIds: ["r2", "r1", "r1"] }))
+      .toBe(topicalMapAdvisorySemanticKey({ ...advisoryIdentity, ruleIds: ["r1", "r2"] }));
+  });
+
+  it("uses a different semantic identity when the advisory reason changes", () => {
+    expect(topicalMapAdvisorySemanticKey(advisoryIdentity)).not.toBe(topicalMapAdvisorySemanticKey({
+      ...advisoryIdentity,
+      advisoryReason: "canonicalization_execution_prohibited",
+    }));
+  });
+
+  it("canonicalizes equivalent governed URL representations before hashing", () => {
+    const keys = ["/old", "/old/", "https://agrikoph.com/old"].map((targetUrl) =>
+      topicalMapAdvisorySemanticKey({ ...advisoryIdentity, targetUrl }));
+
+    expect(new Set(keys)).toHaveLength(1);
+  });
+
+  it("keeps the newest pending advisory and dismisses only older pending or failed duplicates", () => {
+    const rows = [
+      { id: "older-pending", createdAt: new Date("2026-07-10T00:00:00Z"), status: "pending", sourceData: advisorySource() },
+      { id: "older-failed", createdAt: new Date("2026-07-11T00:00:00Z"), status: "failed", sourceData: advisorySource() },
+      { id: "newest-pending", createdAt: new Date("2026-07-12T00:00:00Z"), status: "pending", sourceData: advisorySource() },
+      { id: "newest-failed", createdAt: new Date("2026-07-13T00:00:00Z"), status: "failed", sourceData: advisorySource() },
+      { id: "completed", createdAt: new Date("2026-07-09T00:00:00Z"), status: "completed", sourceData: advisorySource() },
+      { id: "dismissed", createdAt: new Date("2026-07-09T00:00:00Z"), status: "dismissed", sourceData: advisorySource() },
+    ];
+
+    expect(selectAdvisoryDuplicateGroups(rows)).toEqual([{
+      semanticKey: expect.any(String),
+      keepId: "newest-pending",
+      dismissIds: ["newest-failed", "older-failed", "older-pending"],
+    }]);
+  });
+
+  it("keeps cleanup dry-run read-only and applies duplicate groups transactionally", async () => {
+    const db = client({
+      older: {
+        id: "older",
+        createdAt: new Date("2026-07-10T00:00:00Z"),
+        status: "failed",
+        sourceData: advisorySource(),
+      },
+      newer: {
+        id: "newer",
+        createdAt: new Date("2026-07-12T00:00:00Z"),
+        status: "pending",
+        sourceData: advisorySource(),
+      },
+    });
+
+    await expect(cleanupTopicalMapAdvisories(db, { apply: false, actor: "cleanup-test" })).resolves.toEqual({
+      groups: 1,
+      kept: 1,
+      duplicates: 1,
+      dismissed: 0,
+      rejectedRecommendations: 0,
+    });
+    expect(db.$transaction).not.toHaveBeenCalled();
+
+    await expect(cleanupTopicalMapAdvisories(db, { apply: true, actor: "cleanup-test" })).resolves.toEqual({
+      groups: 1,
+      kept: 1,
+      duplicates: 1,
+      dismissed: 1,
+      rejectedRecommendations: 1,
+    });
+    expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ["older"] }, status: { in: ["pending", "failed"] } }),
+    }));
+    expect(db.recommendation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ targetEntityId: { in: ["older"] }, status: { in: ["pending", "failed"] } }),
+      data: expect.objectContaining({ status: "rejected", reviewedBy: "cleanup-test" }),
+    }));
+    expect(db.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      actor: "cleanup-test",
+      action: "topical_map_advisory_superseded",
+      entityId: "older",
+    }) }));
+  });
+
+  it.each(["approved", "override_approved", "executing"])("does not clean up advisory work linked to a %s recommendation", async (status) => {
+    const db = client({
+      protected: {
+        id: "protected",
+        createdAt: new Date("2026-07-10T00:00:00Z"),
+        status: "pending",
+        sourceData: advisorySource(),
+      },
+      newer: {
+        id: "newer",
+        createdAt: new Date("2026-07-12T00:00:00Z"),
+        status: "pending",
+        sourceData: advisorySource(),
+      },
+    });
+    db.recommendation.findMany.mockResolvedValue([{ targetEntityId: "protected", status }]);
+
+    await expect(cleanupTopicalMapAdvisories(db, { apply: true, actor: "cleanup-test" })).resolves.toEqual({
+      groups: 0,
+      kept: 0,
+      duplicates: 0,
+      dismissed: 0,
+      rejectedRecommendations: 0,
+    });
+    expect(db.storeTask.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("revalidates recommendation and receipt protection at the transactional mutation boundary", async () => {
+    const approving = client({
+      older: { id: "older", status: "pending", sourceData: advisorySource() },
+      newer: { id: "newer", status: "pending", createdAt: new Date("2026-07-12T00:00:00Z"), sourceData: advisorySource() },
+    });
+    approving.recommendation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ targetEntityId: "older", status: "approved" }]);
+
+    await expect(cleanupTopicalMapAdvisories(approving, { apply: true, actor: "cleanup-test" }))
+      .rejects.toThrow("Advisory cleanup found protected work");
+    expect(approving.storeTask.updateMany).not.toHaveBeenCalled();
+
+    const receipted = client({
+      older: { id: "older", status: "pending", sourceData: advisorySource() },
+      newer: { id: "newer", status: "pending", createdAt: new Date("2026-07-12T00:00:00Z"), sourceData: advisorySource() },
+    });
+    receipted.storeTask.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(cleanupTopicalMapAdvisories(receipted, { apply: true, actor: "cleanup-test" }))
+      .rejects.toThrow("Advisory cleanup lost a concurrent update");
+    expect(receipted.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ executionReceipt: { equals: expect.anything() } }),
+    }));
+    expect(receipted.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("aborts cleanup when the selected keeper becomes ineligible before the transaction", async () => {
+    const db = client({
+      older: { id: "older", status: "failed", sourceData: advisorySource() },
+      newer: { id: "newer", status: "pending", createdAt: new Date("2026-07-12T00:00:00Z"), sourceData: advisorySource() },
+    });
+    db.storeTask.findFirst.mockResolvedValueOnce(null);
+
+    await expect(cleanupTopicalMapAdvisories(db, { apply: true, actor: "cleanup-test" }))
+      .rejects.toThrow("Advisory cleanup lost its keeper");
+    expect(db.recommendation.updateMany).not.toHaveBeenCalled();
+    expect(db.storeTask.updateMany).not.toHaveBeenCalled();
+    expect(db.auditLog.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("syncTopicalMapStoreTasks", () => {
@@ -170,6 +356,85 @@ describe("syncTopicalMapStoreTasks", () => {
       "blog_index_not_governed", "canonicalization_execution_prohibited", "homepage_not_governed", "indexation_execution_prohibited", "redirect_execution_unsupported",
     ]);
     expect(creates.filter((task: any) => !task.sourceData.executable).every((task: any) => !("after" in task.proposedState))).toBe(true);
+  });
+
+  it("supersedes a historical-key advisory once and treats the retained semantic advisory as unchanged", async () => {
+    const db = client({
+      "store-task:topical-map:historical-key": {
+        id: "historical-advisory",
+        createdAt: new Date("2026-07-10T00:00:00Z"),
+        status: "pending",
+        targetUrl: "/old",
+        sourceData: advisorySource({
+          packageSha256: "a".repeat(64),
+          ruleIds: ["redirect:1"],
+          sourceReferences: [{ kind: "rule", id: "redirect:1" }],
+          targetUrl: "/old",
+        }),
+      },
+    });
+
+    await syncTopicalMapStoreTasks(db as any);
+
+    expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ["historical-advisory"] }, status: { in: ["pending", "failed"] } }),
+      data: expect.objectContaining({ status: "dismissed" }),
+    }));
+    expect(db.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      action: "topical_map_advisory_superseded",
+      entityId: "historical-advisory",
+      after: expect.objectContaining({ replacementTaskId: expect.stringMatching(/^task-/) }),
+    }) }));
+
+    db.storeTask.updateMany.mockClear();
+    db.auditLog.create.mockClear();
+    const second = await syncTopicalMapStoreTasks(db as any);
+
+    expect(second.unchanged).toBe(5);
+    expect(db.storeTask.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "dismissed" }),
+    }));
+    expect(db.auditLog.create).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      action: "topical_map_advisory_superseded",
+    }) }));
+  });
+
+  it("retains a historical pending semantic advisory instead of a canonical failed row", async () => {
+    const semanticKey = topicalMapAdvisorySemanticKey({
+      strategyVersionId: "strategy-7",
+      packageSha256: "a".repeat(64),
+      targetUrl: "/old",
+      advisoryReason: "redirect_execution_unsupported",
+      ruleIds: ["redirect:1"],
+    });
+    const db = client({
+      [`store-task:topical-map:advisory:${semanticKey}`]: {
+        id: "canonical-failed",
+        createdAt: new Date("2026-07-13T00:00:00Z"),
+        status: "failed",
+        targetUrl: "/old",
+        sourceData: advisorySource({ packageSha256: "a".repeat(64), ruleIds: ["redirect:1"], targetUrl: "/old" }),
+      },
+      "store-task:topical-map:historical-pending": {
+        id: "historical-pending",
+        createdAt: new Date("2026-07-10T00:00:00Z"),
+        status: "pending",
+        targetUrl: "/old/",
+        sourceData: advisorySource({ packageSha256: "a".repeat(64), ruleIds: ["redirect:1"], targetUrl: "/old/" }),
+      },
+    });
+
+    const result = await syncTopicalMapStoreTasks(db as any);
+
+    expect(result.unchanged).toBe(1);
+    expect(db.storeTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ["canonical-failed"] } }),
+      data: expect.objectContaining({ status: "dismissed" }),
+    }));
+    expect(db.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      entityId: "canonical-failed",
+      after: expect.objectContaining({ replacementTaskId: "historical-pending" }),
+    }) }));
   });
 
   it("persists exact provenance/current state and deterministic sanitized internal-link output", async () => {

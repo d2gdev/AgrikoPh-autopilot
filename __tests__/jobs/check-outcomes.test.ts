@@ -11,9 +11,11 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 vi.mock("@/lib/ai/embeddings", () => ({ embedTexts: vi.fn() }));
+vi.mock("@/lib/connectors/gsc", () => ({ fetchGscPageMetrics: vi.fn() }));
 
 import { prisma } from "@/lib/db";
 import { embedTexts } from "@/lib/ai/embeddings";
+import { fetchGscPageMetrics } from "@/lib/connectors/gsc";
 import { checkOutcomesHandler } from "@/jobs/check-outcomes";
 
 const mockFindMany = prisma.recommendation.findMany as Mock;
@@ -22,6 +24,7 @@ const mockSnapshotFindFirst = prisma.rawSnapshot.findFirst as Mock;
 const mockDailySalesAggregate = prisma.dailySales.aggregate as Mock;
 const mockEmbed = embedTexts as Mock;
 const mockExecRaw = prisma.$executeRawUnsafe as Mock;
+const mockFetchGscPageMetrics = fetchGscPageMetrics as Mock;
 
 const NOW = new Date("2026-07-02T00:00:00Z");
 const EXECUTED_8D_AGO = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
@@ -216,5 +219,72 @@ describe("checkOutcomesHandler verdicts", () => {
     const result = await checkOutcomesHandler();
     expect(result.status).toBe("success");
     expect(result.summary).toEqual({ considered: 0, checked: 0, indexed: 0, failed: 0 });
+  });
+});
+
+describe("checkOutcomesHandler topical-map URL routing", () => {
+  const executedAt = new Date("2026-07-14T10:00:00Z");
+  const topicalRec = () => baseRec({
+    platform: "shopify",
+    actionType: "apply_topical_map_store_task",
+    executedAt,
+    executionResult: { targetUrl: "/products/red-rice" },
+  });
+
+  it("uses exact seven-day windows and the absolute governed URL", async () => {
+    vi.setSystemTime(new Date("2026-07-25T00:00:00Z"));
+    mockFindMany.mockResolvedValue([topicalRec()]);
+    mockFetchGscPageMetrics
+      .mockResolvedValueOnce({ clicks: 10, impressions: 100, ctr: 0.1, avgPosition: 12 })
+      .mockResolvedValueOnce({ clicks: 12, impressions: 110, ctr: 12 / 110, avgPosition: 10 });
+
+    const result = await checkOutcomesHandler();
+
+    expect(mockFetchGscPageMetrics.mock.calls).toEqual([
+      [{ startDate: "2026-07-07", endDate: "2026-07-13", pageUrl: "https://agrikoph.com/products/red-rice" }],
+      [{ startDate: "2026-07-15", endDate: "2026-07-21", pageUrl: "https://agrikoph.com/products/red-rice" }],
+    ]);
+    expect(mockSnapshotFindFirst).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        outcome: expect.objectContaining({
+          kind: "topical_map_url_gsc",
+          verdict: "improved",
+          targetUrl: "https://agrikoph.com/products/red-rice",
+          windowDays: 7,
+          beforeWindow: { startDate: "2026-07-07", endDate: "2026-07-13" },
+          afterWindow: { startDate: "2026-07-15", endDate: "2026-07-21" },
+          storeRevenue: { before: null, after: null, windowDays: 7 },
+        }),
+      }),
+    }));
+    expect(result.summary.checked).toBe(1);
+  });
+
+  it("preserves generic Meta snapshot outcomes", async () => {
+    mockFindMany.mockResolvedValue([baseRec()]);
+    mockSnapshotFindFirst
+      .mockResolvedValueOnce(snapshot())
+      .mockResolvedValueOnce(snapshot({
+        fetchedAt: new Date(EXECUTED_8D_AGO.getTime() + 8 * 24 * 60 * 60 * 1000),
+        payload: { campaigns: [{ id: "123", spend: 100, roas: 2.5 }] },
+      }));
+
+    await checkOutcomesHandler();
+
+    expect(mockSnapshotFindFirst).toHaveBeenCalledTimes(2);
+    expect(mockFetchGscPageMetrics).not.toHaveBeenCalled();
+  });
+
+  it("defers without updating while the final-data lag has not elapsed", async () => {
+    vi.setSystemTime(new Date("2026-07-23T23:59:59Z"));
+    mockFindMany.mockResolvedValue([topicalRec()]);
+
+    const result = await checkOutcomesHandler();
+
+    expect(mockFetchGscPageMetrics).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(result.summary).toEqual({ considered: 1, checked: 0, indexed: 0, failed: 0 });
+    expect(result.status).toBe("success");
   });
 });

@@ -6,8 +6,16 @@ import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-cen
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
 export type TopicalMapApplyErrorCode = "TASK_NOT_PENDING" | "TASK_NOT_EXECUTABLE" | "APPROVED_BYTES_CHANGED" | "STRATEGY_CHANGED" | "RULE_CHANGED" | "OBSERVATION_CHANGED" | "TARGET_LOCKED" | "SHOPIFY_FAILED" | "SHOPIFY_VERIFICATION_UNCERTAIN";
+export type TopicalMapApplyDiagnostic = {
+  mutationSent: boolean;
+  shopifyMessage?: string;
+  reobservation: "expected_state" | "different_state" | "unavailable" | "not_attempted";
+};
 export class TopicalMapApplyError extends Error {
-  constructor(public readonly code: TopicalMapApplyErrorCode) { super(code); this.name = "TopicalMapApplyError"; }
+  constructor(
+    public readonly code: TopicalMapApplyErrorCode,
+    public readonly diagnostic?: TopicalMapApplyDiagnostic,
+  ) { super(code); this.name = "TopicalMapApplyError"; }
 }
 
 type Db = typeof prisma;
@@ -97,8 +105,32 @@ export async function dispatchClaimedTopicalMapStoreTask(db: Db, rec: Recommenda
   if (!current || current.type !== source.targetType || current.stateHash !== source.observedStateHash || !beforeMatches(proposed, current)) throw new TopicalMapApplyError("OBSERVATION_CHANGED");
   const expected = expectedChanges(proposed, current, source);
   let updated: GovernedStoreResource;
-  try { updated = await applyGovernedStoreResourceChange(current, expected); } catch { throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN"); }
-  if (!afterMatches(expected, updated)) throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN");
+  let mutationSent = false;
+  try {
+    mutationSent = true;
+    updated = await applyGovernedStoreResourceChange(current, expected);
+  } catch (error) {
+    let reobserved: GovernedStoreResource | null = null;
+    try { reobserved = await fetchGovernedStoreResource(source.targetUrl); } catch { /* bounded unavailable diagnostic */ }
+    if (reobserved && reobserved.type === source.targetType && afterMatches(expected, reobserved)) {
+      updated = reobserved;
+    } else {
+      const shopifyMessage = error instanceof Error
+        ? error.message.replace(/[\r\n\t]+/g, " ").trim().slice(0, 300)
+        : undefined;
+      throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN", {
+        mutationSent,
+        ...(shopifyMessage ? { shopifyMessage } : {}),
+        reobservation: reobserved ? "different_state" : "unavailable",
+      });
+    }
+  }
+  if (!afterMatches(expected, updated)) {
+    throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN", {
+      mutationSent,
+      reobservation: "different_state",
+    });
+  }
   return { taskId: row.id, recommendationId: rec.id, targetId: updated.id, targetUrl: source.targetUrl, targetType: source.targetType, strategyVersionId: source.strategyVersionId, packageSha256: source.packageSha256, ruleIds: [...source.ruleIds].sort(), action: proposed.action, changedFields: Object.keys(expected).sort(), proposedStateHash, shopifyReturnedStateHash: updated.stateHash, verifiedAt: new Date().toISOString() };
 }
 

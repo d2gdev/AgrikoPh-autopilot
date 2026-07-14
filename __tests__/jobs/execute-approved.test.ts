@@ -135,6 +135,16 @@ beforeEach(() => {
 });
 
 describe("executeApprovedHandler", () => {
+  it("preserves the scheduled ordered batch selection when no recommendation id is supplied", async () => {
+    await executeApprovedHandler({ liveRequested: false, triggeredBy: "scheduler" });
+
+    expect(mockPrisma.recommendation.findMany).toHaveBeenLastCalledWith({
+      where: { status: { in: ["approved", "override_approved"] } },
+      take: 10,
+      orderBy: { reviewedAt: "asc" },
+    });
+  });
+
   it("jointly finalizes governed Shopify task and recommendation from a minimal receipt", async () => {
     const shopify = { ...baseRec, id: "rec-shopify", platform: "shopify", actionType: "apply_topical_map_store_task", targetEntityId: "task-1", targetEntityType: "store_task", status: "approved" };
     mockPrisma.recommendation.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([shopify]);

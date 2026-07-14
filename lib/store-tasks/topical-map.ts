@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { chatCompletionWithFailover } from "@/lib/ai/client";
 import { fetchGovernedStoreResources, resolveGovernedStoreUrl, type GovernedStoreResource } from "@/lib/shopify-governed-resources";
+import { supersedeEquivalentAdvisories, topicalMapAdvisorySemanticKey, type AdvisoryDatabase } from "@/lib/store-tasks/topical-map-advisories";
 import { loadActiveTopicalMapCommandCenter, type CommandCenterPage, type TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
@@ -57,7 +58,7 @@ type Client = {
   topicalMapActivation: { findUnique(args: unknown): Promise<unknown> };
   storeTask: {
     findUnique(args: { where: { dedupeKey: string } }): Promise<{ id?: string; status: string; sourceData?: unknown } | null>;
-    findMany?(args: unknown): Promise<Array<{ id: string; status: string; sourceData: unknown }>>;
+    findMany?(args: unknown): Promise<Array<{ id: string; createdAt?: Date; status: string; sourceData: unknown }>>;
     upsert(args: unknown): Promise<unknown>;
     update?(args: unknown): Promise<unknown>;
     updateMany?(args: unknown): Promise<{ count: number }>;
@@ -254,9 +255,26 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     const checkedSource = TopicalMapStoreTaskSourceSchema.parse(task.sourceData);
     const checkedProposed = TopicalMapStoreTaskProposedSchema.parse(task.proposedState);
     const proposedHash = hashTopicalMapProposedState(checkedProposed);
-    const dedupeKey = `store-task:topical-map:${hash(canonical([center.identity.versionId, center.identity.packageSha256, checkedProposed.action === "internal_link" ? "grouped-links-v1" : "v1", [...task.ruleIds].sort(), path(task.targetUrl), checkedProposed.action]))}`;
+    const advisorySemanticKey = checkedSource.executable ? null : topicalMapAdvisorySemanticKey({
+      strategyVersionId: center.identity.versionId,
+      packageSha256: center.identity.packageSha256,
+      targetUrl: task.targetUrl,
+      advisoryReason: checkedSource.advisoryReason,
+      ruleIds: task.ruleIds,
+    });
+    const dedupeKey = advisorySemanticKey
+      ? `store-task:topical-map:advisory:${advisorySemanticKey}`
+      : `store-task:topical-map:${hash(canonical([center.identity.versionId, center.identity.packageSha256, checkedProposed.action === "internal_link" ? "grouped-links-v1" : "v1", [...task.ruleIds].sort(), path(task.targetUrl), checkedProposed.action]))}`;
     const existing = await client.storeTask.findUnique({ where: { dedupeKey } });
     if (existing && !["pending", "failed"].includes(existing.status)) { summary.unchanged++; continue; }
+    if (existing?.id && advisorySemanticKey && client.storeTask.findMany && client.storeTask.updateMany && client.recommendation?.updateMany && client.auditLog && client.$transaction) {
+      await supersedeEquivalentAdvisories(client as unknown as AdvisoryDatabase, {
+        semanticKey: advisorySemanticKey,
+        actor: "topical-map-sync",
+      });
+      summary.unchanged++;
+      continue;
+    }
     if (existing?.sourceData && client.recommendation?.findUnique) {
       const existingSource = TopicalMapStoreTaskSourceSchema.safeParse(existing.sourceData);
       if (existingSource.success && existingSource.data.executable && existingSource.data.recommendationId) {
@@ -266,6 +284,12 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     }
     const sourceWithHash = checkedSource;
     const persisted = await client.storeTask.upsert({ where: { dedupeKey }, create: { taskType: "topical_map", targetType: task.targetType, targetId: null, targetUrl: task.targetUrl, title: checkedSource.executable ? `Review topical-map ${checkedProposed.action}` : "Review topical-map advisory", description: checkedSource.executable ? `Review the governed ${checkedProposed.action} for ${task.targetUrl}.` : checkedSource.advisoryReason, proposedState: checkedProposed, sourceData: sourceWithHash, priority: task.priority, status: "pending", dedupeKey }, update: { taskType: "topical_map", targetType: task.targetType, targetUrl: task.targetUrl, title: checkedSource.executable ? `Review topical-map ${checkedProposed.action}` : "Review topical-map advisory", description: checkedSource.executable ? `Review the governed ${checkedProposed.action} for ${task.targetUrl}.` : checkedSource.advisoryReason, proposedState: checkedProposed, sourceData: sourceWithHash, priority: task.priority, status: "pending", completionNote: null, completedAt: null } }) as { id?: string } | undefined;
+    if (persisted?.id && advisorySemanticKey && client.storeTask.findMany && client.storeTask.updateMany && client.recommendation?.updateMany && client.auditLog && client.$transaction) {
+      await supersedeEquivalentAdvisories(client as unknown as AdvisoryDatabase, {
+        semanticKey: advisorySemanticKey,
+        actor: "topical-map-sync",
+      });
+    }
     let replacementRecommendationId: string | undefined;
     if (checkedSource.executable && persisted?.id && client.recommendation && client.rawSnapshot && client.storeTask.update) {
       const snapshot = await client.rawSnapshot.findFirst({ where: { source: "seo_analysis" }, orderBy: { fetchedAt: "desc" }, select: { id: true } });

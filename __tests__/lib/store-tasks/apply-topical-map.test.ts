@@ -15,7 +15,7 @@ function db() {
   const tx = { recommendation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, storeTask: { update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) }, storeTaskExecutionLock: { deleteMany: vi.fn(), create: vi.fn() }, auditLog: { create: vi.fn() } };
   return { storeTask: { findUnique: vi.fn().mockResolvedValue(task) }, $transaction: vi.fn(async (fn) => fn(tx)), _tx: tx };
 }
-beforeEach(() => { vi.clearAllMocks(); command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [{ url: "/products/rice", decision: "Improve SEO metadata", ruleDomains: { content_decisions: ["rule-1"] } }], work: { internalLinks: [] } }); adapter.fetch.mockResolvedValue(resource); adapter.apply.mockResolvedValue({ ...resource, seoTitle: "New", seoDescription: "New desc", stateHash: "c".repeat(64) }); });
+beforeEach(() => { vi.clearAllMocks(); adapter.fetch.mockReset(); adapter.apply.mockReset(); command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [{ url: "/products/rice", decision: "Improve SEO metadata", ruleDomains: { content_decisions: ["rule-1"] } }], work: { internalLinks: [] } }); adapter.fetch.mockResolvedValue(resource); adapter.apply.mockResolvedValue({ ...resource, seoTitle: "New", seoDescription: "New desc", stateHash: "c".repeat(64) }); });
 afterEach(() => vi.unstubAllEnvs());
 
 describe("topical-map approval and internal dispatch", () => {
@@ -40,6 +40,29 @@ describe("topical-map approval and internal dispatch", () => {
     const client = db(); client._tx.storeTaskExecutionLock.create.mockRejectedValue(new Error("unique"));
     await expect(dispatchClaimedTopicalMapStoreTask(client as any, rec as any)).rejects.toBeInstanceOf(TopicalMapApplyError);
     expect(adapter.apply).not.toHaveBeenCalled();
+  });
+  it("preserves only bounded Shopify diagnostics and reobserves after a mutation error", async () => {
+    const client = db();
+    const secretLookingError = Object.assign(new Error("Title is too long\n"), {
+      token: "shpat_secret",
+      variables: { input: "private bytes" },
+    });
+    adapter.apply.mockRejectedValue(secretLookingError);
+    adapter.fetch.mockResolvedValueOnce(resource).mockResolvedValueOnce({ ...resource, seoTitle: "Different" });
+
+    let thrown: TopicalMapApplyError | undefined;
+    try { await dispatchClaimedTopicalMapStoreTask(client as any, rec as any); }
+    catch (error) { thrown = error as TopicalMapApplyError; }
+    expect(thrown).toMatchObject({
+      code: "SHOPIFY_VERIFICATION_UNCERTAIN",
+      diagnostic: {
+        mutationSent: true,
+        shopifyMessage: "Title is too long",
+        reobservation: "different_state",
+      },
+    });
+    expect(JSON.stringify(thrown?.diagnostic)).not.toContain("shpat_secret");
+    expect(JSON.stringify(thrown?.diagnostic)).not.toContain("private bytes");
   });
   it("revalidates and applies every rule in a grouped internal-link task", async () => {
     const bodyHtml = '<p>Existing.</p><section class="ag-related-recipes" aria-labelledby="ag-related-recipes-title"><h2 id="ag-related-recipes-title">Explore Related Resources</h2><ul><li><a href="/products/black-rice">black rice</a></li><li><a href="/products/red-rice">red rice</a></li></ul></section>';

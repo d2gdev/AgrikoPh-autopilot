@@ -2,13 +2,29 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { requireAppAuth, getSessionShop } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { routeOpenStoreTaskOpportunities } from "@/lib/store-tasks/route-opportunities";
 import { toStoreTaskListDto } from "@/lib/store-tasks/dto";
 
 const VALID_STATUSES = ["pending", "applying", "reconciliation_needed", "failed", "completed", "dismissed"];
-
+const STORE_TASK_LIST_SELECT = {
+  id: true,
+  createdAt: true,
+  taskType: true,
+  targetType: true,
+  targetId: true,
+  targetUrl: true,
+  title: true,
+  description: true,
+  proposedState: true,
+  sourceData: true,
+  priority: true,
+  status: true,
+  completedAt: true,
+  completionNote: true,
+} as const;
 
 export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
@@ -16,19 +32,58 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status") ?? "pending";
+  const page = Number(searchParams.get("page") ?? "1");
+  const pageSize = Number(searchParams.get("pageSize") ?? "50");
+  const executionClass = searchParams.get("executionClass") ?? "actionable";
+  const q = (searchParams.get("q") ?? "").trim().slice(0, 200);
+
+  if (!Number.isInteger(page) || page < 1
+    || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100
+    || !["actionable", "advisory"].includes(executionClass)) {
+    return NextResponse.json({ error: "Invalid Store Task query." }, { status: 400 });
+  }
   if (!VALID_STATUSES.includes(status)) {
     return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
   }
 
-  const tasks = await prisma.storeTask.findMany({
-    where: { status },
-    select: { id: true, createdAt: true, taskType: true, targetType: true, targetId: true, targetUrl: true, title: true, description: true, proposedState: true, sourceData: true, priority: true, status: true, completedAt: true, completionNote: true },
-    orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
-    take: 250,
-  });
+  const advisoryWhere: Prisma.StoreTaskWhereInput = {
+    AND: [
+      { sourceData: { path: ["source"], equals: "topical-map" } },
+      { sourceData: { path: ["executable"], equals: false } },
+    ],
+  };
+  const where: Prisma.StoreTaskWhereInput = {
+    status,
+    ...(executionClass === "advisory" ? advisoryWhere : { NOT: advisoryWhere }),
+    ...(q ? {
+      OR: [
+        { title: { contains: q, mode: "insensitive" } },
+        { targetUrl: { contains: q, mode: "insensitive" } },
+        { description: { contains: q, mode: "insensitive" } },
+      ],
+    } : {}),
+  };
+  const [total, tasks] = await Promise.all([
+    prisma.storeTask.count({ where }),
+    prisma.storeTask.findMany({
+      where,
+      select: STORE_TASK_LIST_SELECT,
+      orderBy: [{ priority: "asc" }, { createdAt: "desc" }, { id: "asc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
 
-  const taskDtos = tasks.flatMap((task) => { try { return [toStoreTaskListDto(task)]; } catch { return []; } });
-  return NextResponse.json({ tasks: taskDtos, total: taskDtos.length });
+  const taskDtos = [];
+  for (const task of tasks) {
+    try {
+      taskDtos.push(toStoreTaskListDto(task));
+    } catch {
+      console.error("[store-tasks] invalid list DTO:", task.id);
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    }
+  }
+  return NextResponse.json({ tasks: taskDtos, total, page, pageSize, hasMore: page * pageSize < total });
 }
 
 export async function POST(req: Request) {

@@ -4,6 +4,12 @@ import type { JobResult, JobStatus } from "@/lib/jobs/types";
 import { findEntityMetrics, computeOutcome, type OutcomeResult } from "@/lib/recommendations/outcome-metrics";
 import { chunkText } from "@/lib/ai/chunk";
 import { embedTexts } from "@/lib/ai/embeddings";
+import { fetchGscPageMetrics } from "@/lib/connectors/gsc";
+import {
+  evaluateTopicalMapGscMetrics,
+  topicalMapGscWindows,
+  type TopicalMapSeoOutcome,
+} from "@/lib/recommendations/topical-map-outcome";
 
 const JOB_NAME = "check-outcomes";
 const CHECK_WINDOW_DAYS = 7;
@@ -12,7 +18,7 @@ const BATCH_CAP = 50;
 
 type Summary = { considered: number; checked: number; indexed: number; failed: number };
 
-type OutcomePayload = {
+type GenericOutcomePayload = {
   verdict: OutcomeResult["verdict"];
   metricsBefore: OutcomeResult["metricsBefore"];
   metricsAfter: OutcomeResult["metricsAfter"];
@@ -21,6 +27,8 @@ type OutcomePayload = {
   checkedAt: string;
   storeRevenue: { before: number | null; after: number | null; windowDays: number };
 };
+
+type OutcomePayload = GenericOutcomePayload | TopicalMapSeoOutcome;
 
 async function computeStoreRevenue(
   executedAt: Date,
@@ -46,6 +54,25 @@ async function computeStoreRevenue(
     after: afterAgg._sum.revenue != null ? Number(afterAgg._sum.revenue) : null,
     windowDays,
   };
+}
+
+function gscLagDays(): number {
+  const configured = Number(process.env.GSC_LAG_DAYS ?? 3);
+  return Number.isFinite(configured) ? Math.max(0, configured) : 3;
+}
+
+function receiptTargetUrl(executionResult: unknown): string | null {
+  if (!executionResult || typeof executionResult !== "object" || Array.isArray(executionResult)) return null;
+  const targetUrl = (executionResult as Record<string, unknown>).targetUrl;
+  if (typeof targetUrl !== "string" || targetUrl.length === 0) return null;
+  try {
+    const url = new URL(targetUrl, "https://agrikoph.com");
+    if (url.origin !== "https://agrikoph.com") return null;
+    url.hash = "";
+    return url.href;
+  } catch {
+    return null;
+  }
 }
 
 function json(value: unknown): Prisma.InputJsonValue {
@@ -153,6 +180,56 @@ export async function checkOutcomesHandler(): Promise<JobResult<Summary>> {
         if (!rec.executedAt) {
           throw new Error("recommendation is missing executedAt");
         }
+        if (rec.platform === "shopify" && rec.actionType === "apply_topical_map_store_task") {
+          const windows = topicalMapGscWindows(rec.executedAt);
+          const finalizedAt = Date.parse(`${windows.after.endDate}T00:00:00.000Z`) + gscLagDays() * 24 * 60 * 60 * 1_000;
+          if (Date.now() < finalizedAt) continue;
+
+          const targetUrl = receiptTargetUrl(rec.executionResult);
+          const storeRevenue = await computeStoreRevenue(rec.executedAt, CHECK_WINDOW_DAYS);
+          let metricsBefore = null;
+          let metricsAfter = null;
+          let evaluation: ReturnType<typeof evaluateTopicalMapGscMetrics>;
+
+          if (!targetUrl) {
+            evaluation = { verdict: "insufficient_data", reason: "missing_receipt_url", deltas: {} };
+          } else {
+            try {
+              [metricsBefore, metricsAfter] = await Promise.all([
+                fetchGscPageMetrics({ ...windows.before, pageUrl: targetUrl }),
+                fetchGscPageMetrics({ ...windows.after, pageUrl: targetUrl }),
+              ]);
+              evaluation = evaluateTopicalMapGscMetrics(metricsBefore, metricsAfter);
+            } catch {
+              console.warn(`[${JOB_NAME}] recommendation ${rec.id}: GSC_UNAVAILABLE`);
+              evaluation = { verdict: "insufficient_data", reason: "gsc_unavailable", deltas: {} };
+            }
+          }
+
+          const outcome: TopicalMapSeoOutcome = {
+            kind: "topical_map_url_gsc",
+            ...evaluation,
+            targetUrl: targetUrl ?? "",
+            windowDays: 7,
+            beforeWindow: windows.before,
+            afterWindow: windows.after,
+            metricsBefore,
+            metricsAfter,
+            checkedAt: new Date().toISOString(),
+            storeRevenue,
+          };
+          await prisma.recommendation.update({
+            where: { id: rec.id },
+            data: { outcome: json(outcome), outcomeCheckedAt: new Date() },
+          });
+          checked++;
+          if (outcome.verdict !== "insufficient_data") {
+            const ok = await indexOutcome(rec, outcome);
+            if (ok) indexed++;
+          }
+          continue;
+        }
+
         const sources = platformSources(rec.platform);
         const afterThreshold = new Date(rec.executedAt.getTime() + CHECK_WINDOW_MS);
 

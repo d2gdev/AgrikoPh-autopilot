@@ -1,4 +1,4 @@
-import { Badge, BlockStack, Box, Button, Divider, InlineStack, Text } from "@shopify/polaris";
+import { Badge, BlockStack, Box, Button, Collapsible, Divider, InlineStack, Text } from "@shopify/polaris";
 import { useState } from "react";
 
 export interface StoreTaskView {
@@ -30,6 +30,16 @@ function record(value: unknown): Record<string, unknown> {
 function displayValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Not set";
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : "Unavailable";
+}
+
+function boundedLinks(value: unknown): Array<{ toUrl: string; anchor: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 100).flatMap((item) => {
+    const link = record(item);
+    const toUrl = typeof link.toUrl === "string" ? link.toUrl.slice(0, 500) : "";
+    const anchor = typeof link.anchor === "string" ? link.anchor.slice(0, 500) : "";
+    return toUrl && anchor ? [{ toUrl, anchor }] : [];
+  });
 }
 
 const PREVIEW_LENGTH = 400;
@@ -66,11 +76,16 @@ export function isTopicalMapTask(task: StoreTaskView): boolean {
 }
 
 export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView; compact?: boolean }) {
+  const [rawHtmlOpen, setRawHtmlOpen] = useState(false);
   const executable = task.sourceData.executable === true;
   const rules = Array.isArray(task.sourceData.ruleIds) ? task.sourceData.ruleIds.filter((rule): rule is string => typeof rule === "string") : [];
   const observedAt = typeof task.sourceData.observedAt === "string" ? task.sourceData.observedAt : null;
   const reason = typeof task.sourceData.advisoryReason === "string" ? advisoryReasons[task.sourceData.advisoryReason] ?? task.sourceData.advisoryReason : null;
-  const fields = changedFields(task);
+  const internalLinkTask = task.proposedState.action === "internal_link";
+  const links = internalLinkTask ? boundedLinks(task.sourceData.links) : [];
+  const allFields = changedFields(task);
+  const fields = internalLinkTask ? allFields.filter((field) => field.key !== "bodyHtml") : allFields;
+  const rawHtmlFields = internalLinkTask ? allFields.filter((field) => field.key === "bodyHtml") : [];
 
   return (
     <BlockStack gap={compact ? "200" : "300"}>
@@ -93,7 +108,18 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
       ) : null}
       {observedAt ? <Text as="p" variant="bodySm" tone="subdued">Evidence observed {new Date(observedAt).toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</Text> : <Text as="p" variant="bodySm" tone="subdued">Observation time unavailable or not required for this advisory task.</Text>}
       {reason ? <Text as="p" tone="subdued">{reason}</Text> : null}
-      {fields.length ? <Divider /> : null}
+      {links.length ? (
+        <BlockStack gap="200">
+          <Text as="h3" variant="headingSm">Links to add ({links.length})</Text>
+          {links.map((link) => (
+            <BlockStack key={`${link.toUrl}:${link.anchor}`} gap="050">
+              <Text as="p" fontWeight="semibold">{link.anchor}</Text>
+              <Text as="p" variant="bodySm" tone="subdued">{link.toUrl}</Text>
+            </BlockStack>
+          ))}
+        </BlockStack>
+      ) : null}
+      {fields.length || rawHtmlFields.length ? <Divider /> : null}
       {fields.map((field) => (
         <BlockStack key={field.key} gap="100">
           <Text as="p" fontWeight="semibold">{field.label}</Text>
@@ -103,6 +129,26 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
           </InlineStack>
         </BlockStack>
       ))}
+      {rawHtmlFields.length ? (
+        <BlockStack gap="200">
+          <Button variant="plain" textAlign="left" onClick={() => setRawHtmlOpen((open) => !open)} ariaExpanded={rawHtmlOpen}>
+            {rawHtmlOpen ? "Hide raw HTML diagnostic" : "Show raw HTML diagnostic"}
+          </Button>
+          <Collapsible open={rawHtmlOpen} id={`raw-html-${compact ? "compact" : "detail"}-${task.id}`} transition={{ duration: "200ms", timingFunction: "ease-in-out" }}>
+            <BlockStack gap="300">
+              {rawHtmlFields.map((field) => (
+                <BlockStack key={field.key} gap="100">
+                  <Text as="p" fontWeight="semibold">{field.label}</Text>
+                  <InlineStack gap="300" wrap>
+                    <Box minWidth="200px"><Text as="p" variant="bodySm" tone="subdued">Before</Text><ValuePreview value={field.before} kind="current" /></Box>
+                    <Box minWidth="200px"><Text as="p" variant="bodySm" tone="subdued">After</Text><ValuePreview value={field.after} kind="proposed" /></Box>
+                  </InlineStack>
+                </BlockStack>
+              ))}
+            </BlockStack>
+          </Collapsible>
+        </BlockStack>
+      ) : null}
     </BlockStack>
   );
 }
