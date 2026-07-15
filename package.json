@@ -19,6 +19,7 @@
     "data:audit": "node scripts/data-layer-audit.mjs",
     "seo:enhance-articles": "node scripts/seo-enhance-articles.mjs",
     "seo:fix-meta": "node scripts/seo-fix-meta.mjs",
+    "seo:brand-serp:capture": "tsx scripts/capture-brand-serp.ts",
     "health:merchant": "node scripts/merchant-healthcheck.mjs",
     "data:duplicates": "node scripts/duplicate-ingestion-report.mjs",
     "data:dedupe": "node scripts/dedupe-dashboard-data.mjs",

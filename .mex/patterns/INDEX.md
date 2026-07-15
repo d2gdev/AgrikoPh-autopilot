@@ -13,6 +13,7 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [debug-pipeline.md#task-diagnose-connector-auth-failures](debug-pipeline.md#task-diagnose-connector-auth-failures) | A connector is returning 401/403 or token-expired errors |
 | [debug-pipeline.md#task-diagnose-competitor-ads-not-appearing-in-the-market-intelligence-ui](debug-pipeline.md#task-diagnose-competitor-ads-not-appearing-in-the-market-intelligence-ui) | Market Intelligence "Ads" tab shows few/no ads for a competitor |
 | [debug-shopify-app-bridge-auth.md](debug-shopify-app-bridge-auth.md) | Shopify embedded UI auth fails with App Bridge `idToken()` timeouts, dashboard 401s, or tab/navigation auth breakage |
+| [playwright-mcp-windows-chrome.md](playwright-mcp-windows-chrome.md) | Playwright MCP in WSL must connect to Sean's existing Windows Chrome through the installed bridge extension |
 | [deploy.md#task-deploy-code-changes](deploy.md#task-deploy-code-changes) | Deploying code to the Linode VPS production server |
 | [deploy.md#task-run-database-migrations-in-production](deploy.md#task-run-database-migrations-in-production) | Running Prisma migrations on the production database |
 | [deploy.md#task-update-environment-variables-in-production](deploy.md#task-update-environment-variables-in-production) | Changing env vars on the production server |

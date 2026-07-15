@@ -1,0 +1,58 @@
+{
+  "capturedAt": "2026-07-15T11:10:42.364Z",
+  "source": "playwright_extension",
+  "query": "agriko",
+  "location": "Philippines (gl=ph)",
+  "language": "en",
+  "device": "desktop",
+  "personalizationDisabled": true,
+  "signedOutStateConfirmed": false,
+  "pageUrl": "https://www.google.com/search?q=agriko&gl=ph&hl=en&pws=0&num=20&filter=0",
+  "pageTitle": "agriko - Google Search",
+  "resultStats": "About 52,800 results (0.66s)",
+  "visibleOrganicCount": 8,
+  "advisoryPosition": 4,
+  "screenshotPath": "docs/seo/browser/agriko-google-ph-desktop-2026-07-15.png",
+  "organic": [
+    {
+      "position": 1,
+      "title": "Agriko: Organic Rice, Turmeric Tea & Herbal Products",
+      "url": "https://agrikoph.com/"
+    },
+    {
+      "position": 2,
+      "title": "Agriko | Cebu City",
+      "url": "https://www.facebook.com/AgrikoPH/"
+    },
+    {
+      "position": 3,
+      "title": "Agriko PH (STORE), Online Shop",
+      "url": "https://shopee.ph/agrikoph"
+    },
+    {
+      "position": 4,
+      "title": "FDA Advisory No.2026-0489 || Public Health Warning ...",
+      "url": "https://www.fda.gov.ph/fda-advisory-no-2026-0489-public-health-warning-against-the-purchase-and-consumption-of-the-unregistered-food-product-agriko-agriculture-keeps-organic-cacao-powder-with-5-in-1-turmeric-blend/"
+    },
+    {
+      "position": 5,
+      "title": "AGRIKO (@agrikoph) · Cebu City",
+      "url": "https://www.instagram.com/agrikoph/"
+    },
+    {
+      "position": 6,
+      "title": "Agriko Philippines: Organic Rice & Farm Story",
+      "url": "https://agrikoph.com/pages/about"
+    },
+    {
+      "position": 7,
+      "title": "Agriko Multi-Trade & Enterprises Corp",
+      "url": "https://www.waze.com/live-map/directions/ph/central-visayas/cebu-city/agriko-multi-trade-and-enterprises-corp?to=place.ChIJJaEE8h2ZqTMR0avB0oPlKV8"
+    },
+    {
+      "position": 8,
+      "title": "Agriko Turmeric Tea 180g",
+      "url": "https://shopmetro.ph/product/agriko-turmeric-tea-180g/"
+    }
+  ]
+}

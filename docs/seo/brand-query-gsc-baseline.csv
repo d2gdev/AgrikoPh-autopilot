@@ -1,0 +1,58 @@
+start_date,end_date,fetched_at,segment,query,page,clicks,impressions,avg_position
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/,27,766,4.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko 5 in 1 tea,https://agrikoph.com/,6,62,2.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/collections/all,2,142,4.3
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/collections/organic-rice,2,17,1.1
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/collections,1,21,1.8
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/pages/about,1,138,3.2
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/pages/find-agriko,1,59,1.3
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko 5 in 1 tea,https://agrikoph.com/collections/all,1,38,5.4
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko 5 in 1 tea,https://agrikoph.com/products/5-in-1-turmeric-tea-powder,1,16,3.1
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko 5 in 1 tea,https://agrikoph.com/products/agriko-5n1-turmeric-tea,1,6,3.2
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_entity,agriko farm,https://agrikoph.com/,1,3,1.3
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko turmeric,https://agrikoph.com/,1,10,2.6
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/blogs/news,0,45,6.6
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/blogs/news/moringa-superfood-guide,0,20,6.3
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/blogs/news/red-rice-from-the-philippines-benefits-cooking-tips-and-where-to-buy,0,1,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/blogs/news/tagged/farming,0,2,9.5
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/blogs/news/turmeric-tea-philippines-benefits-how-to-brew-and-best-options,0,1,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/blogs/recipes,0,1,2.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/collections/frontpage/better-sleep,0,2,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/collections/ginger,0,2,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/collections/herbal-tea,0,10,2.9
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/collections/home-page-featured,0,37,1.6
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/collections/organic-blends,0,33,1.3
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/collections/organic-rice-legacy-cache,0,2,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/collections/shop-all,0,72,3.4
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/pages/contact,0,23,1.5
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/pages/faq,0,26,1.5
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/products/5-in-1-turmeric-tea-powder,0,2,2.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/products/5n1-power-shot,0,10,5.1
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/products/agriko-5n1-turmeric-tea,0,2,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/products/black-rice,0,1,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/products/cacao-with-5n1-turmeric-blend,0,7,2.6
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/products/cacao-with-5n1-with-turmeric-blend,0,1,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/products/ginger-tea-powder-blend,0,1,7.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/products/philippines-organic-black-rice,0,10,2.9
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/products/philippines-organic-red-rice,0,3,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_exact,agriko,https://agrikoph.com/products/pure-blue-ternate-powder,0,3,4.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko 5 in 1 tea,https://agrikoph.com/blogs/news/turmeric-tea-philippines-benefits-how-to-brew-and-best-options,0,5,11.4
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko 5 in 1 tea,https://agrikoph.com/collections/shop-all,0,19,6.1
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko 5 in 1 tea,https://agrikoph.com/pages/faq,0,1,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko 5 in 1 tea,https://agrikoph.com/products/5n1-power-shot,0,12,7.8
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko 5 in 1 tea,https://agrikoph.com/products/cacao-with-5n1-turmeric-blend,0,17,5.9
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko 5 in 1 tea,https://agrikoph.com/products/cacao-with-5n1-with-turmeric-blend,0,7,10.3
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_entity,agriko company,https://agrikoph.com/,0,14,9.3
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_entity,agriko farm,https://agrikoph.com/blogs/news/tagged/nutrition,0,1,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_entity,agriko farm,https://agrikoph.com/collections/all,0,2,3.5
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_entity,agriko farm,https://agrikoph.com/pages/about,0,3,3.3
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_entity,agriko farm,https://agrikoph.com/pages/contact,0,2,1.5
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_other,agriko laboratory,https://agrikoph.com/,0,1,15.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_other,agriko laboratory,https://agrikoph.com/blogs/news/health-benefits-organic-rice,0,3,9.3
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_other,agriko laboratory,https://agrikoph.com/pages/contact,0,1,21.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko turmeric,https://agrikoph.com/collections/all,0,8,2.5
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko turmeric,https://agrikoph.com/pages/about,0,2,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko turmeric,https://agrikoph.com/pages/contact,0,2,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko turmeric,https://agrikoph.com/pages/find-agriko,0,2,1.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_product,agriko turmeric,https://agrikoph.com/products/cacao-with-5n1-turmeric-blend,0,2,12.0
+2026-04-16,2026-07-15,2026-07-15T10:56:43.771Z,brand_other,agriko×mimure botanical lab,https://agrikoph.com/,0,1,6.0

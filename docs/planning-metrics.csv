@@ -8,3 +8,4 @@ date,task,plan_level,gate_yes_count,planning_minutes,execution_minutes,notes
 2026-07-14,local-surface-integrity-audit,lean,1,0.5,30,One local audit pass across operator surfaces; four defects repaired test-first and protected boundaries retained
 2026-07-14,retire-agent-model-controller,lean,1,0.5,5,Removed the executable agent controller and replaced it with a fixed local verifier with no model routing
 2026-07-15,authenticated-ui-audit-remediation,lean,1,0.5,45,Continued the existing four-step in-turn fix and verification plan without a standalone plan document
+2026-07-15,agriko-brand-serp-advisory-displacement,comprehensive,3,10,0,Multi-session cross-surface SEO plan constrained by the active topical map and a four-week sustained ranking success gate
