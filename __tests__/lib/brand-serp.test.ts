@@ -96,15 +96,18 @@ describe("brand SERP normalization", () => {
   });
 
   it("captures the fixed Philippines and Cebu desktop/mobile schedule", async () => {
-    const fetchResults = vi.fn(async (_input: { location?: string | null; device?: "desktop" | "mobile" }) => ({
-      results: [{
-        position: 1,
-        title: "Agriko",
-        link: "https://agrikoph.com/",
-        snippet: null,
-        rawPayload: {},
-      }],
-    }));
+    const fetchResults = vi.fn(async (input: { location?: string | null; device?: "desktop" | "mobile" }) => {
+      void input;
+      return {
+        results: [{
+          position: 1,
+          title: "Agriko",
+          link: "https://agrikoph.com/",
+          snippet: null,
+          rawPayload: {},
+        }],
+      };
+    });
 
     const captures = await captureDailyBrandSerp({
       observedAt: "2026-07-15T10:56:36.716Z",

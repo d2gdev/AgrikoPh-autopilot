@@ -17,6 +17,7 @@ export interface MarketInsight {
   title: string;
   summary: string;
   status: string;
+  sourceUrl?: string | null;
   competitor?: { name: string } | null;
   keyword?: { keyword: string } | null;
 }
@@ -64,6 +65,23 @@ export function shortDate(value?: string | null) {
 export function relativeTime(value?: string | null): string {
   if (!value) return "Never";
   return timeAgo(value);
+}
+
+export function insightGroupDescriptor(insight: MarketInsight): { key: string; label: string; typeLabel: string } | null {
+  const competitor = insight.competitor?.name?.trim();
+  if (!competitor) return null;
+  if (insight.type === "long_running_competitor_ad") {
+    return { key: `${insight.type}|${competitor.toLowerCase()}`, label: competitor, typeLabel: "long-running ads" };
+  }
+  if (insight.type === "new_competitor_ad") {
+    const message = insight.summary.trim().toLowerCase().replace(/\s+/g, " ");
+    return {
+      key: `${insight.type}|${competitor.toLowerCase()}|${message}`,
+      label: competitor,
+      typeLabel: "new ads with this message",
+    };
+  }
+  return null;
 }
 
 // Agriko brand surface — deliberate, documented exception to the no-raw-hex rule
@@ -197,6 +215,7 @@ export function InsightCard({ insight, onResolve, resolving }: { insight: Market
           {source && <Text as="span" variant="bodySm" tone="subdued">· {source}</Text>}
           <Text as="span" variant="bodySm" tone="subdued">· {relativeTime(insight.createdAt)}</Text>
           {insight.status && <Text as="span" variant="bodySm" tone="subdued">· {insight.status}</Text>}
+          {insight.sourceUrl && <Link url={insight.sourceUrl} target="_blank">View source</Link>}
         </InlineStack>
         {insight.status === "open" ? <Button size="slim" onClick={() => onResolve(insight.id)} loading={resolving}>Resolve</Button> : null}
       </BlockStack>
@@ -254,6 +273,10 @@ export function InsightGroupCard({
                   {i.status === "open" ? <Button size="slim" onClick={() => onResolve(i.id)} loading={resolvingId === i.id}>Resolve</Button> : null}
                 </InlineStack>
                 {i.summary && <Text as="p" tone="subdued" variant="bodySm">{i.summary}</Text>}
+                <InlineStack gap="200" wrap>
+                  <Text as="span" tone="subdued" variant="bodySm">Captured {relativeTime(i.createdAt)}</Text>
+                  {i.sourceUrl && <Link url={i.sourceUrl} target="_blank">View source</Link>}
+                </InlineStack>
               </BlockStack>
             ))}
           </BlockStack>

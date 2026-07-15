@@ -34,6 +34,7 @@ import {
   OurProduct,
   PriceComparisonCard,
   findMatches,
+  insightGroupDescriptor,
   SEVERITY_RANK,
   adRunningDays,
   shortDate,
@@ -439,16 +440,16 @@ export default function MarketIntelligencePage() {
   const insightItems = useMemo(() => {
     const filtered = (data?.insights ?? []).filter((i) => !cutoff || new Date(i.createdAt) >= cutoff);
 
-    const groups = new Map<string, MarketInsight[]>();
-    const singles: MarketInsight[] = [];
-    for (const insight of filtered) {
-      const competitor = insight.competitor?.name;
-      if (insight.type === "long_running_competitor_ad" && competitor) {
-        const key = competitor;
-        const arr = groups.get(key);
-        if (arr) arr.push(insight); else groups.set(key, [insight]);
-      } else {
-        singles.push(insight);
+     const groups = new Map<string, { label: string; typeLabel: string; insights: MarketInsight[] }>();
+     const singles: MarketInsight[] = [];
+     for (const insight of filtered) {
+       const descriptor = insightGroupDescriptor(insight);
+       if (descriptor) {
+         const group = groups.get(descriptor.key);
+         if (group) group.insights.push(insight);
+         else groups.set(descriptor.key, { label: descriptor.label, typeLabel: descriptor.typeLabel, insights: [insight] });
+       } else {
+         singles.push(insight);
       }
     }
 
@@ -466,7 +467,8 @@ export default function MarketIntelligencePage() {
         when: new Date(insight.createdAt).getTime(),
       });
     }
-    for (const [competitor, groupInsights] of groups) {
+     for (const [groupKey, group] of groups) {
+       const groupInsights = group.insights;
       // A lone long-running-ad insight isn't worth grouping — render it normally.
       if (groupInsights.length === 1) {
         const insight = groupInsights[0]!;
@@ -484,9 +486,9 @@ export default function MarketIntelligencePage() {
       const when = Math.max(...groupInsights.map((i) => new Date(i.createdAt).getTime()));
       items.push({
         kind: "group",
-        id: `group:${competitor}`,
-        label: competitor,
-        typeLabel: "long-running ads",
+         id: `group:${groupKey}`,
+         label: group.label,
+         typeLabel: group.typeLabel,
         severity,
         insights: groupInsights.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
         rank,

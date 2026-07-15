@@ -65,6 +65,16 @@ const ADS_PER_COMPETITOR = 15;
 const SMOOTHED_WINDOW_DAYS = 7;
 const SMOOTHED_OUTLIER_PCT = 40;
 
+function externalHttpUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 const competitorAdSelect = {
   id: true, capturedAt: true, competitorId: true, pageName: true,
   adCopy: true, adCopyEn: true, headline: true, headlineEn: true,
@@ -120,9 +130,10 @@ async function buildMarketIntelligencePayload(insightsPage = 1): Promise<MarketI
         title: true,
         summary: true,
         status: true,
+        evidence: true,
         competitor: { select: { name: true } },
         keyword: { select: { keyword: true } },
-        ad: { select: { adCopy: true, headline: true, description: true, pageName: true } },
+        ad: { select: { adCopy: true, headline: true, description: true, pageName: true, adSnapshotUrl: true } },
       },
     }),
     prisma.shoppingResult.findMany({
@@ -192,8 +203,15 @@ async function buildMarketIntelligencePayload(insightsPage = 1): Promise<MarketI
   const cleanInsights = insights
     .filter((i) => !(i.ad && isSpamStoryAd(i.ad)))
     .map((item) => {
-      const insight = { ...item };
+      const evidence = item.evidence && typeof item.evidence === "object" && !Array.isArray(item.evidence)
+        ? item.evidence as Record<string, unknown>
+        : {};
+      const insight = {
+        ...item,
+        sourceUrl: externalHttpUrl(item.ad?.adSnapshotUrl) ?? externalHttpUrl(evidence.productUrl),
+      };
       Reflect.deleteProperty(insight, "ad");
+      Reflect.deleteProperty(insight, "evidence");
       return insight;
     });
 

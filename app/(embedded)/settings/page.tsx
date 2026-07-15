@@ -279,11 +279,15 @@ export default function SettingsPage() {
                 rows={connectorHealth.map((connector) => [
                   connector.label,
                   connectorBadge(connector.status),
-                  connector.sources.length
-                    ? connector.sources.map((source) => `${source.key}: ${source.source}`).join(", ")
-                    : "None",
+                  connector.id === "alerts"
+                    ? connector.sources.length
+                      ? `In-app notifications, external webhook: ${connector.sources.map((source) => source.source).join(", ")}`
+                      : "In-app notifications"
+                    : connector.sources.length
+                      ? connector.sources.map((source) => `${source.key}: ${source.source}`).join(", ")
+                      : "None",
                   connector.missing.length ? connector.missing.join(", ") : "None",
-                  formatDate(connector.lastSuccessAt),
+                  connector.id === "alerts" && !connector.lastSuccessAt ? "No alert sent yet" : formatDate(connector.lastSuccessAt),
                   connector.lastError ?? connector.lastStatus ?? "None",
                 ])}
               />

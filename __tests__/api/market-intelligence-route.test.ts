@@ -133,6 +133,32 @@ describe("market-intelligence GET route", () => {
     }));
   });
 
+  it("returns an actionable source URL for an ad-backed insight", async () => {
+    mockPrisma.marketInsight.findMany.mockResolvedValueOnce([{
+      id: "insight-1",
+      createdAt: new Date("2026-07-15T00:00:00.000Z"),
+      type: "new_competitor_ad",
+      severity: "info",
+      title: "New competitor ad",
+      summary: "Supports immune health",
+      status: "open",
+      evidence: {},
+      competitor: { name: "Competitor" },
+      keyword: null,
+      ad: {
+        adCopy: "Supports immune health", headline: null, description: null, pageName: "Competitor",
+        adSnapshotUrl: "https://www.facebook.com/ads/library/?id=123",
+      },
+    }]);
+
+    const response = await GET(new Request("http://test.local/api/market-intelligence?refresh=1"));
+    const payload = await response.json();
+
+    expect(payload.insights[0].sourceUrl).toBe("https://www.facebook.com/ads/library/?id=123");
+    expect(payload.insights[0]).not.toHaveProperty("ad");
+    expect(payload.insights[0]).not.toHaveProperty("evidence");
+  });
+
   it("requests only the newest row for each displayed keyword", async () => {
     await GET(new Request("http://test.local/api/market-intelligence?refresh=1"));
 
