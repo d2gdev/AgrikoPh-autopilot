@@ -1,0 +1,31 @@
+import { describe, expect, it } from "vitest";
+import { findMatches } from "@/app/(embedded)/(market-intelligence)/market-intelligence/components";
+
+const product = (title: string) => ({ id: "ours", title, handle: "ours", price: 540, currency: "PHP" });
+const result = (id: string, title: string) => ({ id, title, price: 200, currency: "PHP" });
+
+describe("Market Intelligence product matching", () => {
+  it("does not compare black or brown rice against red rice", () => {
+    const rows = [result("red", "Organic Red Rice 3kg"), result("black", "Organic Black Rice 3kg")];
+
+    expect(findMatches(product("Philippine Organic Black Rice | 3 kg"), rows).map((row) => row.id)).toEqual(["black"]);
+  });
+
+  it("does not compare a tea blend with a bag of grain", () => {
+    expect(findMatches(
+      product("Roasted Black Rice Tea Blend (5-in-1)"),
+      [result("grain", "Organic Black Rice 3kg")],
+    )).toEqual([]);
+
+    expect(findMatches(
+      product("Philippine Organic Black Rice | 3 kg"),
+      [result("tea", "Organic Black Rice Tea 3kg")],
+    )).toEqual([]);
+  });
+
+  it("requires comparable package quantities when both are sold by weight", () => {
+    const rows = [result("two", "Organic Black Rice 2kg"), result("three", "Organic Black Rice 3kg")];
+
+    expect(findMatches(product("Philippine Organic Black Rice | 3 kg"), rows).map((row) => row.id)).toEqual(["three"]);
+  });
+});

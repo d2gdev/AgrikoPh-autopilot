@@ -127,9 +127,22 @@ function contentProposalNeedsEvidenceReview(proposal: {
 }
 
 function contentOpportunityNeedsEvidenceReview(opportunity: { type: string; source: string; evidence: unknown }): boolean {
-  if (opportunity.type !== "content_gap" || opportunity.source !== "content-pilot") return false;
-  const impressions = numberValue(asRecord(opportunity.evidence).impressions);
-  return impressions != null && impressions < 50;
+  if (opportunity.source !== "content-pilot") return false;
+  const evidence = asRecord(opportunity.evidence);
+  if (opportunity.type === "content_gap") {
+    if (typeof evidence.insightId === "string" || typeof evidence.marketInsightId === "string") return true;
+    const impressions = numberValue(evidence.impressions);
+    return impressions != null && impressions < 50;
+  }
+  if (opportunity.type === "ctr_gap") {
+    const impressions = numberValue(evidence.impressions);
+    return impressions == null || impressions < 50;
+  }
+  return false;
+}
+
+function normalizedWorkTitle(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function compareBriefItems(a: BriefItem, b: BriefItem): number {
@@ -295,6 +308,7 @@ async function buildGrowthBrief() {
     const needsAttention: BriefItem[] = [];
     const readyToApprove: BriefItem[] = [];
     const quickWins: BriefItem[] = [];
+    const queuedContentTitles = new Set(contentProposals.map((proposal) => normalizedWorkTitle(proposal.title)));
 
     for (const job of jobs.perJobHealth) {
       const severity = text(job.severity, "info");
@@ -448,6 +462,10 @@ async function buildGrowthBrief() {
 
     for (const opportunity of openOpportunities) {
       const action = opportunity.proposedAction as Record<string, unknown>;
+      const actionTitle = text(action.title, opportunity.targetName ?? opportunity.type);
+      if (opportunity.source === "content-pilot" && queuedContentTitles.has(normalizedWorkTitle(actionTitle))) {
+        continue;
+      }
       if (contentOpportunityNeedsEvidenceReview(opportunity)) {
         needsAttention.push(asItem({
           id: `opportunity-review:${opportunity.id}`,
@@ -462,9 +480,10 @@ async function buildGrowthBrief() {
         }));
         continue;
       }
+      if (opportunity.effort?.toLowerCase() !== "low") continue;
       quickWins.push(asItem({
         id: `opportunity:${opportunity.id}`,
-        title: text(action.title, opportunity.targetName ?? opportunity.type),
+        title: actionTitle,
         description: text(action.description, `Review ${opportunity.type} opportunity.`),
         source: opportunity.source,
         priority: opportunity.priority,

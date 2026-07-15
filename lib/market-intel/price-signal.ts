@@ -10,6 +10,13 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export type PricePoint = { price: number; capturedAt: Date };
 
+export function isMeaningfulPriceChange(previousPrice: number, currentPrice: number, minimumPct = 5): boolean {
+  if (!Number.isFinite(previousPrice) || !Number.isFinite(currentPrice) || previousPrice <= 0 || currentPrice <= 0) {
+    return false;
+  }
+  return (Math.abs(currentPrice - previousPrice) / previousPrice) * 100 >= minimumPct;
+}
+
 function median(nums: number[]): number {
   const sorted = [...nums].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);

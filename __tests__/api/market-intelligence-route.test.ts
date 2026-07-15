@@ -125,6 +125,15 @@ describe("market-intelligence GET route", () => {
     expect(mockPrisma.marketInsight.findMany).toHaveBeenCalledTimes(1);
   });
 
+  it("requests only the newest row for each displayed keyword", async () => {
+    await GET(new Request("http://test.local/api/market-intelligence?refresh=1"));
+
+    expect(mockPrisma.keywordResearchResult.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      distinct: ["keyword"],
+      orderBy: { capturedAt: "desc" },
+    }));
+  });
+
   it("paginates the insight feed instead of silently hiding the backlog", async () => {
     mockPrisma.marketInsight.count.mockResolvedValue(120);
 

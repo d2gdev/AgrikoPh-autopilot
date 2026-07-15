@@ -427,6 +427,31 @@ describe("growth-brief route", () => {
     expect(body.sections.needsAttention.map((item: { id: string }) => item.id)).toContain("opportunity-review:low-gap");
   });
 
+  it("keeps low-evidence CTR work and competitor-derived angles out of Quick Wins", async () => {
+    mockPrisma.opportunity.findMany.mockResolvedValue([
+      { id: "low-ctr", type: "ctr_gap", targetType: "article", targetName: "red rice", source: "content-pilot", priority: "P1", score: 75, impact: "High", effort: "Low", evidence: { impressions: 12 }, proposedAction: { title: "Low evidence CTR", description: "Too little evidence" } },
+      { id: "competitor-angle", type: "content_gap", targetType: "keyword", targetName: "counter angle", source: "content-pilot", priority: "P3", score: 0, impact: "Medium", effort: "High", evidence: { insightId: "insight-1" }, proposedAction: { title: "Counter-angle", description: "Market-derived idea" } },
+    ]);
+    const { GET } = await import("@/app/api/growth-brief/route");
+    const body = await (await GET(request())).json();
+
+    expect(body.sections.quickWins).toEqual([]);
+    expect(body.sections.needsAttention.map((item: { id: string }) => item.id).sort()).toEqual([
+      "opportunity-review:competitor-angle",
+      "opportunity-review:low-ctr",
+    ]);
+  });
+
+  it("does not repeat a queued proposal as a separate quick win", async () => {
+    mockPrisma.contentProposal.findMany.mockResolvedValue([{ id: "proposal-1", title: "Expand thin content", description: "Queued", priority: "P3", proposalType: "content-refresh", changeType: "content", articleHandle: "article", sourceData: {} }]);
+    mockPrisma.opportunity.findMany.mockResolvedValue([{ id: "opportunity-1", type: "thin_content", targetType: "article", targetName: "article", source: "content-pilot", priority: "P3", score: 0, impact: "Low", effort: "Medium", evidence: {}, proposedAction: { title: "Expand thin content", description: "Duplicate" } }]);
+    const { GET } = await import("@/app/api/growth-brief/route");
+    const body = await (await GET(request())).json();
+
+    expect(body.sections.readyToApprove.map((item: { id: string }) => item.id)).toContain("content:proposal-1");
+    expect(body.sections.quickWins.map((item: { id: string }) => item.id)).not.toContain("opportunity:opportunity-1");
+  });
+
   it("sorts operator queues by priority rank then score evidence and surfaces source diagnostics", async () => {
     mockPrisma.contentProposal.findMany.mockResolvedValue([
       {

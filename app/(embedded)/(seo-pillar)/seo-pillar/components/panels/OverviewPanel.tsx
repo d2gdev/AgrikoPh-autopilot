@@ -75,7 +75,7 @@ export function OverviewPanel({
           {gscFreshness?.selectedSource === "rawSnapshot"
             ? ` · fallback snapshot (${gscFreshness.fallbackReason === "raw_newer_than_normalized" ? "raw data is newer" : "normalized data unavailable"})`
             : ""}
-          {previousFetchedAt ? ` · compared to ${timeAgo(previousFetchedAt)}` : " · no prior period to compare yet"}
+          {previousFetchedAt ? ` · compared to ${timeAgo(previousFetchedAt)}` : " · no non-overlapping comparison period yet"}
         </Text>
       )}
 
@@ -117,7 +117,7 @@ export function OverviewPanel({
             <BlockStack gap="300">
               <Text variant="headingMd" as="h2">Movers</Text>
               {moverRows.length === 0 ? (
-                <Text as="p" tone="subdued">No prior period to compare yet. Movers appear once two snapshots exist.</Text>
+                <Text as="p" tone="subdued">No non-overlapping comparison period yet. Trend history is still shown above; movers appear once a comparable period exists.</Text>
               ) : (
                 <ResponsiveDataTable columnContentTypes={["text", "text", "text", "numeric"]} headings={["Query", "Δ Clicks", "Δ Pos", "Clicks"]} rows={moverRows} />
               )}

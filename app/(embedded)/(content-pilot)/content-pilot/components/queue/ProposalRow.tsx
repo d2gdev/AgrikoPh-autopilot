@@ -329,7 +329,13 @@ export function ProposalRow({
         )}
 
         {p.proposalType === "new-content" && !p.articleHandle && (
-          <Text as="p" tone="subdued" variant="bodySm">Will create a new article in your blog.</Text>
+          <Text as="p" tone="subdued" variant="bodySm">
+            {stage === "published"
+              ? "Published as a new article in your blog."
+              : stage === "rejected"
+                ? "Would create a new article if re-opened and approved."
+                : "Will create a new article in your blog."}
+          </Text>
         )}
 
         {evidenceLines.length > 0 && (

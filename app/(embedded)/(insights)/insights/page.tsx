@@ -39,8 +39,6 @@ export default function InsightsPilotPage() {
 
   const [storeMetrics, setStoreMetrics] = useState<{ label: string; value: string }[]>(() => getCache<{ label: string; value: string }[]>("/api/images:insights-metrics") ?? []);
   const [storeLoading, setStoreLoading] = useState(() => !getCache("/api/images:insights-metrics"));
-  const [socialStatus, setSocialStatus] = useState<"active" | "degraded">("active");
-
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadAll = useCallback(() => {
@@ -100,9 +98,6 @@ export default function InsightsPilotPage() {
       .catch(fail)
       .finally(() => setStoreLoading(false));
 
-    authFetch("/api/social-pilot")
-      .then((r) => setSocialStatus(r.ok ? "active" : "degraded"))
-      .catch(() => setSocialStatus("degraded"));
   }, [authFetch]);
 
   useEffect(() => { loadAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -139,7 +134,7 @@ export default function InsightsPilotPage() {
     {
       name: "Social Pilot",
       path: "/social-pilot",
-      status: socialStatus,
+      status: "planned",
       metrics: [],
       loading: false,
     },

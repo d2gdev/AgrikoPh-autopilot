@@ -143,6 +143,7 @@ async function buildMarketIntelligencePayload(insightsPage = 1): Promise<MarketI
     fetchRecentAdsPerCompetitor(),
     prisma.keywordResearchResult.findMany({
       orderBy: { capturedAt: "desc" },
+      distinct: ["keyword"],
       take: 50,
       select: {
         id: true,

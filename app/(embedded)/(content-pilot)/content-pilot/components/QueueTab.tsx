@@ -69,7 +69,7 @@ export function QueueTab({
   const [loadingDraftId, setLoadingDraftId] = useState<string | null>(null);
   // Search & filter
   const [searchQuery, setSearchQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<"all" | "pending" | "approved" | "generating" | "ready" | "scheduled" | "publishing" | "publish-error" | "published" | "failed" | "rejected">("all");
+  const [stageFilter, setStageFilter] = useState<"all" | "pending" | "approved" | "generating" | "ready" | "scheduled" | "publishing" | "publish-error" | "published" | "failed" | "rejected">("pending");
   const [typeFilter, setTypeFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [sortKey, setSortKey] = useState<"priority" | "createdAt" | "impact">("priority");

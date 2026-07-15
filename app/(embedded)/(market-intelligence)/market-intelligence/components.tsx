@@ -287,6 +287,43 @@ const STOP_WORDS = new Set([
   "kg","g","ml","l","pack","set","pcs","pc","piece","pieces","box",
 ]);
 
+const PRODUCT_IDENTITY_TERMS = new Set([
+  "black", "red", "brown", "white", "rice", "turmeric", "ginger", "moringa",
+  "honey", "cacao", "ternate", "tea", "powder", "cereal",
+]);
+const PRODUCT_FORM_TERMS = new Set(["tea", "powder", "cereal"]);
+
+function normalizedIdentityTokens(text: string): Set<string> {
+  const tokens = tokenise(text);
+  if (tokens.has("malunggay")) tokens.add("moringa");
+  return new Set([...tokens].filter((token) => PRODUCT_IDENTITY_TERMS.has(token)));
+}
+
+function weightInGrams(text: string): number | null {
+  const match = text.toLowerCase().match(/(\d+(?:\.\d+)?)\s*(kg|g)\b/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return match[2] === "kg" ? value * 1000 : value;
+}
+
+function isComparableProduct(ourTitle: string, competitorTitle: string): boolean {
+  const ours = normalizedIdentityTokens(ourTitle);
+  const theirs = normalizedIdentityTokens(competitorTitle);
+  if (ours.size > 0 && ![...ours].every((token) => theirs.has(token))) return false;
+  for (const form of PRODUCT_FORM_TERMS) {
+    if (ours.has(form) !== theirs.has(form)) return false;
+  }
+
+  const ourWeight = weightInGrams(ourTitle);
+  const competitorWeight = weightInGrams(competitorTitle);
+  if ((ourWeight == null) !== (competitorWeight == null)) return false;
+  if (ourWeight != null && competitorWeight != null && Math.abs(ourWeight - competitorWeight) / ourWeight > 0.1) {
+    return false;
+  }
+  return true;
+}
+
 function tokenise(text: string): Set<string> {
   return new Set(
     text.toLowerCase()
@@ -311,6 +348,7 @@ export function findMatches(
   { threshold = 0.25, limit = 5 }: { threshold?: number; limit?: number } = {},
 ): CompetitorResult[] {
   return results
+    .filter((result) => isComparableProduct(product.title, result.titleEn ?? result.title))
     .map(r => ({ r, score: scoreMatch(product.title, r.titleEn ?? r.title) }))
     .filter(({ score }) => score >= threshold)
     .sort((a, b) => b.score - a.score)

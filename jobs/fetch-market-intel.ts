@@ -13,7 +13,7 @@ import { fillCreativeAngles } from "@/lib/market-intel/classify-angles";
 import { recordCompetitorAdCapture } from "@/lib/market-intel/ad-captures";
 import { isSpamStoryAd } from "@/lib/market-intel/spam-filter";
 import { resolveRunLimits, type MarketIntelRunOptions, type ResolvedLimits, type RunProfile } from "@/lib/market-intel/profiles";
-import { gapIsStable } from "@/lib/market-intel/price-signal";
+import { gapIsStable, isMeaningfulPriceChange } from "@/lib/market-intel/price-signal";
 import { sendOperatorAlert } from "@/lib/alerts";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
 
@@ -496,7 +496,7 @@ export async function fetchMarketIntelHandler(
         if (priceWrite === "created") summary.priceRecordsCreated++;
         else summary.priceRecordsUpdated++;
 
-        if (previous && priceDelta != null && Math.abs(priceDelta) >= 0.01) {
+        if (previous && priceDelta != null && isMeaningfulPriceChange(previous.price, product.price)) {
           const severity = priceDeltaPct != null && Math.abs(priceDeltaPct) >= 10 ? "warning" : "info";
           const insightWrite = await savePriceChangeInsight({
             type: "price_change",
@@ -628,7 +628,7 @@ export async function fetchMarketIntelHandler(
             if (priceWrite === "created") summary.priceRecordsCreated++;
             else summary.priceRecordsUpdated++;
 
-            if (previous && priceDelta != null && Math.abs(priceDelta) >= 0.01) {
+            if (previous && priceDelta != null && isMeaningfulPriceChange(previous.price, product.price)) {
               const severity = priceDeltaPct != null && Math.abs(priceDeltaPct) >= 10 ? "warning" : "info";
               const insightWrite = await savePriceChangeInsight({
                 type: "price_change",
