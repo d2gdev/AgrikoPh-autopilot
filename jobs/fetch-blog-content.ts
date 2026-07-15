@@ -160,6 +160,18 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
         const existing = existingByShopify ?? existingByHandle;
 
         if (existing?.contentHash === contentHash && existing.handle === article.handle && existing.blogHandle === article.blogHandle) {
+          const parsed = parseArticleHtml(article.bodyHtml);
+          const topicsData = analyzeTopics(article.title, parsed.textContent, article.tags);
+          const topicsChanged = JSON.stringify(existing.topicsData ?? []) !== JSON.stringify(topicsData);
+          if (topicsChanged) {
+            await prisma.articleRecord.update({
+              where: { id: existing.id },
+              data: { topicsData: topicsData as object },
+            });
+            indexed++;
+          } else {
+            skipped++;
+          }
           if (existing.linksData) {
             linksMap[articleKey(article.blogHandle, article.handle)] = existing.linksData as unknown as LinksAnalysis;
           }
@@ -178,9 +190,8 @@ export async function fetchBlogContentHandler(): Promise<IndexResult> {
             inboundCount: existing.inboundCount,
             seoData: existing.seoData,
             linksData: existing.linksData,
-            topicsData: existing.topicsData,
+            topicsData,
           });
-          skipped++;
           continue;
         }
 

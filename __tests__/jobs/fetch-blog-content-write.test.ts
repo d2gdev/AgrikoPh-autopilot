@@ -193,6 +193,40 @@ describe("fetchBlogContentHandler article identity", () => {
     }));
   });
 
+  it("reclassifies topics when unchanged content has stale analyzer output", async () => {
+    const unchanged = article({
+      title: "How customer testimonial UGC builds trust",
+      bodyHtml: "<h1>How customer testimonial UGC builds trust</h1><p>Compare price and promotion performance.</p>",
+      tags: ["advertising"],
+    });
+    mockFetchBlogArticles.mockResolvedValue([unchanged]);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{
+      id: "record-1",
+      shopifyId: unchanged.id,
+      blogHandle: unchanged.blogHandle,
+      handle: unchanged.handle,
+      title: unchanged.title,
+      contentHash: computeContentHash(unchanged.bodyHtml),
+      wordCount: 10,
+      imageCount: 0,
+      headingCount: 1,
+      ctaCount: 0,
+      internalLinkCount: 0,
+      inboundCount: 0,
+      seoData: {},
+      linksData: { internal: [], external: [], cta: [] },
+      topicsData: [{ topic: "rice", confidence: 0.8, matchedKeywords: ["rice"] }],
+    }]);
+
+    const result = await fetchBlogContentHandler();
+
+    expect(result.indexed).toBe(1);
+    expect(mockPrisma.articleRecord.update).toHaveBeenCalledWith({
+      where: { id: "record-1" },
+      data: { topicsData: [] },
+    });
+  });
+
   it("updates inbound counts by exact blog and article handle", async () => {
     mockFetchBlogArticles.mockResolvedValue([
       article({ id: "gid://shopify/Article/1", blogHandle: "news", handle: "shared", bodyHtml: '<a href="/blogs/recipes/shared">Recipe</a>' }),
