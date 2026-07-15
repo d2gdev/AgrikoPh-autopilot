@@ -144,10 +144,26 @@ describe("pilot usability helper regressions", () => {
 
   it("marks suspicious persisted image alt text for review before claiming it is optimized", () => {
     const source = readFileSync("app/(embedded)/(store-pilot)/images/page.tsx", "utf8");
+    const storeSource = readFileSync("app/(embedded)/(store-pilot)/store-pilot/page.tsx", "utf8");
+    const briefSource = readFileSync("app/api/growth-brief/route.ts", "utf8");
 
     expect(source).toContain("needsAltReview");
     expect(source).toContain("Needs review");
     expect(source).toContain("Regenerate");
     expect(source).toContain('label: "Needs review"');
+    expect(storeSource).toContain("needsReview");
+    expect(storeSource).toContain('"Needs Review"');
+    expect(storeSource).toContain("need review");
+    expect(briefSource).toContain("product images need alt-text attention");
+  });
+
+  it("does not expose approval or duplicate actions for ineligible content proposals", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/queue/ProposalRow.tsx", "utf8");
+    const queueSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/QueueTab.tsx", "utf8");
+
+    expect(source).toContain("contentProposalEligibility");
+    expect(source).toContain("Not actionable");
+    expect(source).toContain("eligibility.actionable &&");
+    expect(queueSource).toContain("contentProposalEligibility(p).actionable");
   });
 });

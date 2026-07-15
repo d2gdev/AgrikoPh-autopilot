@@ -44,7 +44,7 @@ interface GrowthBriefPayload {
     pendingRecommendations: number;
     openMarketInsights: number;
     openOpportunities: number;
-    imageMissingAltText: number;
+    imageNeedsAttention: number;
   };
   dataQuality: {
     seoSnapshotFetchedAt: string | null;
@@ -54,6 +54,8 @@ interface GrowthBriefPayload {
       available: boolean;
       total: number;
       missingAltText: number;
+      needsReview: number;
+      needsAttention: number;
       note: string;
     };
     runSkills: {
@@ -275,7 +277,7 @@ export default function GrowthBriefPage() {
                   <Stat label="Quick Wins" value={data.summary.quickWinCount} />
                 </div>
                 <div style={{ flex: "1 1 180px", minWidth: 180 }}>
-                  <Stat label="Missing Alt Text" value={data.summary.imageMissingAltText} tone={data.summary.imageMissingAltText ? "warning" : "success"} />
+                  <Stat label="Images Needing Attention" value={data.summary.imageNeedsAttention} tone={data.summary.imageNeedsAttention ? "warning" : "success"} />
                 </div>
               </InlineStack>
 

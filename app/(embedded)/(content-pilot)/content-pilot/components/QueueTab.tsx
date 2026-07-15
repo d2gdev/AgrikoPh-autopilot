@@ -32,6 +32,7 @@ import {
 import { bulkApprovalGenerationFeedback } from "@/lib/content-pilot/operator-feedback";
 import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
 import { canRejectContentProposal } from "@/lib/content-pilot/proposal-state";
+import { contentProposalEligibility } from "@/lib/content-pilot/proposal-eligibility";
 
 // Safely parse a Response as JSON. If the body is not JSON (e.g. an HTML error
 // page from a proxy or Next.js itself), returns { error: <raw text> } rather
@@ -100,7 +101,7 @@ export function QueueTab({
   const getStage = contentProposalQueueStage;
 
   const pendingCount = allProposals.filter((p) => p.status === "pending").length;
-  const approvedCount = allProposals.filter((p) => p.status === "approved" && !p.draftStatus).length;
+  const approvedCount = allProposals.filter((p) => p.status === "approved" && !p.draftStatus && contentProposalEligibility(p).actionable).length;
   const generatingCount = allProposals.filter((p) => p.draftStatus === "generating").length;
   const readyCount = allProposals.filter((p) => p.draftStatus === "ready" && !p.scheduledPublishAt).length;
   const scheduledCount = allProposals.filter((p) => p.draftStatus === "ready" && p.scheduledPublishAt).length;
@@ -338,7 +339,10 @@ export function QueueTab({
   const bulkApproveAndGenerate = async () => {
     setBulkActing(true);
     setError(null);
-    const ids = Array.from(selectedIds).filter((id) => allProposals.find((p) => p.id === id)?.status === "pending");
+    const ids = Array.from(selectedIds).filter((id) => {
+      const p = allProposals.find((proposal) => proposal.id === id);
+      return p?.status === "pending" && contentProposalEligibility(p).actionable;
+    });
     setSelectedIds(new Set());
     const CONCURRENCY = 3;
     let cursor = 0;
@@ -426,7 +430,7 @@ export function QueueTab({
   // Header button: generate ALL approved-no-draft (regardless of filter/selection)
   const generateAllDrafts = async () => {
     const ids = allProposals
-      .filter((p) => p.status === "approved" && !p.draftStatus)
+      .filter((p) => p.status === "approved" && !p.draftStatus && contentProposalEligibility(p).actionable)
       .map((p) => p.id);
     await runBulkGenerate(ids);
   };
@@ -435,7 +439,7 @@ export function QueueTab({
   const bulkGenerateSelectedDrafts = async () => {
     const ids = Array.from(selectedIds).filter((id) => {
       const p = allProposals.find((p) => p.id === id);
-      return p?.status === "approved" && !p.draftStatus;
+      return Boolean(p?.status === "approved" && !p.draftStatus && contentProposalEligibility(p).actionable);
     });
     await runBulkGenerate(ids);
   };
@@ -480,7 +484,10 @@ export function QueueTab({
   const bulkApproveOnly = async () => {
     setBulkActing(true);
     setError(null);
-    const ids = Array.from(selectedIds).filter((id) => allProposals.find((p) => p.id === id)?.status === "pending");
+    const ids = Array.from(selectedIds).filter((id) => {
+      const p = allProposals.find((proposal) => proposal.id === id);
+      return p?.status === "pending" && contentProposalEligibility(p).actionable;
+    });
     setSelectedIds(new Set());
     const CONCURRENCY = 3;
     let cursor = 0;
@@ -532,11 +539,14 @@ export function QueueTab({
     setSelectedIds(allSelectableSelected ? new Set() : new Set(selectableInView.map((p) => p.id)));
 
   const pendingSelectedCount = Array.from(selectedIds).filter(
-    (id) => allProposals.find((p) => p.id === id)?.status === "pending"
+    (id) => {
+      const p = allProposals.find((proposal) => proposal.id === id);
+      return p?.status === "pending" && contentProposalEligibility(p).actionable;
+    }
   ).length;
   const approvedSelectedCount = Array.from(selectedIds).filter((id) => {
     const p = allProposals.find((p) => p.id === id);
-    return p?.status === "approved" && !p.draftStatus;
+    return Boolean(p?.status === "approved" && !p.draftStatus && contentProposalEligibility(p).actionable);
   }).length;
   const rejectableSelectedCount = Array.from(selectedIds).filter((id) => {
     const proposal = allProposals.find((candidate) => candidate.id === id);

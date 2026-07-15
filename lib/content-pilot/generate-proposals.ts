@@ -257,151 +257,6 @@ function buildKeywordMap(
   return result;
 }
 
-const MAX_COMPETITOR_SEEDS_TOTAL = 6;
-const MAX_TESTS_PER_COMPETITOR = 2;
-
-// Builds "counter-angle" ContentProposal seeds from the latest competitor-analysis
-// SkillInsight. Runs inside generateProposals (not a standalone producer) because the
-// daily cron wipes all pending proposals and regenerates from this function nightly —
-// a standalone producer's rows would be lost within 24h.
-function competitorFindings(insight: { id: string; items: unknown } | null): ProposalInput[] {
-  if (!insight) return [];
-  const items = Array.isArray(insight.items) ? insight.items : [];
-  const proposals: ProposalInput[] = [];
-
-  for (const raw of items) {
-    if (proposals.length >= MAX_COMPETITOR_SEEDS_TOTAL) break;
-    if (raw === null || typeof raw !== "object") continue;
-    const item = raw as Record<string, unknown>;
-
-    const competitor = typeof item.competitor === "string" && item.competitor ? item.competitor : null;
-    if (!competitor) continue;
-
-    const gaps = Array.isArray(item.gaps)
-      ? item.gaps.filter((g): g is string => typeof g === "string" && g.length > 0)
-      : [];
-    const recommendedTests = Array.isArray(item.recommendedTests)
-      ? item.recommendedTests.filter((t): t is string => typeof t === "string" && t.length > 0)
-      : [];
-
-    for (const test of recommendedTests.slice(0, MAX_TESTS_PER_COMPETITOR)) {
-      if (proposals.length >= MAX_COMPETITOR_SEEDS_TOTAL) break;
-
-      const finding: ContentFinding = {
-        type: "new-content-gap",
-        trafficScore: 20,
-        businessValue: 20,
-        severity: "medium",
-        confidence: 0.75,
-        risk: "low",
-        changeType: "new_article",
-        title: `Counter-angle: ${test}`.slice(0, 240),
-        description:
-          `Competitor ${competitor} is testing this angle` +
-          (gaps.length > 0 ? ` while leaving gaps: ${gaps.join("; ")}.` : ".") +
-          ` Ship a counter-angle article before they own the search intent.`,
-        evidence: { insightId: insight.id, competitor, gaps },
-        proposedState: { targetKeyword: test, angle: test, competitor },
-      };
-
-      const score = scoreFinding(finding);
-      proposals.push({
-        articleHandle: null,
-        proposalType: "new-content",
-        changeType: "new_article",
-        priority: "medium",
-        impact: findingToImpact(score),
-        effort: changeTypeToEffort(finding.changeType),
-        title: finding.title,
-        description: finding.description,
-        proposedState: finding.proposedState,
-        sourceData: finding.evidence,
-        priorityScore: score,
-      });
-    }
-  }
-
-  return proposals;
-}
-
-const MAX_KEYWORD_GAP_SEEDS = 6;
-
-type MarketInsightRow = {
-  id: string;
-  competitorId: string | null;
-  evidence: unknown;
-  createdAt: Date;
-};
-
-// Builds new-content ContentProposal seeds from open keyword_gap MarketInsights
-// (produced by jobs/fetch-market-intel.ts from DataForSEO Labs domain-intersection
-// data — competitor organic rankings, unrelated to Google Ads Keyword Planner).
-// Runs inside generateProposals for the same reason as competitorFindings: the
-// nightly cron wipes and regenerates all pending proposals from this function.
-function keywordGapFindings(insights: MarketInsightRow[]): ProposalInput[] {
-  const proposals: ProposalInput[] = [];
-  const nowMs = Date.now();
-
-  for (const insight of insights) {
-    if (proposals.length >= MAX_KEYWORD_GAP_SEEDS) break;
-    if (insight === null || typeof insight !== "object") continue;
-    const evidence = insight.evidence;
-    if (evidence === null || typeof evidence !== "object") continue;
-    const ev = evidence as Record<string, unknown>;
-
-    const keyword = typeof ev.keyword === "string" && ev.keyword ? ev.keyword : null;
-    const competitorDomain =
-      typeof ev.competitorDomain === "string" && ev.competitorDomain ? ev.competitorDomain : null;
-    const competitorPosition = typeof ev.competitorPosition === "number" ? ev.competitorPosition : null;
-    const searchVolume = typeof ev.searchVolume === "number" ? ev.searchVolume : null;
-
-    if (!keyword || !competitorDomain || competitorPosition == null || searchVolume == null) continue;
-
-    const title = `Keyword gap: "${keyword}" (${competitorDomain} ranks #${competitorPosition})`.slice(0, 240);
-    const angle = `${competitorDomain} ranks #${competitorPosition} for "${keyword}" (~${searchVolume}/mo searches) and we don't appear at all — a dedicated article targeting this keyword can capture the gap.`;
-
-    const finding: ContentFinding = {
-      type: "new-content-gap",
-      trafficScore: trafficBucket(searchVolume),
-      businessValue: 18,
-      severity: "medium",
-      confidence: 0.75,
-      risk: "low",
-      changeType: "new_article",
-      title,
-      description: angle,
-      evidence: { marketInsightId: insight.id, keyword, competitorDomain, competitorPosition, searchVolume },
-      proposedState: { targetKeyword: keyword, angle, competitorDomain, searchVolume },
-    };
-
-    const organicPriority = scoreOrganicOpportunity({
-      type: "keyword_gap",
-      searchVolume,
-      confidence: 0.75,
-      effort: "medium",
-      businessRelevance: businessRelevanceForQuery(keyword),
-      sourceFreshnessHours: hoursAgo(insight.createdAt, nowMs),
-    });
-    proposals.push({
-      articleHandle: null,
-      proposalType: "new-content",
-      changeType: "new_article",
-      ...organicProposalFields(organicPriority),
-      title: finding.title,
-      description: finding.description,
-      proposedState: finding.proposedState,
-      sourceData: {
-        marketInsightId: insight.id,
-        competitorId: insight.competitorId ?? null,
-        evidence: { keyword, competitorDomain, competitorPosition, searchVolume },
-        organicPriority,
-      },
-    });
-  }
-
-  return proposals;
-}
-
 function articleHandleFromPage(page: string): string {
   return page.split(/[?#]/)[0]?.split("/").filter(Boolean).pop() ?? "";
 }
@@ -440,7 +295,7 @@ function buildQueryLandingMap(
 }
 
 export async function generateProposals(prismaClient: PrismaClient): Promise<ProposalInput[]> {
-  const [articles, latestGscWindow, gscSnap, gscQueryPageSnap, competitorInsight, keywordGapInsights] = await Promise.all([
+  const [articles, latestGscWindow, gscSnap, gscQueryPageSnap] = await Promise.all([
     prismaClient.articleRecord.findMany({
       select: {
         handle: true,
@@ -458,15 +313,6 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
     getLatestGscWindow(prismaClient),
     prismaClient.rawSnapshot.findFirst({ where: { source: "gsc" }, orderBy: { fetchedAt: "desc" } }),
     prismaClient.rawSnapshot.findFirst({ where: { source: "gsc_query_page" }, orderBy: { fetchedAt: "desc" } }),
-    prismaClient.skillInsight.findFirst({
-      where: { insightType: "competitor-analysis" },
-      orderBy: { createdAt: "desc" },
-    }),
-    prismaClient.marketInsight.findMany({
-      where: { type: "keyword_gap", status: "open" },
-      orderBy: { createdAt: "desc" },
-      take: 12,
-    }),
   ]);
 
   // GSC connector stores position as a string (e.g. "11.4") — normalise to number here.
@@ -504,15 +350,7 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
 
   // Ad tests and third-party keyword gaps remain Market Intelligence evidence
   // until an operator maps them to an exact governed content target.
-  const competitorProposals: ProposalInput[] = [];
-  const keywordGapProposals: ProposalInput[] = [];
-
-  if (
-    articles.length === 0 &&
-    gscQueries.length === 0 &&
-    competitorProposals.length === 0 &&
-    keywordGapProposals.length === 0
-  ) {
+  if (articles.length === 0 && gscQueries.length === 0) {
     return [];
   }
 
@@ -747,8 +585,6 @@ export async function generateProposals(prismaClient: PrismaClient): Promise<Pro
         sourceData: f.evidence,
       };
     }),
-    ...competitorProposals,
-    ...keywordGapProposals,
   ].sort((a, b) => b.priorityScore - a.priorityScore);
 
   const seen = new Set<string>();

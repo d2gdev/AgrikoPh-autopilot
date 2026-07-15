@@ -6,14 +6,17 @@ export interface TopicTag {
   matchedKeywords: string[];
 }
 
+function keywordPattern(keyword: string): RegExp {
+  const escaped = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  return new RegExp(`(^|[^a-z0-9])${escaped}(?=$|[^a-z0-9])`, "gi");
+}
+
+function containsKeyword(text: string, keyword: string): boolean {
+  return keywordPattern(keyword).test(text);
+}
+
 function countOccurrences(text: string, keyword: string): number {
-  let count = 0;
-  let pos = 0;
-  while ((pos = text.indexOf(keyword, pos)) !== -1) {
-    count++;
-    pos += keyword.length;
-  }
-  return count;
+  return Array.from(text.matchAll(keywordPattern(keyword))).length;
 }
 
 export function analyzeTopics(
@@ -21,12 +24,14 @@ export function analyzeTopics(
   bodyText: string,
   shopifyTags: string[]
 ): TopicTag[] {
+  const relevanceText = [title, ...shopifyTags].join(" ").toLowerCase();
   const searchText = [title, bodyText, ...shopifyTags].join(" ").toLowerCase();
   const wordCount = Math.max(1, searchText.split(/\s+/).length);
   const results: TopicTag[] = [];
 
   for (const [topic, keywords] of Object.entries(TOPIC_CLUSTERS)) {
-    const matched = keywords.filter((kw) => searchText.includes(kw.toLowerCase()));
+    if (!keywords.some((keyword) => containsKeyword(relevanceText, keyword))) continue;
+    const matched = keywords.filter((keyword) => containsKeyword(searchText, keyword));
     if (matched.length === 0) continue;
 
     // Breadth: fraction of cluster keywords that appear at all

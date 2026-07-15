@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { contentProposalEligibility } from "@/lib/content-pilot/proposal-eligibility";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const appAuthError = await requireAppAuth(req);
@@ -13,6 +14,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const source = await prisma.contentProposal.findUnique({ where: { id } });
   if (!source) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const eligibility = contentProposalEligibility(source);
+  if (!eligibility.actionable) {
+    return NextResponse.json({ error: `Cannot duplicate proposal: ${eligibility.reason}` }, { status: 409 });
+  }
 
   const clone = await prisma.contentProposal.create({
     data: {

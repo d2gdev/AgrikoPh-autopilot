@@ -6,6 +6,7 @@ import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getJobsStatusPayload } from "@/lib/dashboard/jobs-status";
 import { fetchProductImages } from "@/lib/shopify-admin";
+import { imageAltHealth } from "@/lib/image-alt-health";
 import { priorityRank } from "@/lib/growth-brief/priority";
 
 type BriefTone = "success" | "warning" | "critical" | "info";
@@ -125,6 +126,12 @@ function contentProposalNeedsEvidenceReview(proposal: {
   return typeof sourceData.insightId === "string" || typeof sourceData.marketInsightId === "string";
 }
 
+function contentOpportunityNeedsEvidenceReview(opportunity: { type: string; source: string; evidence: unknown }): boolean {
+  if (opportunity.type !== "content_gap" || opportunity.source !== "content-pilot") return false;
+  const impressions = numberValue(asRecord(opportunity.evidence).impressions);
+  return impressions != null && impressions < 50;
+}
+
 function compareBriefItems(a: BriefItem, b: BriefItem): number {
   return priorityRank(a.sortPriority ?? a.priority) - priorityRank(b.sortPriority ?? b.priority)
     || (b.sortScore ?? 0) - (a.sortScore ?? 0);
@@ -171,10 +178,13 @@ function summarizeRunSkills(
 async function getImageSummary() {
   try {
     const images = await fetchProductImages();
+    const health = imageAltHealth(images);
     return {
       available: true,
       total: images.length,
-      missingAltText: images.filter((image) => !image.altText).length,
+      missingAltText: health.missing,
+      needsReview: health.needsReview,
+      needsAttention: health.missing + health.needsReview,
       note: "Live Shopify product image read.",
     };
   } catch (err) {
@@ -183,6 +193,8 @@ async function getImageSummary() {
       available: false,
       total: 0,
       missingAltText: 0,
+      needsReview: 0,
+      needsAttention: 0,
       note: "Image summary unavailable. Check Shopify Admin credentials.",
     };
   }
@@ -261,7 +273,7 @@ async function buildGrowthBrief() {
       }),
       getImageSummary(),
       prisma.rawSnapshot.findFirst({
-        where: { source: "seo" },
+        where: { source: "seo_analysis" },
         orderBy: { fetchedAt: "desc" },
         select: { fetchedAt: true },
       }),
@@ -316,16 +328,16 @@ async function buildGrowthBrief() {
       }));
     }
 
-    if (imageSummary.available && imageSummary.missingAltText > 0) {
+    if (imageSummary.available && imageSummary.needsAttention > 0) {
       needsAttention.push(asItem({
         id: "images:missing-alt",
-        title: `${imageSummary.missingAltText} product images missing alt text`,
+        title: `${imageSummary.needsAttention} product images need alt-text attention`,
         description: "Generate/review alt text before treating image SEO as complete.",
         source: "Store Pilot",
-        priority: imageSummary.missingAltText >= 10 ? "P2" : "P3",
-        tone: imageSummary.missingAltText >= 10 ? "warning" : "info",
+        priority: imageSummary.needsAttention >= 10 ? "P2" : "P3",
+        tone: imageSummary.needsAttention >= 10 ? "warning" : "info",
         href: "/images",
-        meta: [`${imageSummary.total} total images`, imageSummary.note],
+        meta: [`${imageSummary.missingAltText} missing`, `${imageSummary.needsReview} need review`, `${imageSummary.total} total images`, imageSummary.note],
       }));
     } else if (!imageSummary.available) {
       needsAttention.push(asItem({
@@ -436,6 +448,20 @@ async function buildGrowthBrief() {
 
     for (const opportunity of openOpportunities) {
       const action = opportunity.proposedAction as Record<string, unknown>;
+      if (contentOpportunityNeedsEvidenceReview(opportunity)) {
+        needsAttention.push(asItem({
+          id: `opportunity-review:${opportunity.id}`,
+          title: `Verify content opportunity evidence — ${text(action.title, opportunity.targetName ?? opportunity.type)}`,
+          description: "This opportunity is not backed by sufficient first-party GSC evidence and cannot be approved as a quick win.",
+          source: "Content Pilot",
+          priority: "P2",
+          tone: "warning",
+          href: "/content-pilot",
+          meta: evidenceMeta({ score: opportunity.score, extra: [opportunity.type, "evidence review required"] }),
+          sortScore: opportunity.score,
+        }));
+        continue;
+      }
       quickWins.push(asItem({
         id: `opportunity:${opportunity.id}`,
         title: text(action.title, opportunity.targetName ?? opportunity.type),
@@ -481,7 +507,7 @@ async function buildGrowthBrief() {
         pendingRecommendations: recommendations.length,
         openMarketInsights: marketInsights.length,
         openOpportunities: openOpportunities.length,
-        imageMissingAltText: imageSummary.missingAltText,
+        imageNeedsAttention: imageSummary.needsAttention,
       },
       dataQuality: {
         seoSnapshotFetchedAt: latestSeoSnapshot?.fetchedAt?.toISOString() ?? null,

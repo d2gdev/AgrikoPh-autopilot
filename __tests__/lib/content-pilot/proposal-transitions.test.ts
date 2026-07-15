@@ -23,6 +23,9 @@ const mockTx = vi.hoisted(() => ({
   contentProposalDraftHistory: {
     create: vi.fn(),
   },
+  topicalMapActivation: {
+    findUnique: vi.fn(),
+  },
 }));
 
 function proposal(overrides: Record<string, unknown> = {}) {
@@ -55,6 +58,39 @@ beforeEach(() => {
 });
 
 describe("approveProposal", () => {
+  it("refuses a new article bound to an earlier topical map", async () => {
+    mockTx.contentProposal.findUnique.mockResolvedValueOnce(proposal({
+      status: "pending",
+      proposalType: "new-content",
+      sourceData: { strategyCompliance: { result: "compliant", packageSha256: "a".repeat(64) } },
+      proposedState: { targetKeyword: "red rice benefits" },
+    }));
+    mockTx.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { packageSha256: "b".repeat(64) } });
+
+    await expect(approveProposal(mockTx, {
+      id: "proposal-1",
+      reviewedBy: "operator",
+      reviewNote: null,
+    })).rejects.toThrow("TOPICAL_MAP_STRATEGY_STALE");
+    expect(mockTx.contentProposal.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a pending low-evidence new-content proposal", async () => {
+    mockTx.contentProposal.findUnique.mockResolvedValueOnce(proposal({
+      status: "pending",
+      proposalType: "new-content",
+      sourceData: { impressions: 5 },
+      proposedState: { targetKeyword: "ulikan red rice" },
+    }));
+
+    await expect(approveProposal(mockTx, {
+      id: "proposal-1",
+      reviewedBy: "operator",
+      reviewNote: null,
+    })).rejects.toThrow("FIRST_PARTY_EVIDENCE_REQUIRED");
+    expect(mockTx.contentProposal.updateMany).not.toHaveBeenCalled();
+  });
+
   it("approves only when proposal is still pending and writes audit in-tx", async () => {
     mockTx.contentProposal.findUnique
       .mockResolvedValueOnce(proposal({ status: "pending" }))

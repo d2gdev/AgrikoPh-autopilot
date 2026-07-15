@@ -20,6 +20,7 @@ import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import { timeAgo } from "@/lib/format";
 import { ListSkeleton } from "@/components/ui/states";
+import { needsAltReview } from "@/lib/image-alt-health";
 
 interface ImageRow {
   imageId: string;
@@ -47,11 +48,6 @@ const FILTERS = [
 type FilterId = (typeof FILTERS)[number]["id"];
 
 const IMAGES_CACHE_KEY = "/api/images";
-
-function needsAltReview(altText: string | null): boolean {
-  const value = altText?.trim().toLowerCase() ?? "";
-  return /\.(?:avif|gif|jpe?g|png|webp)$/.test(value) || /\bsigned\s+[\p{L}]/u.test(value);
-}
 
 export default function ImagesPage() {
   const authFetch = useAuthFetch();

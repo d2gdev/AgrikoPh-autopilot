@@ -16,6 +16,7 @@ import type { useRouter } from "next/navigation";
 import { withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
 import { canRejectContentProposal } from "@/lib/content-pilot/proposal-state";
+import { contentProposalEligibility } from "@/lib/content-pilot/proposal-eligibility";
 
 import type { ContentProposal } from "../types";
 import {
@@ -130,6 +131,14 @@ export function ProposalRow({
 }) {
   const evidenceLines = proposalEvidenceLines(p);
   const canReject = canRejectContentProposal(p);
+  const eligibility = contentProposalEligibility(p);
+  const ineligibleReason = eligibility.actionable ? null : ({
+    FIRST_PARTY_EVIDENCE_REQUIRED: "More first-party search evidence is required.",
+    MARKET_INTELLIGENCE_REVIEW_REQUIRED: "This market-intelligence angle must be reviewed before it can become article work.",
+    INVALID_TARGET_KEYWORD: "The target contains invalid search-operator syntax.",
+    TOPICAL_MAP_TARGET_REQUIRED: "This article is not bound to the active topical map.",
+    TOPICAL_MAP_STRATEGY_STALE: "This article belongs to an earlier topical map.",
+  } as const)[eligibility.reason];
 
   function RejectButton() {
     if (!canReject) return null;
@@ -158,6 +167,7 @@ export function ProposalRow({
 
   function RowAction() {
     if (stage === "pending") {
+      if (!eligibility.actionable) return <RejectButton />;
       return (
         <InlineStack gap="200">
           <Button size="slim" variant="primary"
@@ -291,7 +301,7 @@ export function ProposalRow({
       <BlockStack gap="300">
         <InlineStack align="space-between" blockAlign="start" wrap>
           <InlineStack gap="200" blockAlign="center" wrap>
-            {(p.status === "pending" || (p.status === "approved" && !p.draftStatus)) && (
+            {(eligibility.actionable && (p.status === "pending" || (p.status === "approved" && !p.draftStatus)) || canReject) && (
               <Checkbox label="Select proposal" labelHidden checked={isSelected} onChange={() => onToggleSelect(p.id)} />
             )}
             <PriorityBadge priority={p.priority} />
@@ -306,6 +316,8 @@ export function ProposalRow({
         </InlineStack>
 
         <Text as="p" tone="subdued">{p.description}</Text>
+
+        {ineligibleReason ? <Banner tone="warning" title="Not actionable"><p>{ineligibleReason}</p></Banner> : null}
 
         {stage === "failed" && p.draftError && (
           <Banner tone="critical" title="Draft generation failed">
@@ -337,7 +349,7 @@ export function ProposalRow({
 
         <RowAction />
 
-        <InlineStack>
+        {eligibility.actionable && <InlineStack>
           {isCloneConfirmOpen ? (
             <InlineStack gap="200" blockAlign="center">
               <Text as="p" tone="subdued" variant="bodySm">Duplicate this proposal?</Text>
@@ -349,7 +361,7 @@ export function ProposalRow({
               Duplicate
             </Button>
           )}
-        </InlineStack>
+        </InlineStack>}
 
         {p.scheduledPublishAt && (
           <Text as="p" tone="subdued" variant="bodySm">Scheduled: {new Date(p.scheduledPublishAt).toLocaleString()}</Text>

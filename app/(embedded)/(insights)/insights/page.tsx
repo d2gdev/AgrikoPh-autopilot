@@ -9,6 +9,7 @@ import { useAuthFetch, withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getCache, setCache } from "@/lib/client-cache";
 import { timeAgo } from "@/lib/format";
 import { ListSkeleton } from "@/components/ui/states";
+import { imageAltHealth } from "@/lib/image-alt-health";
 
 interface PilotCard {
   name: string;
@@ -87,7 +88,8 @@ export default function InsightsPilotPage() {
     authFetch("/api/images")
       .then((r) => { if (!r.ok) throw new Error(`images ${r.status}`); return r.json(); })
       .then((d) => {
-        const pct = d.total > 0 ? Math.round(((d.total - d.missingAltText) / d.total) * 100) : 0;
+        const health = imageAltHealth(d.images ?? []);
+        const pct = d.total > 0 ? Math.round((health.optimized / d.total) * 100) : 0;
         const metrics = [
           { label: "Total Images", value: String(d.total ?? 0) },
           { label: "Alt Text Coverage", value: `${pct}%` },

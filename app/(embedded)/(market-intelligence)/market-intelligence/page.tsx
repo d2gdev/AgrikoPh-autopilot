@@ -343,10 +343,12 @@ export default function MarketIntelligencePage() {
   }
 
   async function resolveInsight(id: string) {
+    const reason = window.prompt("Why is this insight resolved?")?.trim();
+    if (!reason) return;
     setResolvingInsightId(id);
     setError(null);
     try {
-      const response = await authFetch(`/api/market-intelligence/insights/${encodeURIComponent(id)}`, { method: "PATCH" });
+      const response = await authFetch(`/api/market-intelligence/insights/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
       const payload = await readJson(response, "Insight resolution failed");
       if (!response.ok) throw new Error((payload.error as string) ?? "Insight resolution failed");
       setData((current) => current ? {

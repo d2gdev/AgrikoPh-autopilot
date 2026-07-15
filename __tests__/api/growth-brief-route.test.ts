@@ -419,6 +419,14 @@ describe("growth-brief route", () => {
     ]));
   });
 
+  it("keeps a low-evidence content opportunity out of Quick Wins", async () => {
+    mockPrisma.opportunity.findMany.mockResolvedValue([{ id: "low-gap", type: "content_gap", targetType: "keyword", targetName: "ulikan red rice", source: "content-pilot", priority: "P2", score: 36, impact: "Medium", effort: "Medium", evidence: { impressions: 5 }, proposedAction: { title: "Ulikan red rice", description: "Low-evidence gap" } }]);
+    const { GET } = await import("@/app/api/growth-brief/route");
+    const body = await (await GET(request())).json();
+    expect(body.sections.quickWins.map((item: { id: string }) => item.id)).not.toContain("opportunity:low-gap");
+    expect(body.sections.needsAttention.map((item: { id: string }) => item.id)).toContain("opportunity-review:low-gap");
+  });
+
   it("sorts operator queues by priority rank then score evidence and surfaces source diagnostics", async () => {
     mockPrisma.contentProposal.findMany.mockResolvedValue([
       {

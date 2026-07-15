@@ -10,6 +10,7 @@ import { getCache, setCache } from "@/lib/client-cache";
 import { priorityTone } from "@/lib/ui/tones";
 import { ApplyMapTaskModal } from "./components/ApplyMapTaskModal";
 import { isTopicalMapTask, MapTaskDetails } from "./components/MapTaskDetails";
+import { imageAltHealth, needsAltReview } from "@/lib/image-alt-health";
 
 interface ProductImage {
   id: string;
@@ -323,8 +324,8 @@ export default function StorePilotReportPage() {
   }
 
   const total = data?.total ?? 0;
-  const missing = data?.missingAltText ?? 0;
-  const optimized = total - missing;
+  const health = imageAltHealth(data?.images ?? []);
+  const optimized = health.optimized;
   const pct = total > 0 ? Math.round((optimized / total) * 100) : 0;
   const count = (summaryClass: ExecutionClass, summaryStatus: TaskStatus) => summaryCounts[`${summaryClass}:${summaryStatus}`] ?? 0;
   const queueCards = [
@@ -335,16 +336,19 @@ export default function StorePilotReportPage() {
     ["Failed", count("actionable", "failed") + count("advisory", "failed")],
   ] as const;
 
-  const byProduct: Record<string, { title: string; total: number; missing: number }> = {};
+  const byProduct: Record<string, { title: string; total: number; missing: number; needsReview: number }> = {};
   for (const image of data?.images ?? []) {
-    if (!byProduct[image.productId]) byProduct[image.productId] = { title: image.productTitle, total: 0, missing: 0 };
+    if (!byProduct[image.productId]) byProduct[image.productId] = { title: image.productTitle, total: 0, missing: 0, needsReview: 0 };
     byProduct[image.productId]!.total++;
     if (!image.altText) byProduct[image.productId]!.missing++;
+    else if (needsAltReview(image.altText)) byProduct[image.productId]!.needsReview++;
   }
   const rows = Object.values(byProduct).map((product) => [
     product.title,
     String(product.total),
-    product.missing > 0 ? <Badge tone="warning">{`${product.missing} missing`}</Badge> : <Badge tone="success">All optimized</Badge>,
+    product.missing > 0 || product.needsReview > 0
+      ? <InlineStack gap="100" wrap>{product.missing > 0 ? <Badge tone="warning">{`${product.missing} missing`}</Badge> : null}{product.needsReview > 0 ? <Badge tone="attention">{`${product.needsReview} need review`}</Badge> : null}</InlineStack>
+      : <Badge tone="success">All optimized</Badge>,
   ]);
 
   const taskRows = taskPage.tasks.map((task) => {
@@ -451,7 +455,7 @@ export default function StorePilotReportPage() {
               <Text variant="headingMd" as="h2">Image optimization</Text>
               {imageError ? <Banner tone="critical">{imageError}</Banner> : null}
               <InlineStack gap="400" wrap>
-                {[["Total Images", total], ["Alt Text Missing", missing], ["Optimized", optimized], ["SEO Coverage", `${pct}%`]].map(([label, value]) => (
+                {[["Total Images", total], ["Missing", health.missing], ["Needs Review", health.needsReview], ["Optimized", optimized], ["SEO Coverage", `${pct}%`]].map(([label, value]) => (
                   <BlockStack key={label} gap="100">
                     <Text variant="headingSm" as="h3" tone="subdued">{label}</Text>
                     <Text variant="heading2xl" as="p">{loading || imageError ? "—" : value}</Text>
@@ -461,7 +465,7 @@ export default function StorePilotReportPage() {
               {!loading && total > 0 ? (
                 <BlockStack gap="200">
                   <ProgressBar progress={pct} tone={pct === 100 ? "success" : pct > 50 ? "highlight" : "critical"} />
-                  <Text as="p" tone="subdued">{optimized} of {total} images have alt text</Text>
+                  <Text as="p" tone="subdued">{optimized} of {total} images have reviewed alt text</Text>
                 </BlockStack>
               ) : null}
             </BlockStack>

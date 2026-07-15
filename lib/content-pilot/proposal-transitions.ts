@@ -12,12 +12,14 @@ import {
   markContentProposalOpportunityDismissed,
   markContentProposalOpportunityRouted,
 } from "@/lib/opportunities/content-proposal-outcomes";
+import { contentProposalEligibility } from "@/lib/content-pilot/proposal-eligibility";
 
 type ContentProposalTransitionClient = {
   contentProposal: Pick<PrismaClient["contentProposal"], "findUnique" | "updateMany">;
   auditLog: Pick<PrismaClient["auditLog"], "create">;
   opportunity: Pick<PrismaClient["opportunity"], "updateMany">;
   contentProposalDraftHistory: Pick<PrismaClient["contentProposalDraftHistory"], "create">;
+  topicalMapActivation: Pick<PrismaClient["topicalMapActivation"], "findUnique">;
 };
 
 type ProposalTransitionProposal = NonNullable<
@@ -76,6 +78,22 @@ export async function approveProposal(
 ): Promise<ProposalTransitionResult> {
   const existing = await prismaClient.contentProposal.findUnique({ where: { id: input.id } });
   if (!existing) throwNotFound(input.id);
+  const eligibility = contentProposalEligibility(existing);
+  if (!eligibility.actionable) {
+    throw new Error(`Cannot approve proposal: ${eligibility.reason}`);
+  }
+  if (existing.proposalType === "new-content") {
+    const activation = await prismaClient.topicalMapActivation.findUnique({
+      where: { siteHost: "agrikoph.com" },
+      select: { strategyVersion: { select: { packageSha256: true } } },
+    });
+    const currentEligibility = contentProposalEligibility(existing, {
+      activePackageSha256: activation?.strategyVersion.packageSha256 ?? null,
+    });
+    if (!currentEligibility.actionable) {
+      throw new Error(`Cannot approve proposal: ${currentEligibility.reason}`);
+    }
+  }
 
   const updatedCount = await prismaClient.contentProposal.updateMany({
     where: { id: input.id, status: "pending" },
