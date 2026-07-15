@@ -35,13 +35,13 @@ describe("analyzeTopics", () => {
     }));
   });
 
-  it("accepts an exact Shopify tag as relevance evidence", () => {
+  it("does not let a Shopify tag override title relevance", () => {
     const topics = analyzeTopics(
       "A practical buyer guide",
       "The article explains nutrients and fiber.",
       ["nutrition"],
     );
 
-    expect(topics.map((topic) => topic.topic)).toContain("nutrition");
+    expect(topics.map((topic) => topic.topic)).not.toContain("nutrition");
   });
 });

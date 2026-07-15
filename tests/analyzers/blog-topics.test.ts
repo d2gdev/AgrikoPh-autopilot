@@ -11,11 +11,12 @@ describe("analyzeTopics", () => {
     expect(moringa!.confidence).toBeGreaterThan(0);
   });
 
-  it("tags from Shopify tags array", () => {
-    const result = analyzeTopics("A blog post", "Some content.", ["rice", "sinandomeng"]);
+  it("uses Shopify tags to enrich a title-established topic", () => {
+    const result = analyzeTopics("Rice buying guide", "Some content.", ["sinandomeng"]);
     const rice = result.find((t) => t.topic === "rice");
     expect(rice).toBeDefined();
     expect(rice!.matchedKeywords).toContain("rice");
+    expect(rice!.matchedKeywords).toContain("sinandomeng");
   });
 
   it("returns topics sorted by confidence descending", () => {

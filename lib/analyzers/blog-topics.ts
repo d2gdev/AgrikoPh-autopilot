@@ -24,7 +24,7 @@ export function analyzeTopics(
   bodyText: string,
   shopifyTags: string[]
 ): TopicTag[] {
-  const relevanceText = [title, ...shopifyTags].join(" ").toLowerCase();
+  const relevanceText = title.toLowerCase();
   const searchText = [title, bodyText, ...shopifyTags].join(" ").toLowerCase();
   const wordCount = Math.max(1, searchText.split(/\s+/).length);
   const results: TopicTag[] = [];
