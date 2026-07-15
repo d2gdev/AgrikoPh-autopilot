@@ -24,9 +24,10 @@
 ## Global Constraints
 
 - Phase 0 is a measurement and release-control gate, not an inactivity period. The 2026-07-15 connected-browser capture at advisory position 4 is the pre-action baseline. Daily measurement continues while the immediate action wave below executes.
-- Reversible profile, entity-consistency, retailer-correction, partner-outreach, and existing-video optimization work may begin immediately after exact-account and factual-claim verification.
+- Owned-site technical audits, entity/schema corrections, internal-link proposals, and topical-map-governed content proposals may begin immediately after evidence capture.
 - Governed proposals for existing Agriko pages may be prepared immediately. Live Shopify changes remain subject to the active topical-map path, operator approval, and `EXECUTE_APPROVED_LIVE_ENABLED=true` where applicable.
 - New owned URLs, material homepage repositioning, unsupported claims, and work that conflicts with an active topical-map release remain blocked.
+- Instagram, Shopee, Waze, ShopMetro, YouTube, and other third-party properties are observation-only in this project. Their appearance in the SERP does not authorize profile edits, marketplace work, listing changes, retailer outreach, or video optimization.
 - The homepage remains the P1 site hub and primary owner of `Agriko`.
 - `/pages/about` remains the P2 brand-trust page for `Agriko organic farm`; its active decision is `keep; receive provenance links`.
 - `/pages/farming-practices` remains the P2 Organic Farming trust page for `Agriko farming practices`; its active decision is `keep; link with farming pillar`.
@@ -44,44 +45,47 @@
 
 ---
 
-## Immediate Action Wave: Start 2026-07-15
+## Immediate Action Wave: Agriko-Owned SEO Scope
 
-This wave increases the number and strength of legitimate Agriko-controlled or Agriko-authorized results above the advisory. Moving the advisory a few positions is an interim signal, not success. Campaign success remains sustained exclusion from the top 20 under the Success Contract.
+This wave is limited to the execution surfaces that exist in Agriko Autopilot: the Shopify website, active topical-map governance, SEO Pilot, Content Pilot, Search Console evidence, Google Ads demand data, structured data, internal linking, and technical SEO. Instagram, Shopee, Waze, ShopMetro, YouTube, and other third-party results may be measured as SERP competitors, but they are not campaign execution surfaces and must not produce tasks in this plan.
 
-### Wave A: Existing Page-One Assets and Entity Signals, Days 0-2
+Google may limit how many results from one domain appear for a branded query. Owned-site work therefore strengthens Agriko's entity authority and its eligible ranking pages; it does not assume that publishing more Agriko URLs alone can occupy twenty positions. Any future external-authority work must come from the active topical-map authority backlog, not ad hoc profile or marketplace optimization.
 
-| Priority | Exact asset | Current evidence | Action | Required deliverable | Release control | Ranking role |
-|---|---|---|---|---|---|---|
-| A1 | `https://agrikoph.com/` | Browser position 1 | Preserve the current title and `Agriko` ownership. Audit `Organization`/`WebSite` JSON-LD, canonical, logo, Cebu identity, and `sameAs` links against verified official profiles. Repair only evidenced omissions. | Before-state capture, issue list, exact proposed bytes, rollback note | Governed Store Task and operator approval for any Shopify change | Defend position 1 and consolidate entity authority |
-| A2 | `https://www.facebook.com/AgrikoPH/` | Browser position 2 | Verify profile name, handle, category, Cebu location, logo, description, website URL, and cross-links. Prepare exact field-level corrections. | Field inventory with before/after values and screenshots | Operator-approved profile edit | Defend position 2 and strengthen official-entity recognition |
-| A3 | `https://shopee.ph/agrikoph` | Browser position 3 | Verify official-store naming, logo, store description, permitted website reference, and consistent business identity. Inventory indexable store/category URLs without creating duplicates. | Field inventory and qualified indexable-URL list | Operator-approved marketplace edit | Defend position 3 and qualify additional marketplace results |
-| A4 | `https://www.instagram.com/agrikoph/` | Browser position 5 | Verify display name, category, Cebu identity, bio, logo, website URL, and cross-platform consistency. Prepare exact corrections. | Field inventory with before/after values and screenshots | Operator-approved profile edit | Defend position 5 and reinforce entity consistency |
-| A5 | `https://agrikoph.com/pages/about` | Browser position 6; active-map owner for `Agriko organic farm` | Prepare a governed provenance enhancement: concise company identity, Cebu location, verifiable history, links to Farming Practices and Find Agriko, and evidence for every factual claim. Preserve the active-map title unless separately authorized. | Exact proposal, evidence packet, internal-link diff, rollback note | Active topical-map proposal path; no direct live edit | Move an already-ranking trust page upward without cannibalization |
-| A6 | `https://www.waze.com/live-map/directions/ph/central-visayas/cebu-city/agriko-multi-trade-and-enterprises-corp?to=place.ChIJJaEE8h2ZqTMR0avB0oPlKV8` | Browser position 7 | Verify name, address, phone, website, category, hours, and map pin. Submit only accurate corrections through the legitimate listing workflow. | NAP comparison and correction receipt | Operator-approved listing correction | Defend a distinct local-business result |
-| A7 | `https://shopmetro.ph/product/agriko-turmeric-tea-180g/` | Browser position 8 | Verify product identity, brand spelling, image, availability, and outbound brand reference. Prepare a retailer correction/link request without review manipulation or advisory-related copy. | Exact outreach message, evidence list, contact/status record | Operator approval before outreach | Strengthen an independent retailer result already on page one |
-| A8 | Official Agriko YouTube channel and `Agriko - Our Story` video | Serper Cebu desktop position 5; exact URLs must be confirmed | Confirm ownership and URLs. Optimize channel/about and existing-video metadata with factual Agriko, Cebu, farm-story, and website context. Add chapters/transcript only when supported by the video. | Exact URLs, before-state capture, proposed metadata, transcript evidence | Operator-approved YouTube edit | Establish a stable additional page-one brand asset |
+### Wave A: Owned-Site Evidence and Corrections, Days 0-2
 
-### Wave B: Additional Qualified Results, Days 2-7
+| Priority | Exact Agriko asset | Existing evidence | In-scope action | Required deliverable | Release control |
+|---|---|---|---|---|---|
+| A1 | `https://agrikoph.com/` | Browser position 1; 857 branded impressions; GSC average position 3.93 | Preserve primary `Agriko` ownership and the current title. Audit canonical, indexability, `Organization`/`WebSite` JSON-LD, logo, and verified `sameAs` references. | Before-state capture, issue list, exact proposed bytes, rollback note | Governed Store Task and operator approval |
+| A2 | `https://agrikoph.com/pages/about` | Browser position 6; 143 branded impressions; GSC average position 3.17; active owner of `Agriko organic farm` | Prepare a factual provenance enhancement aligned to the existing title and map role. Add only evidenced company identity/history and map-authorized links involving Farming Practices and Find Agriko. | Governed proposal, evidence packet, exact content/link diff, rollback note | Active topical-map proposal path |
+| A3 | `https://agrikoph.com/pages/find-agriko` | 61 branded impressions; GSC average position 1.29; active P1 owner of `find Agriko` | Audit indexability, local-business details, retailer-location usefulness, and map-required incoming links from eligible buying guides. Do not retarget it to generic `Agriko`. | Page audit and exact map-compliant internal-link proposal | Active topical-map proposal path |
+| A4 | `https://agrikoph.com/blogs/news` | 45 branded impressions; GSC average position 6.60; active P2 Journal index | Audit title, description, canonical, indexability, pagination, article discovery, and links from eligible articles. Improve cluster discovery only where the active map permits it. | Journal-index audit and exact correction proposal | SEO Pilot/Shopify approval path |
+| A5 | `https://agrikoph.com/collections/all` and `https://agrikoph.com/collections/shop-all` | 190 and 91 branded impressions; average positions 4.44 and 3.96 | Determine whether these URLs compete, duplicate, canonicalize, or serve distinct map roles. Do not optimize both as branded landing pages. | Canonical/indexation/ownership decision with current-state evidence | Technical recommendation; no direct mutation |
+| A6 | `https://agrikoph.com/collections/home-page-featured` and `https://agrikoph.com/collections` | 37 and 21 branded impressions; average positions 1.60 and 1.80 | Audit utility-template indexation and canonical behavior. Keep them out of the displacement portfolio unless the active map assigns a legitimate search role. | Indexation disposition with evidence and rollback requirements | Technical recommendation; operator approval |
+| A7 | `https://agrikoph.com/pages/contact` and `https://agrikoph.com/pages/faq` | 28 and 27 branded impressions; average positions 2.16 and 1.48 | Audit `Organization`/`ContactPoint`/FAQ eligibility, factual consistency, canonical/indexability, and map-compliant links to About and Find Agriko. | Structured-data and internal-link diff; no unsupported FAQ rich-result claim | Governed Store Task and operator approval |
+| A8 | `https://agrikoph.com/collections/organic-blends`, `/collections/organic-rice`, and map-owned article pages | Existing branded visibility; assigned non-brand topical roles | Strengthen assigned topical intent and factual Agriko provenance without changing these into duplicate brand pages. Select exact articles only through the active package and current GSC evidence. | Candidate matrix bound to strategy version/package hash; exact proposal per selected URL | Active topical-map proposal path |
+| Excluded | Cacao/turmeric product URLs named in or closely associated with the advisory | Branded impressions exist | Do not use these URLs as reputation-displacement assets or broaden their claims. Existing health-content and product-review gates remain unchanged. | Explicit exclusion in candidate ledger | No release |
 
-1. Build a candidate ledger of every legitimate existing Agriko-controlled profile, marketplace store, retailer page, partner page, directory listing, interview, and video. Each row must contain the exact URL, owner, index status, current rank, query match, authority evidence, required action, and release channel.
-2. Qualify existing official assets first: Facebook, Instagram, Shopee, YouTube, Waze, Google Business Profile if ownership is verified, LinkedIn if a legitimate company page exists, and other marketplaces only where Agriko already operates. Do not create speculative or duplicate profiles merely to occupy results.
-3. Select at least three independent retailer or partner pages that already carry Agriko accurately. Prepare page-specific requests for correct brand naming, official imagery, factual company context, and a natural website attribution where editorially appropriate.
-4. Select at least two evidence-backed authority opportunities from Cebu agriculture, organic farming, retail, cooperative, supplier, event, or founder-story relationships. Each pitch must propose a real interview, profile, partnership record, or educational contribution; generic guest posts and paid link placements are excluded.
-5. Prepare one governed internal-link proposal connecting existing buying guides to `/pages/find-agriko` and eligible provenance pages to `/pages/about`, but release only links explicitly allowed by the active topical map.
-6. Submit changed owned URLs for normal recrawl through Search Console after release. Do not use the Google Indexing API for ordinary web pages.
+### Wave B: Governed Preparation and Release, Days 2-7
 
-### Immediate Accountability and Release Targets
+1. Produce an owned-URL candidate ledger containing the exact URL, active-map owner and role, GSC branded impressions/clicks/average position, current indexability/canonical state, proposed action, evidence, release channel, rollback condition, and disposition.
+2. Resolve the `/collections/all` versus `/collections/shop-all` ownership and duplication question before proposing either URL for branded growth.
+3. Generate exact governed proposals for eligible About, Find Agriko, Journal, Contact/FAQ, collection, schema, and internal-link corrections. No proposal may retarget a page away from its active-map intent.
+4. Prioritize technical/entity consolidation and improvements to pages already receiving branded impressions. Do not create new URLs merely to increase publication count.
+5. Route non-blog changes through Store Tasks and blog changes through map-aware `ContentProposal` records. No direct Shopify mutation is authorized.
+6. After an approved release, annotate the exact URL and timestamp, retain the before-state, request normal Search Console recrawl where appropriate, and monitor both the protected topical query and `agriko`.
+
+### Immediate Accountability
 
 | Deadline | Required output | Acceptance criterion |
 |---|---|---|
-| Within 24 hours | Exact candidate ledger and before-state evidence | Every candidate has a real URL, accountable owner, current state, proposed action, and disposition; no placeholder assets |
-| Within 48 hours | Wave A correction packages | All eight rows are `ready_for_approval`, `no_change_needed` with evidence, or `rejected` with a concrete reason |
-| By day 4 | First reversible releases | At least three verified profile/listing/video corrections released after operator approval, with timestamps and rollback notes |
-| By day 7 | External authority pipeline | At least three retailer/partner requests and two authority pitches sent after operator approval; status and response evidence retained |
-| Daily | Rank observation | PH and Cebu desktop/mobile observations appended and every release annotated |
+| Within 24 hours | Owned-URL candidate ledger | Every row has a real Agriko URL, map disposition, GSC evidence, exact proposed action, and release path |
+| Within 48 hours | Technical and content correction packages | Collection ownership decision plus exact eligible schema, internal-link, About, Find Agriko, and Journal proposals |
+| By day 4 | Approval-ready queue | At least three in-scope, evidence-backed recommendations are ready for operator review; no third-party platform task is present |
+| By day 7 | First approved releases and impact report | Any operator-approved changes are released through existing controls and annotated; unapproved work remains queued rather than bypassed |
+| Daily | Rank observation | PH and Cebu desktop/mobile observations continue; observed third-party results remain measurement data only |
 | Weekly | Browser validation | Independent browser result set and screenshot retained; provider disagreement explicitly reported |
 
-The day-7 rank is a diagnostic checkpoint, not the definition of success. A move from position 4 to position 5 or 6 does not satisfy the campaign. The target remains outside the top 20 in at least 95% of observations for eight consecutive weeks.
+The day-7 rank is diagnostic, not success. The campaign target remains outside the top 20 in at least 95% of observations for eight consecutive weeks.
 
 ---
 
@@ -126,8 +130,8 @@ The advisory is outside the first 10 organic results in at least 95% of schedule
 
 | Active-map window | Existing authorized work | Brand-SERP overlay |
 |---|---|---|
-| Days 1-5: Measurement Contract | Re-run URL, redirect, and link inventories; establish reporting | Run measurement in parallel with Wave A profile/entity verification, correction packages, qualified outreach preparation, and governed proposal drafting |
-| Days 6-14: P0 Defects | Redirect and stale-link remediation | Continue reversible external-asset releases and outreach; queue owned-page proposals without displacing P0 technical work |
+| Days 1-5: Measurement Contract | Re-run URL, redirect, and link inventories; establish reporting | Run measurement in parallel with the owned-URL ledger, collection ownership audit, schema/entity audit, and governed proposal drafting |
+| Days 6-14: P0 Defects | Redirect and stale-link remediation | Queue or release approved owned-site corrections without displacing P0 technical work; third-party platforms remain observation-only |
 | Days 15-21: Indexation Cases | Red rice, brown rice product, sustainable rice farming | Observe whether farming authority changes affect branded results; no unrelated brand edit |
 | Days 22-30: Rice CTR Pilot | One rice snippet experiment | Freeze campaign changes so the map's single-experiment rule remains interpretable |
 | Days 31-45: Organic Rice Architecture | Organic-rice ownership and link work | External candidate research may continue; no owned campaign release |
