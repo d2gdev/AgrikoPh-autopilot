@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { findMatches } from "@/app/(embedded)/(market-intelligence)/market-intelligence/components";
 
@@ -27,5 +28,20 @@ describe("Market Intelligence product matching", () => {
     const rows = [result("two", "Organic Black Rice 2kg"), result("three", "Organic Black Rice 3kg")];
 
     expect(findMatches(product("Philippine Organic Black Rice | 3 kg"), rows).map((row) => row.id)).toEqual(["three"]);
+  });
+
+  it("does not compare raw package prices when neither title proves the quantity", () => {
+    expect(findMatches(
+      product("Pure Philippine Organic Honey"),
+      [result("honey", "Nate's Organic Raw Honey")],
+    )).toEqual([]);
+  });
+});
+
+describe("Market Intelligence resolved-item cache", () => {
+  it("removes a resolved insight from the client cache as well as visible state", () => {
+    const source = readFileSync("app/(embedded)/(market-intelligence)/market-intelligence/page.tsx", "utf8");
+
+    expect(source).toContain("setCache(MARKET_INTELLIGENCE_CACHE_KEY, next)");
   });
 });

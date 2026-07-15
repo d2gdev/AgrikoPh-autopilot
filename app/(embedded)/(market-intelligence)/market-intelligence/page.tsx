@@ -351,11 +351,16 @@ export default function MarketIntelligencePage() {
       const response = await authFetch(`/api/market-intelligence/insights/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
       const payload = await readJson(response, "Insight resolution failed");
       if (!response.ok) throw new Error((payload.error as string) ?? "Insight resolution failed");
-      setData((current) => current ? {
-        ...current,
-        insights: current.insights.filter((insight) => insight.id !== id),
-        stats: { ...current.stats, openInsights: Math.max(0, current.stats.openInsights - 1) },
-      } : current);
+      setData((current) => {
+        if (!current) return current;
+        const next = {
+          ...current,
+          insights: current.insights.filter((insight) => insight.id !== id),
+          stats: { ...current.stats, openInsights: Math.max(0, current.stats.openInsights - 1) },
+        };
+        setCache(MARKET_INTELLIGENCE_CACHE_KEY, next);
+        return next;
+      });
       setNotice("Insight resolved.");
     } catch (err) {
       setError(String(err));

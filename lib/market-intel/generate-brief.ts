@@ -4,6 +4,7 @@ import { getBrandGuidelines } from "@/lib/content-pilot/brand-guidelines";
 import { shopifyFetch } from "@/lib/shopify-admin";
 import { retrieveContext, formatGroundingBlock } from "@/lib/ai/knowledge";
 import { computeAdLongevity } from "@/lib/market-intel/ad-longevity";
+import { isMeaningfulPriceChange } from "@/lib/market-intel/price-signal";
 
 // Grounds a market-intel brief's prompt context in the KB corpus. Additive — unchanged when empty.
 export async function groundBriefContext(baseContext: string, query: string): Promise<string> {
@@ -35,6 +36,17 @@ const BRIEF_FALLBACK: BriefSections = {
   recommendedActions: [],
   generatedAt: new Date().toISOString(),
 };
+
+const UNSUPPORTED_COMMERCE_ACTION = /(?:₱|\bphp\b|\bprice comparison\b|\bcompare (?:our|the) price\b|\b(?:lower|raise|increase|decrease|match|undercut)\b.{0,30}\bprice\b|\bbuy\s*\d+\s*take\s*\d+\b|\bbundle\b|\bfree shipping\b|\b\d+%\s*off\b|\bdiscount\b|\bpromo(?:tion)?\b)/i;
+
+export function sanitizeBrief(brief: BriefSections): BriefSections {
+  return {
+    ...brief,
+    recommendedActions: brief.recommendedActions.filter((item) =>
+      !UNSUPPORTED_COMMERCE_ACTION.test(`${item.action}\n${item.reason}`)
+    ),
+  };
+}
 
 const OUR_PRODUCTS_QUERY = `
   query OurProducts($after: String) {
@@ -88,7 +100,7 @@ function parseBriefJson(raw: string): BriefSections | null {
       typeof parsed.opportunities !== "string" ||
       !Array.isArray(parsed.recommendedActions)
     ) return null;
-    return {
+    return sanitizeBrief({
       adsActivity: parsed.adsActivity,
       pricingMovements: parsed.pricingMovements,
       opportunities: parsed.opportunities,
@@ -98,7 +110,7 @@ function parseBriefJson(raw: string): BriefSections | null {
         reason: String(r.reason ?? ""),
       })),
       generatedAt: new Date().toISOString(),
-    };
+    });
   } catch {
     return null;
   }
@@ -147,7 +159,10 @@ export async function generateBrief(): Promise<BriefSections> {
 
   const context = {
     period: "last 7 days",
-    ourProducts: ourProducts.slice(0, 20),
+    // Product names establish portfolio relevance. Prices are intentionally
+    // omitted because shopping results are not package-normalized or matched
+    // to a specific Shopify product.
+    ourProducts: ourProducts.slice(0, 20).map(({ title }) => ({ title })),
     brandGuidelines: brandGuidelines || "No brand guidelines set.",
     newAds: recentAds.length,
     provenAds: provenAds.map((a) => ({
@@ -165,7 +180,9 @@ export async function generateBrief(): Promise<BriefSections> {
       daysActive: a.daysActive,
       stillActive: a.stillActive,
     })),
-    priceMovements: priceHistory.map((p) => ({
+    priceMovements: priceHistory
+      .filter((p) => p.previousPrice != null && isMeaningfulPriceChange(p.previousPrice, p.price))
+      .map((p) => ({
       product: p.title,
       store: p.store,
       keyword: p.marketKeyword?.keyword ?? null,
@@ -173,7 +190,7 @@ export async function generateBrief(): Promise<BriefSections> {
       to: p.price,
       deltaPct: p.priceDeltaPct != null ? Math.round(p.priceDeltaPct * 10) / 10 : null,
       currency: p.currency,
-    })),
+      })),
     openInsights: insights.map((i) => ({ type: i.type, severity: i.severity, title: i.title, summary: i.summary })),
   };
 
@@ -196,10 +213,11 @@ Return ONLY valid JSON matching this exact schema (no markdown, no commentary):
     { "priority": "high|medium|low", "action": "<specific action to take>", "reason": "<data-backed reason>" }
   ]
 }
-Be specific and data-backed. Reference actual competitor names, product names, prices. Keep each section under 150 words. Recommended actions should be concrete (e.g. "Lower price on X from ₱620 to ₱480" not "consider pricing strategy").`;
+Be specific and data-backed. Reference actual competitor names and product names. Keep each section under 150 words. Recommended actions must identify a concrete content, positioning, or research next step.`;
+  const pricingSafety = `Competitor price movements are not package-normalized and are not matched to a specific Shopify product. Treat them as competitor observations only. Never compare our price to a competitor price, infer relative value, recommend a price or discount change, invent a bundle price, or recommend a promotion/free-shipping offer.`;
 
   try {
-    const groundedSystemPrompt = await groundBriefContext(systemPrompt, briefQuery);
+    const groundedSystemPrompt = await groundBriefContext(`${systemPrompt}\n${pricingSafety}`, briefQuery);
     const { content: raw } = await chatCompletionWithFailover({
       max_tokens: 2048,
       messages: [

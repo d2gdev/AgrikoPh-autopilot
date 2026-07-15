@@ -8,7 +8,8 @@ const mockAuth = vi.hoisted(() => ({
 }));
 const mockCheckRateLimit = vi.hoisted(() => vi.fn());
 const mockGenerateBrief = vi.hoisted(() => vi.fn());
-const mockPrisma = vi.hoisted(() => ({ rawSnapshot: { upsert: vi.fn() } }));
+const mockSanitizeBrief = vi.hoisted(() => vi.fn((brief) => brief));
+const mockPrisma = vi.hoisted(() => ({ rawSnapshot: { upsert: vi.fn(), findFirst: vi.fn() } }));
 
 vi.mock("@/lib/auth", () => ({
   PERMISSIONS: { CONTENT_REVIEW: "content:review" },
@@ -18,7 +19,7 @@ vi.mock("@/lib/auth", () => ({
   getSessionUser: mockAuth.getSessionUser,
 }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mockCheckRateLimit }));
-vi.mock("@/lib/market-intel/generate-brief", () => ({ generateBrief: mockGenerateBrief }));
+vi.mock("@/lib/market-intel/generate-brief", () => ({ generateBrief: mockGenerateBrief, sanitizeBrief: mockSanitizeBrief }));
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 
 import { GET } from "@/app/api/market-intelligence/brief/route";
@@ -33,6 +34,7 @@ describe("market intelligence brief refresh route", () => {
     mockCheckRateLimit.mockReturnValue(true);
     mockGenerateBrief.mockResolvedValue({ generatedAt: "2026-07-11T00:00:00.000Z" });
     mockPrisma.rawSnapshot.upsert.mockResolvedValue({});
+    mockPrisma.rawSnapshot.findFirst.mockResolvedValue(null);
   });
 
   it("returns the permission response before rate-limit, AI, or database work", async () => {
@@ -64,5 +66,24 @@ describe("market intelligence brief refresh route", () => {
     expect(mockCheckRateLimit).not.toHaveBeenCalled();
     expect(mockGenerateBrief).not.toHaveBeenCalled();
     expect(mockPrisma.rawSnapshot.upsert).not.toHaveBeenCalled();
+  });
+
+  it("applies current safety rules to an already cached brief", async () => {
+    const cached = {
+      generatedAt: "2026-07-15T00:00:00.000Z",
+      adsActivity: "Ads", pricingMovements: "Prices", opportunities: "Ideas",
+      recommendedActions: [{ priority: "high", action: "Unsafe price comparison", reason: "Unsupported" }],
+    };
+    mockPrisma.rawSnapshot.findFirst.mockResolvedValueOnce({
+      fetchedAt: new Date("2026-07-15T00:00:00.000Z"), payload: cached,
+    });
+    mockSanitizeBrief.mockReturnValueOnce({ ...cached, recommendedActions: [] });
+
+    const response = await GET(new Request("http://test.local/api/market-intelligence/brief"));
+    const body = await response.json();
+
+    expect(mockSanitizeBrief).toHaveBeenCalledWith(cached);
+    expect(body.brief.recommendedActions).toEqual([]);
+    expect(mockGenerateBrief).not.toHaveBeenCalled();
   });
 });

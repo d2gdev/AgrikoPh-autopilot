@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { PERMISSIONS, requireAppAuth, requirePermission, getSessionShop, getSessionUser } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/db";
-import { generateBrief, type BriefSections } from "@/lib/market-intel/generate-brief";
+import { generateBrief, sanitizeBrief, type BriefSections } from "@/lib/market-intel/generate-brief";
 import { Prisma } from "@prisma/client";
 
 const BRIEF_SOURCE = "competitive_brief";
@@ -46,10 +46,11 @@ export async function GET(req: Request) {
     });
 
     if (existing && Date.now() - existing.fetchedAt.getTime() < CACHE_TTL_MS) {
+      const brief = sanitizeBrief(existing.payload as unknown as BriefSections);
       return NextResponse.json({
-        brief: existing.payload as unknown as BriefSections,
+        brief,
         cached: true,
-        generatedAt: (existing.payload as Record<string, unknown>).generatedAt ?? existing.fetchedAt.toISOString(),
+        generatedAt: brief.generatedAt ?? existing.fetchedAt.toISOString(),
       });
     }
 

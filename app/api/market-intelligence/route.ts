@@ -108,6 +108,7 @@ async function buildMarketIntelligencePayload(insightsPage = 1): Promise<MarketI
     adLongevity,
   ] = await Promise.all([
     prisma.marketInsight.findMany({
+      where: { status: "open" },
       orderBy: { createdAt: "desc" },
       skip: (insightsPage - 1) * INSIGHTS_PAGE_SIZE,
       take: INSIGHTS_PAGE_SIZE,

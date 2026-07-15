@@ -125,6 +125,14 @@ describe("market-intelligence GET route", () => {
     expect(mockPrisma.marketInsight.findMany).toHaveBeenCalledTimes(1);
   });
 
+  it("queries only open rows for the feed labelled as open insights", async () => {
+    await GET(new Request("http://test.local/api/market-intelligence?refresh=1"));
+
+    expect(mockPrisma.marketInsight.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: "open" },
+    }));
+  });
+
   it("requests only the newest row for each displayed keyword", async () => {
     await GET(new Request("http://test.local/api/market-intelligence?refresh=1"));
 

@@ -317,6 +317,7 @@ function isComparableProduct(ourTitle: string, competitorTitle: string): boolean
 
   const ourWeight = weightInGrams(ourTitle);
   const competitorWeight = weightInGrams(competitorTitle);
+  if (ourWeight == null && competitorWeight == null) return false;
   if ((ourWeight == null) !== (competitorWeight == null)) return false;
   if (ourWeight != null && competitorWeight != null && Math.abs(ourWeight - competitorWeight) / ourWeight > 0.1) {
     return false;
