@@ -55,6 +55,7 @@ describe("connector health", () => {
     const shopify = connectors.find((connector) => connector.id === "shopify_admin");
     const ai = connectors.find((connector) => connector.id === "ai");
     const metaAds = connectors.find((connector) => connector.id === "meta_ads");
+    const alerts = connectors.find((connector) => connector.id === "alerts");
 
     expect(shopify).toMatchObject({
       status: "configured",
@@ -72,6 +73,12 @@ describe("connector health", () => {
     expect(metaAds).toMatchObject({
       status: "missing",
       configured: false,
+    });
+    expect(alerts).toMatchObject({
+      status: "configured",
+      configured: true,
+      missing: [],
+      notes: ["Admin in-app alerts are active. ALERT_WEBHOOK_URL optionally adds external delivery."],
     });
 
     expect(JSON.stringify(connectors)).not.toContain("shopify-db-token");

@@ -15,7 +15,26 @@ function errorExcerpt(error: unknown) {
 }
 
 async function postWebhook(payload: Record<string, unknown>): Promise<void> {
+  const alertType = typeof payload.type === "string" ? payload.type : "operational_alert";
   const webhookUrl = process.env.ALERT_WEBHOOK_URL;
+  if (alertType !== "ad_approval_notification") {
+    const severity = ["new_recommendations", "daily_digest", "competitor_zero_capture"].includes(alertType)
+      ? "info"
+      : "critical";
+    try {
+      await prisma.notification.create({
+        data: {
+          recipientId: "ADMIN",
+          type: `ops_${alertType}`.slice(0, 100),
+          title: `Operational alert: ${alertType.replaceAll("_", " ")}`.slice(0, 200),
+          body: JSON.stringify(payload).slice(0, 4000),
+          severity,
+        },
+      });
+    } catch (err) {
+      console.warn("[alerts] failed to persist in-app alert:", err);
+    }
+  }
   if (!webhookUrl) return;
   try {
     const response = await fetch(webhookUrl, {
@@ -211,9 +230,6 @@ async function alertJobLockAnomalies(now: Date, appUrl: string | null): Promise<
 }
 
 export async function checkAndAlertJobHealth(): Promise<void> {
-  const webhookUrl = process.env.ALERT_WEBHOOK_URL;
-  if (!webhookUrl) return;
-
   const appUrl = process.env.SHOPIFY_APP_URL ?? null;
   const now = new Date();
 
@@ -300,9 +316,6 @@ const MONITORED_STREAMS: Array<{ label: string; staleHours: number; newest: () =
 ];
 
 export async function checkAndAlertDataFreshness(): Promise<void> {
-  const webhookUrl = process.env.ALERT_WEBHOOK_URL;
-  if (!webhookUrl) return;
-
   const appUrl = process.env.SHOPIFY_APP_URL ?? null;
   const now = new Date();
 
@@ -330,9 +343,6 @@ export async function checkAndAlertDataFreshness(): Promise<void> {
 }
 
 export async function notifyJobFailure(input: JobFailureAlertInput): Promise<void> {
-  const webhookUrl = process.env.ALERT_WEBHOOK_URL;
-  if (!webhookUrl) return;
-
   const payload = {
     type: "job_failure",
     jobName: input.jobName,
@@ -346,8 +356,8 @@ export async function notifyJobFailure(input: JobFailureAlertInput): Promise<voi
   await postWebhook(payload);
 }
 
-// Generic ops-webhook passthrough for other subsystems (e.g. ad-approval
-// admin/critical notifications). No-ops when ALERT_WEBHOOK_URL is unset.
+// Generic ops-alert passthrough for other subsystems. Without a webhook,
+// operational alerts persist in the existing admin notification feed.
 export async function sendOpsWebhook(payload: Record<string, unknown>): Promise<void> {
   await postWebhook(payload);
 }
@@ -360,8 +370,7 @@ export type OperatorAlertKind =
   | "daily_digest"
   | "competitor_zero_capture";
 
-// Typed operator-alert wrapper over the ops webhook. Never throws; no-ops
-// when ALERT_WEBHOOK_URL is unset (both guaranteed by postWebhook).
+// Typed operator-alert wrapper. Never throws; external delivery is optional.
 export async function sendOperatorAlert(
   kind: OperatorAlertKind,
   payload: Record<string, unknown>,

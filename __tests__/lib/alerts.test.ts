@@ -22,6 +22,9 @@ const mockPrisma = vi.hoisted(() => ({
   gscQuery: {
     findFirst: vi.fn(),
   },
+  notification: {
+    create: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -53,6 +56,7 @@ describe("alerts", () => {
     mockPrisma.jobRun.count.mockResolvedValue(0);
     mockPrisma.jobLock.count.mockResolvedValue(0);
     mockPrisma.jobLock.findMany.mockResolvedValue([]);
+    mockPrisma.notification.create.mockResolvedValue({ id: "notification-1" });
   });
 
   afterEach(() => {
@@ -61,14 +65,19 @@ describe("alerts", () => {
     vi.unstubAllEnvs();
   });
 
-  it("does nothing when ALERT_WEBHOOK_URL is not configured", async () => {
+  it("persists failures in the admin feed when ALERT_WEBHOOK_URL is not configured", async () => {
     await notifyJobFailure({ jobName: "fetch-ads-data", error: new Error("boom") });
     await checkAndAlertJobHealth();
 
     expect(global.fetch).not.toHaveBeenCalled();
-    expect(mockPrisma.jobRun.findFirst).not.toHaveBeenCalled();
-    expect(mockPrisma.jobRun.count).not.toHaveBeenCalled();
-    expect(mockPrisma.jobLock.count).not.toHaveBeenCalled();
+    expect(mockPrisma.notification.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      recipientId: "ADMIN",
+      type: "ops_job_failure",
+      severity: "critical",
+    }) });
+    expect(mockPrisma.jobRun.findFirst).toHaveBeenCalled();
+    expect(mockPrisma.jobRun.count).toHaveBeenCalled();
+    expect(mockPrisma.jobLock.count).toHaveBeenCalled();
   });
 
   it("posts sanitized job failure payload to webhook", async () => {
@@ -98,6 +107,11 @@ describe("alerts", () => {
     });
     expect(body.errorExcerpt).toContain("token failed with newline");
     expect(String(body.errorExcerpt)).not.toContain("\n");
+    expect(mockPrisma.notification.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      recipientId: "ADMIN",
+      type: "ops_job_failure",
+      severity: "critical",
+    }) });
   });
 
   it("alerts when queued dashboard jobs are stuck past the threshold", async () => {
@@ -244,18 +258,30 @@ describe("sendOperatorAlert", () => {
     vi.unstubAllEnvs();
   });
 
-  it("no-ops when ALERT_WEBHOOK_URL is unset", async () => {
+  it("uses the admin notification feed when ALERT_WEBHOOK_URL is unset", async () => {
     const { sendOperatorAlert } = await import("@/lib/alerts");
     vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    mockPrisma.notification.create.mockClear();
     await sendOperatorAlert("new_recommendations", { count: 3 });
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockPrisma.notification.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      recipientId: "ADMIN",
+      type: "ops_new_recommendations",
+      severity: "info",
+    }) });
   });
 
   it("posts kind as type plus payload and timestamp when configured", async () => {
     const { sendOperatorAlert } = await import("@/lib/alerts");
     vi.stubEnv("ALERT_WEBHOOK_URL", "https://hooks.example.test/x");
+    mockPrisma.notification.create.mockClear();
     await sendOperatorAlert("daily_digest", { pendingRecommendations: 5 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.notification.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      recipientId: "ADMIN",
+      type: "ops_daily_digest",
+      severity: "info",
+    }) });
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
     expect(body.type).toBe("daily_digest");
     expect(body.pendingRecommendations).toBe(5);

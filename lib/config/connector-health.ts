@@ -158,10 +158,9 @@ const DEFINITIONS: ConnectorDefinition[] = [
   {
     id: "alerts",
     label: "Failure Alerts",
-    requirements: [
-      { label: "Alert webhook URL", keys: ["ALERT_WEBHOOK_URL"], mode: "all" },
-    ],
-    notes: ["Missing webhook means failed-job alerts are dormant."],
+    requirements: [],
+    optionalKeys: ["ALERT_WEBHOOK_URL"],
+    notes: ["Admin in-app alerts are active. ALERT_WEBHOOK_URL optionally adds external delivery."],
   },
 ];
 
