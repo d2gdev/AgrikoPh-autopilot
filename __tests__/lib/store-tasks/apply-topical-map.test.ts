@@ -104,6 +104,17 @@ describe("topical-map approval and internal dispatch", () => {
     await expect(dispatchClaimedTopicalMapStoreTask(client as any, redirectRec as any)).resolves.toMatchObject({ action: "redirect_delete", changedFields: ["redirect"] });
     expect(adapter.deleteRedirect).toHaveBeenCalledWith(observed);
   });
+  it("blocks redirect deletion when the active rule final target changed after approval", async () => {
+    const redirectSource = { source: "topical-map", strategyVersionId: "v1", packageSha256: "a".repeat(64), ruleIds: ["redirect:delete"], ruleDomains: ["redirects"], sourceReferences: [{ kind: "rule", id: "redirect:delete" }], generationProvenance: "deterministic", targetType: "redirect", targetUrl: "/pages/red-rice-recipes", action: "redirect_delete", redirectId: "redirect-1", observedRedirectTarget: "/blogs/recipes/tagged/red-rice", liveOwnerUrl: "/pages/red-rice-recipes", observedAt: "2026-07-14T00:00:00.000Z", observedStateHash: "d".repeat(64), recommendationId: "rec-1", executable: true, resolutionStatus: "resolved" };
+    const redirectProposed = { action: "redirect_delete", before: { id: "redirect-1", target: "/blogs/recipes/tagged/red-rice" }, after: { state: "absent" } };
+    const client = db();
+    client.storeTask.findUnique.mockResolvedValue({ ...task, sourceData: redirectSource, proposedState: redirectProposed });
+    command.load.mockResolvedValue({ identity: { versionId: "v1", packageSha256: "a".repeat(64) }, pages: [], work: { internalLinks: [], redirects: [{ source: "/pages/red-rice-recipes", finalTarget: "/blogs/recipes/tagged/other", requiredAction: "retain live page as owner; remove redirect record", ruleIds: ["redirect:delete"], policy: { resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } }] } });
+    const redirectRec = { ...rec, proposedValue: JSON.stringify({ taskId: "task-1", approvedProposedStateHash: hashTopicalMapProposedState(redirectProposed) }) };
+
+    await expect(dispatchClaimedTopicalMapStoreTask(client as any, redirectRec as any)).rejects.toMatchObject({ code: "RULE_CHANGED" });
+    expect(adapter.deleteRedirect).not.toHaveBeenCalled();
+  });
   it("blocks a previously approved redirect when its active rule is now manual-gated", async () => {
     const redirectSource = { source: "topical-map", strategyVersionId: "v1", packageSha256: "a".repeat(64), ruleIds: ["redirect:1"], ruleDomains: ["redirects"], sourceReferences: [{ kind: "rule", id: "redirect:1" }], generationProvenance: "deterministic", targetType: "redirect", targetUrl: "/old", action: "redirect_create", redirectTarget: "/products/rice", observedAt: "2026-07-14T00:00:00.000Z", observedStateHash: "d".repeat(64), recommendationId: "rec-1", executable: true };
     const redirectProposed = { action: "redirect_create", before: { state: "absent" }, after: { target: "/products/rice" } };

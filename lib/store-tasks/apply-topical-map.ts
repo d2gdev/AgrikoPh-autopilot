@@ -63,6 +63,7 @@ function stillGoverned(center: Awaited<ReturnType<typeof loadActiveTopicalMapCom
   if (source.action === "redirect_delete" && proposed.action === "redirect_delete") {
     const governed = center.work.redirects.filter((item) =>
       path(item.source) === source.targetUrl
+      && path(item.finalTarget) === source.observedRedirectTarget
       && topicalMapActionEligibility(item.policy).actionable
       && topicalMapRedirectRequiresDelete(item.requiredAction));
     return governed.length === 1
