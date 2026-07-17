@@ -127,4 +127,3 @@ export type SeoTaskBucket = z.infer<typeof SeoTaskBucketSchema>;
 export type SeoTaskListInput = z.infer<typeof SeoTaskListQuerySchema>;
 export type CreateSeoTaskInput = z.infer<typeof CreateSeoTaskSchema>;
 export type SeoTaskMutation = z.infer<typeof SeoTaskMutationSchema>;
-

@@ -39,7 +39,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "SEO tasks are unavailable." }, { status: 500 });
   }
 }
-
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
@@ -65,4 +64,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "SEO task creation failed." }, { status: 500 });
   }
 }
-
