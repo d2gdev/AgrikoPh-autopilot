@@ -63,7 +63,7 @@ export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: 
       return;
     }
     const result = await response.json() as {
-      task?: Omit<SeoTaskDetail, "bucket" | "overdue">;
+      task?: Omit<SeoTaskDetail, "bucket" | "overdue" | "completionPreflight">;
       history?: Array<{
         id: string;
         action: string;
@@ -75,7 +75,11 @@ export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: 
       setError("Task details could not be loaded.");
       return;
     }
-    const loadedDetail = { ...task, ...result.task };
+    const loadedDetail = {
+      ...task,
+      ...result.task,
+      completionPreflight: task.completionPreflight,
+    };
     setDetail(loadedDetail);
     setEvidenceStatus(loadedDetail.evidenceStatus);
     setEvidenceSnapshot(
@@ -140,6 +144,16 @@ export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: 
               {bucketReason(task)}. Evidence: {task.evidenceStatus.replace("_", " ")}.
               {task.overdue ? " Overdue." : ""}
             </Text>
+            <Text
+              as="p"
+              tone={task.completionPreflight.status === "already_handled" ? "critical" : "subdued"}
+            >
+              {task.completionPreflight.status === "already_handled"
+                ? "Prior completion recorded. This task is blocked pending record reconciliation."
+                : task.completionPreflight.status === "closed"
+                  ? "Completion check: This task is closed."
+                  : `Completion check: No prior completion recorded as of ${formatDate(task.completionPreflight.checkedAt)}.`}
+            </Text>
           </BlockStack>
           <Button
             accessibilityLabel={`${expanded ? "Hide" : "View"} details for ${task.title}`}
@@ -181,7 +195,7 @@ export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: 
               )}
               {error && <Banner tone="critical">{error}</Banner>}
 
-              {detail.status === "open" && (
+              {detail.status === "open" && detail.completionPreflight.status === "clear" && (
                 <InlineStack gap="200" wrap>
                   <Button onClick={() => { setEditing((value) => !value); setAction(null); }}>Edit task</Button>
                   <Button onClick={() => { setAction("evidence"); setEditing(false); }}>Update evidence</Button>

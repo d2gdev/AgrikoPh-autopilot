@@ -14,6 +14,10 @@ import {
 } from "./readiness";
 
 const ENTITY_TYPE = "seo_follow_up_task";
+const TERMINAL_AUDIT_ACTIONS = [
+  "seo_follow_up_task_completed",
+  "seo_follow_up_task_cancelled",
+] as const;
 
 function bucketWhere(bucket: SeoTaskBucket, now: Date): Prisma.SeoFollowUpTaskWhereInput {
   const readyEvidence: Prisma.SeoFollowUpTaskWhereInput = {
@@ -83,6 +87,8 @@ const SEO_TASK_LIST_SELECT = {
   requiresEvidence: true,
   evidenceStatus: true,
   evidenceSnapshot: true,
+  sourceType: true,
+  sourceKey: true,
   status: true,
 } satisfies Prisma.SeoFollowUpTaskSelect;
 
@@ -102,7 +108,86 @@ const SEO_TASK_DETAIL_SELECT = {
 
 type SeoTaskListRecord = Prisma.SeoFollowUpTaskGetPayload<{ select: typeof SEO_TASK_LIST_SELECT }>;
 
-function toListItem(task: SeoTaskListRecord, now: Date) {
+export type SeoTaskCompletionPreflight = {
+  status: "clear" | "already_handled" | "closed";
+  basis: "task_and_audit_history";
+  checkedAt: string;
+};
+
+function sourceIdentity(task: Pick<SeoTaskListRecord, "taskType" | "sourceType" | "sourceKey">): string {
+  return `${task.taskType}\u001f${task.sourceType}\u001f${task.sourceKey}`;
+}
+
+async function getCompletionPreflights(
+  tasks: SeoTaskListRecord[],
+  now: Date,
+): Promise<Map<string, SeoTaskCompletionPreflight>> {
+  const openTasks = tasks.filter((task) => task.status === "open");
+  const checkedAt = now.toISOString();
+  const result = new Map<string, SeoTaskCompletionPreflight>();
+  for (const task of tasks) {
+    if (task.status !== "open") {
+      result.set(task.id, {
+        status: "closed",
+        basis: "task_and_audit_history",
+        checkedAt,
+      });
+    }
+  }
+  if (openTasks.length === 0) return result;
+
+  const identities = [...new Map(openTasks.map((task) => [
+    sourceIdentity(task),
+    {
+      taskType: task.taskType,
+      sourceType: task.sourceType,
+      sourceKey: task.sourceKey,
+    },
+  ])).values()];
+  const [terminalReceipts, terminalTasks] = await Promise.all([
+    prisma.auditLog.findMany({
+      where: {
+        entityType: ENTITY_TYPE,
+        entityId: { in: openTasks.map((task) => task.id) },
+        action: { in: [...TERMINAL_AUDIT_ACTIONS] },
+      },
+      orderBy: { createdAt: "desc" },
+      take: Math.min(openTasks.length * TERMINAL_AUDIT_ACTIONS.length, 200),
+      select: { entityId: true, action: true },
+    }),
+    prisma.seoFollowUpTask.findMany({
+      where: {
+        status: { in: ["completed", "cancelled"] },
+        OR: identities,
+      },
+      select: {
+        id: true,
+        taskType: true,
+        sourceType: true,
+        sourceKey: true,
+        status: true,
+      },
+    }),
+  ]);
+  const receiptIds = new Set(terminalReceipts.map((receipt) => receipt.entityId));
+  const terminalIdentities = new Set(terminalTasks.map(sourceIdentity));
+  for (const task of openTasks) {
+    result.set(task.id, {
+      status: receiptIds.has(task.id) || terminalIdentities.has(sourceIdentity(task))
+        ? "already_handled"
+        : "clear",
+      basis: "task_and_audit_history",
+      checkedAt,
+    });
+  }
+  return result;
+}
+
+function toListItem(
+  task: SeoTaskListRecord,
+  now: Date,
+  completionPreflight: SeoTaskCompletionPreflight,
+) {
   return {
     id: task.id,
     version: task.version,
@@ -117,6 +202,7 @@ function toListItem(task: SeoTaskListRecord, now: Date) {
     requiresEvidence: task.requiresEvidence,
     evidenceStatus: task.evidenceStatus,
     status: task.status,
+    completionPreflight,
     bucket: deriveSeoTaskBucket({
       status: task.status as "open" | "completed" | "cancelled",
       earliestReviewAt: task.earliestReviewAt,
@@ -161,8 +247,17 @@ export async function listSeoTasks(
       take: input.pageSize,
     }),
   ]);
+  const completionPreflights = await getCompletionPreflights(tasks, now);
   return {
-    tasks: tasks.map((task) => toListItem(task, now)),
+    tasks: tasks.map((task) => toListItem(
+      task,
+      now,
+      completionPreflights.get(task.id) ?? {
+        status: "clear",
+        basis: "task_and_audit_history",
+        checkedAt: now.toISOString(),
+      },
+    )),
     total,
     page: input.page,
     pageSize: input.pageSize,
@@ -295,6 +390,32 @@ export async function mutateSeoTask(
     if (!current) return { outcome: "not_found" };
     if (current.status !== "open") {
       return { outcome: "invalid_transition", message: "Closed SEO tasks cannot be changed or reopened." };
+    }
+    const [terminalReceipt, terminalTask] = await Promise.all([
+      tx.auditLog.findFirst({
+        where: {
+          entityType: ENTITY_TYPE,
+          entityId: id,
+          action: { in: [...TERMINAL_AUDIT_ACTIONS] },
+        },
+        select: { id: true },
+      }),
+      tx.seoFollowUpTask.findFirst({
+        where: {
+          id: { not: id },
+          taskType: current.taskType,
+          sourceType: current.sourceType,
+          sourceKey: current.sourceKey,
+          status: { in: ["completed", "cancelled"] },
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (terminalReceipt || terminalTask) {
+      return {
+        outcome: "invalid_transition",
+        message: "A prior completion was recorded for this task identity. Refresh and reconcile the task record.",
+      };
     }
 
     let data: Prisma.SeoFollowUpTaskUpdateManyMutationInput;

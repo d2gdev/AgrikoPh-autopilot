@@ -36,10 +36,11 @@ const taskRow = {
 const tx = {
   seoFollowUpTask: {
     create: vi.fn(),
+    findFirst: vi.fn(),
     findUnique: vi.fn(),
     updateMany: vi.fn(),
   },
-  auditLog: { create: vi.fn() },
+  auditLog: { create: vi.fn(), findFirst: vi.fn() },
 };
 
 const mockPrisma = {
@@ -64,16 +65,27 @@ const {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockPrisma.seoFollowUpTask.findMany.mockReset();
+  mockPrisma.auditLog.findMany.mockReset();
+  tx.seoFollowUpTask.findUnique.mockReset();
+  tx.seoFollowUpTask.findFirst.mockReset();
+  tx.seoFollowUpTask.updateMany.mockReset();
+  tx.auditLog.findFirst.mockReset();
   mockPrisma.seoFollowUpTask.count
     .mockResolvedValueOnce(1)
     .mockResolvedValueOnce(1)
     .mockResolvedValueOnce(2)
     .mockResolvedValueOnce(3)
     .mockResolvedValueOnce(7);
-  mockPrisma.seoFollowUpTask.findMany.mockResolvedValue([taskRow]);
+  mockPrisma.seoFollowUpTask.findMany.mockImplementation(async (args) =>
+    args?.where?.status?.in ? [] : [taskRow]);
   mockPrisma.seoFollowUpTask.findFirst.mockResolvedValue(null);
   mockPrisma.seoFollowUpTask.findUnique.mockResolvedValue(null);
+  mockPrisma.auditLog.findMany.mockResolvedValue([]);
   tx.seoFollowUpTask.create.mockResolvedValue(taskRow);
+  tx.seoFollowUpTask.findUnique.mockResolvedValue(null);
+  tx.seoFollowUpTask.findFirst.mockResolvedValue(null);
+  tx.auditLog.findFirst.mockResolvedValue(null);
   tx.auditLog.create.mockResolvedValue({ id: "audit-1" });
 });
 
@@ -94,7 +106,16 @@ describe("listSeoTasks", () => {
       pageSize: 25,
       hasMore: false,
       counts: { ready: 1, waiting: 2, scheduled: 3, closed: 7 },
-      tasks: [{ id: "task-1", bucket: "ready", overdue: false }],
+      tasks: [{
+        id: "task-1",
+        bucket: "ready",
+        overdue: false,
+        completionPreflight: {
+          status: "clear",
+          basis: "task_and_audit_history",
+          checkedAt: "2026-07-18T00:00:00.000Z",
+        },
+      }],
     });
     expect(result.tasks[0]).not.toHaveProperty("dedupeKey");
     expect(result.tasks[0]).not.toHaveProperty("sourceData");
@@ -105,6 +126,53 @@ describe("listSeoTasks", () => {
       skip: 0,
       orderBy: [{ priority: "asc" }, { earliestReviewAt: "asc" }, { id: "asc" }],
     }));
+  });
+
+  it("flags an open row when a terminal task already has the same immutable source identity", async () => {
+    mockPrisma.seoFollowUpTask.findMany
+      .mockResolvedValueOnce([taskRow])
+      .mockResolvedValueOnce([{
+        id: "completed-task",
+        taskType: taskRow.taskType,
+        sourceType: taskRow.sourceType,
+        sourceKey: taskRow.sourceKey,
+        status: "completed",
+      }]);
+
+    const result = await listSeoTasks({
+      bucket: "ready",
+      priority: "all",
+      taskType: "all",
+      q: "",
+      page: 1,
+      pageSize: 25,
+    }, new Date("2026-07-18T00:00:00.000Z"));
+
+    expect(result.tasks[0]).toMatchObject({
+      id: "task-1",
+      completionPreflight: {
+        status: "already_handled",
+        basis: "task_and_audit_history",
+      },
+    });
+  });
+
+  it("flags an inconsistent open row with its own terminal audit receipt", async () => {
+    mockPrisma.auditLog.findMany.mockResolvedValueOnce([{
+      entityId: "task-1",
+      action: "seo_follow_up_task_completed",
+    }]);
+
+    const result = await listSeoTasks({
+      bucket: "ready",
+      priority: "all",
+      taskType: "all",
+      q: "",
+      page: 1,
+      pageSize: 25,
+    }, new Date("2026-07-18T00:00:00.000Z"));
+
+    expect(result.tasks[0]?.completionPreflight.status).toBe("already_handled");
   });
 });
 
@@ -366,5 +434,20 @@ describe("mutateSeoTask", () => {
     const update = tx.seoFollowUpTask.updateMany.mock.calls[0]?.[0];
     expect(update.data).not.toHaveProperty("evidenceStatus");
     expect(update.data).not.toHaveProperty("evidenceSnapshot");
+  });
+
+  it("blocks mutations when a terminal task already has the same immutable source identity", async () => {
+    tx.seoFollowUpTask.findUnique.mockResolvedValueOnce(taskRow);
+    tx.seoFollowUpTask.findFirst.mockResolvedValueOnce({ id: "completed-task" });
+
+    await expect(mutateSeoTask("task-1", {
+      action: "complete",
+      expectedVersion: 1,
+      note: "Done.",
+    }, "operator", new Date("2026-07-18T00:00:00.000Z"))).resolves.toMatchObject({
+      outcome: "invalid_transition",
+      message: expect.stringContaining("prior completion"),
+    });
+    expect(tx.seoFollowUpTask.updateMany).not.toHaveBeenCalled();
   });
 });

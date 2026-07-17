@@ -35,6 +35,11 @@ export type SeoTaskView = {
   requiresEvidence: boolean;
   evidenceStatus: string;
   status: "open" | "completed" | "cancelled";
+  completionPreflight: {
+    status: "clear" | "already_handled" | "closed";
+    basis: "task_and_audit_history";
+    checkedAt: string;
+  };
   bucket: SeoTaskBucket;
   overdue: boolean;
 };

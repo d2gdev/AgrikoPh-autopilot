@@ -100,6 +100,11 @@ const task = {
   dedupeKey: "hidden",
   bucket: "ready",
   overdue: false,
+  completionPreflight: {
+    status: "clear",
+    basis: "task_and_audit_history",
+    checkedAt: "2026-07-18T00:00:00.000Z",
+  },
 };
 
 const list = {
@@ -138,6 +143,7 @@ describe("SEO Tasks workboard", () => {
     expect(screen.getByRole("button", { name: "Waiting for evidence, 2 tasks" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Scheduled, 3 tasks" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Closed, 4 tasks" })).toBeTruthy();
+    expect(screen.getByText(/No prior completion recorded/)).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "View details for Rice nutrition CTR" }));
     expect(await screen.findByText("Review clicks, impressions, CTR, and query mix.")).toBeTruthy();
@@ -237,5 +243,35 @@ describe("SEO Tasks workboard", () => {
       expect(body.fields).not.toHaveProperty("requiresEvidence");
       expect(body.fields).not.toHaveProperty("evidenceRequirement");
     });
+  });
+
+  it("flags a prior completion and removes every mutation action", async () => {
+    authFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/seo/tasks?") && !init) {
+        return response({
+          ...list,
+          tasks: [{
+            ...task,
+            completionPreflight: {
+              status: "already_handled",
+              basis: "task_and_audit_history",
+              checkedAt: "2026-07-18T00:00:00.000Z",
+            },
+          }],
+        });
+      }
+      if (url === "/api/seo/tasks/task-1") return response({ task, history: [] });
+      throw new Error(`Unexpected request ${url}`);
+    });
+
+    render(<SeoTasksPage />);
+    expect(await screen.findByText(/Prior completion recorded/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "View details for Rice nutrition CTR" }));
+
+    expect(await screen.findByText("Review clicks, impressions, CTR, and query mix.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit task" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Update evidence" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Complete task" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel task" })).toBeNull();
   });
 });
