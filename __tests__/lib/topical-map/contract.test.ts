@@ -29,6 +29,13 @@ function scheduleRule(): any {
 
 describe("full compilation contract parser", () => {
   it("parses an approved minimal full contract", () => expect(parseCompilationContract(validContract()).review.status).toBe("approved"));
+  it("accepts current ISO provenance dates and rejects malformed dates", () => {
+    const current = validContract();
+    current.rules[0].provenance.authoredAt = "2026-07-18";
+    expect(parseCompilationContract(current).rules[0]!.provenance.authoredAt).toBe("2026-07-18");
+    current.rules[0].provenance.authoredAt = "18-07-2026";
+    expect(() => parseCompilationContract(current)).toThrow(expect.objectContaining({ code: "INVALID_CONTRACT_SCHEMA" }));
+  });
   it("permits local validation/import approval without activation authority", () => {
     const value = validContract();
     value.review.activationEligible = false;

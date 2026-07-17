@@ -16,7 +16,10 @@ const literalRequirement = z.union([
 ]).superRefine((value, ctx) => {
   if (value.kind === "source_required_evidence" && ((value.evidenceClass === "general_seo_market" && value.maxAgeDays !== 180) || (value.evidenceClass === "high_stakes" && value.maxAgeDays !== 90))) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "evidence freshness" });
 });
-const provenance = z.object({ projection: z.string(), authoredAt: z.enum(["2026-07-11", "2026-07-12"]) }).strict();
+const provenanceDate = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => value >= "2026-07-11" && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)), "Expected a valid provenance date on or after 2026-07-11");
+const provenance = z.object({ projection: z.string(), authoredAt: provenanceDate }).strict();
 const scheduleBoundary = z.object({ operationMode: z.literal("proposal_only"), executionProhibited: z.literal(true), elapsedTimeAuthorizesAction: z.literal(false), satisfactionCanTriggerMutation: z.literal(false), independentSafeguardsRequired: z.literal(true), absentEvidenceNonExecutable: z.literal(true) }).strict();
 const phaseGate = z.object({ governedAdvisoryAction: z.string().min(1), defaultSatisfied: z.literal(false), autoPass: z.literal(false), reviewRequired: z.literal(true), executionProhibited: z.literal(true), blocksOnlyGovernedAction: z.literal(true), sourceConditions: z.array(z.string().min(1)).min(1) }).strict();
 const advisory = z.object({ operationMode: z.literal("proposal_only"), executionProhibited: z.literal(true), stateClassification: z.enum(["observed_current_state", "proposed_review_state", "evidence_not_asserted"]), evidenceRequirement: z.literal("read_only_evidence_required"), deferredExecutionDecisions: z.array(z.string()).min(1) }).strict();
