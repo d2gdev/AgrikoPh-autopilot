@@ -99,7 +99,7 @@ function stillGoverned(center: Awaited<ReturnType<typeof loadActiveTopicalMapCom
       governedRuleIds.push(...redirect.ruleIds, ...link.ruleIds);
       return true;
     });
-    return exact && sameStrings(governedRuleIds, source.ruleIds);
+    return exact && sameStrings([...new Set(governedRuleIds)], source.ruleIds);
   }
   const page = center.pages.find((item) => path(item.url) === source.targetUrl);
   const action = classifyTopicalMapPageAction(page?.decision);
