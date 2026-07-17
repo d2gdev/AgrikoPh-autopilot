@@ -303,6 +303,38 @@ describe("useAuthFetch", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty("x-autopilot-api-key");
   });
 
+  it("retries token acquisition when App Bridge first returns an expired idToken", async () => {
+    const expiredToken = jwtExpiresIn(-1);
+    const freshToken = jwtExpiresIn(120);
+    const idToken = vi.fn()
+      .mockResolvedValueOnce(expiredToken)
+      .mockResolvedValueOnce(freshToken);
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("window", {
+      self: {},
+      top: {},
+      location: {
+        href: "https://autopilot.test/?host=admin-host&shop=test.myshopify.com",
+      },
+      fetch: fetchMock,
+      shopify: { idToken },
+    });
+
+    let authFetch: ReturnType<typeof useAuthFetch> | undefined;
+    function Probe() {
+      authFetch = useAuthFetch();
+      return null;
+    }
+    renderToStaticMarkup(React.createElement(Probe));
+
+    await expect(authFetch?.("/api/jobs/status")).resolves.toBeInstanceOf(Response);
+
+    expect(idToken).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers)
+      .toMatchObject({ Authorization: `Bearer ${freshToken}` });
+  });
+
   it("does not send an unauthenticated request when App Bridge token acquisition fails", async () => {
     vi.stubEnv("NEXT_PUBLIC_AUTOPILOT_API_KEY", "fallback-key");
     const idToken = vi.fn().mockRejectedValue(new Error("token unavailable"));

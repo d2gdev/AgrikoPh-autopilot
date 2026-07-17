@@ -14,7 +14,7 @@ edges:
     condition: before changing auth helpers or embedded API routes
   - target: patterns/deploy.md
     condition: when deploying an auth fix to production
-last_updated: 2026-07-11T01:33:00Z
+last_updated: 2026-07-18T02:18:41+08:00
 ---
 
 # Debug Shopify App Bridge Auth
@@ -44,6 +44,7 @@ Browser code must never read `AUTOPILOT_API_KEY` through a `NEXT_PUBLIC_*` varia
 
 4. Check the auth helper first.
    - `useAuthFetch()` must acquire an App Bridge token and attach `Authorization: Bearer <token>` unless the caller already supplied an authorization header.
+   - If App Bridge returns an already-expired JWT, the request path retries token acquisition once after 100 ms and uses only the fresh token. Other acquisition failures remain fail-fast.
    - A 401 response is returned to the caller without retrying with another credential.
    - Source and bundle scans must find no `NEXT_PUBLIC_AUTOPILOT_API_KEY` or browser `x-autopilot-api-key` path.
 

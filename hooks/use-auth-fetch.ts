@@ -32,6 +32,7 @@ interface TokenLoadOptions {
   timeoutMs?: number;
   retryDelaysMs?: number[];
   pollIntervalMs?: number;
+  retryExpiredOnly?: boolean;
 }
 
 const TOKEN_EXPIRY_SKEW_MS = 30_000;
@@ -370,6 +371,12 @@ async function requestTokenWithRetry(
         contextSource: context.source,
         error: message,
       });
+      if (
+        options.retryExpiredOnly
+        && message !== "Shopify App Bridge returned an expired idToken"
+      ) {
+        break;
+      }
     }
   }
 
@@ -488,6 +495,7 @@ export async function getAppBridgeIdToken(
     timeoutMs: options.timeoutMs ?? DEFAULT_TOKEN_TIMEOUT_MS,
     retryDelaysMs: options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS,
     pollIntervalMs: options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
+    retryExpiredOnly: options.retryExpiredOnly ?? false,
   };
 
   idTokenRequest = requestTokenWithRetry(nowMs, context, resolvedOptions)
@@ -526,8 +534,9 @@ export function useAuthFetch() {
       if (!hasHeader(baseHeaders, "authorization")) {
         const token = await getAppBridgeIdToken(Date.now(), {
           timeoutMs: FETCH_TOKEN_TIMEOUT_MS,
-          retryDelaysMs: [0],
+          retryDelaysMs: [0, 100],
           pollIntervalMs: FETCH_TOKEN_POLL_INTERVAL_MS,
+          retryExpiredOnly: true,
         });
         baseHeaders.Authorization = `Bearer ${token}`;
       }
