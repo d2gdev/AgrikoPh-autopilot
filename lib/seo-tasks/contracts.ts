@@ -71,7 +71,36 @@ export const CreateSeoTaskSchema = z.object({
   sourceType: SeoTaskSourceTypeSchema,
   sourceKey: z.string().trim().min(1).max(500),
   sourceData: JsonObject,
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.requiresEvidence && value.evidenceStatus === "not_required") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["evidenceStatus"],
+      message: "Evidence-required tasks cannot use not_required status.",
+    });
+  }
+  if (!value.requiresEvidence && value.evidenceStatus !== "not_required") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["evidenceStatus"],
+      message: "Tasks without evidence must use not_required status.",
+    });
+  }
+  if (!value.requiresEvidence && value.evidenceSnapshot != null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["evidenceSnapshot"],
+      message: "Tasks without evidence cannot include an evidence snapshot.",
+    });
+  }
+  if (value.evidenceStatus === "sufficient" && value.evidenceSnapshot == null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["evidenceSnapshot"],
+      message: "Sufficient evidence requires an evidence snapshot.",
+    });
+  }
+});
 
 const ExpectedVersion = z.number().int().min(1);
 
@@ -90,19 +119,21 @@ const EditFields = z.object({
   evidenceRequirement: JsonObject.optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one edit field is required.");
 
+const UpdateEvidenceMutation = z.object({
+  action: z.literal("update_evidence"),
+  expectedVersion: ExpectedVersion,
+  evidenceStatus: SeoTaskEvidenceStatusSchema,
+  evidenceSnapshot: JsonObject.nullable(),
+  lastEvaluatedAt: z.coerce.date().optional(),
+}).strict();
+
 export const SeoTaskMutationSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("edit"),
     expectedVersion: ExpectedVersion,
     fields: EditFields,
   }).strict(),
-  z.object({
-    action: z.literal("update_evidence"),
-    expectedVersion: ExpectedVersion,
-    evidenceStatus: SeoTaskEvidenceStatusSchema,
-    evidenceSnapshot: JsonObject.nullable(),
-    lastEvaluatedAt: z.coerce.date().optional(),
-  }).strict(),
+  UpdateEvidenceMutation,
   z.object({
     action: z.literal("complete"),
     expectedVersion: ExpectedVersion,
@@ -115,7 +146,17 @@ export const SeoTaskMutationSchema = z.discriminatedUnion("action", [
     note: z.string().trim().min(1).max(5_000),
     decisionData: JsonObject.nullable().optional(),
   }).strict(),
-]);
+]).superRefine((value, context) => {
+  if (value.action === "update_evidence"
+    && value.evidenceStatus === "sufficient"
+    && value.evidenceSnapshot === null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["evidenceSnapshot"],
+      message: "Sufficient evidence requires an evidence snapshot.",
+    });
+  }
+});
 
 export type SeoTaskType = z.infer<typeof SeoTaskTypeSchema>;
 export type SeoTaskPriority = z.infer<typeof SeoTaskPrioritySchema>;

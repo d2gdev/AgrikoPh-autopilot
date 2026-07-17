@@ -23,34 +23,33 @@ export type SeoTaskBucket = "ready" | "waiting" | "scheduled" | "closed";
 
 export type SeoTaskView = {
   id: string;
-  createdAt: string;
-  updatedAt: string;
   version: number;
   taskType: string;
   title: string;
-  description: string;
   targetUrl: string | null;
   topicalCluster: string | null;
   pageRole: string | null;
-  ownerSurface: string;
-  destinationPath: string | null;
   priority: "P0" | "P1" | "P2" | "P3";
   earliestReviewAt: string;
   dueAt: string | null;
   requiresEvidence: boolean;
-  evidenceRequirement: unknown;
   evidenceStatus: string;
+  status: "open" | "completed" | "cancelled";
+  bucket: SeoTaskBucket;
+  overdue: boolean;
+};
+
+export type SeoTaskDetail = SeoTaskView & {
+  description: string;
+  ownerSurface: string;
+  destinationPath: string | null;
+  evidenceRequirement: unknown;
   evidenceSnapshot: unknown;
   lastEvaluatedAt: string | null;
   sourceType: string;
   sourceKey: string;
-  sourceData: unknown;
-  status: "open" | "completed" | "cancelled";
   completedAt: string | null;
   completionNote: string | null;
-  decisionData: unknown;
-  bucket: SeoTaskBucket;
-  overdue: boolean;
 };
 
 type ListResponse = {
@@ -104,49 +103,38 @@ export function SeoTaskBoard() {
   });
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
-  const [countsError, setCountsError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
     setLoading(true);
+    setData(null);
     setListError(null);
-    setCountsError(null);
     const shared = new URLSearchParams({ priority, taskType, q: query });
     const listParams = new URLSearchParams(shared);
     listParams.set("bucket", bucket);
     listParams.set("page", String(page));
     listParams.set("pageSize", "25");
-    const countParams = new URLSearchParams(shared);
-    countParams.set("bucket", "ready");
-    countParams.set("page", "1");
-    countParams.set("pageSize", "1");
-
-    const [listResult, countResult] = await Promise.allSettled([
-      authFetch(`/api/seo/tasks?${listParams.toString()}`),
-      authFetch(`/api/seo/tasks?${countParams.toString()}`),
-    ]);
-    if (requestRef.current !== requestId) return;
-
-    if (listResult.status === "fulfilled" && listResult.value.ok) {
-      setData(await listResult.value.json() as ListResponse);
-    } else {
-      const message = listResult.status === "fulfilled"
-        ? await responseError(listResult.value, "SEO task list is unavailable.")
-        : "SEO task list is unavailable.";
-      setListError(message);
+    try {
+      const response = await authFetch(`/api/seo/tasks?${listParams.toString()}`);
+      if (requestRef.current !== requestId) return;
+      if (!response.ok) {
+        const message = await responseError(response, "SEO task list is unavailable.");
+        if (requestRef.current === requestId) setListError(message);
+        return;
+      }
+      const result = await response.json() as ListResponse;
+      if (requestRef.current !== requestId) return;
+      setData(result);
+      setCounts(result.counts);
+    } catch {
+      if (requestRef.current === requestId) {
+        setListError("SEO task list is unavailable.");
+      }
+    } finally {
+      if (requestRef.current === requestId) setLoading(false);
     }
-    if (countResult.status === "fulfilled" && countResult.value.ok) {
-      const summary = await countResult.value.json() as ListResponse;
-      setCounts(summary.counts);
-    } else {
-      const message = countResult.status === "fulfilled"
-        ? await responseError(countResult.value, "SEO task counts are unavailable.")
-        : "SEO task counts are unavailable.";
-      setCountsError(message);
-    }
-    if (requestRef.current === requestId) setLoading(false);
   }, [authFetch, bucket, page, priority, query, taskType]);
 
   useEffect(() => { void load(); }, [load]);
@@ -190,7 +178,6 @@ export function SeoTaskBoard() {
                   </Button>
                 ))}
               </InlineStack>
-              {countsError && <Banner tone="warning">{countsError} Existing counts may be stale.</Banner>}
               <InlineStack gap="300" wrap blockAlign="end">
                 <TextField
                   label="Search SEO tasks"

@@ -18,7 +18,11 @@ const ENTITY_TYPE = "seo_follow_up_task";
 function bucketWhere(bucket: SeoTaskBucket, now: Date): Prisma.SeoFollowUpTaskWhereInput {
   const readyEvidence: Prisma.SeoFollowUpTaskWhereInput = {
     OR: [
-      { requiresEvidence: true, evidenceStatus: "sufficient" },
+      {
+        requiresEvidence: true,
+        evidenceStatus: "sufficient",
+        evidenceSnapshot: { not: Prisma.DbNull },
+      },
       { requiresEvidence: false, evidenceStatus: "not_required" },
     ],
   };
@@ -65,14 +69,60 @@ function nullableJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.DbN
   return value === null || value === undefined ? Prisma.DbNull : json(value);
 }
 
-function toListItem(task: SeoFollowUpTask, now: Date) {
+const SEO_TASK_LIST_SELECT = {
+  id: true,
+  version: true,
+  taskType: true,
+  title: true,
+  targetUrl: true,
+  topicalCluster: true,
+  pageRole: true,
+  priority: true,
+  earliestReviewAt: true,
+  dueAt: true,
+  requiresEvidence: true,
+  evidenceStatus: true,
+  evidenceSnapshot: true,
+  status: true,
+} satisfies Prisma.SeoFollowUpTaskSelect;
+
+const SEO_TASK_DETAIL_SELECT = {
+  ...SEO_TASK_LIST_SELECT,
+  description: true,
+  ownerSurface: true,
+  destinationPath: true,
+  evidenceRequirement: true,
+  evidenceSnapshot: true,
+  lastEvaluatedAt: true,
+  sourceType: true,
+  sourceKey: true,
+  completedAt: true,
+  completionNote: true,
+} satisfies Prisma.SeoFollowUpTaskSelect;
+
+type SeoTaskListRecord = Prisma.SeoFollowUpTaskGetPayload<{ select: typeof SEO_TASK_LIST_SELECT }>;
+
+function toListItem(task: SeoTaskListRecord, now: Date) {
   return {
-    ...task,
+    id: task.id,
+    version: task.version,
+    taskType: task.taskType,
+    title: task.title,
+    targetUrl: task.targetUrl,
+    topicalCluster: task.topicalCluster,
+    pageRole: task.pageRole,
+    priority: task.priority,
+    earliestReviewAt: task.earliestReviewAt,
+    dueAt: task.dueAt,
+    requiresEvidence: task.requiresEvidence,
+    evidenceStatus: task.evidenceStatus,
+    status: task.status,
     bucket: deriveSeoTaskBucket({
       status: task.status as "open" | "completed" | "cancelled",
       earliestReviewAt: task.earliestReviewAt,
       requiresEvidence: task.requiresEvidence,
       evidenceStatus: task.evidenceStatus as "waiting" | "insufficient" | "sufficient" | "not_required",
+      evidenceSnapshot: task.evidenceSnapshot,
     }, now),
     overdue: isSeoTaskOverdue({
       status: task.status as "open" | "completed" | "cancelled",
@@ -105,6 +155,7 @@ export async function listSeoTasks(
     prisma.seoFollowUpTask.count({ where: { AND: [filters, bucketWhere("closed", now)] } }),
     prisma.seoFollowUpTask.findMany({
       where,
+      select: SEO_TASK_LIST_SELECT,
       orderBy: [{ priority: "asc" }, { earliestReviewAt: "asc" }, { id: "asc" }],
       skip: (input.page - 1) * input.pageSize,
       take: input.pageSize,
@@ -139,12 +190,16 @@ export async function getSeoTaskSummary(now: Date) {
 }
 
 export async function getSeoTaskDetail(id: string) {
-  const task = await prisma.seoFollowUpTask.findUnique({ where: { id } });
+  const task = await prisma.seoFollowUpTask.findUnique({
+    where: { id },
+    select: SEO_TASK_DETAIL_SELECT,
+  });
   if (!task) return null;
   const history = await prisma.auditLog.findMany({
     where: { entityType: ENTITY_TYPE, entityId: id },
     orderBy: { createdAt: "desc" },
     take: 100,
+    select: { id: true, action: true, actor: true, createdAt: true },
   });
   return { task, history };
 }
@@ -160,13 +215,21 @@ export async function createSeoTask(
   const targetUrl = normalizeTargetUrl(input.targetUrl);
   const dedupeKey = buildSeoTaskDedupeKey({
     taskType: input.taskType,
-    title: input.title,
-    targetUrl,
     sourceType: input.sourceType,
     sourceKey: input.sourceKey,
   });
-  const knownDuplicate = await prisma.seoFollowUpTask.findUnique({
-    where: { dedupeKey },
+  const duplicateWhere: Prisma.SeoFollowUpTaskWhereInput = {
+    OR: [
+      { dedupeKey },
+      {
+        taskType: input.taskType,
+        sourceType: input.sourceType,
+        sourceKey: input.sourceKey,
+      },
+    ],
+  };
+  const knownDuplicate = await prisma.seoFollowUpTask.findFirst({
+    where: duplicateWhere,
     select: { id: true },
   });
   if (knownDuplicate) {
@@ -206,8 +269,8 @@ export async function createSeoTask(
     return { outcome: "created", task };
   } catch (error) {
     if ((error as { code?: string }).code !== "P2002") throw error;
-    const existing = await prisma.seoFollowUpTask.findUnique({
-      where: { dedupeKey },
+    const existing = await prisma.seoFollowUpTask.findFirst({
+      where: duplicateWhere,
       select: { id: true },
     });
     if (!existing) throw error;
@@ -238,11 +301,23 @@ export async function mutateSeoTask(
     let auditAction: string;
 
     if (action.action === "complete") {
+      if (current.earliestReviewAt.getTime() > now.getTime()) {
+        return {
+          outcome: "invalid_transition",
+          message: "This task cannot be completed before its review date.",
+        };
+      }
       if (current.requiresEvidence
         && (current.evidenceStatus !== "sufficient" || current.evidenceSnapshot === null)) {
         return {
           outcome: "invalid_transition",
           message: "Sufficient evidence and an evidence snapshot are required before completion.",
+        };
+      }
+      if (!current.requiresEvidence && current.evidenceStatus !== "not_required") {
+        return {
+          outcome: "invalid_transition",
+          message: "This task is not in the Ready state.",
         };
       }
       data = {
@@ -271,6 +346,12 @@ export async function mutateSeoTask(
       if (!current.requiresEvidence && action.evidenceStatus !== "not_required") {
         return { outcome: "invalid_transition", message: "This task does not require evidence." };
       }
+      if (action.evidenceStatus === "sufficient" && action.evidenceSnapshot === null) {
+        return {
+          outcome: "invalid_transition",
+          message: "Sufficient evidence requires an evidence snapshot.",
+        };
+      }
       data = {
         evidenceStatus: action.evidenceStatus,
         evidenceSnapshot: nullableJson(action.evidenceSnapshot),
@@ -297,8 +378,10 @@ export async function mutateSeoTask(
           : { evidenceRequirement: json(fields.evidenceRequirement) }),
         ...(fields.requiresEvidence === undefined ? {} : {
           requiresEvidence: fields.requiresEvidence,
-          evidenceStatus: fields.requiresEvidence ? "waiting" : "not_required",
-          evidenceSnapshot: Prisma.DbNull,
+          ...(fields.requiresEvidence === current.requiresEvidence ? {} : {
+            evidenceStatus: fields.requiresEvidence ? "waiting" : "not_required",
+            evidenceSnapshot: Prisma.DbNull,
+          }),
         }),
         updatedBy: actor,
         version: { increment: 1 },

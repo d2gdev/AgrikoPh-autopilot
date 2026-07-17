@@ -146,15 +146,13 @@ describe("SEO Tasks workboard", () => {
     expect(authFetch).toHaveBeenCalledWith("/api/seo/tasks/task-1");
   });
 
-  it("distinguishes a failed task list from failed counts", async () => {
-    authFetch
-      .mockReturnValueOnce(response({ error: "Task list unavailable" }, false))
-      .mockReturnValueOnce(response({ ...list, tasks: [] }));
+  it("does not retain unverified counts when the workboard request fails", async () => {
+    authFetch.mockReturnValueOnce(response({ error: "Task list unavailable" }, false));
 
     render(<SeoTasksPage />);
 
     expect((await screen.findByRole("alert")).textContent).toContain("Task list unavailable");
-    expect(screen.getByRole("button", { name: "Ready now, 1 task" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ready now, 0 tasks" })).toBeTruthy();
   });
 
   it("creates a task through the inline form", async () => {
@@ -189,5 +187,55 @@ describe("SEO Tasks workboard", () => {
       "/api/seo/tasks/task-1",
       expect.objectContaining({ method: "PATCH" }),
     ));
+  });
+
+  it("loads the workboard with one list request instead of a duplicate counts request", async () => {
+    render(<SeoTasksPage />);
+    await screen.findByText("Rice nutrition CTR");
+
+    const listCalls = authFetch.mock.calls.filter(([url]) =>
+      typeof url === "string" && url.startsWith("/api/seo/tasks?"));
+    expect(listCalls).toHaveLength(1);
+  });
+
+  it("removes stale actionable rows when a newly selected bucket fails to load", async () => {
+    authFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("bucket=waiting") && !init) {
+        return response({ error: "Waiting tasks unavailable" }, false);
+      }
+      if (url.startsWith("/api/seo/tasks?") && !init) return response(list);
+      throw new Error(`Unexpected request ${url}`);
+    });
+
+    render(<SeoTasksPage />);
+    expect(await screen.findByText("Rice nutrition CTR")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Waiting for evidence, 2 tasks" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Waiting tasks unavailable");
+    expect(screen.queryByText("Rice nutrition CTR")).toBeNull();
+  });
+
+  it("edits display fields without resubmitting or rewriting evidence", async () => {
+    render(<SeoTasksPage />);
+    await screen.findByText("Rice nutrition CTR");
+    await userEvent.click(screen.getByRole("button", { name: "View details for Rice nutrition CTR" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Edit task" }));
+
+    const title = screen.getByRole("textbox", { name: "Title" });
+    await userEvent.clear(title);
+    await userEvent.type(title, "Updated rice nutrition CTR");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      const patch = authFetch.mock.calls.find(([url, init]) =>
+        url === "/api/seo/tasks/task-1" && init?.method === "PATCH");
+      expect(patch).toBeTruthy();
+      const body = JSON.parse(String(patch?.[1]?.body)) as {
+        fields: Record<string, unknown>;
+      };
+      expect(body.fields.title).toBe("Updated rice nutrition CTR");
+      expect(body.fields).not.toHaveProperty("requiresEvidence");
+      expect(body.fields).not.toHaveProperty("evidenceRequirement");
+    });
   });
 });

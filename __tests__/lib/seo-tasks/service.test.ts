@@ -46,6 +46,7 @@ const mockPrisma = {
   seoFollowUpTask: {
     count: vi.fn(),
     findMany: vi.fn(),
+    findFirst: vi.fn(),
     findUnique: vi.fn(),
   },
   auditLog: { findMany: vi.fn() },
@@ -70,6 +71,7 @@ beforeEach(() => {
     .mockResolvedValueOnce(3)
     .mockResolvedValueOnce(7);
   mockPrisma.seoFollowUpTask.findMany.mockResolvedValue([taskRow]);
+  mockPrisma.seoFollowUpTask.findFirst.mockResolvedValue(null);
   mockPrisma.seoFollowUpTask.findUnique.mockResolvedValue(null);
   tx.seoFollowUpTask.create.mockResolvedValue(taskRow);
   tx.auditLog.create.mockResolvedValue({ id: "audit-1" });
@@ -94,6 +96,10 @@ describe("listSeoTasks", () => {
       counts: { ready: 1, waiting: 2, scheduled: 3, closed: 7 },
       tasks: [{ id: "task-1", bucket: "ready", overdue: false }],
     });
+    expect(result.tasks[0]).not.toHaveProperty("dedupeKey");
+    expect(result.tasks[0]).not.toHaveProperty("sourceData");
+    expect(result.tasks[0]).not.toHaveProperty("evidenceRequirement");
+    expect(result.tasks[0]).not.toHaveProperty("evidenceSnapshot");
     expect(mockPrisma.seoFollowUpTask.findMany).toHaveBeenCalledWith(expect.objectContaining({
       take: 25,
       skip: 0,
@@ -111,6 +117,12 @@ describe("getSeoTaskDetail", () => {
     expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
       take: 100,
       orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        action: true,
+        actor: true,
+        createdAt: true,
+      },
     }));
   });
 });
@@ -160,7 +172,7 @@ describe("createSeoTask", () => {
 
   it("returns the existing task ID after a unique-key race", async () => {
     tx.seoFollowUpTask.create.mockRejectedValueOnce({ code: "P2002" });
-    mockPrisma.seoFollowUpTask.findUnique
+    mockPrisma.seoFollowUpTask.findFirst
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ id: "existing-1" });
 
@@ -190,7 +202,7 @@ describe("createSeoTask", () => {
   });
 
   it("returns a known duplicate without attempting a noisy insert", async () => {
-    mockPrisma.seoFollowUpTask.findUnique.mockResolvedValueOnce({ id: "existing-1" });
+    mockPrisma.seoFollowUpTask.findFirst.mockResolvedValueOnce({ id: "existing-1" });
 
     const result = await createSeoTask({
       taskType: "other",
@@ -217,6 +229,47 @@ describe("createSeoTask", () => {
     expect(result).toEqual({ outcome: "duplicate", existingId: "existing-1" });
     expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     expect(tx.seoFollowUpTask.create).not.toHaveBeenCalled();
+  });
+
+  it("recognizes an existing task by immutable source identity", async () => {
+    mockPrisma.seoFollowUpTask.findFirst.mockResolvedValueOnce({ id: "existing-1" });
+
+    const result = await createSeoTask({
+      taskType: "other",
+      title: "A renamed display title",
+      description: "Existing",
+      targetUrl: "/blogs/news/a-new-target",
+      topicalCluster: null,
+      pageRole: null,
+      ownerSurface: "seo",
+      destinationPath: null,
+      priority: "P2",
+      earliestReviewAt: new Date("2026-08-01T00:00:00.000Z"),
+      dueAt: null,
+      requiresEvidence: false,
+      evidenceRequirement: {},
+      evidenceStatus: "not_required",
+      evidenceSnapshot: null,
+      lastEvaluatedAt: null,
+      sourceType: "operator",
+      sourceKey: "existing",
+      sourceData: {},
+    }, "operator");
+
+    expect(result).toEqual({ outcome: "duplicate", existingId: "existing-1" });
+    expect(mockPrisma.seoFollowUpTask.findFirst).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { dedupeKey: expect.stringMatching(/^seo-follow-up:/) },
+          {
+            taskType: "other",
+            sourceType: "operator",
+            sourceKey: "existing",
+          },
+        ],
+      },
+      select: { id: true },
+    });
   });
 });
 
@@ -274,5 +327,44 @@ describe("mutateSeoTask", () => {
       note: "Superseded.",
     }, "operator", new Date())).resolves.toEqual({ outcome: "conflict" });
     expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects completion before the earliest review date", async () => {
+    tx.seoFollowUpTask.findUnique.mockResolvedValueOnce({
+      ...taskRow,
+      earliestReviewAt: new Date("2026-07-20T00:00:00.000Z"),
+    });
+
+    await expect(mutateSeoTask("task-1", {
+      action: "complete",
+      expectedVersion: 1,
+      note: "Reviewed early.",
+    }, "operator", new Date("2026-07-18T00:00:00.000Z"))).resolves.toMatchObject({
+      outcome: "invalid_transition",
+      message: expect.stringContaining("review date"),
+    });
+    expect(tx.seoFollowUpTask.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not erase evidence when an edit repeats the current evidence mode", async () => {
+    tx.seoFollowUpTask.findUnique
+      .mockResolvedValueOnce(taskRow)
+      .mockResolvedValueOnce({ ...taskRow, title: "Updated title", version: 2 });
+    tx.seoFollowUpTask.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    await expect(mutateSeoTask("task-1", {
+      action: "edit",
+      expectedVersion: 1,
+      fields: {
+        title: "Updated title",
+        requiresEvidence: true,
+      },
+    }, "operator", new Date("2026-07-18T00:00:00.000Z"))).resolves.toMatchObject({
+      outcome: "updated",
+    });
+
+    const update = tx.seoFollowUpTask.updateMany.mock.calls[0]?.[0];
+    expect(update.data).not.toHaveProperty("evidenceStatus");
+    expect(update.data).not.toHaveProperty("evidenceSnapshot");
   });
 });

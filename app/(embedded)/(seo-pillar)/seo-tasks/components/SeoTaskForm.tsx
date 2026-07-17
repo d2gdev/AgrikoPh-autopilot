@@ -13,7 +13,7 @@ import {
 } from "@shopify/polaris";
 import { useState } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
-import type { SeoTaskView } from "./SeoTaskBoard";
+import type { SeoTaskDetail } from "./SeoTaskBoard";
 
 const TYPE_OPTIONS = [
   { value: "canonical_transfer_review", label: "Canonical transfer" },
@@ -37,7 +37,7 @@ export function SeoTaskForm({
   onSaved,
   onCancel,
 }: {
-  task?: SeoTaskView;
+  task?: SeoTaskDetail;
   onSaved: () => void;
   onCancel: () => void;
 }) {
@@ -53,7 +53,13 @@ export function SeoTaskForm({
   const [dueAt, setDueAt] = useState(localDateTime(task?.dueAt ?? undefined));
   const [requiresEvidence, setRequiresEvidence] = useState(task?.requiresEvidence ?? true);
   const [evidenceRequirement, setEvidenceRequirement] = useState(
-    task ? JSON.stringify(task.evidenceRequirement, null, 2) : "Record the evidence reviewed and the resulting decision.",
+    JSON.stringify(
+      task?.evidenceRequirement ?? {
+        note: "Record the evidence reviewed and the resulting decision.",
+      },
+      null,
+      2,
+    ),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +70,18 @@ export function SeoTaskForm({
     if (!valid || saving) return;
     setSaving(true);
     setError(null);
+    let parsedEvidenceRequirement: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(evidenceRequirement);
+      if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
+        throw new Error("not an object");
+      }
+      parsedEvidenceRequirement = parsed as Record<string, unknown>;
+    } catch {
+      setError("Evidence requirement must be a valid JSON object.");
+      setSaving(false);
+      return;
+    }
     const common = {
       title: title.trim(),
       description: description.trim(),
@@ -74,13 +92,39 @@ export function SeoTaskForm({
       earliestReviewAt: new Date(earliestReviewAt).toISOString(),
       dueAt: dueAt ? new Date(dueAt).toISOString() : null,
       requiresEvidence,
-      evidenceRequirement: { note: evidenceRequirement.trim() },
+      evidenceRequirement: parsedEvidenceRequirement,
     };
-    const body = task ? {
-      action: "edit",
-      expectedVersion: task.version,
-      fields: common,
-    } : {
+    let body: Record<string, unknown>;
+    if (task) {
+      const fields: Record<string, unknown> = {};
+      const candidates: Record<string, unknown> = common;
+      const original: Record<string, unknown> = {
+        title: task.title,
+        description: task.description,
+        targetUrl: task.targetUrl,
+        topicalCluster: task.topicalCluster,
+        pageRole: task.pageRole,
+        priority: task.priority,
+        earliestReviewAt: new Date(task.earliestReviewAt).toISOString(),
+        dueAt: task.dueAt ? new Date(task.dueAt).toISOString() : null,
+        requiresEvidence: task.requiresEvidence,
+        evidenceRequirement: task.evidenceRequirement,
+      };
+      for (const [key, value] of Object.entries(candidates)) {
+        if (JSON.stringify(value) !== JSON.stringify(original[key])) fields[key] = value;
+      }
+      if (Object.keys(fields).length === 0) {
+        setError("Make a change before saving.");
+        setSaving(false);
+        return;
+      }
+      body = {
+        action: "edit",
+        expectedVersion: task.version,
+        fields,
+      };
+    } else {
+      body = {
       ...common,
       taskType,
       ownerSurface: "seo",
@@ -90,7 +134,8 @@ export function SeoTaskForm({
       sourceType: "operator",
       sourceKey: `${taskType}:${title.trim().toLowerCase()}:${new Date(earliestReviewAt).toISOString()}`,
       sourceData: { createdFrom: "seo-tasks-workboard" },
-    };
+      };
+    }
     const response = await authFetch(task ? `/api/seo/tasks/${task.id}` : "/api/seo/tasks", {
       method: task ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },

@@ -75,7 +75,7 @@ describe("market intelligence brief refresh route", () => {
       recommendedActions: [{ priority: "high", action: "Unsafe price comparison", reason: "Unsupported" }],
     };
     mockPrisma.rawSnapshot.findFirst.mockResolvedValueOnce({
-      fetchedAt: new Date("2026-07-15T00:00:00.000Z"), payload: cached,
+      fetchedAt: new Date(), payload: cached,
     });
     mockSanitizeBrief.mockReturnValueOnce({ ...cached, recommendedActions: [] });
 

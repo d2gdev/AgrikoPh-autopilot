@@ -13,6 +13,7 @@ function task(
     earliestReviewAt: Date;
     requiresEvidence: boolean;
     evidenceStatus: "waiting" | "insufficient" | "sufficient" | "not_required";
+    evidenceSnapshot: unknown | null;
     dueAt: Date | null;
   }> = {},
 ) {
@@ -21,6 +22,7 @@ function task(
     earliestReviewAt: new Date("2026-07-18T00:00:00.000Z"),
     requiresEvidence: true,
     evidenceStatus: "waiting" as const,
+    evidenceSnapshot: null,
     dueAt: null,
     ...overrides,
   };
@@ -40,7 +42,17 @@ describe("deriveSeoTaskBucket", () => {
   });
 
   it("places arrived tasks with sufficient evidence in ready", () => {
-    expect(deriveSeoTaskBucket(task({ evidenceStatus: "sufficient" }), now)).toBe("ready");
+    expect(deriveSeoTaskBucket(task({
+      evidenceStatus: "sufficient",
+      evidenceSnapshot: { clicks: 4 },
+    }), now)).toBe("ready");
+  });
+
+  it("keeps sufficient evidence without a snapshot out of ready", () => {
+    expect(deriveSeoTaskBucket(task({
+      evidenceStatus: "sufficient",
+      evidenceSnapshot: null,
+    }), now)).toBe("waiting");
   });
 
   it("places arrived tasks that require no evidence in ready only when marked not required", () => {
@@ -70,21 +82,21 @@ describe("isSeoTaskOverdue", () => {
 });
 
 describe("buildSeoTaskDedupeKey", () => {
-  it("is stable across case and surrounding whitespace", () => {
+  it("uses immutable source identity instead of editable display fields", () => {
     const first = buildSeoTaskDedupeKey({
       taskType: "ctr_experiment_review",
-      title: " Rice Nutrition CTR ",
-      targetUrl: "/blogs/news/rice-nutrition-breakdown",
       sourceType: "operator",
       sourceKey: " CTR-2026-07 ",
-    });
+      title: "Old title",
+      targetUrl: "/old-path",
+    } as Parameters<typeof buildSeoTaskDedupeKey>[0] & { title: string; targetUrl: string });
     const second = buildSeoTaskDedupeKey({
       taskType: "ctr_experiment_review",
-      title: "rice nutrition ctr",
-      targetUrl: "/blogs/news/rice-nutrition-breakdown",
       sourceType: "operator",
       sourceKey: "ctr-2026-07",
-    });
+      title: "New title",
+      targetUrl: "/new-path",
+    } as Parameters<typeof buildSeoTaskDedupeKey>[0] & { title: string; targetUrl: string });
 
     expect(first).toBe(second);
     expect(first).toMatch(/^seo-follow-up:[a-f0-9]{64}$/);

@@ -16,7 +16,7 @@ import {
 import { useState } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
 import { SeoTaskForm } from "./SeoTaskForm";
-import type { SeoTaskView } from "./SeoTaskBoard";
+import type { SeoTaskDetail, SeoTaskView } from "./SeoTaskBoard";
 
 function formatDate(value: string | null): string {
   if (!value) return "Not set";
@@ -37,6 +37,7 @@ function bucketReason(task: SeoTaskView): string {
 export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: () => void }) {
   const authFetch = useAuthFetch();
   const [expanded, setExpanded] = useState(false);
+  const [detail, setDetail] = useState<SeoTaskDetail | null>(null);
   const [history, setHistory] = useState<Array<{
     id: string;
     action: string;
@@ -48,27 +49,38 @@ export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: 
   const [note, setNote] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [evidenceStatus, setEvidenceStatus] = useState(task.evidenceStatus);
-  const [evidenceSnapshot, setEvidenceSnapshot] = useState(
-    task.evidenceSnapshot ? JSON.stringify(task.evidenceSnapshot, null, 2) : "",
-  );
+  const [evidenceSnapshot, setEvidenceSnapshot] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function toggleExpanded() {
     const opening = !expanded;
     setExpanded(opening);
-    if (!opening || history !== null) return;
+    if (!opening || detail !== null) return;
     const response = await authFetch(`/api/seo/tasks/${task.id}`).catch(() => null);
     if (!response?.ok) {
       setError("Decision history could not be loaded.");
       return;
     }
-    const result = await response.json() as { history?: Array<{
-      id: string;
-      action: string;
-      actor: string;
-      createdAt: string;
-    }> };
+    const result = await response.json() as {
+      task?: Omit<SeoTaskDetail, "bucket" | "overdue">;
+      history?: Array<{
+        id: string;
+        action: string;
+        actor: string;
+        createdAt: string;
+      }>;
+    };
+    if (!result.task) {
+      setError("Task details could not be loaded.");
+      return;
+    }
+    const loadedDetail = { ...task, ...result.task };
+    setDetail(loadedDetail);
+    setEvidenceStatus(loadedDetail.evidenceStatus);
+    setEvidenceSnapshot(
+      loadedDetail.evidenceSnapshot ? JSON.stringify(loadedDetail.evidenceSnapshot, null, 2) : "",
+    );
     setHistory(result.history ?? []);
   }
 
@@ -90,6 +102,9 @@ export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: 
     setAction(null);
     setNote("");
     setConfirmed(false);
+    setExpanded(false);
+    setDetail(null);
+    setHistory(null);
     onChanged();
   }
 
@@ -138,15 +153,18 @@ export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: 
         {expanded && (
           <>
             <Divider />
+            {detail === null ? (
+              <Text as="p" tone="subdued">Loading task details…</Text>
+            ) : (
             <BlockStack gap="300">
-              <Text as="p">{task.description}</Text>
-              <Text as="p"><strong>Review date:</strong> {formatDate(task.earliestReviewAt)}</Text>
-              <Text as="p"><strong>Due date:</strong> {formatDate(task.dueAt)}</Text>
-              <Text as="p"><strong>Evidence required:</strong> {JSON.stringify(task.evidenceRequirement)}</Text>
-              <Text as="p"><strong>Evidence snapshot:</strong> {task.evidenceSnapshot ? JSON.stringify(task.evidenceSnapshot) : "None recorded"}</Text>
-              <Text as="p"><strong>Source:</strong> {task.sourceType} · {task.sourceKey}</Text>
-              {task.destinationPath && <Button variant="plain" url={task.destinationPath}>Open destination</Button>}
-              {task.completionNote && <Text as="p"><strong>Decision note:</strong> {task.completionNote}</Text>}
+              <Text as="p">{detail.description}</Text>
+              <Text as="p"><strong>Review date:</strong> {formatDate(detail.earliestReviewAt)}</Text>
+              <Text as="p"><strong>Due date:</strong> {formatDate(detail.dueAt)}</Text>
+              <Text as="p"><strong>Evidence required:</strong> {JSON.stringify(detail.evidenceRequirement)}</Text>
+              <Text as="p"><strong>Evidence snapshot:</strong> {detail.evidenceSnapshot ? JSON.stringify(detail.evidenceSnapshot) : "None recorded"}</Text>
+              <Text as="p"><strong>Source:</strong> {detail.sourceType} · {detail.sourceKey}</Text>
+              {detail.destinationPath && <Button variant="plain" url={detail.destinationPath}>Open destination</Button>}
+              {detail.completionNote && <Text as="p"><strong>Decision note:</strong> {detail.completionNote}</Text>}
               <Text as="h3" variant="headingSm">Decision history</Text>
               {history === null ? (
                 <Text as="p" tone="subdued">Loading decision history…</Text>
@@ -163,19 +181,27 @@ export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: 
               )}
               {error && <Banner tone="critical">{error}</Banner>}
 
-              {task.status === "open" && (
+              {detail.status === "open" && (
                 <InlineStack gap="200" wrap>
                   <Button onClick={() => { setEditing((value) => !value); setAction(null); }}>Edit task</Button>
                   <Button onClick={() => { setAction("evidence"); setEditing(false); }}>Update evidence</Button>
-                  <Button onClick={() => { setAction("complete"); setEditing(false); }}>Complete task</Button>
+                  {detail.bucket === "ready" && (
+                    <Button onClick={() => { setAction("complete"); setEditing(false); }}>Complete task</Button>
+                  )}
                   <Button tone="critical" onClick={() => { setAction("cancel"); setEditing(false); }}>Cancel task</Button>
                 </InlineStack>
               )}
 
               {editing && (
                 <SeoTaskForm
-                  task={task}
-                  onSaved={() => { setEditing(false); onChanged(); }}
+                  task={detail}
+                  onSaved={() => {
+                    setEditing(false);
+                    setExpanded(false);
+                    setDetail(null);
+                    setHistory(null);
+                    onChanged();
+                  }}
                   onCancel={() => setEditing(false)}
                 />
               )}
@@ -186,7 +212,7 @@ export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: 
                     label="Evidence status"
                     value={evidenceStatus}
                     onChange={setEvidenceStatus}
-                    options={(task.requiresEvidence
+                    options={(detail.requiresEvidence
                       ? ["waiting", "insufficient", "sufficient"]
                       : ["not_required"]).map((value) => ({ label: value.replace("_", " "), value }))}
                   />
@@ -237,6 +263,7 @@ export function SeoTaskRow({ task, onChanged }: { task: SeoTaskView; onChanged: 
                 </div>
               )}
             </BlockStack>
+            )}
           </>
         )}
       </BlockStack>

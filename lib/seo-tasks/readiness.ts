@@ -12,16 +12,19 @@ export type SeoTaskState = {
   earliestReviewAt: Date;
   requiresEvidence: boolean;
   evidenceStatus: SeoTaskEvidenceStatus;
+  evidenceSnapshot: unknown | null;
   dueAt: Date | null;
 };
 
 export function deriveSeoTaskBucket(
-  task: Pick<SeoTaskState, "status" | "earliestReviewAt" | "requiresEvidence" | "evidenceStatus">,
+  task: Pick<SeoTaskState, "status" | "earliestReviewAt" | "requiresEvidence" | "evidenceStatus" | "evidenceSnapshot">,
   now: Date,
 ): SeoTaskBucket {
   if (task.status === "completed" || task.status === "cancelled") return "closed";
   if (task.earliestReviewAt.getTime() > now.getTime()) return "scheduled";
-  if (task.requiresEvidence && task.evidenceStatus === "sufficient") return "ready";
+  if (task.requiresEvidence
+    && task.evidenceStatus === "sufficient"
+    && task.evidenceSnapshot !== null) return "ready";
   if (!task.requiresEvidence && task.evidenceStatus === "not_required") return "ready";
   return "waiting";
 }
@@ -37,8 +40,6 @@ export function isSeoTaskOverdue(
 
 export type SeoTaskDedupeInput = {
   taskType: SeoTaskType;
-  title: string;
-  targetUrl: string | null;
   sourceType: SeoTaskSourceType;
   sourceKey: string;
 };
@@ -50,8 +51,6 @@ function canonical(value: string | null): string {
 export function buildSeoTaskDedupeKey(input: SeoTaskDedupeInput): string {
   const semanticKey = [
     input.taskType,
-    canonical(input.title),
-    canonical(input.targetUrl),
     input.sourceType,
     canonical(input.sourceKey),
   ].join("\u001f");
