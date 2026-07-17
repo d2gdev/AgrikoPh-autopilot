@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { Prisma, type Recommendation } from "@prisma/client";
-import { applyGovernedStoreResourceChange, createGovernedRedirect, fetchGovernedRedirects, fetchGovernedStoreResource, resolveGovernedStoreUrl, type GovernedStoreResource } from "@/lib/shopify-governed-resources";
+import { applyGovernedStoreResourceChange, createGovernedRedirect, deleteGovernedRedirect, fetchGovernedRedirects, fetchGovernedStoreResource, resolveGovernedStoreUrl, updateGovernedRedirect, type GovernedRedirect, type GovernedStoreResource } from "@/lib/shopify-governed-resources";
+import { replaceExactInternalLinkTargets } from "@/lib/store-tasks/replace-internal-links";
 import { appendInternalLinkMarkup, classifyTopicalMapPageAction, hashTopicalMapProposedState, TopicalMapStoreTaskProposedSchema, TopicalMapStoreTaskSourceSchema } from "@/lib/store-tasks/topical-map";
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
-import { topicalMapActionEligibility, topicalMapInternalLinkEligibility, topicalMapInternalLinkRequiresAddition } from "@/lib/topical-map/action-eligibility";
+import { topicalMapActionEligibility, topicalMapInternalLinkEligibility, topicalMapInternalLinkRequiresAddition, topicalMapInternalLinkRequiresReplacement, topicalMapRedirectRequiresDelete, topicalMapRedirectRequiresLegacyLinkCleanup, topicalMapRedirectRequiresUpdate } from "@/lib/topical-map/action-eligibility";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
 export type TopicalMapApplyErrorCode = "TASK_NOT_PENDING" | "TASK_NOT_EXECUTABLE" | "APPROVED_BYTES_CHANGED" | "STRATEGY_CHANGED" | "RULE_CHANGED" | "OBSERVATION_CHANGED" | "TARGET_LOCKED" | "SHOPIFY_FAILED" | "SHOPIFY_VERIFICATION_UNCERTAIN";
@@ -46,6 +48,30 @@ function stillGoverned(center: Awaited<ReturnType<typeof loadActiveTopicalMapCom
       && topicalMapActionEligibility(governed[0]!.policy).actionable
       && sameStrings(governed[0]!.ruleIds, source.ruleIds);
   }
+  if (source.action === "redirect_update" && proposed.action === "redirect_update") {
+    const governed = center.work.redirects.filter((item) =>
+      path(item.source) === source.targetUrl
+      && path(item.finalTarget) === source.redirectTarget
+      && topicalMapActionEligibility(item.policy).actionable
+      && topicalMapRedirectRequiresUpdate(item.requiredAction));
+    return governed.length === 1
+      && proposed.before.id === source.redirectId
+      && proposed.before.target === source.observedRedirectTarget
+      && proposed.after.target === source.redirectTarget
+      && sameStrings(governed[0]!.ruleIds, source.ruleIds);
+  }
+  if (source.action === "redirect_delete" && proposed.action === "redirect_delete") {
+    const governed = center.work.redirects.filter((item) =>
+      path(item.source) === source.targetUrl
+      && topicalMapActionEligibility(item.policy).actionable
+      && topicalMapRedirectRequiresDelete(item.requiredAction));
+    return governed.length === 1
+      && source.liveOwnerUrl === source.targetUrl
+      && proposed.before.id === source.redirectId
+      && proposed.before.target === source.observedRedirectTarget
+      && proposed.after.state === "absent"
+      && sameStrings(governed[0]!.ruleIds, source.ruleIds);
+  }
   const target = resolveGovernedStoreUrl(source.targetUrl); if (!target || target.type !== source.targetType) return false;
   if (source.action === "internal_link") {
     const governed = center.work.internalLinks.filter((item) => path(item.fromUrl) === source.targetUrl
@@ -54,6 +80,25 @@ function stillGoverned(center: Awaited<ReturnType<typeof loadActiveTopicalMapCom
       && source.links.some((link) => link.toUrl === path(item.toUrl) && link.anchor === (item.recommendedAnchor ?? item.toUrl)));
     const governedLinks = new Set(governed.map((item) => `${path(item.toUrl)}\u0000${item.recommendedAnchor ?? item.toUrl}`));
     return governedLinks.size === source.links.length && source.links.every((link) => governedLinks.has(`${link.toUrl}\u0000${link.anchor}`)) && sameStrings(governed.flatMap((item) => item.ruleIds), source.ruleIds);
+  }
+  if (source.action === "internal_link_replace" && proposed.action === "internal_link_replace") {
+    const governedRuleIds: string[] = [];
+    const exact = source.replacements.every((replacement) => {
+      const redirect = center.work.redirects.find((item) =>
+        path(item.source) === replacement.fromUrl
+        && path(item.finalTarget) === replacement.toUrl
+        && topicalMapActionEligibility(item.policy).actionable
+        && topicalMapRedirectRequiresLegacyLinkCleanup(item.requiredAction));
+      const link = center.work.internalLinks.find((item) =>
+        path(item.fromUrl) === source.targetUrl
+        && path(item.toUrl) === replacement.toUrl
+        && topicalMapInternalLinkEligibility(item.policy, item.currentBodyState, item.requiredAction).actionable
+        && topicalMapInternalLinkRequiresReplacement(item.requiredAction));
+      if (!redirect || !link) return false;
+      governedRuleIds.push(...redirect.ruleIds, ...link.ruleIds);
+      return true;
+    });
+    return exact && sameStrings(governedRuleIds, source.ruleIds);
   }
   const page = center.pages.find((item) => path(item.url) === source.targetUrl);
   const action = classifyTopicalMapPageAction(page?.decision);
@@ -65,6 +110,11 @@ function stillGoverned(center: Awaited<ReturnType<typeof loadActiveTopicalMapCom
 }
 function expectedChanges(proposed: ExecutableProposed, current: GovernedStoreResource, source: ExecutableSource): Record<string, string> {
   if (proposed.action === "internal_link" && source.action === "internal_link") return { bodyHtml: appendInternalLinkMarkup(current.bodyHtml, source.targetUrl, source.links) };
+  if (proposed.action === "internal_link_replace" && source.action === "internal_link_replace") {
+    const replaced = replaceExactInternalLinkTargets(current.bodyHtml, source.replacements);
+    if (!replaced.changed || replaced.bodyHtml !== proposed.after.bodyHtml) throw new TopicalMapApplyError("OBSERVATION_CHANGED");
+    return { bodyHtml: replaced.bodyHtml };
+  }
   return { ...proposed.after };
 }
 function beforeMatches(proposed: ExecutableProposed, current: GovernedStoreResource) {
@@ -78,6 +128,16 @@ function afterMatches(expected: Record<string, string>, current: GovernedStoreRe
       ? normalizeShopifyHtml(observed) === normalizeShopifyHtml(value)
       : observed === value;
   });
+}
+function sameObservedRedirect(current: GovernedRedirect | undefined, source: Extract<ExecutableSource, { action: "redirect_update" | "redirect_delete" }>): current is GovernedRedirect {
+  return !!current
+    && current.id === source.redirectId
+    && current.source === source.targetUrl
+    && current.target === source.observedRedirectTarget
+    && current.stateHash === source.observedStateHash;
+}
+function absentRedirectHash(source: string): string {
+  return createHash("sha256").update(JSON.stringify({ source, state: "absent" })).digest("hex");
 }
 
 export async function approveTopicalMapStoreTask(db: Db, input: { id: string; actor: string }) {
@@ -134,6 +194,49 @@ export async function dispatchClaimedTopicalMapStoreTask(db: Db, rec: Recommenda
     if (created.source !== source.targetUrl || created.target !== source.redirectTarget) throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN", { mutationSent: true, reobservation: "different_state" });
     return { taskId: row.id, recommendationId: rec.id, targetId: created.id, targetUrl: source.targetUrl, targetType: "redirect", strategyVersionId: source.strategyVersionId, packageSha256: source.packageSha256, ruleIds: [...source.ruleIds].sort(), action: proposed.action, changedFields: ["target"], proposedStateHash, shopifyReturnedStateHash: created.stateHash, verifiedAt: new Date().toISOString() };
   }
+  if (source.action === "redirect_update" && proposed.action === "redirect_update") {
+    const current = (await fetchGovernedRedirects([source.targetUrl])).get(source.targetUrl);
+    if (!sameObservedRedirect(current, source)) throw new TopicalMapApplyError("OBSERVATION_CHANGED");
+    let updated: GovernedRedirect;
+    try {
+      updated = await updateGovernedRedirect(current, source.redirectTarget);
+    } catch (error) {
+      let reobserved: GovernedRedirect | null = null;
+      try { reobserved = (await fetchGovernedRedirects([source.targetUrl])).get(source.targetUrl) ?? null; } catch { /* bounded unavailable diagnostic */ }
+      if (reobserved?.id === source.redirectId && reobserved.target === source.redirectTarget) updated = reobserved;
+      else {
+        const shopifyMessage = error instanceof Error ? error.message.replace(/[\r\n\t]+/g, " ").trim().slice(0, 300) : undefined;
+        throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN", { mutationSent: true, ...(shopifyMessage ? { shopifyMessage } : {}), reobservation: reobserved ? "different_state" : "unavailable" });
+      }
+    }
+    if (updated.id !== source.redirectId || updated.source !== source.targetUrl || updated.target !== source.redirectTarget) throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN", { mutationSent: true, reobservation: "different_state" });
+    return { taskId: row.id, recommendationId: rec.id, targetId: updated.id, targetUrl: source.targetUrl, targetType: "redirect", strategyVersionId: source.strategyVersionId, packageSha256: source.packageSha256, ruleIds: [...source.ruleIds].sort(), action: proposed.action, changedFields: ["target"], proposedStateHash, shopifyReturnedStateHash: updated.stateHash, verifiedAt: new Date().toISOString() };
+  }
+  if (source.action === "redirect_delete" && proposed.action === "redirect_delete") {
+    const current = (await fetchGovernedRedirects([source.targetUrl])).get(source.targetUrl);
+    if (!sameObservedRedirect(current, source)) throw new TopicalMapApplyError("OBSERVATION_CHANGED");
+    const owner = await fetchGovernedStoreResource(source.liveOwnerUrl);
+    if (!owner || owner.type !== "page" || owner.url !== source.liveOwnerUrl) throw new TopicalMapApplyError("OBSERVATION_CHANGED");
+    try {
+      await deleteGovernedRedirect(current);
+    } catch (error) {
+      let reobserved: GovernedRedirect | null | undefined;
+      try { reobserved = (await fetchGovernedRedirects([source.targetUrl])).get(source.targetUrl); } catch { reobserved = null; }
+      if (reobserved !== undefined) {
+        const shopifyMessage = error instanceof Error ? error.message.replace(/[\r\n\t]+/g, " ").trim().slice(0, 300) : undefined;
+        throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN", { mutationSent: true, ...(shopifyMessage ? { shopifyMessage } : {}), reobservation: reobserved ? "different_state" : "unavailable" });
+      }
+    }
+    const verified = (await fetchGovernedRedirects([source.targetUrl])).get(source.targetUrl);
+    if (verified) throw new TopicalMapApplyError("SHOPIFY_VERIFICATION_UNCERTAIN", { mutationSent: true, reobservation: "different_state" });
+    return { taskId: row.id, recommendationId: rec.id, targetId: source.redirectId, targetUrl: source.targetUrl, targetType: "redirect", strategyVersionId: source.strategyVersionId, packageSha256: source.packageSha256, ruleIds: [...source.ruleIds].sort(), action: proposed.action, changedFields: ["redirect"], proposedStateHash, shopifyReturnedStateHash: absentRedirectHash(source.targetUrl), verifiedAt: new Date().toISOString() };
+  }
+  if (source.action === "internal_link_replace" && proposed.action === "internal_link_replace") {
+    const redirects = await fetchGovernedRedirects(source.replacements.map((replacement) => replacement.fromUrl));
+    if (source.replacements.some((replacement) => redirects.get(replacement.fromUrl)?.target !== replacement.toUrl)) {
+      throw new TopicalMapApplyError("OBSERVATION_CHANGED");
+    }
+  }
   const current = await fetchGovernedStoreResource(source.targetUrl);
   if (!current || current.type !== source.targetType || current.stateHash !== source.observedStateHash || !beforeMatches(proposed, current)) throw new TopicalMapApplyError("OBSERVATION_CHANGED");
   const expected = expectedChanges(proposed, current, source);
@@ -176,6 +279,17 @@ export async function reobserveTopicalMapReceipt(db: Db, rec: Recommendation): P
     if (!current || current.target !== source.data.redirectTarget) return null;
     const proposedStateHash = hashTopicalMapProposedState(proposed.data);
     return { taskId: row.id, recommendationId: rec.id, targetId: current.id, targetUrl: source.data.targetUrl, targetType: "redirect", strategyVersionId: source.data.strategyVersionId, packageSha256: source.data.packageSha256, ruleIds: [...source.data.ruleIds].sort(), action: proposed.data.action, changedFields: ["target"], proposedStateHash, shopifyReturnedStateHash: current.stateHash, verifiedAt: new Date().toISOString() };
+  }
+  if (source.data.action === "redirect_update" && proposed.data.action === "redirect_update") {
+    const current = (await fetchGovernedRedirects([source.data.targetUrl])).get(source.data.targetUrl);
+    if (!current || current.id !== source.data.redirectId || current.target !== source.data.redirectTarget) return null;
+    const proposedStateHash = hashTopicalMapProposedState(proposed.data);
+    return { taskId: row.id, recommendationId: rec.id, targetId: current.id, targetUrl: source.data.targetUrl, targetType: "redirect", strategyVersionId: source.data.strategyVersionId, packageSha256: source.data.packageSha256, ruleIds: [...source.data.ruleIds].sort(), action: proposed.data.action, changedFields: ["target"], proposedStateHash, shopifyReturnedStateHash: current.stateHash, verifiedAt: new Date().toISOString() };
+  }
+  if (source.data.action === "redirect_delete" && proposed.data.action === "redirect_delete") {
+    if ((await fetchGovernedRedirects([source.data.targetUrl])).has(source.data.targetUrl)) return null;
+    const proposedStateHash = hashTopicalMapProposedState(proposed.data);
+    return { taskId: row.id, recommendationId: rec.id, targetId: source.data.redirectId, targetUrl: source.data.targetUrl, targetType: "redirect", strategyVersionId: source.data.strategyVersionId, packageSha256: source.data.packageSha256, ruleIds: [...source.data.ruleIds].sort(), action: proposed.data.action, changedFields: ["redirect"], proposedStateHash, shopifyReturnedStateHash: absentRedirectHash(source.data.targetUrl), verifiedAt: new Date().toISOString() };
   }
   const current = await fetchGovernedStoreResource(source.data.targetUrl); if (!current) return null;
   // For recovery, compare stored proposed after directly; internal links are already present and deterministic.

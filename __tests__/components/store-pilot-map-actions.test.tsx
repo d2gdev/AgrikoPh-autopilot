@@ -312,6 +312,36 @@ describe("MapTaskDetails disclosure", () => {
     expect(screen.getByText("Proposed target")).toBeTruthy();
     expect(screen.getByText("/products/rice")).toBeTruthy();
   });
+  it("labels the three governed repair actions and shows exact evidence", () => {
+    const cases = [
+      {
+        id: "redirect-update",
+        targetUrl: "/old",
+        sourceData: { ...executable.sourceData, action: "redirect_update", redirectId: "redirect-1", observedRedirectTarget: "/middle", redirectTarget: "/final" },
+        proposedState: { action: "redirect_update", before: { id: "redirect-1", target: "/middle" }, after: { target: "/final" } },
+        label: "Update redirect target",
+      },
+      {
+        id: "redirect-delete",
+        targetUrl: "/pages/red-rice-recipes",
+        sourceData: { ...executable.sourceData, action: "redirect_delete", redirectId: "redirect-2", observedRedirectTarget: "/blogs/recipes/tagged/red-rice", liveOwnerUrl: "/pages/red-rice-recipes" },
+        proposedState: { action: "redirect_delete", before: { id: "redirect-2", target: "/blogs/recipes/tagged/red-rice" }, after: { state: "absent" } },
+        label: "Delete stale redirect",
+      },
+      {
+        id: "link-replace",
+        targetUrl: "/blogs/news/source",
+        sourceData: { ...executable.sourceData, action: "internal_link_replace", replacements: [{ fromUrl: "/products/old", toUrl: "/products/new" }] },
+        proposedState: { action: "internal_link_replace", before: { bodyHtml: "<a href=\"/products/old\">Rice</a>" }, after: { bodyHtml: "<a href=\"/products/new\">Rice</a>" } },
+        label: "Replace legacy internal links",
+      },
+    ];
+    for (const item of cases) {
+      const rendered = render(<MapTaskDetails task={{ ...executable, ...item } as StoreTaskView} />);
+      expect(screen.getByText(item.label)).toBeTruthy();
+      rendered.unmount();
+    }
+  });
   it("shows the observed target for a redirect conflict advisory", () => {
     render(<MapTaskDetails task={{
       ...advisory,

@@ -50,6 +50,26 @@ describe("Store Task DTOs", () => {
     expect(toStoreTaskDetailDto(redirect).proposedState).toEqual(redirect.proposedState);
     expect(() => toStoreTaskDetailDto({ ...redirect, proposedState: { action: "redirect_create", before: { bodyHtml: "old" }, after: { bodyHtml: "new" } } })).toThrow();
   });
+  it("projects bounded redirect repairs and keeps replacement bodies detail-only", () => {
+    const update = {
+      ...base,
+      targetType: "redirect",
+      sourceData: { ...base.sourceData, action: "redirect_update", redirectId: "redirect-1", observedRedirectTarget: "/middle", redirectTarget: "/final" },
+      proposedState: { action: "redirect_update", before: { id: "redirect-1", target: "/middle" }, after: { target: "/final" } },
+    };
+    expect(toStoreTaskListDto(update).proposedState).toEqual(update.proposedState);
+    expect(toStoreTaskDetailDto(update).sourceData).toMatchObject({ redirectId: "redirect-1", redirectTarget: "/final" });
+
+    const replacement = {
+      ...base,
+      targetType: "article",
+      sourceData: { ...base.sourceData, action: "internal_link_replace", replacements: [{ fromUrl: "/products/old", toUrl: "/products/new" }] },
+      proposedState: { action: "internal_link_replace", before: { bodyHtml: "<a href=\"/products/old\">Rice</a>" }, after: { bodyHtml: "<a href=\"/products/new\">Rice</a>" } },
+    };
+    expect(toStoreTaskListDto(replacement).sourceData).not.toHaveProperty("replacements");
+    expect(toStoreTaskListDto(replacement).proposedState).toEqual({ action: "internal_link_replace" });
+    expect(toStoreTaskDetailDto(replacement).sourceData).toMatchObject({ replacements: [{ fromUrl: "/products/old", toUrl: "/products/new" }] });
+  });
   it("projects bounded redirect-conflict observation evidence", () => {
     const sourceData = { ...base.sourceData, executable: false, advisoryReason: "redirect_conflict", resolutionStatus: "resolved", mapProposedRedirectTarget: "/products/rice", observedRedirectTarget: "/pages/wrong", observedRedirectId: "redirect-7", observedAt: "2026-07-14T00:00:00.000Z", observedStateHash: "b".repeat(64) };
     const expected = { advisoryReason: "redirect_conflict", resolutionStatus: "resolved", mapProposedRedirectTarget: "/products/rice", observedRedirectTarget: "/pages/wrong", observedRedirectId: "redirect-7", observedAt: "2026-07-14T00:00:00.000Z", observedStateHash: "b".repeat(64) };

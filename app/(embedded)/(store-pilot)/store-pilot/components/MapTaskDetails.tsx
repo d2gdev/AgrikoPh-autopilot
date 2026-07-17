@@ -23,6 +23,11 @@ const fieldLabels: Record<string, string> = {
   seoDescription: "SEO description",
   bodyHtml: "Body content",
 };
+const actionLabels: Record<string, string> = {
+  redirect_update: "Update redirect target",
+  redirect_delete: "Delete stale redirect",
+  internal_link_replace: "Replace legacy internal links",
+};
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -41,6 +46,15 @@ function boundedLinks(value: unknown): Array<{ toUrl: string; anchor: string; cu
     const anchor = typeof link.anchor === "string" ? link.anchor.slice(0, 500) : "";
     const optional = (key: string) => typeof link[key] === "string" ? String(link[key]).slice(0, 500) : undefined;
     return toUrl && anchor ? [{ toUrl, anchor, currentBodyState: optional("currentBodyState"), linkPurpose: optional("linkPurpose"), requiredAction: optional("requiredAction"), verification: optional("verification"), priority: optional("priority"), resolutionStatus: optional("resolutionStatus") }] : [];
+  });
+}
+function boundedReplacements(value: unknown): Array<{ fromUrl: string; toUrl: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 100).flatMap((item) => {
+    const replacement = record(item);
+    const fromUrl = typeof replacement.fromUrl === "string" ? replacement.fromUrl.slice(0, 500) : "";
+    const toUrl = typeof replacement.toUrl === "string" ? replacement.toUrl.slice(0, 500) : "";
+    return fromUrl && toUrl ? [{ fromUrl, toUrl }] : [];
   });
 }
 
@@ -93,10 +107,13 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
   const observedRedirectTarget = typeof task.sourceData.observedRedirectTarget === "string" ? task.sourceData.observedRedirectTarget : null;
   const observedRedirectId = typeof task.sourceData.observedRedirectId === "string" ? task.sourceData.observedRedirectId : null;
   const observedStateHash = typeof task.sourceData.observedStateHash === "string" ? task.sourceData.observedStateHash : null;
-  const internalLinkTask = task.proposedState.action === "internal_link";
-  const redirectTask = task.proposedState.action === "redirect_create";
+  const action = typeof task.proposedState.action === "string" ? task.proposedState.action : "";
+  const actionLabel = actionLabels[action];
+  const internalLinkTask = action === "internal_link" || action === "internal_link_replace";
+  const redirectTask = action === "redirect_create" || action === "redirect_update" || action === "redirect_delete";
   const redirectTarget = redirectTask && typeof record(task.proposedState.after).target === "string" ? String(record(task.proposedState.after).target) : null;
-  const links = internalLinkTask ? boundedLinks(task.sourceData.links) : [];
+  const links = action === "internal_link" ? boundedLinks(task.sourceData.links) : [];
+  const replacements = action === "internal_link_replace" ? boundedReplacements(task.sourceData.replacements) : [];
   const allFields = changedFields(task);
   const fields = redirectTask ? [] : internalLinkTask ? allFields.filter((field) => field.key !== "bodyHtml") : allFields;
   const rawHtmlFields = internalLinkTask ? allFields.filter((field) => field.key === "bodyHtml") : [];
@@ -106,6 +123,7 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
       <InlineStack gap="200" wrap>
         <Badge tone={executable ? "success" : "attention"}>{executable ? "Executable" : "Advisory only"}</Badge>
       </InlineStack>
+      {actionLabel ? <Text as="h3" variant="headingSm">{actionLabel}</Text> : null}
       <InlineStack gap="300" wrap>
         {typeof task.sourceData.strategyVersionId === "string" ? <Text as="p" variant="bodySm"><strong>Strategy version:</strong> {task.sourceData.strategyVersionId}</Text> : null}
         {typeof task.sourceData.packageSha256 === "string" ? <Text as="p" variant="bodySm"><strong>Package:</strong> {task.sourceData.packageSha256.slice(0, 12)}</Text> : null}
@@ -151,6 +169,14 @@ export function MapTaskDetails({ task, compact = false }: { task: StoreTaskView;
               {link.priority ? <Text as="p" variant="bodySm"><strong>Original priority:</strong> {link.priority}</Text> : null}
               {link.resolutionStatus ? <Text as="p" variant="bodySm"><strong>Rule status:</strong> {link.resolutionStatus}</Text> : null}
             </BlockStack>
+          ))}
+        </BlockStack>
+      ) : null}
+      {replacements.length ? (
+        <BlockStack gap="200">
+          <Text as="h3" variant="headingSm">Exact replacements ({replacements.length})</Text>
+          {replacements.map((replacement) => (
+            <Text as="p" key={`${replacement.fromUrl}:${replacement.toUrl}`}>{replacement.fromUrl} → {replacement.toUrl}</Text>
           ))}
         </BlockStack>
       ) : null}
