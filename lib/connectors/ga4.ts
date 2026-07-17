@@ -32,21 +32,40 @@ export async function fetchGa4Data(opts: { start: Date; end: Date }): Promise<Re
   const since = opts.start.toISOString().split("T")[0];
   const until = opts.end.toISOString().split("T")[0];
 
+  const dateRanges = [{ startDate: since, endDate: until }];
   const body = {
-    dateRanges: [{ startDate: since, endDate: until }],
-    dimensions: [{ name: "pagePath" }],
-    metrics: [
-      { name: "sessions" },
-      { name: "bounceRate" },
-      { name: "conversions" },
-      { name: "totalUsers" },
+    requests: [
+      {
+        dateRanges,
+        dimensions: [{ name: "pagePath" }],
+        metrics: [
+          { name: "sessions" },
+          { name: "bounceRate" },
+          { name: "totalUsers" },
+          { name: "purchaseRevenue" },
+        ],
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+        limit,
+      },
+      {
+        dateRanges,
+        dimensions: [{ name: "pagePath" }, { name: "eventName" }],
+        metrics: [{ name: "eventCount" }],
+        dimensionFilter: {
+          filter: {
+            fieldName: "eventName",
+            inListFilter: {
+              values: ["view_item", "add_to_cart", "begin_checkout", "purchase"],
+            },
+          },
+        },
+        limit: limit * 4,
+      },
     ],
-    orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
-    limit,
   };
 
   const res = await fetch(
-    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
+    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:batchRunReports`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -56,22 +75,46 @@ export async function fetchGa4Data(opts: { start: Date; end: Date }): Promise<Re
   );
 
   if (!res.ok) throw new Error(`GA4 API error ${res.status}: ${await res.text()}`);
-  const data = await res.json() as Record<string, unknown>;
+  const data = await res.json() as {
+    reports?: Array<{
+      rows?: Array<{
+        dimensionValues?: Array<{ value?: string }>;
+        metricValues?: Array<{ value?: string }>;
+      }>;
+    }>;
+  };
 
-  const rows = data.rows as Array<Record<string, unknown>> ?? [];
+  const rows = data.reports?.[0]?.rows ?? [];
+  const funnelByPage = new Map<string, Record<string, number>>();
+  for (const row of data.reports?.[1]?.rows ?? []) {
+    const page = row.dimensionValues?.[0]?.value ?? "unknown";
+    const eventName = row.dimensionValues?.[1]?.value;
+    if (!eventName) continue;
+    const events = funnelByPage.get(page) ?? {};
+    events[eventName] = parseInt(row.metricValues?.[0]?.value ?? "0");
+    funnelByPage.set(page, events);
+  }
+
   const topPages = rows.map((row) => {
-    const dims = row.dimensionValues as Array<{ value: string }>;
-    const mets = row.metricValues as Array<{ value: string }>;
+    const dims = row.dimensionValues ?? [];
+    const mets = row.metricValues ?? [];
+    const page = dims[0]?.value ?? "unknown";
+    const events = funnelByPage.get(page) ?? {};
     const sessions = parseInt(mets[0]?.value ?? "0");
-    const conversions = parseInt(mets[2]?.value ?? "0");
-    const totalUsers = parseInt(mets[3]?.value ?? "0");
+    const totalUsers = parseInt(mets[2]?.value ?? "0");
+    const purchases = events.purchase ?? 0;
     return {
-      page: dims[0]?.value ?? "unknown",
+      page,
       sessions,
       totalUsers,
-      conversions,
+      conversions: purchases,
+      viewItem: events.view_item ?? 0,
+      addToCart: events.add_to_cart ?? 0,
+      beginCheckout: events.begin_checkout ?? 0,
+      purchases,
+      revenue: parseFloat(mets[3]?.value ?? "0"),
       bounceRate: `${(parseFloat(mets[1]?.value ?? "0") * 100).toFixed(1)}%`,
-      conversionRate: sessions > 0 ? `${((conversions / sessions) * 100).toFixed(2)}%` : "0%",
+      conversionRate: sessions > 0 ? `${((purchases / sessions) * 100).toFixed(2)}%` : "0%",
     };
   });
 
