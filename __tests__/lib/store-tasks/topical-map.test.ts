@@ -66,7 +66,7 @@ const center = () => ({
       { fromUrl: "/collections/rice", toUrl: "/products/red-rice", ruleIds: ["link:red"], recommendedAnchor: "shop red rice", requiredAction: "ensure exact link", priority: "medium", policy: resolvedPolicy },
       { fromUrl: "/blogs/news/black-rice-guide", toUrl: "/products/black-rice", ruleIds: ["link:article"], recommendedAnchor: "black rice", priority: "high", policy: resolvedPolicy },
     ],
-    redirects: [{ source: "/old", configuredTarget: "/products/legacy", finalTarget: "/products/black-rice", knownState: "configured", hopCount: "1", ruleIds: ["redirect:1"], policy: resolvedPolicy }],
+    redirects: [{ source: "/old", configuredTarget: "/products/legacy", finalTarget: "/products/black-rice", knownState: "configured", hopCount: "1", requiredAction: undefined as string | undefined, ruleIds: ["redirect:1"], policy: resolvedPolicy }],
     canonicalization: [{ currentUrl: "/products/black-rice", proposedCanonicalUrl: "/products/black-rice", publishingState: "published", decision: "Use the product URL as canonical", evidence: "The product owns commercial intent", priority: "P0", ruleIds: ["canonical:1"], policy: resolvedPolicy }],
     indexation: [{ currentUrl: "/products/black-rice", proposedCanonicalUrl: "/products/black-rice", publishingState: "published", decision: "Keep indexed", evidence: "The product is the preferred landing page", priority: "P1", ruleIds: ["index:1"], policy: resolvedPolicy }],
   },
@@ -761,5 +761,161 @@ describe("syncTopicalMapStoreTasks", () => {
     const content = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create).find((task: any) => task.proposedState.action === "content_update");
     expect(content.proposedState.after.bodyHtml).toBe('<p>Existing Rice body.</p><section><p>Philippine heirloom rice &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; javascript: onerror=&quot;run&quot; &amp; safe</p></section>');
     expect(content.proposedState.after.bodyHtml).not.toContain("<script>");
+  });
+
+  it("projects an exact resolved one-hop redirect correction as executable", async () => {
+    const changed = center();
+    changed.work.redirects = [{
+      source: "/old",
+      configuredTarget: "/middle",
+      finalTarget: "/final",
+      knownState: "admin-configured",
+      hopCount: "2",
+      requiredAction: "replace with one-hop target",
+      ruleIds: ["redirect:update"],
+      policy: resolvedPolicy,
+    }];
+    load.mockResolvedValue(changed);
+    fetchRedirects.mockResolvedValue(new Map([["/old", {
+      id: "r-update",
+      source: "/old",
+      target: "/middle",
+      capturedAt: new Date("2026-07-17T20:00:00Z"),
+      stateHash: "d".repeat(64),
+    }]]));
+    const db = client();
+
+    await syncTopicalMapStoreTasks(db as any);
+
+    const task = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create)
+      .find((item: any) => item.proposedState.action === "redirect_update");
+    expect(task).toMatchObject({
+      targetUrl: "/old",
+      sourceData: {
+        executable: true,
+        action: "redirect_update",
+        redirectId: "r-update",
+        observedRedirectTarget: "/middle",
+        redirectTarget: "/final",
+      },
+      proposedState: {
+        action: "redirect_update",
+        before: { id: "r-update", target: "/middle" },
+        after: { target: "/final" },
+      },
+    });
+  });
+
+  it("projects a resolved unconditional live-owner redirect removal as executable", async () => {
+    const changed = center();
+    changed.work.redirects = [{
+      source: "/pages/red-rice-recipes",
+      configuredTarget: "/blogs/recipes/tagged/red-rice",
+      finalTarget: "/blogs/recipes/tagged/red-rice",
+      knownState: "conflicts-with-live-200-resource",
+      hopCount: "1",
+      requiredAction: "retain live page as owner; remove redirect record",
+      ruleIds: ["redirect:delete"],
+      policy: resolvedPolicy,
+    }];
+    load.mockResolvedValue(changed);
+    fetchRedirects.mockResolvedValue(new Map([["/pages/red-rice-recipes", {
+      id: "r-delete",
+      source: "/pages/red-rice-recipes",
+      target: "/blogs/recipes/tagged/red-rice",
+      capturedAt: new Date("2026-07-17T20:00:00Z"),
+      stateHash: "d".repeat(64),
+    }]]));
+    fetchResources.mockResolvedValue(new Map([[
+      "/pages/red-rice-recipes",
+      resource("page", "/pages/red-rice-recipes", "Red Rice Recipes"),
+    ]]));
+    const db = client();
+
+    await syncTopicalMapStoreTasks(db as any);
+
+    const task = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create)
+      .find((item: any) => item.proposedState.action === "redirect_delete");
+    expect(task).toMatchObject({
+      targetUrl: "/pages/red-rice-recipes",
+      sourceData: {
+        executable: true,
+        action: "redirect_delete",
+        redirectId: "r-delete",
+        observedRedirectTarget: "/blogs/recipes/tagged/red-rice",
+        liveOwnerUrl: "/pages/red-rice-recipes",
+      },
+      proposedState: {
+        action: "redirect_delete",
+        before: { id: "r-delete", target: "/blogs/recipes/tagged/red-rice" },
+        after: { state: "absent" },
+      },
+    });
+  });
+
+  it("projects one exact article-body replacement from redirect, observation, and matrix evidence", async () => {
+    const changed = center();
+    changed.work.redirects = [{
+      source: "/products/black-rice",
+      configuredTarget: "/products/philippines-organic-black-rice",
+      finalTarget: "/products/philippines-organic-black-rice",
+      knownState: "admin-configured",
+      hopCount: "1",
+      requiredAction: "retain unless source is still internally linked",
+      ruleIds: ["redirect:black"],
+      policy: resolvedPolicy,
+    }];
+    changed.work.internalLinks = [{
+      fromUrl: "/blogs/news/source",
+      toUrl: "/products/philippines-organic-black-rice",
+      currentBodyState: "legacy product URL currently present",
+      requiredAction: "replace legacy target with this current product URL",
+      recommendedAnchor: "organic black rice",
+      linkPurpose: "legacy-link replacement",
+      verification: "zero legacy links",
+      priority: "P0",
+      ruleIds: ["link:black"],
+      policy: resolvedPolicy,
+    }];
+    load.mockResolvedValue(changed);
+    fetchRedirects.mockResolvedValue(new Map([["/products/black-rice", {
+      id: "r-black",
+      source: "/products/black-rice",
+      target: "/products/philippines-organic-black-rice",
+      capturedAt: new Date("2026-07-17T20:00:00Z"),
+      stateHash: "d".repeat(64),
+    }]]));
+    fetchResources.mockResolvedValue(new Map([[
+      "/blogs/news/source",
+      {
+        ...resource("page", "/blogs/news/source", "Source"),
+        type: "article",
+        blogHandle: "news",
+        bodyHtml: '<p><a href="/products/black-rice">Black rice</a></p>',
+        internalTargets: ["/products/black-rice"],
+      },
+    ]]));
+    const db = client();
+
+    await syncTopicalMapStoreTasks(db as any);
+
+    const task = db.storeTask.upsert.mock.calls.map((call: any) => call[0].create)
+      .find((item: any) => item.proposedState.action === "internal_link_replace");
+    expect(task).toMatchObject({
+      targetType: "article",
+      targetUrl: "/blogs/news/source",
+      sourceData: {
+        action: "internal_link_replace",
+        ruleIds: ["link:black", "redirect:black"],
+        replacements: [{
+          fromUrl: "/products/black-rice",
+          toUrl: "/products/philippines-organic-black-rice",
+        }],
+      },
+      proposedState: {
+        before: { bodyHtml: '<p><a href="/products/black-rice">Black rice</a></p>' },
+        after: { bodyHtml: '<p><a href="/products/philippines-organic-black-rice">Black rice</a></p>' },
+      },
+    });
   });
 });

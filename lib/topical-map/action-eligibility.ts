@@ -65,3 +65,22 @@ export function topicalMapInternalLinkEligibility(
 export function topicalMapInternalLinkRequiresAddition(requiredAction?: string): boolean {
   return /\b(add|ensure)\b/i.test(requiredAction ?? "");
 }
+
+export function topicalMapRedirectRequiresUpdate(requiredAction?: string): boolean {
+  return /\breplace with one-hop target\b/i.test(requiredAction ?? "");
+}
+
+export function topicalMapRedirectRequiresDelete(requiredAction?: string): boolean {
+  const instruction = requiredAction ?? "";
+  return /\bretain live page as (?:the )?owner\b/i.test(instruction)
+    && /\bremove redirect record\b/i.test(instruction)
+    && !/\b(unless|provisional|conditional|only if)\b/i.test(instruction);
+}
+
+export function topicalMapRedirectRequiresLegacyLinkCleanup(requiredAction?: string): boolean {
+  return /\bretain unless source is still internally linked\b/i.test(requiredAction ?? "");
+}
+
+export function topicalMapInternalLinkRequiresReplacement(requiredAction?: string): boolean {
+  return /\breplace\b.*\b(?:legacy )?target\b/i.test(requiredAction ?? "");
+}

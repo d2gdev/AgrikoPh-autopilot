@@ -2,10 +2,20 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { chatCompletionWithFailover } from "@/lib/ai/client";
 import { fetchGovernedRedirects, fetchGovernedStoreResources, resolveGovernedStoreUrl, type GovernedStoreResource } from "@/lib/shopify-governed-resources";
+import { replaceExactInternalLinkTargets, type ExactInternalLinkReplacement } from "@/lib/store-tasks/replace-internal-links";
 import { supersedeEquivalentAdvisories, topicalMapAdvisorySemanticKey, type AdvisoryDatabase } from "@/lib/store-tasks/topical-map-advisories";
 import { loadActiveTopicalMapCommandCenter, type TopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
-import { topicalMapActionEligibility, topicalMapInternalLinkEligibility, topicalMapInternalLinkRequiresAddition, type TopicalMapResolutionStatus } from "@/lib/topical-map/action-eligibility";
+import {
+  topicalMapActionEligibility,
+  topicalMapInternalLinkEligibility,
+  topicalMapInternalLinkRequiresAddition,
+  topicalMapInternalLinkRequiresReplacement,
+  topicalMapRedirectRequiresDelete,
+  topicalMapRedirectRequiresLegacyLinkCleanup,
+  topicalMapRedirectRequiresUpdate,
+  type TopicalMapResolutionStatus,
+} from "@/lib/topical-map/action-eligibility";
 
 export type TopicalMapStoreAction = "seo_update" | "content_update" | "internal_link" | "internal_link_replace" | "redirect_create" | "redirect_update" | "redirect_delete";
 
@@ -129,8 +139,7 @@ type RuleDomain = "content_decisions" | "internal_links" | z.infer<typeof Adviso
 type TaskTargetType = z.infer<typeof TargetType> | z.infer<typeof AdvisoryTargetType>;
 type TaskAdvisoryReason = z.infer<typeof AdvisoryReason>;
 type CandidateLink = { toUrl: string; anchor: string; ruleIds: string[]; currentBodyState?: string; linkPurpose?: string; requiredAction?: string; verification?: string; priority?: string; resolutionStatus?: TopicalMapResolutionStatus };
-type ProjectedCandidateAction = Exclude<TopicalMapStoreAction, "internal_link_replace" | "redirect_update" | "redirect_delete">;
-type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: ProjectedCandidateAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resolutionStatus?: TopicalMapResolutionStatus; resource?: GovernedStoreResource; theme?: string; links?: CandidateLink[]; redirectTarget?: string; observedRedirectTarget?: string; observedRedirectId?: string; observedAt?: Date; observedStateHash?: string; proposedCanonicalUrl?: string; mapDecision?: string; mapEvidence?: string; mapPublishingState?: string };
+type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: TopicalMapStoreAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resolutionStatus?: TopicalMapResolutionStatus; resource?: GovernedStoreResource; theme?: string; links?: CandidateLink[]; replacements?: ExactInternalLinkReplacement[]; redirectTarget?: string; liveOwnerUrl?: string; observedRedirectTarget?: string; observedRedirectId?: string; observedAt?: Date; observedStateHash?: string; proposedCanonicalUrl?: string; mapDecision?: string; mapEvidence?: string; mapPublishingState?: string };
 type Persisted = { targetType: string; targetUrl: string; priority: string; ruleIds: string[]; ruleDomains: string[]; sourceData: z.infer<typeof TopicalMapStoreTaskSourceSchema>; proposedState: z.infer<typeof TopicalMapStoreTaskProposedSchema> };
 
 function path(value: string): string {
@@ -268,9 +277,17 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     const source = path(rule.source);
     const target = path(rule.finalTarget);
     const observed = observedRedirects.get(source);
-    if (observed?.target === target) { summary.unchanged++; continue; }
     const eligibility = topicalMapActionEligibility(rule.policy);
     if (observed) {
+      if (eligibility.actionable && topicalMapRedirectRequiresDelete(rule.requiredAction)) {
+        projected.push({ targetType: "redirect", targetUrl: source, ruleIds: [...rule.ruleIds].sort(), ruleDomains: ["redirects"], priority: rule.priority ?? "medium", action: "redirect_delete", resolutionStatus: "resolved", liveOwnerUrl: source, observedRedirectTarget: observed.target, observedRedirectId: observed.id, observedAt: observed.capturedAt, observedStateHash: observed.stateHash });
+        continue;
+      }
+      if (observed.target === target) { summary.unchanged++; continue; }
+      if (eligibility.actionable && topicalMapRedirectRequiresUpdate(rule.requiredAction)) {
+        projected.push({ targetType: "redirect", targetUrl: source, ruleIds: [...rule.ruleIds].sort(), ruleDomains: ["redirects"], priority: rule.priority ?? "medium", action: "redirect_update", resolutionStatus: "resolved", redirectTarget: target, observedRedirectTarget: observed.target, observedRedirectId: observed.id, observedAt: observed.capturedAt, observedStateHash: observed.stateHash });
+        continue;
+      }
       projected.push({ targetType: "redirect", targetUrl: source, ruleIds: [...rule.ruleIds].sort(), ruleDomains: ["redirects"], priority: rule.priority ?? "medium", action: "advisory", advisoryReason: "redirect_conflict", resolutionStatus: rule.policy.resolutionStatus, redirectTarget: target, observedRedirectTarget: observed.target, observedRedirectId: observed.id, observedAt: observed.capturedAt, observedStateHash: observed.stateHash });
       continue;
     }
@@ -282,13 +299,61 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     }
     projected.push({ targetType: "redirect", targetUrl: source, ruleIds: [...rule.ruleIds].sort(), ruleDomains: ["redirects"], priority: rule.priority ?? "medium", action: "redirect_create", resolutionStatus: rule.policy.resolutionStatus, redirectTarget: target, observedAt, observedStateHash });
   }
+  const replacementGroups = new Map<string, Candidate>();
+  for (const redirect of center.work.redirects) {
+    const legacyUrl = path(redirect.source);
+    const finalTarget = path(redirect.finalTarget);
+    const observed = observedRedirects.get(legacyUrl);
+    if (
+      !topicalMapActionEligibility(redirect.policy).actionable
+      || !topicalMapRedirectRequiresLegacyLinkCleanup(redirect.requiredAction)
+      || observed?.target !== finalTarget
+    ) continue;
+    for (const link of center.work.internalLinks) {
+      const fromUrl = path(link.fromUrl);
+      if (
+        path(link.toUrl) !== finalTarget
+        || !topicalMapInternalLinkEligibility(link.policy, link.currentBodyState, link.requiredAction).actionable
+        || !topicalMapInternalLinkRequiresReplacement(link.requiredAction)
+      ) continue;
+      const target = resolveGovernedStoreUrl(fromUrl);
+      if (!target) continue;
+      const current = replacementGroups.get(fromUrl) ?? {
+        targetType: target.type,
+        targetUrl: fromUrl,
+        ruleIds: [],
+        ruleDomains: ["internal_links", "redirects"],
+        priority: link.priority ?? redirect.priority ?? "medium",
+        action: "internal_link_replace",
+        resolutionStatus: "resolved",
+        replacements: [],
+      };
+      current.ruleIds.push(...link.ruleIds, ...redirect.ruleIds);
+      current.replacements!.push({ fromUrl: legacyUrl, toUrl: finalTarget });
+      replacementGroups.set(fromUrl, current);
+    }
+  }
+  for (const group of replacementGroups.values()) {
+    group.ruleIds = [...new Set(group.ruleIds)].sort();
+    group.replacements = [...new Map(group.replacements!.map((replacement) => [
+      `${replacement.fromUrl}\u0000${replacement.toUrl}`,
+      replacement,
+    ])).values()].sort((a, b) => a.fromUrl.localeCompare(b.fromUrl) || a.toUrl.localeCompare(b.toUrl));
+    projected.push(group);
+  }
   projected.sort((a, b) => a.targetUrl.localeCompare(b.targetUrl) || a.action.localeCompare(b.action) || a.ruleIds.join().localeCompare(b.ruleIds.join()));
-  const governedUrls = [...new Set(projected.filter((item) => item.action === "seo_update" || item.action === "content_update" || item.action === "internal_link").map((item) => item.targetUrl))];
+  const governedUrls = [...new Set(projected.filter((item) =>
+    item.action === "seo_update"
+    || item.action === "content_update"
+    || item.action === "internal_link"
+    || item.action === "internal_link_replace"
+    || item.action === "redirect_delete"
+  ).map((item) => item.targetUrl))];
   const resources = await fetchGovernedStoreResources(governedUrls);
   const viable: Candidate[] = [];
   for (const item of projected) {
     if (item.action === "advisory") { viable.push(item); continue; }
-    if (item.action === "redirect_create") { viable.push(item); continue; }
+    if (item.action === "redirect_create" || item.action === "redirect_update") { viable.push(item); continue; }
     const resource = resources.get(item.targetUrl);
     if (!resource) { summary.suppressed++; continue; }
     item.resource = resource;
@@ -297,6 +362,15 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
       item.links = item.links!.filter((link) => !existingTargets.has(link.toUrl));
       if (!item.links.length) { summary.unchanged++; continue; }
       item.ruleIds = [...new Set(item.links.flatMap((link) => link.ruleIds))].sort();
+    }
+    if (item.action === "redirect_delete" && (resource.type !== "page" || item.liveOwnerUrl !== resource.url)) {
+      summary.suppressed++;
+      continue;
+    }
+    if (item.action === "internal_link_replace") {
+      const exact = replaceExactInternalLinkTargets(resource.bodyHtml, item.replacements!);
+      if (!exact.changed) { summary.unchanged++; continue; }
+      if (exact.bodyHtml.length > 50_000) { summary.suppressed++; continue; }
     }
     viable.push(item);
   }
@@ -325,6 +399,20 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
         proposedState: { action: "redirect_create", before: { state: "absent" }, after: { target: item.redirectTarget! } },
       };
     }
+    if (item.action === "redirect_update") {
+      return {
+        targetType: "redirect", targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains,
+        sourceData: TopicalMapStoreTaskSourceSchema.parse({ source: "topical-map", strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, ruleIds: item.ruleIds, ruleDomains: ["redirects"], sourceReferences: item.ruleIds.slice(0, 25).map((id) => ({ kind: "rule", id })), generationProvenance: "deterministic", targetType: "redirect", targetUrl: item.targetUrl, action: "redirect_update", redirectId: item.observedRedirectId, observedRedirectTarget: item.observedRedirectTarget, redirectTarget: item.redirectTarget, observedAt: item.observedAt!.toISOString(), observedStateHash: item.observedStateHash, executable: true, resolutionStatus: "resolved" }),
+        proposedState: { action: "redirect_update", before: { id: item.observedRedirectId!, target: item.observedRedirectTarget! }, after: { target: item.redirectTarget! } },
+      };
+    }
+    if (item.action === "redirect_delete") {
+      return {
+        targetType: "redirect", targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains,
+        sourceData: TopicalMapStoreTaskSourceSchema.parse({ source: "topical-map", strategyVersionId: center.identity.versionId, packageSha256: center.identity.packageSha256, ruleIds: item.ruleIds, ruleDomains: ["redirects"], sourceReferences: item.ruleIds.slice(0, 25).map((id) => ({ kind: "rule", id })), generationProvenance: "deterministic", targetType: "redirect", targetUrl: item.targetUrl, action: "redirect_delete", redirectId: item.observedRedirectId, observedRedirectTarget: item.observedRedirectTarget, liveOwnerUrl: item.liveOwnerUrl, observedAt: item.observedAt!.toISOString(), observedStateHash: item.observedStateHash, executable: true, resolutionStatus: "resolved" }),
+        proposedState: { action: "redirect_delete", before: { id: item.observedRedirectId!, target: item.observedRedirectTarget! }, after: { state: "absent" } },
+      };
+    }
     const resource = item.resource!;
     const sourceData = TopicalMapStoreTaskSourceSchema.parse({
       source: "topical-map",
@@ -333,12 +421,13 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
       ruleIds: item.ruleIds,
       ruleDomains: item.ruleDomains,
       sourceReferences: item.ruleIds.slice(0, 25).map((id) => ({ kind: "rule", id })),
-      generationProvenance: item.action === "internal_link" ? "deterministic" : "bounded_ai_draft",
+      generationProvenance: item.action === "internal_link" || item.action === "internal_link_replace" ? "deterministic" : "bounded_ai_draft",
       targetType: resource.type,
       targetUrl: item.targetUrl,
       action: item.action,
       resolutionStatus: item.resolutionStatus,
       ...(item.action === "internal_link" ? { links: item.links!.map(({ toUrl, anchor, currentBodyState, linkPurpose, requiredAction, verification, priority, resolutionStatus }) => ({ toUrl, anchor, ...(currentBodyState ? { currentBodyState } : {}), ...(linkPurpose ? { linkPurpose } : {}), ...(requiredAction ? { requiredAction } : {}), ...(verification ? { verification } : {}), ...(priority ? { priority } : {}), ...(resolutionStatus ? { resolutionStatus } : {}) })) } : {}),
+      ...(item.action === "internal_link_replace" ? { replacements: item.replacements } : {}),
       observedAt: resource.capturedAt.toISOString(),
       observationProvenance: `shopify_governed_resource:${item.targetUrl}`,
       resourceUpdatedAt: resource.updatedAt.toISOString(),
@@ -349,6 +438,10 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
       const bodyHtml = appendInternalLinkMarkup(resource.bodyHtml, item.targetUrl, item.links!);
       if (bodyHtml.length > 50_000) return advisory(center, item, "draft_unavailable");
       return { targetType: resource.type, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceData, proposedState: { action: item.action, before: { bodyHtml: resource.bodyHtml }, after: { bodyHtml } } };
+    }
+    if (item.action === "internal_link_replace") {
+      const replaced = replaceExactInternalLinkTargets(resource.bodyHtml, item.replacements!);
+      return { targetType: resource.type, targetUrl: item.targetUrl, priority: item.priority, ruleIds: item.ruleIds, ruleDomains: item.ruleDomains, sourceData, proposedState: { action: item.action, before: { bodyHtml: resource.bodyHtml }, after: { bodyHtml: replaced.bodyHtml } } };
     }
     const draft = drafts.get(item.targetUrl);
     if (!draft || !grounded(draft, item) || (item.action === "seo_update" && (!draft.seoTitle || !draft.seoDescription)) || (item.action === "content_update" && !draft.sectionText)) return advisory(center, item, "draft_unavailable");
@@ -371,7 +464,7 @@ export async function syncTopicalMapStoreTasks(client: Client): Promise<Summary>
     });
     const dedupeKey = advisorySemanticKey
       ? `store-task:topical-map:advisory:${advisorySemanticKey}`
-      : `store-task:topical-map:${hash(canonical([center.identity.versionId, center.identity.packageSha256, checkedProposed.action === "internal_link" ? "grouped-links-v1" : "v1", [...task.ruleIds].sort(), path(task.targetUrl), checkedProposed.action]))}`;
+      : `store-task:topical-map:${hash(canonical([center.identity.versionId, center.identity.packageSha256, checkedProposed.action === "internal_link" ? "grouped-links-v1" : checkedProposed.action === "internal_link_replace" ? "grouped-replacements-v1" : "v1", [...task.ruleIds].sort(), path(task.targetUrl), checkedProposed.action]))}`;
     const existing = await client.storeTask.findUnique({ where: { dedupeKey } });
     if (existing && !["pending", "failed"].includes(existing.status)) { summary.unchanged++; continue; }
     if (existing?.id && advisorySemanticKey && client.storeTask.findMany && client.storeTask.updateMany && client.recommendation?.updateMany && client.auditLog && client.$transaction) {
