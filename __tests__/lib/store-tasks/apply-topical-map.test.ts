@@ -284,8 +284,8 @@ describe("topical-map approval and internal dispatch", () => {
     adapter.fetchRedirects.mockResolvedValueOnce(new Map([["/old", { id: "redirect-1", source: "/old", target: "/final", capturedAt: new Date(), stateHash: "e".repeat(64) }]]));
     await expect(reobserveTopicalMapReceipt(client as any, rec as any)).resolves.toMatchObject({ action: "redirect_update", targetId: "redirect-1" });
 
-    const { redirectTarget: _redirectTarget, ...sharedRedirectSource } = updateSource;
-    const deleteSource = { ...sharedRedirectSource, ruleIds: ["redirect:delete"], sourceReferences: [{ kind: "rule", id: "redirect:delete" }], targetUrl: "/pages/red-rice-recipes", action: "redirect_delete", observedRedirectTarget: "/blogs/recipes/tagged/red-rice", liveOwnerUrl: "/pages/red-rice-recipes" };
+    const deleteSource: Record<string, unknown> = { ...updateSource, ruleIds: ["redirect:delete"], sourceReferences: [{ kind: "rule", id: "redirect:delete" }], targetUrl: "/pages/red-rice-recipes", action: "redirect_delete", observedRedirectTarget: "/blogs/recipes/tagged/red-rice", liveOwnerUrl: "/pages/red-rice-recipes" };
+    delete deleteSource.redirectTarget;
     const deleteProposed = { action: "redirect_delete", before: { id: "redirect-1", target: "/blogs/recipes/tagged/red-rice" }, after: { state: "absent" } };
     client.storeTask.findUnique.mockResolvedValueOnce({ ...task, status: "reconciliation_needed", sourceData: deleteSource, proposedState: deleteProposed });
     adapter.fetchRedirects.mockResolvedValueOnce(new Map());
