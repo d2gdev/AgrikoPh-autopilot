@@ -7,7 +7,7 @@ import { loadActiveTopicalMapCommandCenter, type TopicalMapCommandCenter } from 
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 import { topicalMapActionEligibility, topicalMapInternalLinkEligibility, topicalMapInternalLinkRequiresAddition, type TopicalMapResolutionStatus } from "@/lib/topical-map/action-eligibility";
 
-export type TopicalMapStoreAction = "seo_update" | "content_update" | "internal_link" | "redirect_create";
+export type TopicalMapStoreAction = "seo_update" | "content_update" | "internal_link" | "internal_link_replace" | "redirect_create" | "redirect_update" | "redirect_delete";
 
 const TargetType = z.enum(["product", "collection", "page"]);
 const Hash = z.string().regex(/^[a-f0-9]{64}$/i);
@@ -47,16 +47,54 @@ const RedirectExecutableSourceSchema = z.object({
   observedStateHash: Hash, recommendationId: z.string().min(1).optional(), executable: z.literal(true),
   resolutionStatus: ResolutionStatus.optional(),
 }).strict();
+const RedirectRepairSourceBase = {
+  source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash,
+  ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.tuple([z.literal("redirects")]), sourceReferences: SourceReferences,
+  generationProvenance: z.literal("deterministic"), targetType: z.literal("redirect"), targetUrl: GovernedUrl,
+  redirectId: z.string().min(1).max(500), observedRedirectTarget: GovernedUrl,
+  observedAt: z.string().datetime().refine((value) => new Date(value).getTime() <= Date.now() + 5 * 60_000, "Observation cannot be in the future"),
+  observedStateHash: Hash, recommendationId: z.string().min(1).optional(), executable: z.literal(true),
+  resolutionStatus: z.literal("resolved"),
+};
+const RedirectUpdateExecutableSourceSchema = z.object({
+  ...RedirectRepairSourceBase,
+  action: z.literal("redirect_update"),
+  redirectTarget: GovernedUrl,
+}).strict();
+const RedirectDeleteExecutableSourceSchema = z.object({
+  ...RedirectRepairSourceBase,
+  action: z.literal("redirect_delete"),
+  liveOwnerUrl: GovernedUrl,
+}).strict();
+const InternalLinkReplacementSourceSchema = z.object({
+  ...ExecutableSourceBase,
+  action: z.literal("internal_link_replace"),
+  ruleDomains: z.tuple([z.literal("internal_links"), z.literal("redirects")]),
+  replacements: z.array(z.object({
+    fromUrl: GovernedUrl,
+    toUrl: GovernedUrl,
+  }).strict()).min(1).max(100),
+}).strict();
 const LegacyInternalLinkSourceSchema = z.object({ ...ExecutableSourceBase, action: z.literal("internal_link"), ruleDomains: z.tuple([z.literal("internal_links")]), linkTargetUrl: GovernedUrl, linkAnchor: z.string().min(1) }).strict();
 const SupersedableInternalLinkSourceSchema = z.union([LegacyInternalLinkSourceSchema, CurrentInternalLinkSourceSchema]);
 const AdvisorySourceSchema = z.object({ source: z.literal("topical-map"), strategyVersionId: z.string().min(1), packageSha256: Hash, ruleIds: z.array(z.string().min(1)).min(1), ruleDomains: z.array(AdvisoryDomain).min(1), sourceReferences: SourceReferences, generationProvenance: GenerationProvenance, targetType: AdvisoryTargetType, targetUrl: GovernedUrl, executable: z.literal(false), advisoryReason: AdvisoryReason, resolutionStatus: ResolutionStatus.optional(), mapPriority: z.string().min(1).max(40).optional(), proposedCanonicalUrl: GovernedUrl.optional(), mapDecision: z.string().min(1).max(500).optional(), mapEvidence: z.string().min(1).max(2_000).optional(), mapPublishingState: z.string().min(1).max(100).optional(), mapProposedRedirectTarget: GovernedUrl.optional(), observedRedirectTarget: GovernedUrl.optional(), observedRedirectId: z.string().min(1).max(500).optional(), observedAt: z.string().datetime().optional(), observedStateHash: Hash.optional() }).strict();
-export const TopicalMapStoreTaskSourceSchema = z.union([ExecutableSourceSchema, RedirectExecutableSourceSchema, AdvisorySourceSchema]);
+export const TopicalMapStoreTaskSourceSchema = z.union([
+  ExecutableSourceSchema,
+  InternalLinkReplacementSourceSchema,
+  RedirectExecutableSourceSchema,
+  RedirectUpdateExecutableSourceSchema,
+  RedirectDeleteExecutableSourceSchema,
+  AdvisorySourceSchema,
+]);
 
 export const TopicalMapStoreTaskProposedSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("seo_update"), before: SeoBefore, after: SeoAfter }).strict(),
   z.object({ action: z.literal("content_update"), before: BodyBefore, after: BodyAfter }).strict(),
   z.object({ action: z.literal("internal_link"), before: BodyBefore, after: BodyAfter }).strict(),
+  z.object({ action: z.literal("internal_link_replace"), before: BodyBefore, after: BodyAfter }).strict(),
   z.object({ action: z.literal("redirect_create"), before: z.object({ state: z.literal("absent") }).strict(), after: z.object({ target: GovernedUrl }).strict() }).strict(),
+  z.object({ action: z.literal("redirect_update"), before: z.object({ id: z.string().min(1).max(500), target: GovernedUrl }).strict(), after: z.object({ target: GovernedUrl }).strict() }).strict(),
+  z.object({ action: z.literal("redirect_delete"), before: z.object({ id: z.string().min(1).max(500), target: GovernedUrl }).strict(), after: z.object({ state: z.literal("absent") }).strict() }).strict(),
   z.object({ action: z.literal("advisory"), advisory: AdvisoryReason }).strict(),
 ]);
 
@@ -91,7 +129,8 @@ type RuleDomain = "content_decisions" | "internal_links" | z.infer<typeof Adviso
 type TaskTargetType = z.infer<typeof TargetType> | z.infer<typeof AdvisoryTargetType>;
 type TaskAdvisoryReason = z.infer<typeof AdvisoryReason>;
 type CandidateLink = { toUrl: string; anchor: string; ruleIds: string[]; currentBodyState?: string; linkPurpose?: string; requiredAction?: string; verification?: string; priority?: string; resolutionStatus?: TopicalMapResolutionStatus };
-type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: TopicalMapStoreAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resolutionStatus?: TopicalMapResolutionStatus; resource?: GovernedStoreResource; theme?: string; links?: CandidateLink[]; redirectTarget?: string; observedRedirectTarget?: string; observedRedirectId?: string; observedAt?: Date; observedStateHash?: string; proposedCanonicalUrl?: string; mapDecision?: string; mapEvidence?: string; mapPublishingState?: string };
+type ProjectedCandidateAction = Exclude<TopicalMapStoreAction, "internal_link_replace" | "redirect_update" | "redirect_delete">;
+type Candidate = { targetType: TaskTargetType; targetUrl: string; ruleIds: string[]; ruleDomains: RuleDomain[]; priority: string; action: ProjectedCandidateAction | "advisory"; advisoryReason?: TaskAdvisoryReason; resolutionStatus?: TopicalMapResolutionStatus; resource?: GovernedStoreResource; theme?: string; links?: CandidateLink[]; redirectTarget?: string; observedRedirectTarget?: string; observedRedirectId?: string; observedAt?: Date; observedStateHash?: string; proposedCanonicalUrl?: string; mapDecision?: string; mapEvidence?: string; mapPublishingState?: string };
 type Persisted = { targetType: string; targetUrl: string; priority: string; ruleIds: string[]; ruleDomains: string[]; sourceData: z.infer<typeof TopicalMapStoreTaskSourceSchema>; proposedState: z.infer<typeof TopicalMapStoreTaskProposedSchema> };
 
 function path(value: string): string {

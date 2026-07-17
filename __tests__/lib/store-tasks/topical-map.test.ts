@@ -708,6 +708,39 @@ describe("syncTopicalMapStoreTasks", () => {
     expect(TopicalMapStoreTaskProposedSchema.safeParse({ action: "seo_update", before: { seoTitle: null, seoDescription: null }, after: { seoTitle: "Valid" } }).success).toBe(true);
   });
 
+  it("accepts strict redirect repair states and rejects incomplete deletes", () => {
+    const updateSource = {
+      source: "topical-map",
+      strategyVersionId: "strategy-7",
+      packageSha256: "a".repeat(64),
+      ruleIds: ["redirect:one"],
+      ruleDomains: ["redirects"],
+      sourceReferences: [{ kind: "rule", id: "redirect:one" }],
+      generationProvenance: "deterministic",
+      targetType: "redirect",
+      targetUrl: "/old",
+      action: "redirect_update",
+      redirectId: "gid://shopify/UrlRedirect/1",
+      observedRedirectTarget: "/middle",
+      redirectTarget: "/final",
+      observedAt: "2026-07-17T20:00:00.000Z",
+      observedStateHash: "b".repeat(64),
+      executable: true,
+      resolutionStatus: "resolved",
+    };
+    expect(TopicalMapStoreTaskSourceSchema.safeParse(updateSource).success).toBe(true);
+    expect(TopicalMapStoreTaskProposedSchema.safeParse({
+      action: "redirect_update",
+      before: { id: updateSource.redirectId, target: "/middle" },
+      after: { target: "/final" },
+    }).success).toBe(true);
+    expect(TopicalMapStoreTaskProposedSchema.safeParse({
+      action: "redirect_delete",
+      before: { target: "/tagged/red-rice" },
+      after: { state: "absent" },
+    }).success).toBe(false);
+  });
+
   it("rejects arbitrary advisory source types, reasons, domains, hashes, and URLs", () => {
     const valid = { source: "topical-map", strategyVersionId: "strategy-7", packageSha256: "a".repeat(64), ruleIds: ["rule:1"], ruleDomains: ["redirects"], sourceReferences: [{ kind: "rule", id: "rule:1" }], generationProvenance: "advisory_projection", targetType: "redirect", targetUrl: "/old", executable: false, advisoryReason: "redirect_execution_unsupported" };
     expect(TopicalMapStoreTaskSourceSchema.safeParse(valid).success).toBe(true);
