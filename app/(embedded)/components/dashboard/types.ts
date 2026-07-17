@@ -45,6 +45,11 @@ export interface DashboardData {
   openOpportunities?: { high: number; medium: number; low: number };
   openMarketInsights?: { critical: number; warning: number; info: number };
   pendingStoreTasks?: number;
+  seoTaskSummary?: {
+    ready: number;
+    waiting: number;
+    nextScheduledReviewAt: string | null;
+  };
   topPendingRecs?: Array<{
     id: string;
     actionType: string;

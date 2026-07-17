@@ -6,6 +6,7 @@ import {
   QUEUED_DASHBOARD_JOB_NAMES,
   getDashboardJob,
 } from "@/lib/dashboard/job-registry";
+import { getSeoTaskSummary } from "@/lib/seo-tasks/service";
 
 export const JOB_STATUS_SNAPSHOT_SOURCE = "dashboard_jobs_status_v1";
 export const JOB_NAMES = DASHBOARD_JOB_NAMES;
@@ -84,6 +85,11 @@ export type JobsStatusPayload = {
   openOpportunities: { high: number; medium: number; low: number };
   openMarketInsights: { critical: number; warning: number; info: number };
   pendingStoreTasks: number;
+  seoTaskSummary: {
+    ready: number;
+    waiting: number;
+    nextScheduledReviewAt: string | null;
+  };
   topPendingRecs: Array<{
     id: string;
     actionType: string;
@@ -312,7 +318,8 @@ function jobHealthFields(input: {
 
 export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
   const buildStartedAt = Date.now();
-  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const staleRunningBefore = new Date(Date.now() - STALE_RUNNING_JOB_MINUTES * 60_000);
 
   // Self-heal stuck "running" rows for non-queued jobs before computing health
@@ -373,6 +380,7 @@ export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
     topPendingRecsRows,
     recsPendingOver7DaysCount,
     liftProposals,
+    seoTaskSummary,
   ] = await Promise.all([
     prisma.recommendation.groupBy({
       by: ["status"],
@@ -488,6 +496,7 @@ export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
       },
       select: { baselineSeoScore: true, followUpSeoScore: true },
     }),
+    getSeoTaskSummary(now),
   ]);
 
   const countByStatus = new Map(
@@ -669,6 +678,7 @@ export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
     openOpportunities,
     openMarketInsights,
     pendingStoreTasks: pendingStoreTasksCount,
+    seoTaskSummary,
     topPendingRecs,
     recsPendingOver7Days: recsPendingOver7DaysCount,
     contentLift,

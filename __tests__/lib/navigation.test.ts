@@ -16,6 +16,7 @@ describe("embedded navigation config", () => {
       "/recommendations",
       "/ad-approvals",
       "/seo-pillar",
+      "/seo-tasks",
       "/content-pilot",
       "/social-pilot",
       "/market-intelligence",
@@ -29,6 +30,14 @@ describe("embedded navigation config", () => {
     expect(allItems.map((item) => item.href)).not.toContain("/seo");
     const seo = { label: "SEO", href: "/seo-pillar", match: "prefix" as const };
     expect(matchesNavigationItem("/seo-pillar", seo)).toBe(true);
+  });
+
+  it("keeps the SEO task workboard separate from the five-job command center", () => {
+    const seoSection = EMBEDDED_NAVIGATION_SECTIONS.find((section) => section.title === "SEO Pilot");
+    expect(seoSection?.items.map((item) => [item.label, item.href])).toEqual([
+      ["SEO", "/seo-pillar"],
+      ["Tasks", "/seo-tasks"],
+    ]);
   });
 
   it("preserves special active matching rules", () => {

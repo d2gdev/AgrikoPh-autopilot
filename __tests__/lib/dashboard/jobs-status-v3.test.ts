@@ -26,6 +26,7 @@ const mockPrisma = {
   opportunity: { groupBy: vi.fn() },
   marketInsight: { groupBy: vi.fn() },
   storeTask: { count: vi.fn() },
+  seoFollowUpTask: { count: vi.fn(), findFirst: vi.fn() },
   skillInsight: { groupBy: vi.fn(), findMany: vi.fn() },
   dailySales: { findMany: vi.fn() },
   $queryRaw: vi.fn(),
@@ -66,6 +67,7 @@ function snapshotPayload(overrides: Record<string, unknown> = {}) {
     openOpportunities: { high: 0, medium: 0, low: 0 },
     openMarketInsights: { critical: 0, warning: 0, info: 0 },
     pendingStoreTasks: 0,
+    seoTaskSummary: { ready: 0, waiting: 0, nextScheduledReviewAt: null },
     topPendingRecs: [],
     recsPendingOver7Days: 0,
     contentLift: null,
@@ -92,6 +94,8 @@ function defaultMocks() {
   mockPrisma.opportunity.groupBy.mockResolvedValue([]);
   mockPrisma.marketInsight.groupBy.mockResolvedValue([]);
   mockPrisma.storeTask.count.mockResolvedValue(0);
+  mockPrisma.seoFollowUpTask.count.mockResolvedValue(0);
+  mockPrisma.seoFollowUpTask.findFirst.mockResolvedValue(null);
   mockPrisma.skillInsight.groupBy.mockResolvedValue([]);
   mockPrisma.skillInsight.findMany.mockResolvedValue([]);
   mockPrisma.dailySales.findMany.mockResolvedValue([]);

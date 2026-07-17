@@ -26,6 +26,7 @@ const mockPrisma = {
   opportunity: { groupBy: vi.fn() },
   marketInsight: { groupBy: vi.fn() },
   storeTask: { count: vi.fn() },
+  seoFollowUpTask: { count: vi.fn(), findFirst: vi.fn() },
   skillInsight: { groupBy: vi.fn(), findMany: vi.fn() },
   dailySales: { findMany: vi.fn() },
   $queryRaw: vi.fn(),
@@ -59,6 +60,8 @@ beforeEach(() => {
   mockPrisma.opportunity.groupBy.mockResolvedValue([]);
   mockPrisma.marketInsight.groupBy.mockResolvedValue([]);
   mockPrisma.storeTask.count.mockResolvedValue(0);
+  mockPrisma.seoFollowUpTask.count.mockResolvedValue(0);
+  mockPrisma.seoFollowUpTask.findFirst.mockResolvedValue(null);
   mockPrisma.skillInsight.groupBy.mockResolvedValue([]);
   mockPrisma.skillInsight.findMany.mockResolvedValue([]);
   mockPrisma.dailySales.findMany.mockResolvedValue([]);
@@ -66,6 +69,24 @@ beforeEach(() => {
 });
 
 describe("buildJobsStatusPayload – new fields", () => {
+  it("returns the compact SEO task summary without loading task rows", async () => {
+    mockPrisma.seoFollowUpTask.count
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(5);
+    mockPrisma.seoFollowUpTask.findFirst.mockResolvedValue({
+      earliestReviewAt: new Date("2026-07-25T00:00:00.000Z"),
+    });
+
+    const result = await buildJobsStatusPayload();
+
+    expect(result.seoTaskSummary).toEqual({
+      ready: 2,
+      waiting: 5,
+      nextScheduledReviewAt: "2026-07-25T00:00:00.000Z",
+    });
+    expect(mockPrisma.seoFollowUpTask).not.toHaveProperty("findMany");
+  });
+
   it("returns contentPilotStats with pending and publishedThisMonth counts", async () => {
     mockPrisma.contentProposal.groupBy.mockResolvedValue([
       { status: "pending", _count: { _all: 4 } },

@@ -32,6 +32,7 @@ export const EMBEDDED_NAVIGATION_SECTIONS: EmbeddedNavigationSection[] = [
     separator: true,
     items: [
       { label: "SEO", href: "/seo-pillar", match: "prefix", appBridge: true },
+      { label: "Tasks", href: "/seo-tasks", match: "prefix", appBridge: true },
     ],
   },
   {

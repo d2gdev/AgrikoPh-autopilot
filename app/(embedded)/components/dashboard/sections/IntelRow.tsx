@@ -1,4 +1,5 @@
 import { Badge, BlockStack, Card, InlineStack, Layout, Text } from "@shopify/polaris";
+import Link from "next/link";
 import { StatGrid } from "@/components/ui/stat-grid";
 import type { DashboardData } from "../types";
 import { StatCardSkeleton } from "../helpers";
@@ -10,7 +11,7 @@ export function IntelRow({ loading, data }: { loading: boolean; data: DashboardD
         <Text variant="headingMd" as="h2">Intel</Text>
         <StatGrid>
           {loading ? (
-            <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
+            <><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /></>
           ) : (
             <>
               <Card>
@@ -62,6 +63,32 @@ export function IntelRow({ loading, data }: { loading: boolean; data: DashboardD
                       DB {data.dbLatencyMs}ms
                     </Text>
                   )}
+                </BlockStack>
+              </Card>
+
+              <Card>
+                <BlockStack gap="200">
+                  <Text variant="headingMd" as="h2">SEO Tasks</Text>
+                  <Link href="/seo-tasks" style={{ textDecoration: "none", color: "inherit" }}>
+                    <InlineStack gap="500">
+                      <BlockStack gap="100">
+                        <Text variant="headingLg" as="p">{data?.seoTaskSummary?.ready ?? "—"}</Text>
+                        <Text as="p" tone="subdued">ready now</Text>
+                      </BlockStack>
+                      <BlockStack gap="100">
+                        <Text variant="headingLg" as="p">{data?.seoTaskSummary?.waiting ?? "—"}</Text>
+                        <Text as="p" tone="subdued">waiting</Text>
+                      </BlockStack>
+                    </InlineStack>
+                  </Link>
+                  <Text as="p" tone="subdued">
+                    {data?.seoTaskSummary?.nextScheduledReviewAt
+                      ? `Next review ${new Intl.DateTimeFormat("en-PH", {
+                        dateStyle: "medium",
+                        timeZone: "Asia/Manila",
+                      }).format(new Date(data.seoTaskSummary.nextScheduledReviewAt))}`
+                      : "No scheduled review"}
+                  </Text>
                 </BlockStack>
               </Card>
             </>
