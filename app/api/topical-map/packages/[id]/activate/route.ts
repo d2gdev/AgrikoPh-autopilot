@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { PERMISSIONS, getSessionUser, requireAppAuth, requirePermission } from "@/lib/auth";
+import { syncTopicalMapSeoTasks } from "@/lib/seo-tasks/topical-map-scheduler";
 import { activateStrategyVersion } from "@/lib/topical-map/activation";
 import { optionalReason, safeTopicalMapError } from "@/lib/topical-map/operator-route";
 
@@ -16,7 +17,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const actor = (await getSessionUser(req)) ?? "authenticated-operator";
   try {
-    return NextResponse.json(await activateStrategyVersion({ versionId: id, siteHost: "agrikoph.com", actor, ...body }));
+    const activation = await activateStrategyVersion({
+      versionId: id,
+      siteHost: "agrikoph.com",
+      actor,
+      ...body,
+    });
+    let taskSync: Awaited<ReturnType<typeof syncTopicalMapSeoTasks>> | { status: "error" };
+    try {
+      taskSync = await syncTopicalMapSeoTasks();
+    } catch (error) {
+      console.error("[topical-map/activate] SEO task sync:", error);
+      taskSync = { status: "error" };
+    }
+    return NextResponse.json({ ...activation, taskSync });
   } catch (error) {
     return safeTopicalMapError(error);
   }

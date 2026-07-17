@@ -16,6 +16,7 @@ import {
 import { replacePendingContentProposals } from "@/lib/content-pilot/proposal-replacement";
 import { isJobSuccessful, type JobResult, type JobStatus } from "@/lib/jobs/types";
 import { cleanupDashboardRetention } from "@/lib/retention";
+import { syncTopicalMapSeoTasks } from "@/lib/seo-tasks/topical-map-scheduler";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -157,6 +158,20 @@ export async function GET(req: Request) {
       }
     } else {
       results.generateProposals = "skipped";
+    }
+
+    // Keep the active topical map materialized as a rolling 90-day operator
+    // work window. This only creates or cancels local proposal/review records.
+    try {
+      results.topicalMapTasks = await syncTopicalMapSeoTasks();
+    } catch (err) {
+      console.error("[cron/daily] syncTopicalMapSeoTasks:", err);
+      await notifyJobFailure({
+        jobName: "sync-topical-map-seo-tasks",
+        route: "/api/cron/daily",
+        error: err,
+      });
+      results.topicalMapTasks = "error";
     }
 
     // TTL cleanup. Raw snapshots tied to recommendations are retained because

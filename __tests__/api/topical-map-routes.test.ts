@@ -14,6 +14,9 @@ const services = vi.hoisted(() => ({
     activateStrategyVersion: vi.fn(),
     rollbackStrategyVersion: vi.fn(),
   }));
+const scheduler = vi.hoisted(() => ({
+  syncTopicalMapSeoTasks: vi.fn(),
+}));
 const tx = vi.hoisted(() => ({
   $executeRaw: vi.fn(),
   topicalMapStrategyVersion: { findUnique: vi.fn(), updateMany: vi.fn() },
@@ -40,6 +43,9 @@ vi.mock("@/lib/topical-map/activation", async (importOriginal) => ({
   activateStrategyVersion: services.activateStrategyVersion,
   rollbackStrategyVersion: services.rollbackStrategyVersion,
 }));
+vi.mock("@/lib/seo-tasks/topical-map-scheduler", () => ({
+  syncTopicalMapSeoTasks: scheduler.syncTopicalMapSeoTasks,
+}));
 
 const imports = () => import("@/app/api/topical-map/packages/route");
 const detail = () => import("@/app/api/topical-map/packages/[id]/route");
@@ -54,6 +60,7 @@ function boundaryCalls() {
     services.importAndValidatePackage,
     services.activateStrategyVersion,
     services.rollbackStrategyVersion,
+    scheduler.syncTopicalMapSeoTasks,
     db.topicalMapStrategyVersion.findMany,
     db.topicalMapStrategyVersion.findUnique,
     db.topicalMapActivation.findUnique,
@@ -75,6 +82,14 @@ beforeEach(() => {
   auth.getSessionUser.mockResolvedValue("operator-1");
   db.$transaction.mockImplementation(async (run) => run(tx));
   db.auditLog.findMany.mockResolvedValue([]);
+  scheduler.syncTopicalMapSeoTasks.mockResolvedValue({
+    status: "synced",
+    strategyVersionId: "version-a",
+    projected: 8,
+    created: 8,
+    existing: 0,
+    superseded: 0,
+  });
 });
 
 afterEach(() => vi.unstubAllEnvs());
@@ -205,6 +220,53 @@ describe("topical-map package operator routes", () => {
     expect(auth.requirePermission.mock.invocationCallOrder[0]).toBeLessThan(db.topicalMapActivation.findUnique.mock.invocationCallOrder[0]!);
     expect(tx.$executeRaw).toHaveBeenCalledOnce();
     expect(tx.auditLog.create).toHaveBeenCalledOnce();
+    expect(scheduler.syncTopicalMapSeoTasks).toHaveBeenCalledOnce();
+    expect(await response.json()).toMatchObject({
+      taskSync: {
+        status: "synced",
+        projected: 8,
+      },
+    });
+  });
+
+  it("refreshes the rolling task window after a successful rollback", async () => {
+    services.rollbackStrategyVersion.mockResolvedValue({
+      versionId: "version-a",
+      lifecycle: "active",
+    });
+
+    const response = await (await rollback()).POST(
+      req("/packages/version-a/rollback", JSON.stringify({ reason: "restore reviewed map" })),
+      params(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(services.rollbackStrategyVersion).toHaveBeenCalledOnce();
+    expect(scheduler.syncTopicalMapSeoTasks).toHaveBeenCalledOnce();
+    expect(await response.json()).toMatchObject({
+      versionId: "version-a",
+      taskSync: { status: "synced" },
+    });
+  });
+
+  it("keeps a completed activation successful when its immediate task refresh fails", async () => {
+    services.activateStrategyVersion.mockResolvedValue({
+      versionId: "version-a",
+      lifecycle: "active",
+    });
+    scheduler.syncTopicalMapSeoTasks.mockRejectedValue(new Error("database unavailable"));
+
+    const response = await (await activate()).POST(
+      req("/packages/version-a/activate", JSON.stringify({ reason: "reviewed" })),
+      params(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      versionId: "version-a",
+      lifecycle: "active",
+      taskSync: { status: "error" },
+    });
   });
 
   it("accepts an empty activation body and maps lifecycle conflicts to 409", async () => {

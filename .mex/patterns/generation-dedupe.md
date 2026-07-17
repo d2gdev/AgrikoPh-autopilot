@@ -8,7 +8,7 @@ triggers:
   - "duplicate proposals"
   - "clear queue"
   - "start from scratch"
-last_updated: 2026-07-18T03:40:56+08:00
+last_updated: 2026-07-18T04:14:01+08:00
 ---
 
 # Generation Dedupe
@@ -45,6 +45,7 @@ Autopilot has multiple idea generators: skill recommendations, insight-derived a
 - Do not choose receipt preservation from a proposal read before claiming ownership. For preservation requests, atomically try the `published` predicate with token-only data, then separately try a non-published predicate that writes `generating`; this covers published→ready and ready→published races without hiding work or overwriting a live receipt.
 - Do not make a best-effort side write after clearing an ownership token. Collect optional data before finalization and persist it in the token-guarded transaction, or use an equivalent version guard.
 - For actionable task lists, batch-check displayed open rows against terminal audit receipts and terminal rows sharing their immutable source identity. Keep inconsistent rows visible for reconciliation, remove their mutation controls, and repeat the check inside the mutation transaction so a stale browser cannot act after another completion. Describe this narrowly as a durable-record check; do not imply that an external platform state was verified unless that source was actually queried.
+- For rolling topical-map tasks, use `topical-map-phase:<strategyVersionId>:<startDay>-<endDay>` as the immutable source key. Daily reconciliation may create a missing current-version phase or cancel an open prior-version phase through the audited mutation service, but it must never reopen or recreate a completed/cancelled identity.
 
 ## Verify
 - Add regression coverage for at least one terminal status (`rejected`, `executed`, `published`, `dismissed`, or `completed`) blocking regeneration.
