@@ -354,6 +354,44 @@ model StoreTask {
   @@index([opportunityId])
 }
 
+model SeoFollowUpTask {
+  id                  String    @id @default(cuid())
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  version             Int       @default(1)
+  taskType            String
+  title               String
+  description         String
+  targetUrl           String?
+  topicalCluster      String?
+  pageRole            String?
+  ownerSurface        String    @default("seo")
+  destinationPath     String?
+  priority            String
+  earliestReviewAt    DateTime
+  dueAt               DateTime?
+  requiresEvidence    Boolean   @default(true)
+  evidenceRequirement Json
+  evidenceStatus      String    @default("waiting")
+  evidenceSnapshot    Json?
+  lastEvaluatedAt     DateTime?
+  sourceType          String
+  sourceKey           String
+  sourceData          Json
+  status              String    @default("open")
+  createdBy           String
+  updatedBy           String
+  completedAt         DateTime?
+  completionNote      String?
+  decisionData        Json?
+  dedupeKey           String    @unique
+
+  @@index([status, earliestReviewAt])
+  @@index([priority, earliestReviewAt])
+  @@index([taskType, status])
+  @@index([targetUrl])
+}
+
 model StoreTaskExecutionLock {
   targetUrl  String   @id
   taskId     String   @unique
