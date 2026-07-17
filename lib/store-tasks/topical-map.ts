@@ -9,7 +9,7 @@ import { topicalMapActionEligibility, topicalMapInternalLinkEligibility, topical
 
 export type TopicalMapStoreAction = "seo_update" | "content_update" | "internal_link" | "internal_link_replace" | "redirect_create" | "redirect_update" | "redirect_delete";
 
-const TargetType = z.enum(["product", "collection", "page"]);
+const TargetType = z.enum(["product", "collection", "page", "article"]);
 const Hash = z.string().regex(/^[a-f0-9]{64}$/i);
 const GovernedUrl = z.string().refine((value) => {
   try { return path(value).startsWith("/") && !value.toLowerCase().startsWith("javascript:"); } catch { return false; }

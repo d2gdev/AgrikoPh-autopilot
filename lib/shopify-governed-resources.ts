@@ -1,15 +1,16 @@
 import { createHash } from "node:crypto";
 import { parseArticleHtml } from "@/lib/analyzers/html-parser";
-import { shopifyFetch, updateCollectionSeoAndBody, updatePageSeoAndBody, updateProductSeo } from "@/lib/shopify-admin";
+import { shopifyFetch, updateArticleBody, updateCollectionSeoAndBody, updatePageSeoAndBody, updateProductSeo } from "@/lib/shopify-admin";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 
-export type GovernedStoreTargetType = "product" | "collection" | "page";
+export type GovernedStoreTargetType = "product" | "collection" | "page" | "article";
 
 export interface GovernedStoreResource {
   id: string;
   type: GovernedStoreTargetType;
   url: string;
   handle: string;
+  blogHandle?: string;
   title: string;
   seoTitle: string | null;
   seoDescription: string | null;
@@ -37,10 +38,21 @@ function governedPath(value: string): string {
   return `${parsed.pathname.length > 1 ? parsed.pathname.replace(/\/+$/, "") : parsed.pathname}${parsed.search}${parsed.hash}`;
 }
 
-export function resolveGovernedStoreUrl(value: string): { type: GovernedStoreTargetType; handle: string } | null {
+export function resolveGovernedStoreUrl(value: string):
+  | { type: "product" | "collection" | "page"; handle: string }
+  | { type: "article"; blogHandle: string; handle: string }
+  | null {
   let normalized: string;
   try { normalized = normalizeGovernedUrl(value); } catch { return null; }
   const pathname = normalized.startsWith("/") ? new URL(normalized, "https://agrikoph.com").pathname : new URL(normalized).pathname;
+  const articleMatch = pathname.match(/^\/blogs\/([^/]+)\/([^/]+)$/);
+  if (articleMatch) {
+    try {
+      return { type: "article", blogHandle: decodeURIComponent(articleMatch[1]!), handle: decodeURIComponent(articleMatch[2]!) };
+    } catch {
+      return null;
+    }
+  }
   const match = pathname.match(/^\/(products|collections|pages)\/([^/]+)$/);
   if (!match) return null;
   const types = { products: "product", collections: "collection", pages: "page" } as const;
@@ -51,7 +63,7 @@ export function resolveGovernedStoreUrl(value: string): { type: GovernedStoreTar
   }
 }
 
-type Node = { id: string; handle: string; title: string; updatedAt: string; descriptionHtml?: string; body?: string; seo?: { title?: string | null; description?: string | null }; seoTitle?: { value: string | null } | null; seoDescription?: { value: string | null } | null };
+type Node = { id: string; handle: string; title: string; updatedAt: string; descriptionHtml?: string; body?: string; blog?: { handle: string } | null; seo?: { title?: string | null; description?: string | null }; seoTitle?: { value: string | null } | null; seoDescription?: { value: string | null } | null };
 type Connection = { pageInfo: { hasNextPage: boolean; endCursor: string | null }; edges: Array<{ node: Node }> };
 
 const queries = {
@@ -61,15 +73,17 @@ const queries = {
 } as const;
 
 function resource(type: GovernedStoreTargetType, node: Node): GovernedStoreResource {
+  const blogHandle = type === "article" ? node.blog?.handle : undefined;
+  if (type === "article" && !blogHandle) throw new Error("Shopify article observation is missing its blog handle");
   const plural = type === "product" ? "products" : type === "collection" ? "collections" : "pages";
-  const url = `/${plural}/${node.handle}`;
+  const url = type === "article" ? `/blogs/${blogHandle}/${node.handle}` : `/${plural}/${node.handle}`;
   const bodyHtml = node.descriptionHtml ?? node.body ?? "";
   const updatedAt = new Date(node.updatedAt);
   if (!Number.isFinite(updatedAt.getTime()) || updatedAt.getTime() > Date.now() + 5 * 60_000) {
     throw new Error("Invalid Shopify resource observation timestamp");
   }
-  const seoTitle = type === "page" ? node.seoTitle?.value ?? null : node.seo?.title ?? null;
-  const seoDescription = type === "page" ? node.seoDescription?.value ?? null : node.seo?.description ?? null;
+  const seoTitle = type === "article" ? null : type === "page" ? node.seoTitle?.value ?? null : node.seo?.title ?? null;
+  const seoDescription = type === "article" ? null : type === "page" ? node.seoDescription?.value ?? null : node.seo?.description ?? null;
   const canonical = JSON.stringify({ id: node.id, type, url, title: node.title, seoTitle, seoDescription, bodyHtml, updatedAt: updatedAt.toISOString() });
   const internalTargets = parseArticleHtml(bodyHtml).anchors.flatMap(({ href }) => {
     try {
@@ -79,11 +93,11 @@ function resource(type: GovernedStoreTargetType, node: Node): GovernedStoreResou
       return [`${parsed.pathname}${parsed.search}${parsed.hash}`];
     } catch { return []; }
   });
-  return { id: node.id, type, url, handle: node.handle, title: node.title, seoTitle, seoDescription, bodyHtml, capturedAt: new Date(), updatedAt, stateHash: createHash("sha256").update(canonical).digest("hex"), internalTargets };
+  return { id: node.id, type, url, handle: node.handle, ...(blogHandle ? { blogHandle } : {}), title: node.title, seoTitle, seoDescription, bodyHtml, capturedAt: new Date(), updatedAt, stateHash: createHash("sha256").update(canonical).digest("hex"), internalTargets };
 }
 
 export async function fetchGovernedStoreResources(urls: string[]): Promise<Map<string, GovernedStoreResource>> {
-  const requested = new Set(urls.map((url) => resolveGovernedStoreUrl(url)).filter((value): value is NonNullable<typeof value> => value !== null).map(({ type, handle }) => `${type}:${handle}`));
+  const requested = new Set(urls.map((url) => resolveGovernedStoreUrl(url)).filter((value): value is NonNullable<typeof value> => value !== null).map((value) => value.type === "article" ? `article:${value.blogHandle}:${value.handle}` : `${value.type}:${value.handle}`));
   const result = new Map<string, GovernedStoreResource>();
   for (const type of ["product", "collection", "page"] as const) {
     if (![...requested].some((key) => key.startsWith(`${type}:`))) continue;
@@ -100,13 +114,35 @@ export async function fetchGovernedStoreResources(urls: string[]): Promise<Map<s
       after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
     } while (after);
   }
+  if ([...requested].some((key) => key.startsWith("article:"))) {
+    let after: string | null = null;
+    do {
+      const data: { articles: Connection } = await shopifyFetch(`
+        query GovernedArticles($after: String) {
+          articles(first: 250, after: $after) {
+            pageInfo { hasNextPage endCursor }
+            edges { node { id handle title body updatedAt blog { handle } } }
+          }
+        }
+      `, { after });
+      for (const { node } of data.articles.edges) {
+        const blogHandle = node.blog?.handle;
+        if (!blogHandle || !requested.has(`article:${blogHandle}:${node.handle}`)) continue;
+        const item = resource("article", node);
+        result.set(item.url, item);
+      }
+      after = data.articles.pageInfo.hasNextPage ? data.articles.pageInfo.endCursor : null;
+    } while (after);
+  }
   return result;
 }
 
 export async function fetchGovernedStoreResource(url: string): Promise<GovernedStoreResource | null> {
   const resolved = resolveGovernedStoreUrl(url);
   if (!resolved) return null;
-  const canonical = `/${resolved.type === "product" ? "products" : resolved.type === "collection" ? "collections" : "pages"}/${resolved.handle}`;
+  const canonical = resolved.type === "article"
+    ? `/blogs/${resolved.blogHandle}/${resolved.handle}`
+    : `/${resolved.type === "product" ? "products" : resolved.type === "collection" ? "collections" : "pages"}/${resolved.handle}`;
   return (await fetchGovernedStoreResources([canonical])).get(canonical) ?? null;
 }
 
@@ -156,6 +192,44 @@ export async function createGovernedRedirect(sourceValue: string, targetValue: s
   return { id: created.id, source, target, capturedAt: new Date(), stateHash: createHash("sha256").update(JSON.stringify({ id: created.id, source, target })).digest("hex") };
 }
 
+export async function updateGovernedRedirect(current: GovernedRedirect, targetValue: string): Promise<GovernedRedirect> {
+  const target = governedPath(targetValue);
+  const data = await shopifyFetch<{ urlRedirectUpdate: { urlRedirect: { id: string; path: string; target: string } | null; userErrors: Array<{ field?: string[]; message: string }> } }>(`
+    mutation UpdateGovernedUrlRedirect($id: ID!, $urlRedirect: UrlRedirectInput!) {
+      urlRedirectUpdate(id: $id, urlRedirect: $urlRedirect) {
+        urlRedirect { id path target }
+        userErrors { field message }
+      }
+    }
+  `, { id: current.id, urlRedirect: { path: current.source, target } });
+  const error = data.urlRedirectUpdate.userErrors[0];
+  if (error) throw new Error(error.message);
+  const updated = data.urlRedirectUpdate.urlRedirect;
+  if (!updated) throw new Error("Shopify did not return the updated redirect");
+  const source = governedPath(updated.path);
+  const returnedTarget = governedPath(updated.target);
+  if (updated.id !== current.id || source !== current.source || returnedTarget !== target) {
+    throw new Error("Shopify returned a different redirect than requested");
+  }
+  return { id: updated.id, source, target: returnedTarget, capturedAt: new Date(), stateHash: createHash("sha256").update(JSON.stringify({ id: updated.id, source, target: returnedTarget })).digest("hex") };
+}
+
+export async function deleteGovernedRedirect(current: GovernedRedirect): Promise<{ id: string; source: string; previousTarget: string; verifiedAt: Date }> {
+  const data = await shopifyFetch<{ urlRedirectDelete: { deletedUrlRedirectId: string | null; userErrors: Array<{ field?: string[]; message: string }> } }>(`
+    mutation DeleteGovernedUrlRedirect($id: ID!) {
+      urlRedirectDelete(id: $id) {
+        deletedUrlRedirectId
+        userErrors { field message }
+      }
+    }
+  `, { id: current.id });
+  const error = data.urlRedirectDelete.userErrors[0];
+  if (error) throw new Error(error.message);
+  if (data.urlRedirectDelete.deletedUrlRedirectId !== current.id) throw new Error("Shopify returned a different deleted redirect ID");
+  if ((await fetchGovernedRedirects([current.source])).has(current.source)) throw new Error("Shopify still returns the deleted redirect");
+  return { id: current.id, source: current.source, previousTarget: current.target, verifiedAt: new Date() };
+}
+
 export async function applyGovernedStoreResourceChange(resource: GovernedStoreResource, proposed: GovernedStoreResourceChange): Promise<GovernedStoreResource> {
   const allowed = new Set(["seoTitle", "seoDescription", "title", "bodyHtml"]);
   for (const key of Object.keys(proposed)) if (!allowed.has(key)) throw new Error(`Governed resource change key is not allowed: ${key}`);
@@ -175,6 +249,13 @@ export async function applyGovernedStoreResourceChange(resource: GovernedStoreRe
         ...(proposed.seoDescription === undefined ? {} : { seoDescription: proposed.seoDescription ?? "" }),
         ...(proposed.bodyHtml === undefined ? {} : { bodyHtml: proposed.bodyHtml }),
       });
+      break;
+    case "article":
+      if (proposed.title !== undefined || proposed.seoTitle !== undefined || proposed.seoDescription !== undefined) {
+        throw new Error("Only bodyHtml is allowed for article resources");
+      }
+      if (proposed.bodyHtml === undefined) throw new Error("bodyHtml is required for article resources");
+      await updateArticleBody(resource.id, proposed.bodyHtml);
       break;
     default:
       throw new Error(`Unsupported governed store resource type: ${String(resource.type)}`);

@@ -5,7 +5,7 @@ vi.mock("@/lib/config/resolver", () => ({
 }));
 
 import { getSecret } from "@/lib/config/resolver";
-import { shopifyFetch, updateCollectionSeoAndBody, updatePageSeoAndBody, updateProductSeo } from "@/lib/shopify-admin";
+import { shopifyFetch, updateArticleBody, updateCollectionSeoAndBody, updatePageSeoAndBody, updateProductSeo } from "@/lib/shopify-admin";
 
 describe("shopifyFetch", () => {
   beforeEach(() => {
@@ -109,6 +109,19 @@ describe("governed Shopify mutations", () => {
       { namespace: "global", key: "title_tag", type: "single_line_text_field", value: "About Agriko" },
       { namespace: "global", key: "description_tag", type: "single_line_text_field", value: "..." },
     ] } });
+  });
+
+  it("updates only an article body", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ data: { articleUpdate: { article: { id: "a1" }, userErrors: [] } } }),
+    }) as unknown as typeof fetch;
+
+    await updateArticleBody("a1", "<p>Changed</p>");
+
+    const body = JSON.parse((vi.mocked(global.fetch).mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.query).toContain("articleUpdate(id: $id, article: $article)");
+    expect(body.variables).toEqual({ id: "a1", article: { body: "<p>Changed</p>" } });
   });
 
   it("validates limits before transport", async () => {

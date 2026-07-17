@@ -308,6 +308,29 @@ export async function updatePageSeoAndBody(
   return data.pageUpdate.page;
 }
 
+export async function updateArticleBody(
+  articleId: string,
+  bodyHtml: string,
+): Promise<{ id: string }> {
+  validateGovernedFields(undefined, undefined, bodyHtml);
+  const data = await shopifyFetch<{
+    articleUpdate: {
+      article: { id: string } | null;
+      userErrors: Array<{ message: string }>;
+    };
+  }>(`
+    mutation UpdateGovernedArticleBody($id: ID!, $article: ArticleUpdateInput!) {
+      articleUpdate(id: $id, article: $article) {
+        article { id }
+        userErrors { code field message }
+      }
+    }
+  `, { id: articleId, article: { body: bodyHtml } });
+  if (data.articleUpdate.userErrors?.length) throw new Error(data.articleUpdate.userErrors[0]!.message);
+  if (!data.articleUpdate.article) throw new Error("Shopify returned no article in articleUpdate response");
+  return data.articleUpdate.article;
+}
+
 export interface CatalogProductVariant {
   id: string;
   title: string;

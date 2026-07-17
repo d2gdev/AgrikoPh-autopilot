@@ -23,7 +23,7 @@ type Db = typeof prisma;
 type ExecutableSource = Extract<ReturnType<typeof TopicalMapStoreTaskSourceSchema.parse>, { executable: true }>;
 type ExecutableProposed = Exclude<ReturnType<typeof TopicalMapStoreTaskProposedSchema.parse>, { action: "advisory" }>;
 export type MinimalStoreTaskReceipt = {
-  taskId: string; recommendationId: string; targetId: string; targetUrl: string; targetType: "product" | "collection" | "page" | "redirect";
+  taskId: string; recommendationId: string; targetId: string; targetUrl: string; targetType: "product" | "collection" | "page" | "article" | "redirect";
   strategyVersionId: string; packageSha256: string; ruleIds: string[]; action: string; changedFields: string[];
   proposedStateHash: string; shopifyReturnedStateHash: string; verifiedAt: string;
 };
