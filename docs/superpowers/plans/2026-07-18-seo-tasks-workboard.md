@@ -53,7 +53,7 @@ If a worker model is unavailable, Sol Medium performs that stage. No unlisted mo
 
 ## Stage 1: Data, Domain, Service, and API
 
-**Model:** `gpt-5.6-terra`, high reasoning  
+**Model:** `gpt-5.6-terra`, high reasoning
 **Permitted production files:**
 
 - Create `lib/seo-tasks/contracts.ts`
@@ -213,7 +213,7 @@ git commit -m "feat: add SEO follow-up task service"
 
 ## Stage 2: Workboard UI, Navigation, and Dashboard
 
-**Model:** `gpt-5.6-terra`, medium reasoning  
+**Model:** `gpt-5.6-terra`, medium reasoning
 **Permitted production files:**
 
 - Create `app/(embedded)/(seo-pillar)/seo-tasks/page.tsx`
@@ -307,7 +307,7 @@ git commit -m "feat: add SEO tasks workboard"
 
 ## Stage 3: Seed Script and End-to-End Data Proof
 
-**Model:** `gpt-5.6-luna`, high reasoning  
+**Model:** `gpt-5.6-luna`, high reasoning
 **Permitted production files:**
 
 - Create `scripts/seed-seo-follow-up-tasks.ts`
@@ -427,4 +427,3 @@ Expected: every command exits `0`.
 - [ ] Record evidence in the normal task handoff and update `.mex/ROUTER.md` only if durable routing context changed.
 
 The feature may be reported locally complete only after all checks above pass. Stop before production migration, seed, push, or deployment and request explicit operator authority for those separate actions.
-

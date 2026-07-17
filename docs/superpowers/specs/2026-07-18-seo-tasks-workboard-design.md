@@ -1,9 +1,9 @@
 # SEO Tasks Workboard Design
 
-**Date:** 2026-07-18  
-**Status:** Approved for implementation planning  
-**Owner surface:** SEO Pilot  
-**Register:** Product  
+**Date:** 2026-07-18
+**Status:** Approved for implementation planning
+**Owner surface:** SEO Pilot
+**Register:** Product
 
 ## 1. Problem
 
