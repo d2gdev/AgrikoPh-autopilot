@@ -70,6 +70,7 @@ beforeEach(() => {
     .mockResolvedValueOnce(3)
     .mockResolvedValueOnce(7);
   mockPrisma.seoFollowUpTask.findMany.mockResolvedValue([taskRow]);
+  mockPrisma.seoFollowUpTask.findUnique.mockResolvedValue(null);
   tx.seoFollowUpTask.create.mockResolvedValue(taskRow);
   tx.auditLog.create.mockResolvedValue({ id: "audit-1" });
 });
@@ -159,6 +160,36 @@ describe("createSeoTask", () => {
 
   it("returns the existing task ID after a unique-key race", async () => {
     tx.seoFollowUpTask.create.mockRejectedValueOnce({ code: "P2002" });
+    mockPrisma.seoFollowUpTask.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "existing-1" });
+
+    const result = await createSeoTask({
+      taskType: "other",
+      title: "Existing",
+      description: "Existing",
+      targetUrl: null,
+      topicalCluster: null,
+      pageRole: null,
+      ownerSurface: "seo",
+      destinationPath: null,
+      priority: "P2",
+      earliestReviewAt: new Date("2026-08-01T00:00:00.000Z"),
+      dueAt: null,
+      requiresEvidence: false,
+      evidenceRequirement: {},
+      evidenceStatus: "not_required",
+      evidenceSnapshot: null,
+      lastEvaluatedAt: null,
+      sourceType: "operator",
+      sourceKey: "existing",
+      sourceData: {},
+    }, "operator");
+
+    expect(result).toEqual({ outcome: "duplicate", existingId: "existing-1" });
+  });
+
+  it("returns a known duplicate without attempting a noisy insert", async () => {
     mockPrisma.seoFollowUpTask.findUnique.mockResolvedValueOnce({ id: "existing-1" });
 
     const result = await createSeoTask({
@@ -184,6 +215,8 @@ describe("createSeoTask", () => {
     }, "operator");
 
     expect(result).toEqual({ outcome: "duplicate", existingId: "existing-1" });
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.seoFollowUpTask.create).not.toHaveBeenCalled();
   });
 });
 

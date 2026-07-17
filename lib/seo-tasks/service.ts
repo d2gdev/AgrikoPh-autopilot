@@ -165,6 +165,13 @@ export async function createSeoTask(
     sourceType: input.sourceType,
     sourceKey: input.sourceKey,
   });
+  const knownDuplicate = await prisma.seoFollowUpTask.findUnique({
+    where: { dedupeKey },
+    select: { id: true },
+  });
+  if (knownDuplicate) {
+    return { outcome: "duplicate", existingId: knownDuplicate.id };
+  }
   try {
     const task = await prisma.$transaction(async (tx) => {
       const created = await tx.seoFollowUpTask.create({
