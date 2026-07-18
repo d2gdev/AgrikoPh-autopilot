@@ -8,7 +8,7 @@ triggers:
   - "duplicate proposals"
   - "clear queue"
   - "start from scratch"
-last_updated: 2026-07-18T18:47:59+08:00
+last_updated: 2026-07-18T19:17:16+08:00
 ---
 
 # Generation Dedupe
@@ -50,6 +50,7 @@ Autopilot has multiple idea generators: skill recommendations, insight-derived a
 - Use `topical-map-content:<strategyVersionId>:<candidateId>` for exact mapped content tasks. Reconcile against both completed task history by logical URL/action and recreate-blocking Content Proposal history. Content Pilot must require the corresponding Ready task before brief or proposal mutation, and proposal creation must trigger task reconciliation so it cannot remain as a separate actionable backlog.
 - Queue dedupe does not prevent semantic duplication inside an AI-written brief. For exact-map work, build the brief deterministically from the mapped page assignment, same-cluster ownership boundaries, and exact mapped links; do not let a model elaborate adjacent topics, URLs, claims, or link targets beyond the contract.
 - Persisted analysis is evidence, not the current actionable queue. Every surface that renders its content candidates must batch-filter them through current Ready mapped tasks and recreate-blocking proposal history; keep link findings intact and repeat the same check at mutation time.
+- Do not treat every actionable content candidate as a content gap. A Content Gaps surface must show only exact-map `create` work backed by direct store-absence evidence; published-page `refresh` work belongs in SEO Tasks and Content Pilot even when it is currently actionable.
 
 ## Verify
 - Add regression coverage for at least one terminal status (`rejected`, `executed`, `published`, `dismissed`, or `completed`) blocking regeneration.

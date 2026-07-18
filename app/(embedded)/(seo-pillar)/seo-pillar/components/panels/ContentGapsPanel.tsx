@@ -82,7 +82,9 @@ export function ContentGapsPanel({
     );
   if (mapState.state !== "ready") return null;
   if (!analysisState.analysis) return null;
-  const gaps = analysisState.analysis.gaps.filter((g) => g.kind === "content");
+  const gaps = analysisState.analysis.gaps.filter(
+    (g) => g.kind === "content" && g.action === "create",
+  );
   const governedPage = (url?: string) =>
     mapState.commandCenter.pages.find((page) => page.url === url);
   const actionable = (url?: string) => {
@@ -92,12 +94,14 @@ export function ContentGapsPanel({
   const visibleIds = gaps
     .filter((gap) => actionable(gap.page) && !done.has(gap.candidateId))
     .map((gap) => gap.candidateId);
-  const gatedPages = groupContentGateSuppressions(analysisState.analysis.suppressed).flatMap(
-    (suppression) => {
+  const gatedPages = groupContentGateSuppressions(analysisState.analysis.suppressed)
+    .filter((suppression) =>
+      suppression.observation?.provenance.startsWith("ArticleRecord:absence:"),
+    )
+    .flatMap((suppression) => {
       const page = governedPage(suppression.page);
       return page?.contentDecisionPolicy ? [{ page, suppression }] : [];
-    },
-  );
+    });
   const gateLabel = (reason: string) =>
     reason === "manual_gate"
       ? "Manual gate"

@@ -27,22 +27,17 @@ it("selects and clears all currently visible candidates without disturbing hidde
   expect(selectVisibleCandidateIds(new Set(["hidden", content.candidateId, link.candidateId]), [content.candidateId, link.candidateId], false)).toEqual(new Set(["hidden"]));
 });
 
-it("renders a mapped refresh candidate as an actionable refresh", () => {
+it("does not render a published-page refresh as a content gap", () => {
   const refresh = { ...content, action: "refresh" as const, page: "/blogs/news/mapped", currentArticleTitle: "Current Shopify article", observedEvidence: [{ query: "mapped", impressions: 20, position: 9 }] };
   const commandCenter = { identity: { versionId: "v3", strategyVersion: "3", contractRevision: "3", packageSha256: identity.packageSha256, activatedAt: null }, pages: [{ url: "/blogs/news/mapped", title: "Mapped guide", primaryKeywordOrTheme: "mapped target query", decision: "refresh body content", contentDecisionPolicy: { resolutionStatus: "resolved", conditions: [], evidenceRequirements: [], reviewRequirements: [] } }], provenance: { "content:1": { sourceArtifactId: "map", sourceReferences: [] } } } as any;
   const rendered = JSON.stringify(ContentGapsPanel({ mapState: { state: "ready", generatedAt: "now", commandCenter }, analysisState: { state: "ready", generatedAt: "now", analysis: { gaps: [refresh], observations: [], suppressed: [] } }, selected: new Set(), done: new Set(), onToggle: vi.fn(), onSelectVisible: vi.fn() }));
-  expect(rendered).toContain("Refresh content");
-  expect(rendered).toContain("Select for proposal");
-  expect(rendered).toContain("20 impressions");
-  expect(rendered).toContain("Mapped guide");
-  expect(rendered).toContain("Current Shopify article");
-  expect(rendered).toContain("Target keyword:");
-  expect(rendered).toContain("mapped target query");
-  expect(rendered).toContain("Governed target URL:");
-  expect(rendered).toContain("/blogs/news/mapped");
+  expect(rendered).toContain("No governed content gaps remain");
+  expect(rendered).not.toContain("Refresh content");
+  expect(rendered).not.toContain("Select for proposal");
+  expect(rendered).not.toContain("Current Shopify article");
 });
 
-it("renders suppressed manual-gate content context without a proposal action", () => {
+it("does not render a gated published-page refresh as a content gap", () => {
   const commandCenter = {
     identity: { versionId: "v3", strategyVersion: "3", contractRevision: "3", packageSha256: identity.packageSha256, activatedAt: null },
     pages: [{
@@ -63,8 +58,8 @@ it("renders suppressed manual-gate content context without a proposal action", (
     selected: new Set(), done: new Set(), onToggle: vi.fn(), onSelectVisible: vi.fn(),
   }));
 
-  for (const value of ["Map-owned medical guide", "medical rice evidence", "refresh and expand existing owner; medical review", "Clinical review is required before changes.", "P0", "Manual gate", "Current medical article", "ArticleRecord:news/medical", "2026-07-13T00:00:00.000Z"]) {
-    expect(rendered).toContain(value);
-  }
+  expect(rendered).toContain("No governed content gaps remain");
+  expect(rendered).not.toContain("Map-owned medical guide");
+  expect(rendered).not.toContain("Current medical article");
   expect(rendered).not.toContain("Select for proposal");
 });
