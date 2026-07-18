@@ -17,6 +17,35 @@ export interface TopicCluster {
   gapScore: number;
 }
 
+export interface ContentMapSuggestion {
+  candidateId: string;
+  targetUrl: string;
+  title: string;
+  action: "create" | "refresh";
+  priority: string;
+  decision: string;
+  ruleIds: string[];
+}
+
+export interface ContentMapResearchItem {
+  targetUrl: string;
+  title: string;
+  priority: string;
+  decision: string;
+  reason: string;
+  ruleIds: string[];
+}
+
+export interface ContentMapSuggestionsResponse {
+  strategy: {
+    versionId: string;
+    packageSha256: string;
+    analysisGeneratedAt: string;
+  };
+  actionable: ContentMapSuggestion[];
+  research: ContentMapResearchItem[];
+}
+
 export interface LinkGraphData {
   total: number;
   hubs: { handle: string; title: string; inboundCount: number; outboundLinks: number }[];
