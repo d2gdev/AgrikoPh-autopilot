@@ -49,6 +49,7 @@ describe("projectTopicalMapCommandCenter", () => {
     expect(projected.blockers.evidence[0]?.phaseGate).not.toHaveProperty("defaultSatisfied");
     expect(projected.blockers.reviews[0]).toMatchObject({ name: "Medical review", ruleIds: ["rule:review:1"], policy: { resolutionStatus: "resolved" } });
     expect(projected.provenance["rule:link:1"]).toMatchObject({ sourceArtifactId: "internal-links", sourceReferences: [expect.objectContaining({ coverageUnitId: "coverage:rule:link:1" })] });
+    expect(projected.provenance["rule:link:1"]!.sourceReferences[0]).toEqual({ coverageUnitId: "coverage:rule:link:1" });
     expect(JSON.stringify(projected)).not.toContain("rawContent");
     expect(JSON.stringify(projected)).not.toContain("SECRET");
   });

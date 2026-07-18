@@ -31,7 +31,6 @@ export async function GET(req: Request) {
       });
 
     const outboundBySource = new Map<string, number>();
-    const inboundArticleByHandle = new Map<string, number>();
     const targetsByType = new Map<string, Map<string, { targetType: string; targetHandle: string | null; targetUrl: string; inboundLinks: number; ctaLinks: number }>>();
 
     for (const edge of edges) {
@@ -51,21 +50,17 @@ export async function GET(req: Request) {
       if (edge.isCta) current.ctaLinks++;
       typeMap.set(targetKey, current);
 
-      if (edge.targetType === "article" && edge.targetHandle) {
-        inboundArticleByHandle.set(edge.targetHandle, (inboundArticleByHandle.get(edge.targetHandle) ?? 0) + 1);
-      }
     }
 
     const withLinks = records.map((r) => {
       const links = r.linksData as { internal: unknown[]; external: unknown[] };
       const edgeOutbound = outboundBySource.get(r.handle);
-      const edgeInbound = inboundArticleByHandle.get(r.handle);
       return {
         blogHandle: r.blogHandle,
         handle: r.handle,
         title: r.title,
         outboundLinks: edgeOutbound ?? links.internal?.length ?? 0,
-        inboundCount: edgeInbound ?? r.inboundCount,
+        inboundCount: r.inboundCount,
       };
     });
 

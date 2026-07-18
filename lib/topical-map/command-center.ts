@@ -27,7 +27,7 @@ export type TopicalMapCommandCenter = {
     indexation: Array<RuleEvidence & { currentUrl: string; proposedCanonicalUrl: string; publishingState?: string; decision?: string; priority?: string; evidence?: string; policy: TopicalMapRulePolicy }>;
   };
   blockers: { evidence: Array<RuleEvidence & { name: string; text: string; policy: TopicalMapRulePolicy; phaseGate?: TopicalMapPhaseGateSummary; scheduleAuthorityBoundary?: TopicalMapScheduleAuthorityBoundary }>; reviews: Array<RuleEvidence & { name: string; text: string; policy: TopicalMapRulePolicy; phaseGate?: TopicalMapPhaseGateSummary; scheduleAuthorityBoundary?: TopicalMapScheduleAuthorityBoundary }> };
-  provenance: Record<string, { sourceArtifactId: string; sourceReferences: SourceReference[] }>;
+  provenance: Record<string, { sourceArtifactId: string; sourceReferences: Array<{ coverageUnitId: string }> }>;
 };
 
 const domainSet = new Set<string>(ALL_TOPICAL_MAP_DOMAINS);
@@ -68,7 +68,15 @@ export function projectTopicalMapCommandCenter(input: ProjectionInput): TopicalM
   const provenance: TopicalMapCommandCenter["provenance"] = {};
   const sortedRules = [...input.rules].sort((a, b) => a.ruleId.localeCompare(b.ruleId));
   for (let index = 1; index < sortedRules.length; index++) if (sortedRules[index - 1]!.ruleId === sortedRules[index]!.ruleId) throw new Error("DUPLICATE_TOPICAL_MAP_RULE_ID");
-  for (const rule of sortedRules) { const domain = assertDomain(rule.ruleType); domainCounts[domain]++; byDomain.set(domain, [...(byDomain.get(domain) ?? []), rule]); provenance[rule.ruleId] = { sourceArtifactId: rule.sourceArtifactId, sourceReferences: rule.sourceReferences.map(projectedReference).sort((a, b) => a.coverageUnitId.localeCompare(b.coverageUnitId) || a.artifactId.localeCompare(b.artifactId) || JSON.stringify(a.locator).localeCompare(JSON.stringify(b.locator))) }; }
+  for (const rule of sortedRules) {
+    const domain = assertDomain(rule.ruleType);
+    domainCounts[domain]++;
+    byDomain.set(domain, [...(byDomain.get(domain) ?? []), rule]);
+    const references = rule.sourceReferences
+      .map(projectedReference)
+      .sort((a, b) => a.coverageUnitId.localeCompare(b.coverageUnitId) || a.artifactId.localeCompare(b.artifactId) || JSON.stringify(a.locator).localeCompare(JSON.stringify(b.locator)));
+    provenance[rule.ruleId] = { sourceArtifactId: rule.sourceArtifactId, sourceReferences: references.map(({ coverageUnitId }) => ({ coverageUnitId })) };
+  }
   const rules = (domain: TopicalMapDomain) => (byDomain.get(domain) ?? []).slice().sort((a, b) => a.ruleId.localeCompare(b.ruleId));
   const clusters = rules("clusters").map((r) => { const p = object(r.payload); return { name: text(p, "cluster") ?? "", memberUrls: Array.isArray(p.memberUrls) ? p.memberUrls.filter((v): v is string => typeof v === "string").map((v) => url(v)).sort() : [], ruleIds: [r.ruleId] }; }).sort((a, b) => a.name.localeCompare(b.name));
   const pageMap = new Map<string, CommandCenterPage>();

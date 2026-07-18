@@ -20,6 +20,14 @@ describe("pilot usability helper regressions", () => {
     expect(keywordsSource).toContain("compactSortIndex={kwSort?.index ?? -1}");
   });
 
+  it("uses only mapped Content Pilot briefs and clears stale candidate selection after analysis refresh", () => {
+    const pageSource = readFileSync("app/(embedded)/(seo-pillar)/seo-pillar/page.tsx", "utf8");
+    expect(pageSource).not.toContain("Generate SEO Brief");
+    expect(pageSource).not.toContain("/api/seo/brief");
+    expect(pageSource).toContain("setSelectedMap(new Set())");
+    expect(pageSource).toContain("setPromotedMap(new Set())");
+  });
+
   it("classifies supported fixes and diagnostic-only on-page health findings", () => {
     expect(onPageHealthActions(["Title length off", "Description length off"])).toEqual({ meta: true, h1: false, thin: false, manual: false });
     expect(onPageHealthActions(["No internal links", "Few headings", "Orphan (no inbound links)"])).toEqual({ meta: false, h1: false, thin: false, manual: true });

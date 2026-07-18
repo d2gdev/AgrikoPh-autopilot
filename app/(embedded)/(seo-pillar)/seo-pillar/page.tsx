@@ -57,10 +57,6 @@ export default function SeoPillarReportPage() {
   const [promotedMap, setPromotedMap] = useState<Set<string>>(new Set());
   const [confirmSelected, setConfirmSelected] = useState(false);
   const [submittingSelected, setSubmittingSelected] = useState(false);
-  // AI SEO brief (ported from the retired /seo page)
-  const [brief, setBrief] = useState<string | null>(null);
-  const [briefLoading, setBriefLoading] = useState(false);
-  const [briefError, setBriefError] = useState<string | null>(null);
   // Opportunities / Keywords tab controls
   const [oppSearch, setOppSearch] = useState("");
   const [oppType, setOppType] = useState("all");
@@ -76,6 +72,8 @@ export default function SeoPillarReportPage() {
         setAnalysis(d.analysis);
         setAnalysisAt(d.generatedAt ?? null);
         await reloadCommandCenter();
+        setSelectedMap(new Set());
+        setPromotedMap(new Set());
         setTab(2);
         setToast(analysisCompletionToast(d.analysis));
       } else setAnalysisError(d.error ?? "AI analysis failed.");
@@ -167,27 +165,6 @@ export default function SeoPillarReportPage() {
     <Button key={`a-${o.query}`} size="slim" disabled accessibilityLabel={`No map rule association for ${o.query}`}>No map rule association</Button>,
   ]);
 
-  async function generateBrief() {
-    setBriefLoading(true);
-    setBrief(null);
-    setBriefError(null);
-    try {
-      const res = await authFetch("/api/seo/brief", { method: "POST" });
-      const d = await res.json();
-      if (!res.ok) {
-        const message = [d.error, d.detail].filter(Boolean).join(": ");
-        setBriefError(message || "Failed to generate brief");
-        return;
-      }
-      setBrief(d.brief);
-    } catch (err) {
-      console.error("[seo/brief]", err);
-      setBriefError("Failed to generate brief. Please try again.");
-    } finally {
-      setBriefLoading(false);
-    }
-  }
-
   const tabs = [
     { id: "overview", content: "Map overview", label: "Map overview" },
     { id: "pages", content: "Pages & ownership", label: "Pages & ownership" },
@@ -203,7 +180,6 @@ export default function SeoPillarReportPage() {
       primaryAction={{ content: "AI Analysis", onAction: runSeoAnalysis, loading: analyzing }}
       secondaryActions={[
         { content: "Refresh data", onAction: refreshData, loading: refreshing },
-        { content: "Generate SEO Brief", onAction: generateBrief, loading: briefLoading },
       ]}
     >
       <Modal open={confirmSelected} onClose={() => setConfirmSelected(false)} title="Create selected governed proposals?" primaryAction={{ content: `Create ${selectedMap.size} proposals`, onAction: submitSelected, loading: submittingSelected, disabled: selectedMap.size === 0 }} secondaryActions={[{ content: "Cancel", onAction: () => setConfirmSelected(false) }]}>
@@ -230,12 +206,6 @@ export default function SeoPillarReportPage() {
             <Banner tone="warning" title="AI strategy is incomplete"><p>Programmatic findings are available, but AI strategy text failed. Retry AI Analysis to complete it.</p></Banner>
           </Layout.Section>
         )}
-        {briefError && (
-          <Layout.Section>
-            <Banner tone="critical" title="Brief generation failed" onDismiss={() => setBriefError(null)}><p>{briefError}</p></Banner>
-          </Layout.Section>
-        )}
-
         <Layout.Section>
           {selectedMap.size > 0 && <Card><InlineStack align="space-between" blockAlign="center" wrap><Text as="p">{selectedMap.size} candidate{selectedMap.size === 1 ? "" : "s"} selected</Text><InlineStack gap="200"><Button variant="plain" onClick={() => setSelectedMap(new Set())}>Clear selection</Button><Button variant="primary" onClick={() => setConfirmSelected(true)}>Create selected proposals</Button></InlineStack></InlineStack></Card>}
           <Card padding="0">
@@ -260,7 +230,7 @@ export default function SeoPillarReportPage() {
                   {tab === 3 && (mapState.state === "ready" ? <MapWorkPanel map={mapState.commandCenter} gaps={mapAnalysisState.state === "ready" ? mapAnalysisState.analysis.gaps : []} suppressed={mapAnalysisState.state === "ready" ? mapAnalysisState.analysis.suppressed : []} selected={selectedMap} done={promotedMap} onToggle={toggleMapCandidate} onSelectVisible={selectVisibleMapCandidates}/> : <ContentGapsPanel mapState={mapState} analysisState={mapAnalysisState} selected={selectedMap} done={promotedMap} onToggle={toggleMapCandidate} onSelectVisible={selectVisibleMapCandidates}/>)}
 
                   {/* ── KEYWORDS ── */}
-                  {tab === 4 && <BlockStack gap="500"><OverviewPanel brief={brief} cur={cur} prev={prev} gscFetchedAt={data?.gscFetchedAt} gscFreshness={data?.gscFreshness} ga4FetchedAt={data?.ga4FetchedAt} ga4Freshness={data?.ga4Freshness} previousFetchedAt={t?.previousFetchedAt} trend={trend} trendFirst={trendFirst} trendLast={trendLast} moverRows={moverRows} pageRows={pageRows} queryRows={queryRows} gscPages={data?.gscPages ?? []} queryPagePairs={data?.queryPagePairs ?? []}/><OpportunitiesPanel oppCount={visibleOpportunities.length} oppSearch={oppSearch} setOppSearch={setOppSearch} oppType={oppType} setOppType={setOppType} oppTypeOptions={oppTypeOptions} oppRows={oppRows} oppSort={oppSort} setOppSort={setOppSort}/></BlockStack>}
+                  {tab === 4 && <BlockStack gap="500"><OverviewPanel brief={null} cur={cur} prev={prev} gscFetchedAt={data?.gscFetchedAt} gscFreshness={data?.gscFreshness} ga4FetchedAt={data?.ga4FetchedAt} ga4Freshness={data?.ga4Freshness} previousFetchedAt={t?.previousFetchedAt} trend={trend} trendFirst={trendFirst} trendLast={trendLast} moverRows={moverRows} pageRows={pageRows} queryRows={queryRows} gscPages={data?.gscPages ?? []} queryPagePairs={data?.queryPagePairs ?? []}/><OpportunitiesPanel oppCount={visibleOpportunities.length} oppSearch={oppSearch} setOppSearch={setOppSearch} oppType={oppType} setOppType={setOppType} oppTypeOptions={oppTypeOptions} oppRows={oppRows} oppSort={oppSort} setOppSort={setOppSort}/></BlockStack>}
 
                 </>
               )}

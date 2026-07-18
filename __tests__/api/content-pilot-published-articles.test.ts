@@ -60,4 +60,36 @@ describe("Content Pilot published article intelligence", () => {
       },
     }));
   });
+
+  it("uses the persisted article inbound count throughout Overview", async () => {
+    mocks.findMany.mockResolvedValueOnce([
+      {
+        blogHandle: "news",
+        handle: "published-one",
+        title: "Published",
+        linksData: { internal: [], external: [] },
+        inboundCount: 7,
+      },
+    ]);
+    mocks.edges.mockResolvedValueOnce([
+      {
+        sourceHandle: "published-one",
+        targetType: "article",
+        targetHandle: "published-one",
+        targetUrl: "/blogs/news/published-one",
+        anchorText: "published",
+        isCta: false,
+      },
+    ]);
+
+    const { GET } = await import("@/app/api/content-pilot/link-graph/route");
+    const response = await GET(new Request("https://app.example/api/content-pilot/link-graph"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.authorities[0]).toEqual(expect.objectContaining({
+      handle: "published-one",
+      inboundCount: 7,
+    }));
+  });
 });

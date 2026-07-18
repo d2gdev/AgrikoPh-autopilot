@@ -313,12 +313,89 @@ describe("SEO Pilot route regressions", () => {
     expect(body.analysis.gaps).toEqual([ready]);
   });
 
+  it("hides link candidates whose observed article state is no longer current", async () => {
+    const capturedAt = new Date();
+    const currentHash = "b".repeat(64);
+    const stale = makeGap({
+      strategyVersionId: "v3",
+      packageSha256: "a".repeat(64),
+      kind: "link",
+      state: "candidate",
+      action: "update",
+      ruleIds: ["rule:link"],
+      query: "mapped topic",
+      suggestedTitle: "Add stale link",
+      page: "/blogs/news/source",
+      fromUrl: "/blogs/news/source",
+      toUrl: "/blogs/news/mapped",
+      type: "internal-link",
+      priority: "high",
+      mapEvidence: null,
+      observedEvidence: [],
+      observation: {
+        source: "link_inspection",
+        capturedAt: capturedAt.toISOString(),
+        provenance: "ArticleRecord.linksData:/blogs/news/source",
+        stateHash: "c".repeat(64),
+      },
+    });
+    const current = makeGap({
+      ...stale,
+      ruleIds: ["rule:current-link"],
+      suggestedTitle: "Add current link",
+      page: "/blogs/news/current-source",
+      fromUrl: "/blogs/news/current-source",
+      observation: {
+        source: "link_inspection",
+        capturedAt: capturedAt.toISOString(),
+        provenance: "ArticleRecord.linksData:/blogs/news/current-source",
+        stateHash: currentHash,
+      },
+    });
+    const payload = createMapAnalysisEnvelope({
+      strategy: { versionId: "v3", packageSha256: "a".repeat(64) },
+      generatedAt: capturedAt,
+      analysis: { gaps: [stale, current], observations: [], suppressed: [] },
+      evidence: {
+        gscCapturedAt: capturedAt.toISOString(),
+        storeCapturedAt: null,
+        linkCapturedAt: capturedAt.toISOString(),
+        requiredObservationFamilies: ["link_inspection"],
+        storeInspection: { required: 0, inspected: 0 },
+        linkInspection: { required: 2, inspected: 2 },
+        maxAgeHours: 72,
+      },
+    });
+    mockGetLatestSnapshot.mockResolvedValue({ payload, fetchedAt: capturedAt });
+    mockPrisma.articleRecord.findMany.mockResolvedValue([
+      {
+        blogHandle: "news",
+        handle: "source",
+        contentHash: "d".repeat(64),
+        updatedAt: capturedAt,
+      },
+      {
+        blogHandle: "news",
+        handle: "current-source",
+        contentHash: currentHash,
+        updatedAt: capturedAt,
+      },
+    ]);
+
+    const { GET } = await import("@/app/api/seo/analysis/route");
+    const response = await GET(new Request("http://test.local/api/seo/analysis") as NextRequest);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.analysis.gaps).toEqual([current]);
+  });
+
   it("round-trips the POST schema-v2 map analysis through the GET reader", async () => {
     const active = await mockPrisma.topicalMapActivation.findUnique();
     mockPrisma.topicalMapActivation.findUnique.mockResolvedValue({ strategyVersion: { ...active.strategyVersion, compiledRules: active.strategyVersion.compiledRules.filter((rule: { ruleId: string }) => rule.ruleId !== "rule:collection") } });
     const capturedAt = new Date();
     mockSeoData.getLatestGscData.mockResolvedValue({ queries: [{ query: "mapped topic", clicks: 0, impressions: 40, ctr: "0%", position: "8" }], pages: [], queryPagePairs: [], fetchedAt: capturedAt, source: "normalized", window: null });
-    mockPrisma.articleRecord.findMany.mockResolvedValue([{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, linksData: { internal: [] }, updatedAt: capturedAt }]);
+    mockPrisma.articleRecord.findMany.mockResolvedValue([{ blogHandle: "news", handle: "source", title: "Source", contentHash: "e".repeat(64), wordCount: 500, internalLinkCount: 0, seoData: {}, linksData: { internal: [] }, updatedAt: capturedAt }]);
     const { POST } = await import("@/app/api/seo/analyze/route");
     const post = await POST(jsonRequest("/api/seo/analyze", {}));
     expect(post.status).toBe(200);
@@ -1093,158 +1170,20 @@ describe("SEO Pilot route regressions", () => {
     expect(pageSource).not.toContain("opportunityKey(o)");
   });
 
-  it("returns retryable error when SEO brief output is blank", async () => {
-    mockSeoData.getLatestGscData.mockResolvedValue({
-      queries: [{ query: "black rice", clicks: 3, impressions: 200, ctr: "1.5%", position: "7.0" }],
-      pages: [],
-      queryPagePairs: [],
-      fetchedAt: new Date("2026-06-01T00:00:00Z"),
-      source: "normalized",
-      window: null,
-    });
-    mockSeoData.getLatestGa4Data.mockResolvedValue({
-      pages: [{ page: "/blogs/news/black-rice", sessions: 20 }],
-      fetchedAt: new Date("2026-06-01T00:00:00Z"),
-      source: "normalized",
-      window: null,
-    });
-    // The failover helper trims + extracts content; a blank brief arrives as "".
-    mockChatCompletion.mockResolvedValue({ content: "", provider: "deepseek", model: "test-model" });
+  it("retires the unguided SEO brief and points operators to mapped Content Pilot briefs", async () => {
     const { POST } = await import("@/app/api/seo/brief/route");
 
     const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
-    const body = await res.json();
 
-    expect(res.status).toBe(502);
-    expect(body).toEqual({ error: "AI returned an empty brief - please retry" });
-  });
-
-  it("accepts SEO brief reasoning content when final content is blank", async () => {
-    mockSeoData.getLatestGscData.mockResolvedValue({
-      queries: [{ query: "black rice", clicks: 3, impressions: 200, ctr: "1.5%", position: "7.0" }],
-      pages: [],
-      queryPagePairs: [],
-      fetchedAt: new Date("2026-06-01T00:00:00Z"),
-      source: "normalized",
-      window: null,
+    expect(res.status).toBe(410);
+    expect(await res.json()).toEqual({
+      error: "Unguided SEO briefs have been retired.",
+      replacement: "/content-pilot?tab=brief",
     });
-    mockSeoData.getLatestGa4Data.mockResolvedValue({
-      pages: [{ page: "/blogs/news/black-rice", sessions: 20 }],
-      fetchedAt: new Date("2026-06-01T00:00:00Z"),
-      source: "normalized",
-      window: null,
-    });
-    // The helper resolves reasoning_content into `content` when final content is
-    // blank; the route just consumes the returned content.
-    mockChatCompletion.mockResolvedValue({ content: "- Improve black rice snippets.", provider: "deepseek", model: "test-model" });
-    const { POST } = await import("@/app/api/seo/brief/route");
-
-    const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body).toEqual({ brief: "- Improve black rice snippets." });
-    expect(mockChatCompletion).toHaveBeenCalled();
-  });
-
-  it("returns actionable error when SEO brief provider config fails", async () => {
-    mockSeoData.getLatestGscData.mockResolvedValue({
-      queries: [{ query: "mushroom chicharon", clicks: 5, impressions: 300, ctr: "1.7%", position: "6.5" }],
-      pages: [],
-      queryPagePairs: [],
-      fetchedAt: new Date("2026-06-01T00:00:00Z"),
-      source: "normalized",
-      window: null,
-    });
-    mockSeoData.getLatestGa4Data.mockResolvedValue({
-      pages: [{ page: "/products/mushroom-chicharon", sessions: 30 }],
-      fetchedAt: new Date("2026-06-01T00:00:00Z"),
-      source: "normalized",
-      window: null,
-    });
-    mockChatCompletion.mockRejectedValue(new Error("No AI provider configured"));
-    const { POST } = await import("@/app/api/seo/brief/route");
-
-    const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
-    const body = await res.json();
-
-    expect(res.status).toBe(503);
-    expect(body).toEqual({
-      status: 503,
-      error: "AI provider is not configured",
-      detail: "Set a valid DeepSeek or OpenRouter API key, then retry SEO brief generation.",
-    });
-  });
-
-  it("passes deterministic GSC query and GA4 page metrics into brief grounding context", async () => {
-    mockSeoData.getLatestGscData.mockResolvedValue({
-      queries: [{
-        query: "black rice",
-        clicks: 12,
-        impressions: 400,
-        ctr: "3.4%",
-        position: "8.2",
-      }],
-      pages: [],
-      queryPagePairs: [],
-      fetchedAt: new Date("2026-06-01T00:00:00.000Z"),
-      source: "normalized",
-      window: null,
-    });
-    mockSeoData.getLatestGa4Data.mockResolvedValue({
-      pages: [{
-        page: "/blogs/news/black-rice-benefits",
-        sessions: 52,
-        bounceRate: "0.38",
-        conversionRate: "0.02",
-      }],
-      fetchedAt: new Date("2026-06-01T00:00:00.000Z"),
-      source: "normalized",
-      freshness: {
-        selectedSource: "normalized",
-        selectedCapturedAt: new Date("2026-06-01T00:00:00.000Z"),
-        normalizedCapturedAt: new Date("2026-06-01T00:00:00.000Z"),
-        rawCapturedAt: null,
-        fallbackReason: null,
-      },
-    });
-
-    const { POST } = await import("@/app/api/seo/brief/route");
-
-    const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
-    await res.json();
-
-    const prompt = mockGroundSeoBriefContext.mock.calls.at(-1)?.[0] ?? "";
-    expect(prompt).toContain("black rice");
-    expect(prompt).toContain("clicks: 12");
-    expect(prompt).toContain("impressions: 400");
-    expect(prompt).toContain("ctr: 3.4%");
-    expect(prompt).toContain("position: 8.2");
-    expect(prompt).toContain("Top pages");
-    expect(prompt).toContain("sessions: 52");
-    expect(prompt).toContain("bounce: 0.38");
-    expect(prompt).toContain("conversion: 0.02");
-    expect(mockGroundSeoBriefContext).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not expose raw provider failures from SEO brief generation", async () => {
-    mockSeoData.getLatestGscData.mockResolvedValue({
-      queries: [{ query: "black rice", clicks: 3, impressions: 200, ctr: "1.5%", position: "7.0" }],
-      pages: [], queryPagePairs: [], fetchedAt: new Date("2026-06-01T00:00:00Z"), source: "normalized", window: null,
-    });
-    mockSeoData.getLatestGa4Data.mockResolvedValue({ pages: [], fetchedAt: null, source: "none", window: null });
-    mockChatCompletion.mockRejectedValue(new Error("provider response: Bearer secret-value"));
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const { POST } = await import("@/app/api/seo/brief/route");
-
-    const res = await POST(new Request("http://test.local/api/seo/brief", { method: "POST" }) as NextRequest);
-    const body = await res.json();
-
-    expect(res.status).toBe(503);
-    expect(body).toEqual({ status: 503, error: "Brief generation temporarily unavailable", detail: "Check the AI provider status and retry SEO brief generation." });
-    expect(JSON.stringify(body)).not.toContain("secret-value");
-    expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("secret-value");
-    errorSpy.mockRestore();
+    expect(mockSeoData.getLatestGscData).not.toHaveBeenCalled();
+    expect(mockSeoData.getLatestGa4Data).not.toHaveBeenCalled();
+    expect(mockGroundSeoBriefContext).not.toHaveBeenCalled();
+    expect(mockChatCompletion).not.toHaveBeenCalled();
   });
 
   it("blocks a user without CONTENT_REVIEW before SEO keyword persistence", async () => {

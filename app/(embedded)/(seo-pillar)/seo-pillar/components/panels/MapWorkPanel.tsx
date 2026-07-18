@@ -10,6 +10,7 @@ import styles from "../seo-pilot-responsive.module.css";
 export function workRowMatchesFilters(row: { priority?: string; state: "candidate" | "advisory" | "blocked"; blocker: "clear" | "evidence" | "review" }, filters: { priority: string; state: string; blocker: string }) { return (filters.priority === "all" || priorityBand(row.priority) === filters.priority) && (filters.state === "all" || row.state === filters.state) && (filters.blocker === "all" || row.blocker === filters.blocker); }
 export const priorityBand = normalizeTopicalMapPriority;
 export function globalBlockersVisible(filters: { family: string; priority: string; state: string; blocker: string }) { return filters.family === "all" && filters.priority === "all" && filters.state === "all" && filters.blocker !== "clear"; }
+export const DEFAULT_WORK_FILTERS = { family: "links", priority: "all", state: "candidate", blocker: "clear" } as const;
 type LinkRule = TopicalMapCommandCenter["work"]["internalLinks"][number];
 type Suppressed = MapAwareSeoAnalysis["suppressed"][number];
 export function internalLinkPresentation(link: LinkRule, gaps: MapAwareSeoGap[], suppressed: Suppressed[]): "candidate" | "managed" | "evidence_unavailable" | "gate_required" | "neutral" {
@@ -23,7 +24,7 @@ export function internalLinkPresentation(link: LinkRule, gaps: MapAwareSeoGap[],
 }
 
 export function MapWorkPanel({ map, gaps, suppressed = [], selected, done, onToggle, onSelectVisible }: { map: TopicalMapCommandCenter; gaps: MapAwareSeoGap[]; suppressed?: Suppressed[]; selected: Set<string>; done: Set<string>; onToggle: (candidateId: string) => void; onSelectVisible: (candidateIds: string[], select: boolean) => void }) {
-  const [family, setFamily] = useState("all"), [priority, setPriority] = useState("all"), [state, setState] = useState("all"), [blocker, setBlocker] = useState("all");
+  const [family, setFamily] = useState<string>(DEFAULT_WORK_FILTERS.family), [priority, setPriority] = useState<string>(DEFAULT_WORK_FILTERS.priority), [state, setState] = useState<string>(DEFAULT_WORK_FILTERS.state), [blocker, setBlocker] = useState<string>(DEFAULT_WORK_FILTERS.blocker);
   const linkGap = (from: string, to: string) => gaps.find(g => g.kind === "link" && g.fromUrl === from && g.toUrl === to);
   const visible = (rowPriority: string | undefined, rowState: "candidate" | "advisory" | "blocked", rowBlocker: "clear" | "evidence" | "review") => workRowMatchesFilters({ priority: rowPriority, state: rowState, blocker: rowBlocker }, { priority, state, blocker });
   const visibleLinks = map.work.internalLinks.filter(link => { const presentation = internalLinkPresentation(link, gaps, suppressed); return presentation === "candidate" ? visible(link.priority, "candidate", "clear") : presentation === "evidence_unavailable" ? visible(link.priority, "blocked", "evidence") : presentation === "gate_required" ? visible(link.priority, "advisory", "evidence") : (priority === "all" || priorityBand(link.priority) === priority) && state === "all" && blocker === "all"; });

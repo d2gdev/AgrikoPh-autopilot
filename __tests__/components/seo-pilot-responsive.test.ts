@@ -84,7 +84,7 @@ describe("SEO Pilot responsive layout contract", () => {
 
   it("reloads persisted map candidates before opening content gaps after analysis", () => {
     const page = read(pagePath);
-    expect(page).toMatch(/await reloadCommandCenter\(\);\s*setTab\(2\)/);
+    expect(page).toMatch(/await reloadCommandCenter\(\);\s*setSelectedMap\(new Set\(\)\);\s*setPromotedMap\(new Set\(\)\);\s*setTab\(2\)/);
   });
 
   it("renders every Page Health finding for a row", () => {

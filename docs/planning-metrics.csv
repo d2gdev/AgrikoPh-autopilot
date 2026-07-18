@@ -22,3 +22,5 @@ date,task,plan_level,gate_yes_count,planning_minutes,execution_minutes,notes
 2026-07-18,content-pilot-follow-up-remediation,lean,1,0.5,12,Four approved audit findings fixed in one red-green cycle with database-backed queue pagination and no schema external mutation commit or deployment
 2026-07-18,content-pilot-mapped-queue-handoff,lean,1,0.5,6,One confirmed false-staleness cause fixed with stable content hashes and truthful Queue navigation in one red-green cycle and one verification pass
 2026-07-19,content-pilot-live-audit-remediation,lean,1,0.5,10,Four approved findings resolved in one focused red-green cycle and one final verification pass without schema external mutations commit or deployment
+2026-07-19,content-pilot-stale-candidate-consistency,lean,0,0.5,5,Two approved audit findings resolved in one focused red-green cycle and one verification pass without schema external mutations commit or deployment
+2026-07-19,seo-pilot-approved-audit-remediation,lean,0,0.5,8,Six approved findings resolved in one focused red-green cycle and one final verification pass without schema external mutations commit or deployment

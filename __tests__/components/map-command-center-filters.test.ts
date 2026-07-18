@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { globalBlockersVisible, internalLinkPresentation, workRowMatchesFilters } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/panels/MapWorkPanel";
+import { DEFAULT_WORK_FILTERS, globalBlockersVisible, internalLinkPresentation, workRowMatchesFilters } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/panels/MapWorkPanel";
 import { MapOverviewPanel } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/panels/MapOverviewPanel";
 import { pageMatchesBlockerFilter, pageMatchesPriorityFilter, priorityBadgeTone } from "@/app/(embedded)/(seo-pillar)/seo-pillar/components/panels/MapPagesPanel";
 
 describe("command-center filters", () => {
   const policy = { resolutionStatus: "resolved" as const, conditions: [], evidenceRequirements: [], reviewRequirements: [] };
+  it("opens Links & technical on actionable candidates", () => {
+    expect(DEFAULT_WORK_FILTERS).toEqual({ family: "links", priority: "all", state: "candidate", blocker: "clear" });
+  });
   it("filters work by real priority, lifecycle state, and blocker classification", () => {
     const candidate = { priority: "high", state: "candidate" as const, blocker: "clear" as const };
     expect(workRowMatchesFilters(candidate, { priority: "high", state: "candidate", blocker: "clear" })).toBe(true);
