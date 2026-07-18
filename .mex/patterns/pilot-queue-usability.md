@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-18T18:10:18+08:00
+last_updated: 2026-07-18T22:19:00+08:00
 ---
 
 # Pilot Queue Usability
@@ -43,7 +43,9 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 15. Reconciliation must inspect Shopify through proposal-specific read-only evidence before resetting any interrupted publish: exact article content for new/refresh work, exact metafields for SEO, and the operation marker for internal links. A missing or non-deterministic result is ambiguous, never retryable. Queue stages must expose `publishing`/`publish-error` so Reconcile is reachable, and successful warning responses must say “Published with warning.”
 16. Treat `202`/`reconciliationRequired` publish responses as critical uncertainty, never a published success: preserve the existing queue state, show the reconciliation error, and reload the authoritative row. When a scheduled batch reindex fails, retain every individual `PublishResult.warning` and combine it with the batch warning in both the returned per-item result and the durable `publishWarning`.
 17. Keep queue and detail recovery state consistent. List responses must include `publishWarning`, `publishOperationId`, and `publishFinalizedAt`; draft detail must apply the same `202` reconciliation rules as the queue.
-18. Scope browser queue caches by Shopify context. Load all cursor pages, use the first-page `total` as a consistency bound, reject malformed/repeated cursors, and never impose a hidden row cap.
+18. Scope browser queue caches by Shopify context. Keep browser pages bounded, expose truthful totals and explicit pagination, and reject malformed or repeated cursors.
+    - When the UI intentionally renders one bounded page, sorting must still be applied to the complete filtered server result before slicing that page. Do not sort only the browser's current page.
+    - Default “All” pages must exclude rejected rows in both the returned page and total. Stage counts may retain a separate Rejected count, but search/type/priority filters must scope every displayed stage count.
 19. Coordinate overlapping UI loads. Background polls must skip while a load is active; foreground or post-mutation refreshes may supersede and abort older work; only the current request may commit or clear loading state. If generation and its authoritative reload both fail, restore the pre-generation row and retain the original generation error.
 20. Protect Run Indexer and Content Brief with `CONTENT_REVIEW`. Return safe operator errors rather than raw provider or Shopify details.
 21. Route every `fetchBlogContentHandler` production entry point through one owner-token lock wrapper. A denied lock means another index is active; only the owner that acquired the lock may release it.

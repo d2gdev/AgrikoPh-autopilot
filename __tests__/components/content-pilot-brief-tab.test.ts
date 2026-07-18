@@ -34,4 +34,14 @@ describe("Content Pilot Brief tab", () => {
       source.indexOf("Upcoming mapped content"),
     );
   });
+
+  it("does not nest the generated brief inside another card", () => {
+    const generatedBriefOpening = source.slice(
+      source.indexOf("{brief && selected?.candidateId"),
+      source.indexOf("Mapped content brief"),
+    );
+
+    expect(generatedBriefOpening).not.toContain("<Card>");
+    expect(generatedBriefOpening).toContain("<Box");
+  });
 });

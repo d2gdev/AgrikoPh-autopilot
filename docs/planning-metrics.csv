@@ -18,3 +18,4 @@ date,task,plan_level,gate_yes_count,planning_minutes,execution_minutes,notes
 2026-07-18,content-pilot-mapped-history-preflight,lean,0,0.5,4,One shared legacy-and-current key check at list brief and queue boundaries with one red-green cycle and one final verification pass
 2026-07-18,exact-topical-map-content-task-calendar,lean,2,0.5,20,One approved-spec red-green cycle aligned SEO Tasks and Content Pilot without schema or unrelated UI changes
 2026-07-18,content-pilot-audit-remediation,lean,1,0.5,25,Ten approved findings resolved in one bounded red-green cycle and one authenticated verification pass without schema external mutation commit or deployment
+2026-07-18,content-pilot-correctness-remediation,lean,1,0.5,15,Eight approved audit findings constrained to one red-green cycle and one verification pass without unrelated redesign or deployment

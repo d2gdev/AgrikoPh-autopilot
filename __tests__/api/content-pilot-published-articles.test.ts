@@ -43,4 +43,21 @@ describe("Content Pilot published article intelligence", () => {
       });
     }
   });
+
+  it("counts link edges only when their source article is published", async () => {
+    mocks.findMany.mockResolvedValueOnce([
+      { handle: "published-one", title: "Published", linksData: { internal: [], external: [] }, inboundCount: 0 },
+    ]);
+
+    const { GET } = await import("@/app/api/content-pilot/link-graph/route");
+    const response = await GET(new Request("https://app.example/api/content-pilot/link-graph"));
+
+    expect(response.status).toBe(200);
+    expect(mocks.edges).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        sourceType: "article",
+        sourceHandle: { in: ["published-one"] },
+      },
+    }));
+  });
 });

@@ -9,13 +9,16 @@ export async function GET(req: Request) {
   if (authError) return authError;
 
   try {
-    const [records, edges] = await Promise.all([
-      prisma.articleRecord.findMany({
-        where: { publishedAt: { not: null } },
-        select: { handle: true, title: true, linksData: true, inboundCount: true },
-        orderBy: { indexedAt: "desc" },
-      }),
-      prisma.internalLinkEdge.findMany({
+    const records = await prisma.articleRecord.findMany({
+      where: { publishedAt: { not: null } },
+      select: { handle: true, title: true, linksData: true, inboundCount: true },
+      orderBy: { indexedAt: "desc" },
+    });
+    const edges = await prisma.internalLinkEdge.findMany({
+        where: {
+          sourceType: "article",
+          sourceHandle: { in: records.map((record) => record.handle) },
+        },
         select: {
           sourceHandle: true,
           targetType: true,
@@ -25,8 +28,7 @@ export async function GET(req: Request) {
           isCta: true,
         },
         orderBy: { capturedAt: "desc" },
-      }),
-    ]);
+      });
 
     const outboundBySource = new Map<string, number>();
     const inboundArticleByHandle = new Map<string, number>();

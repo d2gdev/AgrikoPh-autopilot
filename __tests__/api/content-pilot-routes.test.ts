@@ -206,13 +206,17 @@ describe("Content Pilot route regressions", () => {
   });
 
   it("includes sourceData in the proposal list payload so queue rows can explain why they exist", async () => {
-    mockPrisma.contentProposal.findMany.mockResolvedValueOnce([
-      {
+    const row = {
         id: "proposal-1",
+        priority: "P1",
+        impact: "High",
+        createdAt: new Date("2026-07-18T00:00:00Z"),
         title: "Improve SERP snippet",
         sourceData: { source: "seo-pilot", query: "black rice benefits" },
-      },
-    ]);
+      };
+    mockPrisma.contentProposal.findMany
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([row]);
 
     const { GET } = await import("@/app/api/content-pilot/proposals/route");
     const res = await GET(new Request("http://test.local/api/content-pilot/proposals"));
@@ -254,8 +258,46 @@ describe("Content Pilot route regressions", () => {
     }));
     expect(mockPrisma.contentProposal.groupBy).toHaveBeenCalledWith(expect.objectContaining({
       by: ["status", "draftStatus", "scheduledPublishAt"],
+      where: {},
     }));
     expect(body.stageCounts).toMatchObject({ ready: 2, scheduled: 3 });
+  });
+
+  it("sorts the complete filtered queue before returning a bounded page", async () => {
+    mockPrisma.contentProposal.findMany
+      .mockResolvedValueOnce([
+        { id: "old", priority: "P2", impact: "Low", createdAt: new Date("2026-07-01T00:00:00Z") },
+        { id: "new", priority: "P3", impact: "High", createdAt: new Date("2026-07-03T00:00:00Z") },
+      ])
+      .mockResolvedValueOnce([
+        { id: "old", title: "Old" },
+        { id: "new", title: "New" },
+      ]);
+
+    const { GET } = await import("@/app/api/content-pilot/proposals/route");
+    const res = await GET(new Request("http://test.local/api/content-pilot/proposals?sort=createdAt"));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.proposals.map((proposal: { id: string }) => proposal.id)).toEqual(["new", "old"]);
+    expect(mockPrisma.contentProposal.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: { status: { not: "rejected" } },
+      select: { id: true, priority: true, impact: true, createdAt: true },
+    }));
+  });
+
+  it("scopes stage counts to active non-stage filters", async () => {
+    mockPrisma.contentProposal.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const { GET } = await import("@/app/api/content-pilot/proposals/route");
+    const res = await GET(new Request("http://test.local/api/content-pilot/proposals?stage=published&priority=P1"));
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.contentProposal.groupBy).toHaveBeenCalledWith(expect.objectContaining({
+      where: { priority: "P1" },
+    }));
   });
 
   it("does not create an ungoverned proposal from the generation endpoint", async () => {

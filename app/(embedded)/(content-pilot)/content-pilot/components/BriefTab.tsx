@@ -192,7 +192,7 @@ export function BriefTab({
                   </Button>
                 </InlineStack>
                 {brief && selected?.candidateId === item.candidateId && (
-                  <Card>
+                  <Box background="bg-surface-secondary" borderRadius="300" padding="300">
                     <BlockStack gap="200">
                       <InlineStack align="space-between" blockAlign="center" gap="200">
                         <Text variant="headingMd" as="h2">Mapped content brief</Text>
@@ -217,7 +217,7 @@ export function BriefTab({
                         </Button>
                       </InlineStack>
                     </BlockStack>
-                  </Card>
+                  </Box>
                 )}
               </BlockStack>
             </Box>

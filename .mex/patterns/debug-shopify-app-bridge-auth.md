@@ -14,7 +14,7 @@ edges:
     condition: before changing auth helpers or embedded API routes
   - target: patterns/deploy.md
     condition: when deploying an auth fix to production
-last_updated: 2026-07-18T02:18:41+08:00
+last_updated: 2026-07-18T22:19:00+08:00
 ---
 
 # Debug Shopify App Bridge Auth
@@ -64,7 +64,9 @@ Browser code must never read `AUTOPILOT_API_KEY` through a `NEXT_PUBLIC_*` varia
 
 7. Preserve Shopify context for navigation.
    - Internal route pushes and Polaris navigation should use `withShopifyContextUrl()`.
-   - Plain Next `Link href="/..."` can drop `host`/`shop`; fix these when they lead to embedded pages.
+   - Configure Polaris `AppProvider.linkComponent` with the application router so sidebar navigation remains client-side. A full document reload discards the in-memory session token and can strand the destination if the App Bridge handshake is temporarily unavailable.
+   - Plain Next `Link href="/..."` can drop `host`/`shop`; contextualize these links when they lead to embedded pages.
+   - Never copy `id_token` into internal destination URLs. Shopify session tokens last one minute and authenticated requests must acquire a fresh token through App Bridge.
 
 ## Gotchas
 

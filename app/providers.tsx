@@ -6,6 +6,7 @@ import { NavMenu } from "@shopify/app-bridge-react";
 import enTranslations from "@shopify/polaris/locales/en.json";
 import { withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { getAppBridgeNavigationItems } from "@/lib/navigation";
+import { PolarisNextLink } from "@/components/polaris-next-link";
 import "@shopify/polaris/build/esm/styles.css";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -16,7 +17,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AppProvider i18n={enTranslations}>
+    <AppProvider i18n={enTranslations} linkComponent={PolarisNextLink}>
       {isEmbedded && (
         <NavMenu>
           {getAppBridgeNavigationItems().map((item) => (
