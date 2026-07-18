@@ -3,8 +3,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { compileStrategyPackage } from "@/lib/topical-map/compiler";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 import { readStrategyPackage } from "@/lib/topical-map/package-reader";
+import {
+  hasTopicalMapStrategyPackage,
+  topicalMapStrategyRoot,
+} from "../../helpers/topical-map-strategy-root";
 
-const root = "/home/sean/Agriko/shopify-theme/docs/seo";
+const root = topicalMapStrategyRoot;
 
 async function approvedPackage() {
   return readStrategyPackage(root);
@@ -33,7 +37,7 @@ function minimalPackage() {
   } as any;
 }
 
-describe("topical-map approved-contract compiler", () => {
+describe.skipIf(!hasTopicalMapStrategyPackage)("topical-map approved-contract compiler", () => {
   let compiled: ReturnType<typeof compileStrategyPackage>;
 
   beforeAll(async () => {

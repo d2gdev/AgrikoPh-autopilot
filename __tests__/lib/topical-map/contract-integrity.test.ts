@@ -3,8 +3,12 @@ import { describe, expect, it } from "vitest";
 import { parseCompilationContract } from "@/lib/topical-map/contract";
 import { validateCompilationContractIntegrity } from "@/lib/topical-map/contract-integrity";
 import { readStrategyPackage } from "@/lib/topical-map/package-reader";
+import {
+  hasTopicalMapStrategyPackage,
+  topicalMapStrategyRoot,
+} from "../../helpers/topical-map-strategy-root";
 
-const root = "/home/sean/Agriko/shopify-theme/docs/seo";
+const root = topicalMapStrategyRoot;
 
 async function approvedInput() {
   const rawPackage = await readStrategyPackage(root);
@@ -19,7 +23,7 @@ async function expectIntegrityError(mutate: (contract: any) => void, code: strin
   expect(() => validateCompilationContractIntegrity({ rawPackage: input.rawPackage, contract })).toThrow(expect.objectContaining({ code }));
 }
 
-describe("topical-map compilation contract integrity", () => {
+describe.skipIf(!hasTopicalMapStrategyPackage)("topical-map compilation contract integrity", () => {
   it("accepts the exact activation-authorized revision 3 contract with all approved units and rules accounted for", async () => {
     const result = validateCompilationContractIntegrity(await approvedInput());
     expect(result).toEqual({ coverageUnitCount: 853, ruleCount: 1493, sourceRowCounts: { "url-inventory": 163, "redirect-inventory": 113, "internal-links": 456 } });

@@ -3,8 +3,12 @@ import { compileStrategyPackage, type CompiledRule, type CompiledStrategyPackage
 import { evaluateStrategyPolicy, type ActiveStrategyPolicy } from "@/lib/topical-map/evaluator";
 import { readStrategyPackage } from "@/lib/topical-map/package-reader";
 import { validateCompiledPackage, type ValidationReport } from "@/lib/topical-map/validator";
+import {
+  hasTopicalMapStrategyPackage,
+  topicalMapStrategyRoot,
+} from "../../helpers/topical-map-strategy-root";
 
-const root = "/home/sean/Agriko/shopify-theme/docs/seo";
+const root = topicalMapStrategyRoot;
 
 let active: ActiveStrategyPolicy;
 let compiled: CompiledStrategyPackage;
@@ -16,22 +20,22 @@ function rule(predicate: (item: CompiledRule) => boolean): CompiledRule {
   return result;
 }
 
-beforeAll(async () => {
-  const rawPackage = await readStrategyPackage(root);
-  compiled = compileStrategyPackage(rawPackage);
-  freshReport = validateCompiledPackage({ rawPackage, compiledPackage: compiled, asOf: "2026-07-12T00:00:00.000Z" });
-  active = {
-    packageIdentity: {
-      strategyVersion: rawPackage.manifest.strategyVersion,
-      packageSha256: rawPackage.packageSha256,
-      artifacts: rawPackage.manifest.artifacts.map(({ id, sha256 }) => ({ id, sha256 })),
-    },
-    compiledPackage: compiled,
-    validationReport: freshReport,
-  };
-}, 30000);
+describe.skipIf(!hasTopicalMapStrategyPackage)("evaluateStrategyPolicy", () => {
+  beforeAll(async () => {
+    const rawPackage = await readStrategyPackage(root);
+    compiled = compileStrategyPackage(rawPackage);
+    freshReport = validateCompiledPackage({ rawPackage, compiledPackage: compiled, asOf: "2026-07-12T00:00:00.000Z" });
+    active = {
+      packageIdentity: {
+        strategyVersion: rawPackage.manifest.strategyVersion,
+        packageSha256: rawPackage.packageSha256,
+        artifacts: rawPackage.manifest.artifacts.map(({ id, sha256 }) => ({ id, sha256 })),
+      },
+      compiledPackage: compiled,
+      validationReport: freshReport,
+    };
+  }, 30000);
 
-describe("evaluateStrategyPolicy", () => {
   it("reports an exclusive-owner conflict with contract and source traceability", () => {
     const owner = rule((item) => item.domain === "url_intent_ownership" && typeof (item.payload as any).exclusiveIntentScope === "string");
     const payload = owner.payload as any;

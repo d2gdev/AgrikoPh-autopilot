@@ -2,13 +2,17 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { readStrategyPackage } from "@/lib/topical-map/package-reader";
 import { activateStrategyVersion, importAndValidatePackage, rollbackStrategyVersion } from "@/lib/topical-map/activation";
+import {
+  hasTopicalMapStrategyPackage,
+  topicalMapStrategyRoot,
+} from "../helpers/topical-map-strategy-root";
 
 const url = process.env.DATABASE_URL_TEST;
 const parsed = url ? new URL(url) : null;
 const safe = Boolean(parsed && ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname) && parsed.pathname.slice(1) === "autopilot_test");
 if (url && !safe) throw new Error("DATABASE_URL_TEST must point to the guarded local autopilot_test database");
 
-const root = "/home/sean/Agriko/shopify-theme/docs/seo";
+const root = topicalMapStrategyRoot;
 const host = "agrikoph.com";
 const stamp = `${Date.now()}${Math.random().toString(16).slice(2)}`;
 const hash = (prefix: string) => `${prefix}${stamp}`.padEnd(64, "0").slice(0, 64);
@@ -23,7 +27,7 @@ describe.skipIf(!url)("PostgreSQL topical-map activation", () => {
   });
   afterAll(async () => { await prisma.$disconnect(); });
 
-  it("imports a valid package idempotently and preserves a rejected stale package for inspection", async () => {
+  it.skipIf(!hasTopicalMapStrategyPackage)("imports a valid package idempotently and preserves a rejected stale package for inspection", async () => {
     const raw = await readStrategyPackage(root);
     const first = await importAndValidatePackage({ rawPackage: raw, asOf: "2026-07-12T00:00:00.000Z" });
     const duplicate = await importAndValidatePackage({ rawPackage: raw, asOf: "2026-07-12T00:00:00.000Z" });

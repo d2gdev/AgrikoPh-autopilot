@@ -2,8 +2,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveSourceLocator } from "@/lib/topical-map/locator-resolver";
+import {
+  hasTopicalMapStrategyPackage,
+  topicalMapStrategyRoot,
+} from "../../helpers/topical-map-strategy-root";
 
-const root = "/home/sean/Agriko/shopify-theme/docs/seo";
+const root = topicalMapStrategyRoot;
 const sourcePaths = {
   map: "agriko-topical-map-2026-07-12.md",
   evidence: "agriko-topical-map-evidence-2026-07-12.md",
@@ -23,7 +27,7 @@ async function source(id: ArtifactId) {
   return bytes;
 }
 
-describe("topical-map source locator resolution", () => {
+describe.skipIf(!hasTopicalMapStrategyPackage)("topical-map source locator resolution", () => {
   it("resolves every approved Markdown and CSV locator while preserving its source artifact identity", async () => {
     const contract = await approvedContract();
     const locators = [

@@ -24,9 +24,9 @@ describe("assertNonProductionDatabaseUrl", () => {
   });
 
   it.each([
-    ["CI is missing", { allowCiPostgres: "true" }],
+    ["CI is missing", { ci: "", allowCiPostgres: "true" }],
     ["CI is incorrect", { ci: "TRUE", allowCiPostgres: "true" }],
-    ["ALLOW_CI_POSTGRES is missing", { ci: "true" }],
+    ["ALLOW_CI_POSTGRES is missing", { ci: "true", allowCiPostgres: "" }],
     ["ALLOW_CI_POSTGRES is incorrect", { ci: "true", allowCiPostgres: "TRUE" }],
   ])("rejects the CI postgres host when %s", (_condition, options) => {
     expect(() => assertNonProductionDatabaseUrl(

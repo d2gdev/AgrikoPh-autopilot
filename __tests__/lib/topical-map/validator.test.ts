@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import { compileStrategyPackage, type CompiledStrategyPackage } from "@/lib/topical-map/compiler";
 import { readStrategyPackage } from "@/lib/topical-map/package-reader";
 import { validateCompiledPackage } from "@/lib/topical-map/validator";
+import {
+  hasTopicalMapStrategyPackage,
+  topicalMapStrategyRoot,
+} from "../../helpers/topical-map-strategy-root";
 
-const root = "/home/sean/Agriko/shopify-theme/docs/seo";
+const root = topicalMapStrategyRoot;
 const approvedHash = "100b4ba60036fc3a93f98fc81964962c564969db03d21613d2aeeac60e57cf5a";
 
 let approved: Promise<{ rawPackage: Awaited<ReturnType<typeof readStrategyPackage>>; compiledPackage: CompiledStrategyPackage; asOf: string }> | undefined;
@@ -35,7 +39,7 @@ function corrupt(compiledPackage: CompiledStrategyPackage, mutate: (value: any) 
   return result as CompiledStrategyPackage;
 }
 
-describe("topical-map whole-package validator", () => {
+describe.skipIf(!hasTopicalMapStrategyPackage)("topical-map whole-package validator", () => {
   it("accepts the approved July 12 package with its exact identity and three current evidence gates", async () => {
     const report = validateCompiledPackage(await approvedInput());
 
