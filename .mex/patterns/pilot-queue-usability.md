@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-15T21:44:00+08:00
+last_updated: 2026-07-18T18:10:18+08:00
 ---
 
 # Pilot Queue Usability
@@ -56,6 +56,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 - Dropping `sourceData` from list payloads saves bytes but makes generated work impossible to trust.
 - A queue reset should clear transient actionable rows, not historical tombstones that prevent regeneration.
 - Free-text AI strategy output can look useful while being unrelated to actual site data. Validate and evidence it at the API boundary before the UI can plan it into Content Pilot.
+- A successful action can look inert when its result is rendered after a long sibling list. Render candidate-specific output directly beneath the candidate action that produced it instead of at the end of the full surface.
 - A missing target Shopify article is not a transient refresh failure. Mark it `draftStatus: "failed"` so it leaves the ready queue and tells the operator to recreate or reject it.
 - Do not gate Content Pilot rejection on `status === "pending"` only. Operators can change their mind after approval or draft generation, up until live publish begins.
 - Never let `draftStatus: "ready"` alone authorize a Shopify write. A rejected or concurrently modified proposal must fail the publish status predicate even if stale draft state remains.

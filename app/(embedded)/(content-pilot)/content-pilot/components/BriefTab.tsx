@@ -191,6 +191,34 @@ export function BriefTab({
                     {item.action === "refresh" ? "Generate refresh brief" : "Generate mapped brief"}
                   </Button>
                 </InlineStack>
+                {brief && selected?.candidateId === item.candidateId && (
+                  <Card>
+                    <BlockStack gap="200">
+                      <InlineStack align="space-between" blockAlign="center" gap="200">
+                        <Text variant="headingMd" as="h2">Mapped content brief</Text>
+                        <Badge tone="info">{selected.title}</Badge>
+                      </InlineStack>
+                      <Box>
+                        <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: "14px", lineHeight: "1.6" }}>
+                          {brief}
+                        </pre>
+                      </Box>
+                      <InlineStack gap="200">
+                        <Button size="slim" onClick={() => { setBrief(null); setSelected(null); }}>
+                          Clear
+                        </Button>
+                        <Button
+                          variant="primary"
+                          onClick={promoteSelected}
+                          loading={promoting}
+                          disabled={promoting}
+                        >
+                          Send mapped work to Queue
+                        </Button>
+                      </InlineStack>
+                    </BlockStack>
+                  </Card>
+                )}
               </BlockStack>
             </Box>
           ))}
@@ -247,35 +275,6 @@ export function BriefTab({
           ))}
         </BlockStack>
       </Card>
-
-      {brief && selected && (
-        <Card>
-          <BlockStack gap="200">
-            <InlineStack align="space-between" blockAlign="center" gap="200">
-              <Text variant="headingMd" as="h2">Mapped content brief</Text>
-              <Badge tone="info">{selected.title}</Badge>
-            </InlineStack>
-            <Box>
-              <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: "14px", lineHeight: "1.6" }}>
-                {brief}
-              </pre>
-            </Box>
-            <InlineStack gap="200">
-              <Button size="slim" onClick={() => { setBrief(null); setSelected(null); }}>
-                Clear
-              </Button>
-              <Button
-                variant="primary"
-                onClick={promoteSelected}
-                loading={promoting}
-                disabled={promoting}
-              >
-                Send mapped work to Queue
-              </Button>
-            </InlineStack>
-          </BlockStack>
-        </Card>
-      )}
     </BlockStack>
   );
 }

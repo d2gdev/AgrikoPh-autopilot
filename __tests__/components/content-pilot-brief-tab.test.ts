@@ -25,4 +25,13 @@ describe("Content Pilot Brief tab", () => {
     expect(source).not.toContain("Top content gaps");
     expect(source).not.toContain("/api/content-pilot/proposals/manual");
   });
+
+  it("renders a generated brief before the long upcoming and research sections", () => {
+    expect(source.indexOf("Mapped content brief")).toBeGreaterThan(
+      source.indexOf("Available now"),
+    );
+    expect(source.indexOf("Mapped content brief")).toBeLessThan(
+      source.indexOf("Upcoming mapped content"),
+    );
+  });
 });
