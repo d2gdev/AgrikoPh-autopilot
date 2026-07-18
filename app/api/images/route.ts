@@ -3,11 +3,18 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { fetchProductImages, updateProductMediaAlt } from "@/lib/shopify-admin";
-import { getSessionShop, getSessionUser, requireAppAuth } from "@/lib/auth";
+import { fetchProductImages } from "@/lib/shopify-admin";
+import {
+  getSessionShop,
+  getSessionUser,
+  PERMISSIONS,
+  requireAppAuth,
+  requirePermission,
+} from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getAiClient } from "@/lib/ai/client";
+import { queueImageAltTextRecommendation } from "@/lib/images/alt-text-recommendation";
 
 type ImagesPayload = {
   images: Awaited<ReturnType<typeof fetchProductImages>>;
@@ -83,6 +90,8 @@ export async function GET(req: Request) {
 export async function POST(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   const actor = await getSessionShop(req) ?? await getSessionUser(req) ?? "embedded-app";
   if (!checkRateLimit(`alttext:${actor}`, 30, 60_000)) {
@@ -132,13 +141,14 @@ const ApplyAltTextInput = z.object({
   imageId: z.string().startsWith("gid://shopify/").max(100),
   productId: z.string().startsWith("gid://shopify/Product/").max(100),
   altText: z.string().trim().min(1).max(125),
+  currentAltText: z.string().max(125).nullable(),
 });
 
-// Operator-initiated Shopify write (like Content Pilot publish) — the Apply click
-// is the approval. Not gated on EXECUTE_APPROVED_LIVE_ENABLED, but always audit-logged.
 export async function PATCH(req: NextRequest) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_PUBLISH);
+  if (permissionError) return permissionError;
 
   const actor = await getSessionShop(req) ?? await getSessionUser(req) ?? "embedded-app";
   if (!checkRateLimit(`alttext-apply:${actor}`, 30, 60_000)) {
@@ -150,25 +160,16 @@ export async function PATCH(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
   }
-  const { imageId, productId, altText } = parsed.data;
-
   try {
-    const media = await updateProductMediaAlt(productId, imageId, altText);
-    imagesCache = null; // the stored payload predates this write
-
-    await prisma.auditLog.create({
-      data: {
-        actor,
-        action: "image_alt_text_applied",
-        entityType: "product_image",
-        entityId: imageId,
-        after: { productId, altText },
-      },
-    }).catch((err) => console.error("[images] apply audit failed:", err));
-
-    return NextResponse.json({ ok: true, imageId, altText: media.alt ?? altText });
+    const queued = await queueImageAltTextRecommendation(prisma, {
+      ...parsed.data,
+      actor,
+    });
+    return NextResponse.json({ queued: true, ...queued }, { status: 202 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Shopify update failed";
-    return NextResponse.json({ error: message }, { status: 502 });
+    const message = err instanceof Error ? err.message : "Could not queue alt text";
+    return NextResponse.json({ error: message }, {
+      status: /evidence snapshot/i.test(message) ? 409 : 500,
+    });
   }
 }

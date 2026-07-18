@@ -73,6 +73,9 @@ export async function retryPublishedProposalBookkeeping(client: Client, proposal
 
 export async function publishContentProposal(input: { prismaClient: Client; proposalId: string; actor: string; trigger: "manual" | "scheduled" | "maintenance"; dueBefore?: Date; reindex?: boolean }) : Promise<PublishResult> {
   const { prismaClient: client, proposalId, actor, trigger, dueBefore, reindex = true } = input;
+  if (process.env.EXECUTE_APPROVED_LIVE_ENABLED !== "true") {
+    return { kind: "conflict", message: "Live Shopify execution is disabled" };
+  }
   const operationId = randomUUID();
   const claimWhere: any = { id: proposalId, status: { in: [...CONTENT_PROPOSAL_PUBLISHABLE_STATUSES] }, draftStatus: "ready" };
   if (dueBefore) claimWhere.scheduledPublishAt = { lte: dueBefore };
@@ -83,6 +86,19 @@ export async function publishContentProposal(input: { prismaClient: Client; prop
   if (!claimed.count) return { kind: "conflict", message: "Proposal is no longer ready and publishable" };
   const fresh = await client.contentProposal.findUnique({ where: { id: proposalId, publishOperationId: operationId } });
   if (!fresh) return { kind: "conflict", message: "Publish ownership was lost" };
+  if (!(CONTENT_PROPOSAL_PUBLISHABLE_STATUSES as readonly string[]).includes(fresh.status)) {
+    await client.contentProposal.updateMany({
+      where: { id: proposalId, publishOperationId: operationId, draftStatus: "publishing" },
+      data: {
+        draftStatus: "ready",
+        publishOperationId: null,
+        publishStartedAt: null,
+        publishActor: null,
+        publishTrigger: null,
+      },
+    }).catch(() => {});
+    return { kind: "conflict", message: "Proposal is no longer approved for publishing" };
+  }
   // This is pure proposal data resolution, intentionally done before Shopify so
   // the success receipt needs no lookups before it becomes durable.
   const resolvedArticleHandle = resolveArticleHandle(fresh);

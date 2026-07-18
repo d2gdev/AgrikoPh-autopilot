@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { requireAppAuth } from "@/lib/auth";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { ADMIN_RECIPIENT } from "@/lib/notifications";
@@ -11,6 +12,8 @@ import { resolveActor, isAdmin } from "@/lib/ad-approval/route-helpers";
 // escalations), which otherwise would be write-only dead data. ?unread=1
 // returns only unread. Includes an unread count.
 export async function GET(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
 
@@ -36,6 +39,8 @@ const patchSchema = z.object({
 
 // PATCH /api/notifications — mark notifications read (by id list, or all).
 export async function PATCH(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
 

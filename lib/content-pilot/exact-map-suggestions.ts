@@ -3,6 +3,7 @@ import type { ProposalInput } from "@/lib/content-pilot/generate-proposals";
 import { generateProposals } from "@/lib/content-pilot/generate-proposals";
 import {
   topicalMapActionEligibility,
+  topicalMapContentDecisionAllows,
   topicalMapInternalLinkEligibility,
   topicalMapInternalLinkRequiresAddition,
   type TopicalMapRulePolicy,
@@ -79,20 +80,6 @@ function candidateFor(proposal: ProposalInput): Candidate | null {
   return null;
 }
 
-function contentDecisionAllows(decision: string, candidate: Candidate): boolean {
-  if (/\b(do not|don't|never)\s+(?:create|publish|refresh|update|expand|optimi[sz]e)\b/i.test(decision)
-    || /\b(?:create|publish)\s+only\s+(?:after|if|when)\b/i.test(decision)) {
-    return false;
-  }
-  if (candidate.type === "seo_metadata") {
-    return /\b(meta|metadata|title|snippet|ctr|seo)\b/i.test(decision);
-  }
-  if (candidate.type !== "content") return false;
-  return candidate.action === "create"
-    ? /\b(create|publish|new)\b/i.test(decision)
-    : /\b(refresh|update|improve|optimi[sz]e|expand|strengthen)\b/i.test(decision);
-}
-
 function withMapContext(
   proposal: ProposalInput,
   commandCenter: ExactMapCommandCenter,
@@ -160,7 +147,10 @@ export function filterExactMapProposals(
     if (!page?.contentDecisionPolicy
       || prohibited.has(targetUrl)
       || !topicalMapActionEligibility(page.contentDecisionPolicy).actionable
-      || !contentDecisionAllows(page.decision ?? "", candidate)) {
+      || !topicalMapContentDecisionAllows(
+        page.decision ?? "",
+        candidate.type === "seo_metadata" ? "seo_metadata" : candidate.action,
+      )) {
       return [];
     }
     return [withMapContext(proposal, commandCenter, page)];

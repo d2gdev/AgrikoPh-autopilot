@@ -43,6 +43,8 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: NextRequest) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const authError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (authError) return authError;
 

@@ -15,6 +15,24 @@ function rule(input: Record<string, unknown>) {
   };
 }
 
+function contentDecision(
+  ruleId: string,
+  currentUrl: string,
+  decision: string,
+) {
+  return rule({
+    ruleId,
+    contractRuleId: ruleId,
+    domain: "content_decisions",
+    conditions: [],
+    evidenceRequirements: [],
+    reviewRequirements: [],
+    resolutionStatus: "resolved",
+    payload: { currentUrl, decision },
+    sourceReferences: [],
+  });
+}
+
 function activeStrategy(overrides: Record<string, unknown> = {}) {
   const { rules = [], ...rest } = overrides;
   return {
@@ -77,7 +95,9 @@ describe("governed ContentProposal persistence", () => {
     expect(db.complianceRows).toEqual([]);
   });
   it("atomically stores a compliant proposal's complete package traceability in normalized and JSON storage", async () => {
-    const db = persistence(activeStrategy());
+    const db = persistence(activeStrategy({
+      rules: [contentDecision("content-create", "/blogs/news/black-rice-guide", "create new article")],
+    }));
 
     const result = await createGovernedContentProposal(db, {
       data,
@@ -89,7 +109,7 @@ describe("governed ContentProposal persistence", () => {
       strategyVersionId: "strategy-1",
       packageSha256,
       contentProposalId: "proposal-1",
-      matchedRuleIds: [],
+      matchedRuleIds: ["content-create"],
       evidenceFreshness: [],
       evaluatorSchemaVersion: "1.0.0",
     })]);
@@ -102,10 +122,13 @@ describe("governed ContentProposal persistence", () => {
   });
 
   it("rejects an owner conflict without creating a ContentProposal and returns inspectable evidence", async () => {
-    const db = persistence(activeStrategy({ rules: [rule({
-      ruleId: "owner-1", contractRuleId: "owner-1", domain: "url_intent_ownership", conditions: [], evidenceRequirements: [], reviewRequirements: [],
-      payload: { exclusiveIntentScope: "black-rice-benefits", currentUrl: "/blogs/news/black-rice-benefits" }, sourceReferences: [],
-    })] }));
+    const db = persistence(activeStrategy({ rules: [
+      contentDecision("content-create", "/blogs/news/new-black-rice", "create new article"),
+      rule({
+        ruleId: "owner-1", contractRuleId: "owner-1", domain: "url_intent_ownership", conditions: [], evidenceRequirements: [], reviewRequirements: [],
+        payload: { exclusiveIntentScope: "black-rice-benefits", currentUrl: "/blogs/news/black-rice-benefits" }, sourceReferences: [],
+      }),
+    ] }));
 
     const result = await createGovernedContentProposal(db, {
       data,
@@ -143,7 +166,10 @@ describe("governed ContentProposal persistence", () => {
   });
 
   it("keeps high-stakes work pending while recording required manual review metadata", async () => {
-    const db = persistence(activeStrategy({ rules: [rule({ ruleId: "medical", contractRuleId: "medical", domain: "high_stakes_reviews", conditions: [], evidenceRequirements: [], reviewRequirements: [], payload: {}, sourceReferences: [] })] }));
+    const db = persistence(activeStrategy({ rules: [
+      contentDecision("metadata", "/blogs/news/dosage", "refresh SEO metadata"),
+      rule({ ruleId: "medical", contractRuleId: "medical", domain: "high_stakes_reviews", conditions: [], evidenceRequirements: [], reviewRequirements: [], payload: {}, sourceReferences: [] }),
+    ] }));
 
     const result = await createGovernedContentProposal(db, {
       data,
@@ -155,7 +181,9 @@ describe("governed ContentProposal persistence", () => {
   });
 
   it("rolls back the proposal when compliance persistence fails", async () => {
-    const db = persistence(activeStrategy());
+    const db = persistence(activeStrategy({
+      rules: [contentDecision("content-create", "/blogs/news/black-rice-guide", "create new article")],
+    }));
     const transaction = db.$transaction as ReturnType<typeof vi.fn>;
     transaction.mockImplementationOnce(async (callback: (tx: any) => Promise<unknown>) => {
       const tx = {

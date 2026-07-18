@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const publishDraft = vi.fn();
 const resolveArticleHandle = vi.fn(() => "article-handle");
@@ -14,6 +14,68 @@ const proposal = {
 };
 
 describe("publishContentProposal", () => {
+  beforeEach(() => {
+    vi.stubEnv("EXECUTE_APPROVED_LIVE_ENABLED", "true");
+    publishDraft.mockReset();
+    resolveArticleHandle.mockReturnValue("article-handle");
+    fetchBlogContentHandler.mockResolvedValue(undefined);
+  });
+
+  it("does not claim or publish when live Shopify execution is disabled", async () => {
+    vi.stubEnv("EXECUTE_APPROVED_LIVE_ENABLED", "false");
+    const prismaClient: any = {
+      contentProposal: {
+        updateMany: vi.fn(),
+        findUnique: vi.fn(),
+      },
+    };
+    const { publishContentProposal } = await import("@/lib/content-pilot/publish-service");
+
+    const result = await publishContentProposal({
+      prismaClient,
+      proposalId: "p1",
+      actor: "operator",
+      trigger: "manual",
+    });
+
+    expect(result).toMatchObject({
+      kind: "conflict",
+      message: expect.stringMatching(/live.*disabled/i),
+    });
+    expect(prismaClient.contentProposal.updateMany).not.toHaveBeenCalled();
+    expect(publishDraft).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the approved proposal state before the Shopify write", async () => {
+    const prismaClient: any = {
+      contentProposal: {
+        updateMany: vi.fn()
+          .mockResolvedValueOnce({ count: 1 })
+          .mockResolvedValueOnce({ count: 1 }),
+        findUnique: vi.fn().mockResolvedValue({
+          ...proposal,
+          status: "pending",
+          draftStatus: "publishing",
+          publishOperationId: "operation-1",
+        }),
+      },
+    };
+    const { publishContentProposal } = await import("@/lib/content-pilot/publish-service");
+
+    const result = await publishContentProposal({
+      prismaClient,
+      proposalId: "p1",
+      actor: "operator",
+      trigger: "manual",
+    });
+
+    expect(result).toMatchObject({
+      kind: "conflict",
+      message: expect.stringMatching(/approved/i),
+    });
+    expect(publishDraft).not.toHaveBeenCalled();
+  });
+
   it("persists the minimal receipt before any post-success enrichment", async () => {
     const fresh = { ...proposal, articleHandle: null, sourceData: { targetArticleHandle: "existing-article" }, publishOperationId: "op-receipt-first" };
     const events: string[] = [];

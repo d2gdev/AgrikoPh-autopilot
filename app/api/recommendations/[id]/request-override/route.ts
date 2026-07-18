@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { authorizePermission, PERMISSIONS } from "@/lib/auth";
+import { authorizePermission, PERMISSIONS, requireAppAuth } from "@/lib/auth";
 
 // Single-step override: hard-blocked recommendation goes directly to override_approved.
 // Requires written justification. No second reviewer needed for single-operator setup.
@@ -9,6 +9,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const auth = await authorizePermission(req, PERMISSIONS.RECOMMENDATIONS_OVERRIDE);
   const { id } = await params;
   if (!auth.allowed) {

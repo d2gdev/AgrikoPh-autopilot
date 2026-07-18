@@ -74,6 +74,7 @@ function readyRefreshProposal() {
 describe("Content Pilot publish failure recovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("EXECUTE_APPROVED_LIVE_ENABLED", "true");
     mockAuth.getSessionUser.mockResolvedValue("operator");
     mockAuth.requireCronAuth.mockReturnValue(null);
     mockAuth.requireAppAuth.mockResolvedValue(null);

@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const auth = vi.hoisted(() => ({ app: vi.fn(), shop: vi.fn() }));
+const auth = vi.hoisted(() => ({ app: vi.fn(), permission: vi.fn(), shop: vi.fn() }));
 const db = vi.hoisted(() => ({ storeTask: { findMany: vi.fn(), count: vi.fn(), findUnique: vi.fn(), update: vi.fn() }, opportunity: { updateMany: vi.fn() } }));
-vi.mock("@/lib/auth", () => ({ requireAppAuth: auth.app, getSessionShop: auth.shop }));
+vi.mock("@/lib/auth", () => ({
+  requireAppAuth: auth.app,
+  requirePermission: auth.permission,
+  getSessionShop: auth.shop,
+  PERMISSIONS: { CONTENT_REVIEW: "content:review" },
+}));
 vi.mock("@/lib/db", () => ({ prisma: db }));
 vi.mock("@/lib/store-tasks/route-opportunities", () => ({ routeOpenStoreTaskOpportunities: vi.fn() }));
 const source = { source: "topical-map", strategyVersionId: "v1", packageSha256: "a".repeat(64), ruleIds: ["r1"], ruleDomains: ["content_decisions"], targetType: "product", targetUrl: "/products/rice", observedAt: "2026-07-13T00:00:00.000Z", observedStateHash: "b".repeat(64), executable: true };
 const proposed = { action: "seo_update", before: { seoTitle: "Old" }, after: { seoTitle: "New" } };
 const request = (status: string, completionNote?: string) => new Request("http://test.local/api/store-tasks", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "task-1", status, completionNote }) });
-beforeEach(() => { vi.clearAllMocks(); auth.app.mockResolvedValue(null); auth.shop.mockResolvedValue("actor"); db.storeTask.update.mockImplementation(async ({ data }) => ({ id: "task-1", opportunityId: null, ...data })); });
+beforeEach(() => { vi.clearAllMocks(); auth.app.mockResolvedValue(null); auth.permission.mockResolvedValue(null); auth.shop.mockResolvedValue("actor"); db.storeTask.update.mockImplementation(async ({ data }) => ({ id: "task-1", opportunityId: null, ...data })); });
 
 const listRow = {
   id: "task-1",

@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { STATUS } from "@/lib/ad-approval/constants";
 import { transition } from "@/lib/ad-approval/state-machine";
@@ -9,6 +10,8 @@ import { resolveActor, isAdmin, loadApproval, auditDenied, forbidden, notFound, 
 // POST /api/ad-approvals/[id]/revise — submitter moves a Needs-Revision ad back
 // to Draft, restoring the latest revision's copy/creative as the working draft.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
   const { id } = await params;

@@ -99,11 +99,19 @@ export default function ImagesPage() {
     if (!data) return;
     setBulkRunning(true);
     const missing = data.images.filter((i) => !i.altText && !suggestions[i.imageId]);
-    for (const img of missing) {
-      await generate(img);
+    const batch = missing.slice(0, 30);
+    let succeeded = 0;
+    let failed = 0;
+    for (const img of batch) {
+      if (await generate(img)) succeeded++;
+      else failed++;
     }
+    const remaining = missing.length - batch.length;
     setBulkRunning(false);
-    setToast({ message: "Suggestions generated — review and click Apply to write them to Shopify" });
+    setToast({
+      message: `${succeeded} generated, ${failed} failed${remaining ? `, ${remaining} remaining for the next batch` : ""}.`,
+      error: failed > 0,
+    });
   }, [data, suggestions, generate]);
 
   const applyAlt = useCallback(async (img: ImageRow, altText: string) => {
@@ -111,22 +119,17 @@ export default function ImagesPage() {
     try {
       const res = await authFetch("/api/images", {
         method: "PATCH",
-        body: JSON.stringify({ imageId: img.imageId, productId: img.productId, altText }),
+        body: JSON.stringify({
+          imageId: img.imageId,
+          productId: img.productId,
+          altText,
+          currentAltText: img.altText,
+        }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((d as { error?: string }).error ?? `Apply failed (${res.status})`);
-      setData((prev) => {
-        if (!prev) return prev;
-        const next = {
-          ...prev,
-          images: prev.images.map((i) => i.imageId === img.imageId ? { ...i, altText } : i),
-          missingAltText: Math.max(0, prev.missingAltText - (img.altText ? 0 : 1)),
-        };
-        setCache(IMAGES_CACHE_KEY, next);
-        return next;
-      });
       setSuggestions((p) => { const n = { ...p }; delete n[img.imageId]; return n; });
-      setToast({ message: "Alt text applied to Shopify" });
+      setToast({ message: "Alt text queued for approval" });
     } catch (e) {
       setToast({ message: e instanceof Error ? e.message : "Apply failed", error: true });
     } finally {
@@ -183,7 +186,7 @@ export default function ImagesPage() {
     const actionCell = suggestion ? (
       <InlineStack gap="150">
         <Button size="slim" variant="primary" loading={isApplying} onClick={() => applyAlt(img, suggestion)}>
-          Apply
+          Queue approval
         </Button>
         <Button size="slim" onClick={() => copyAlt(suggestion)}>Copy</Button>
         <Button size="slim" variant="plain" loading={isGenerating} onClick={() => generate(img)}>

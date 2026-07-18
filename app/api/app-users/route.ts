@@ -3,11 +3,13 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requirePermission, authorizePermission, PERMISSIONS } from "@/lib/auth";
+import { requirePermission, authorizePermission, PERMISSIONS, requireAppAuth } from "@/lib/auth";
 
 // GET /api/app-users — roster of people who have used the app, for the reviewer
 // assignment dropdowns. Admin only.
 export async function GET(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const denied = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (denied) return denied;
 
@@ -31,6 +33,8 @@ const patchSchema = z.object({
 // PATCH /api/app-users — set a friendly display name / email for a user so they
 // are recognizable in the assignment dropdowns. Admin only.
 export async function PATCH(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const auth = await authorizePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (!auth.allowed) return auth.response;
 

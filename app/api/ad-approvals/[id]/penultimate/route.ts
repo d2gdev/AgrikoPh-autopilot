@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { requireAppAuth } from "@/lib/auth";
 import { z } from "zod";
 import { STATUS, REVIEW_STAGE, DECISION } from "@/lib/ad-approval/constants";
 import { transition } from "@/lib/ad-approval/state-machine";
@@ -26,6 +27,8 @@ const schema = z.object({
 
 // POST /api/ad-approvals/[id]/penultimate — Penultimate Approver decision.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
   const { id } = await params;

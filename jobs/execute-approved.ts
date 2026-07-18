@@ -271,6 +271,55 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
         counters.executed++;
         continue;
       }
+      if (rec.platform === "shopify" && rec.actionType === "update_product_image_alt_text") {
+        if (dryRun) {
+          counters.simulated++;
+          await prisma.auditLog.create({
+            data: {
+              actor: "system",
+              action: "execution_dry_run_success",
+              entityType: "recommendation",
+              entityId: rec.id,
+              after: {
+                simulated: true,
+                intendedChange: intendedChange(rec),
+                result: "No Shopify call was made.",
+              },
+              meta: { dryRun: true, jobRunId: run.id },
+            },
+          });
+          continue;
+        }
+        const { applyApprovedImageAltTextRecommendation } = await import(
+          "@/lib/images/alt-text-recommendation"
+        );
+        const receipt = await applyApprovedImageAltTextRecommendation({
+          ...rec,
+          status: "executing",
+        });
+        await prisma.$transaction([
+          prisma.recommendation.update({
+            where: { id: rec.id },
+            data: {
+              status: "executed",
+              executedAt: new Date(),
+              executionResult: json(receipt),
+            },
+          }),
+          prisma.auditLog.create({
+            data: {
+              actor: "system",
+              action: "image_alt_text_applied",
+              entityType: "recommendation",
+              entityId: rec.id,
+              after: json(receipt),
+              meta: { dryRun: false, jobRunId: run.id },
+            },
+          }),
+        ]);
+        counters.executed++;
+        continue;
+      }
       // Re-check guardrails using snapshot data — skip for override_approved (already overridden)
       if (originalStatus === "approved") {
         const { conversionCount, dailyBudgetPhp } = await deriveGuardrailInputs(rec);

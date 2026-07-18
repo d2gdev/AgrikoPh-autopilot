@@ -66,6 +66,22 @@ export function topicalMapInternalLinkRequiresAddition(requiredAction?: string):
   return /\b(add|ensure)\b/i.test(requiredAction ?? "");
 }
 
+export function topicalMapContentDecisionAllows(
+  decision: string,
+  action: "create" | "update" | "seo_metadata",
+): boolean {
+  if (/\b(do not|don't|never)\s+(?:create|publish|refresh|update|expand|optimi[sz]e)\b/i.test(decision)
+    || /\b(?:create|publish)\s+only\s+(?:after|if|when)\b/i.test(decision)) {
+    return false;
+  }
+  if (action === "seo_metadata") {
+    return /\b(meta|metadata|title|snippet|ctr|seo)\b/i.test(decision);
+  }
+  return action === "create"
+    ? /\b(create|publish|new)\b/i.test(decision)
+    : /\b(refresh|update|improve|optimi[sz]e|expand|strengthen)\b/i.test(decision);
+}
+
 export function topicalMapRedirectRequiresUpdate(requiredAction?: string): boolean {
   return /\breplace with one-hop target\b/i.test(requiredAction ?? "");
 }

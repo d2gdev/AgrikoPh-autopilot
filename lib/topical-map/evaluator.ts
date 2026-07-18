@@ -2,7 +2,12 @@ import type { CompiledRule, CompiledStrategyPackage } from "./compiler";
 import { normalizeProposalContext, type StrategyProposalCandidate } from "./proposal-context";
 import type { StrategyArtifactId } from "./types";
 import type { EvidenceFreshnessEntry, ValidationReport } from "./validator";
-import { topicalMapActionEligibility, topicalMapInternalLinkRequiresAddition, type TopicalMapRulePolicy } from "./action-eligibility";
+import {
+  topicalMapActionEligibility,
+  topicalMapContentDecisionAllows,
+  topicalMapInternalLinkRequiresAddition,
+  type TopicalMapRulePolicy,
+} from "./action-eligibility";
 
 export type StrategyComplianceStatus = "compliant" | "conflict" | "blocked" | "needs_evidence" | "needs_high_stakes_review" | "unavailable_strategy";
 export type StrategyComplianceReasonCode =
@@ -18,7 +23,10 @@ export type StrategyComplianceReasonCode =
   | "ACTIVATION_BLOCKING_RULE"
   | "NON_ADDITIVE_INTERNAL_LINK_INSTRUCTION"
   | "INTERNAL_LINK_RULE_NOT_FOUND"
-  | "TECHNICAL_OPERATION_RULE_NOT_FOUND";
+  | "TECHNICAL_OPERATION_RULE_NOT_FOUND"
+  | "CONTENT_RULE_NOT_FOUND"
+  | "CONTENT_ACTION_NOT_PERMITTED"
+  | "CONDITIONAL_RULE_NOT_ACTIONABLE";
 
 export interface StrategyPackageIdentity {
   strategyVersion: string;
@@ -137,24 +145,70 @@ export function evaluateStrategyPolicy(active: ActiveStrategyPolicy | null, cand
       : result(active, "conflict", ["INTERNAL_LINK_RULE_NOT_FOUND"]);
   }
 
-  const highStakesTopics = "highStakesTopics" in normalized ? normalized.highStakesTopics : [];
-  if (highStakesTopics.some((topic) => topic === "medical" || topic === "dosage" || topic === "safety" || topic === "health")) {
-    return result(active, "needs_high_stakes_review", ["HIGH_STAKES_MEDICAL_DOSAGE_REVIEW"], rules(policy.filter((rule) => rule.domain === "high_stakes_reviews")), ["manual_high_stakes_review"]);
-  }
-
-  if (normalized.type === "content") {
-    const exactDecisions = policy.filter((rule) => rule.domain === "content_decisions" && payload(rule).currentUrl === normalized.targetUrl);
-    const conditionEvidence = new Map(normalized.sourceConditionEvidence.map((entry) => [entry.coverageUnitId, entry.state] as const));
+  if (normalized.type === "content" || normalized.type === "seo_metadata") {
+    const exactDecisions = policy.filter((rule) =>
+      rule.domain === "content_decisions"
+      && typeof payload(rule).currentUrl === "string"
+      && sameGovernedUrl(payload(rule).currentUrl as string, normalized.targetUrl));
+    if (exactDecisions.length === 0) {
+      return result(active, "conflict", ["CONTENT_RULE_NOT_FOUND"]);
+    }
+    const conditionEvidence = new Map(
+      normalized.type === "content"
+        ? normalized.sourceConditionEvidence.map((entry) => [entry.coverageUnitId, entry.state] as const)
+        : [],
+    );
     const eligibility = ruleEligibility(active, exactDecisions, conditionEvidence);
     if (eligibility) return eligibility;
+    if (exactDecisions.some((rule) => rule.conditions.length > 0)) {
+      return result(
+        active,
+        "conflict",
+        ["CONDITIONAL_RULE_NOT_ACTIONABLE"],
+        rules(exactDecisions),
+      );
+    }
+    const prohibited = policy.filter((rule) =>
+      rule.domain === "prohibited_content"
+      && typeof payload(rule).currentUrl === "string"
+      && sameGovernedUrl(payload(rule).currentUrl as string, normalized.targetUrl));
+    if (prohibited.length > 0) {
+      return result(active, "blocked", ["EXPLICIT_DO_NOT_CREATE"], rules(prohibited));
+    }
+    const action = normalized.type === "seo_metadata"
+      ? "seo_metadata"
+      : normalized.action;
+    const permitted = exactDecisions.filter((rule) =>
+      topicalMapContentDecisionAllows(String(payload(rule).decision ?? ""), action));
+    if (permitted.length === 0) {
+      return result(
+        active,
+        "conflict",
+        ["CONTENT_ACTION_NOT_PERMITTED"],
+        rules(exactDecisions),
+      );
+    }
+
+    if (normalized.type === "content") {
     const owners = policy.filter((rule) => rule.domain === "url_intent_ownership"
       && payload(rule).exclusiveIntentScope === normalized.exclusiveIntentScope
       && payload(rule).currentUrl !== normalized.targetUrl);
     if (normalized.exclusiveIntentScope && owners.length > 0) return result(active, "conflict", ["EXCLUSIVE_INTENT_OWNER_CONFLICT"], rules(owners));
-    if (exactDecisions.some((rule) => rule.conditions.length > 0)) return result(active, "compliant", [], rules(exactDecisions.filter((rule) => rule.conditions.length > 0)));
-    const prohibited = policy.filter((rule) => rule.domain === "prohibited_content" && payload(rule).currentUrl === normalized.targetUrl);
-    if (normalized.action === "create" && prohibited.length > 0) return result(active, "blocked", ["EXPLICIT_DO_NOT_CREATE"], rules(prohibited));
-    return result(active, "compliant", []);
+    }
+
+    const highStakesTopics = normalized.highStakesTopics;
+    if (highStakesTopics.some((topic) =>
+      topic === "medical" || topic === "dosage" || topic === "safety" || topic === "health")) {
+      const highStakesRules = policy.filter((rule) => rule.domain === "high_stakes_reviews");
+      return result(
+        active,
+        "needs_high_stakes_review",
+        ["HIGH_STAKES_MEDICAL_DOSAGE_REVIEW"],
+        rules([...permitted, ...highStakesRules]),
+        ["manual_high_stakes_review"],
+      );
+    }
+    return result(active, "compliant", [], rules(permitted));
   }
 
   const technical = normalized.type === "canonical" || normalized.type === "indexation";

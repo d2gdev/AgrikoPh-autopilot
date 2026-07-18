@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { STATUS, REVIEW_STAGE } from "@/lib/ad-approval/constants";
 import { transition } from "@/lib/ad-approval/state-machine";
@@ -22,6 +23,8 @@ class SubmitRaceError extends Error {
 // POST /api/ad-approvals/[id]/submit — freeze the draft into a new immutable
 // revision and start the workflow. Handles both first submit and resubmit.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
   const { id } = await params;

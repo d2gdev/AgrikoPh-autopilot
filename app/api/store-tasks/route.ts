@@ -3,7 +3,12 @@ export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
-import { requireAppAuth, getSessionShop } from "@/lib/auth";
+import {
+  getSessionShop,
+  PERMISSIONS,
+  requireAppAuth,
+  requirePermission,
+} from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { routeOpenStoreTaskOpportunities } from "@/lib/store-tasks/route-opportunities";
 import { toStoreTaskListDto } from "@/lib/store-tasks/dto";
@@ -89,6 +94,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   try {
     const result = await routeOpenStoreTaskOpportunities(prisma);
@@ -102,6 +109,8 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   const actor = (await getSessionShop(req)) ?? "operator";
   const body = await req.json().catch(() => ({}));

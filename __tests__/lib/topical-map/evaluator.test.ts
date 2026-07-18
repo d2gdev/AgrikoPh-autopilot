@@ -47,8 +47,8 @@ describe.skipIf(!hasTopicalMapStrategyPackage)("evaluateStrategyPolicy", () => {
       exclusiveIntentScope: payload.exclusiveIntentScope,
     });
 
-    expect(result).toMatchObject({ result: "conflict", reasonCodes: ["EXCLUSIVE_INTENT_OWNER_CONFLICT"] });
-    expect(result.matchedRules).toEqual(expect.arrayContaining([expect.objectContaining({ ruleId: owner.ruleId, sourceReferences: owner.sourceReferences })]));
+    expect(result).toMatchObject({ result: "conflict", reasonCodes: ["CONTENT_RULE_NOT_FOUND"] });
+    expect(result.matchedRules).toEqual([]);
     expect(result.packageIdentity).toEqual(active.packageIdentity);
   });
 
@@ -119,7 +119,7 @@ describe.skipIf(!hasTopicalMapStrategyPackage)("evaluateStrategyPolicy", () => {
     expect(missing).toMatchObject({ result: "needs_evidence", reasonCodes: ["UNSATISFIED_SOURCE_CONDITION"] });
     expect(insufficient).toMatchObject({ result: "needs_evidence", reasonCodes: ["UNSATISFIED_SOURCE_CONDITION"] });
     expect(insufficient.matchedRules).toEqual([expect.objectContaining({ ruleId: brownRice.ruleId })]);
-    expect(satisfied).toMatchObject({ result: "compliant", reasonCodes: [] });
+    expect(satisfied).toMatchObject({ result: "conflict", reasonCodes: ["CONDITIONAL_RULE_NOT_ACTIONABLE"] });
   });
 
   it("fails closed for every active manual-gate content decision", () => {
@@ -174,11 +174,18 @@ describe.skipIf(!hasTopicalMapStrategyPackage)("evaluateStrategyPolicy", () => {
 
   it("requires high-stakes review for dosage or medical context", () => {
     const medical = rule((item) => item.ruleId === "literal-medical-dosage-review:f55758aa8295db2b992c");
+    const metadata = rule((item) =>
+      item.domain === "content_decisions"
+      && /\b(meta|metadata|title|snippet|ctr|seo)\b/i.test(String((item.payload as any).decision ?? "")));
+    const targetUrl = String((metadata.payload as any).currentUrl);
 
-    const result = evaluateStrategyPolicy(active, { type: "seo_metadata", targetUrl: "/blogs/news/dosage", highStakesTopics: ["dosage"] });
+    const result = evaluateStrategyPolicy(active, { type: "seo_metadata", targetUrl, highStakesTopics: ["dosage"] });
 
     expect(result).toMatchObject({ result: "needs_high_stakes_review", reasonCodes: ["HIGH_STAKES_MEDICAL_DOSAGE_REVIEW"], requiredApprovals: ["manual_high_stakes_review"] });
-    expect(result.matchedRules).toEqual(expect.arrayContaining([expect.objectContaining({ ruleId: medical.ruleId })]));
+    expect(result.matchedRules).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ruleId: metadata.ruleId }),
+      expect.objectContaining({ ruleId: medical.ruleId }),
+    ]));
   });
 
   it("fails closed when an active strategy is unavailable", () => {

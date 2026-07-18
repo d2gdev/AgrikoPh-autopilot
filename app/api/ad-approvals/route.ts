@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { authorizePermission, PERMISSIONS } from "@/lib/auth";
+import { authorizePermission, PERMISSIONS, requireAppAuth } from "@/lib/auth";
 import { STATUS, STAGE } from "@/lib/ad-approval/constants";
 import { resolveActor, isAdmin, badRequest, conflict, auditDenied } from "@/lib/ad-approval/route-helpers";
 
@@ -12,6 +12,8 @@ const ALLOWED_STATUSES = new Set<string>(Object.values(STATUS));
 // GET /api/ad-approvals — list approvals visible to the actor (own + assigned;
 // admins see all), with optional filters. The dashboard buckets these client-side.
 export async function GET(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
   const { actor } = ctx;
@@ -99,6 +101,8 @@ const createSchema = z.object({
 
 // POST /api/ad-approvals — create a new draft ad owned by the actor.
 export async function POST(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const auth = await authorizePermission(req, PERMISSIONS.AD_APPROVAL_SUBMIT);
   if (!auth.allowed) {
     await auditDenied(auth.actor ?? "anonymous", "create_draft", "new", "missing_permission");

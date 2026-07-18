@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { authorizePermission, PERMISSIONS } from "@/lib/auth";
+import { authorizePermission, PERMISSIONS, requireAppAuth } from "@/lib/auth";
 
 // Undo a review decision: approved/rejected → pending.
 // Safe against the execute-approved cron because the executor claims recommendations
@@ -14,6 +14,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const auth = await authorizePermission(req, PERMISSIONS.RECOMMENDATIONS_REVIEW);
   const { id } = await params;
   if (!auth.allowed) {

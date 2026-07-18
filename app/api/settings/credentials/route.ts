@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
+import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { encrypt } from "@/lib/crypto";
 
 const CreateInput = z.object({
@@ -13,6 +13,8 @@ const CreateInput = z.object({
 
 // GET — list credential keys (never values)
 export async function GET(req: NextRequest) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const authError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (authError) return authError;
 
@@ -26,6 +28,8 @@ export async function GET(req: NextRequest) {
 
 // POST — create or update a credential
 export async function POST(req: NextRequest) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const authError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (authError) return authError;
   const actor = (await getSessionUser(req)) ?? "operator";

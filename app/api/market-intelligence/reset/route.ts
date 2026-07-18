@@ -4,7 +4,7 @@ export const maxDuration = 120;
 import { NextResponse } from "next/server";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, requireAppAuth } from "@/lib/auth";
 import { verifySessionToken } from "@/lib/shopify";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/db";
@@ -109,6 +109,8 @@ async function logResetAttempt(params: {
 // Meta keyword-search source that pulls in unrelated spam "story" ads.
 // Guarded by authenticated shop session + maintenance controls + explicit confirmation.
 export async function POST(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   // Fail fast outside maintenance mode.
   if (process.env.MARKET_INTEL_RESET_MAINTENANCE !== "true") {
     return NextResponse.json(

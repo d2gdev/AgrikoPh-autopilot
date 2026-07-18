@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
-import { authorizePermission, PERMISSIONS } from "@/lib/auth";
+import { authorizePermission, PERMISSIONS, requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
   DASHBOARD_JOB_NAMES,
@@ -34,6 +34,8 @@ async function auditManualTrigger(input: {
 }
 
 export async function POST(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const auth = await authorizePermission(req, PERMISSIONS.JOBS_RUN);
   const startedAt = Date.now();
   if (!auth.allowed) {

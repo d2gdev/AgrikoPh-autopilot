@@ -3,7 +3,7 @@ export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
 import { getExecutionQueueSummary } from "@/lib/recommendations/execution-queue";
-import { getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
+import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
 import { executeApprovedHandler } from "@/jobs/execute-approved";
 import { notifyJobFailure } from "@/lib/alerts";
@@ -11,6 +11,8 @@ import { notifyJobFailure } from "@/lib/alerts";
 const JOB_NAME = "execute-approved";
 
 export async function POST(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const authError = await requirePermission(req, PERMISSIONS.JOBS_RUN);
   if (authError) return authError;
   const actor = await getSessionUser(req) ?? "operator";

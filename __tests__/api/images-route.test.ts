@@ -2,13 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockFetchProductImages = vi.hoisted(() => vi.fn());
 const mockAuth = vi.hoisted(() => ({ requireAppAuth: vi.fn() }));
+const mockPermission = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/shopify-admin", () => ({
   fetchProductImages: mockFetchProductImages,
   updateProductMediaAlt: vi.fn(),
 }));
 vi.mock("@/lib/auth", () => ({
+  PERMISSIONS: {
+    CONTENT_REVIEW: "content:review",
+    CONTENT_PUBLISH: "content:publish",
+  },
   requireAppAuth: mockAuth.requireAppAuth,
+  requirePermission: mockPermission,
   getSessionShop: vi.fn(),
   getSessionUser: vi.fn(),
 }));
@@ -21,6 +27,7 @@ describe("images GET route", () => {
     vi.resetModules();
     vi.clearAllMocks();
     mockAuth.requireAppAuth.mockResolvedValue(null);
+    mockPermission.mockResolvedValue(null);
     mockFetchProductImages.mockResolvedValue([]);
   });
 
@@ -62,5 +69,23 @@ describe("images GET route", () => {
     expect(mockFetchProductImages).toHaveBeenCalledTimes(2);
     expect((await refreshed.json()).images[0].imageId).toBe("fresh");
     expect((await cached.json()).images[0].imageId).toBe("fresh");
+  });
+
+  it("requires content review permission before generating alt text", async () => {
+    mockPermission.mockResolvedValueOnce(new Response(null, { status: 403 }));
+    const { POST } = await import("@/app/api/images/route");
+
+    const res = await POST(new Request("http://test.local/api/images", {
+      method: "POST",
+      body: JSON.stringify({
+        imageId: "image-1",
+        productId: "product-1",
+        imageUrl: "https://cdn.example.com/image.jpg",
+        productTitle: "Agriko product",
+      }),
+    }) as never);
+
+    expect(res.status).toBe(403);
+    expect(mockPermission).toHaveBeenCalledWith(expect.any(Request), "content:review");
   });
 });

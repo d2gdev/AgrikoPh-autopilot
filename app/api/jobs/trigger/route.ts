@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authorizePermission, PERMISSIONS } from "@/lib/auth";
+import { authorizePermission, PERMISSIONS, requireAppAuth } from "@/lib/auth";
 import { enqueueJob } from "@/lib/jobs/orchestrator";
 import { materializeJobsStatusSnapshot } from "@/lib/dashboard/jobs-status";
 import { prisma } from "@/lib/db";
@@ -8,6 +8,8 @@ import { getDashboardJob } from "@/lib/dashboard/job-registry";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const auth = await authorizePermission(req, PERMISSIONS.JOBS_RUN);
   const startedAt = Date.now();
   const jobName = "dashboard-refresh";

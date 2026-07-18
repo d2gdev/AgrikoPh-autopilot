@@ -5,7 +5,7 @@ triggers:
   - "topical-map evaluator"
   - "strategy compliance"
   - "governed proposal evaluation"
-last_updated: 2026-07-12T23:40:00+08:00
+last_updated: 2026-07-19T02:50:00+08:00
 ---
 
 # Topical-map Policy Evaluation
@@ -22,6 +22,7 @@ last_updated: 2026-07-12T23:40:00+08:00
 4. Match only typed compiled-rule domains and explicit payload fields. Preserve contract rule IDs and safe source-locator provenance in the result.
 5. Treat source-condition satisfaction as caller-supplied evidence keyed to contract coverage IDs; do not derive thresholds or semantics from prose.
 6. Return `executionAuthorized: false` for every outcome. Redirect, canonical, and indexation candidates remain proposal/review evidence only and retain existing approval gates.
+7. Content and SEO metadata candidates require an exact normalized `content_decisions` URL plus a compatible create, refresh, or metadata instruction. Unmapped, keep-only, prohibited, manual-gate, activation-blocked, conditional, and action-mismatched candidates fail closed; explicit high-stakes classification is evaluated only after that exact content authority is established.
 
 ## Verify
 

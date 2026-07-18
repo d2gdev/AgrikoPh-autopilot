@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
-import { requireAppAuth } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { generateAllOpportunities } from "@/lib/opportunities/generate";
 import { routeOpenOpportunities } from "@/lib/opportunities/route";
@@ -31,6 +31,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
   try {
     const { searchParams } = new URL(req.url);

@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { requireAppAuth } from "@/lib/auth";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { STATUS, TERMINAL_STATUSES } from "@/lib/ad-approval/constants";
@@ -11,6 +12,8 @@ const schema = z.object({ reason: z.string().min(1).max(2000) });
 // POST /api/ad-approvals/[id]/cancel — submitter or admin cancels a non-terminal
 // approval. Records the cancellation reason in the audit log.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
   const { id } = await params;

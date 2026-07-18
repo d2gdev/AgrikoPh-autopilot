@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { authorizePermission, PERMISSIONS } from "@/lib/auth";
+import { authorizePermission, PERMISSIONS, requireAppAuth } from "@/lib/auth";
 import { REVIEWER_ROLE } from "@/lib/ad-approval/constants";
 
 const ROLES = new Set<string>(Object.values(REVIEWER_ROLE));
@@ -18,6 +18,8 @@ const schema = z.object({
 
 // PUT /api/settings/reviewer-assignments/[role] — (re)assign a reviewer role.
 export async function PUT(req: Request, { params }: { params: Promise<{ role: string }> }) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const auth = await authorizePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (!auth.allowed) return auth.response;
   const { role } = await params;

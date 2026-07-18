@@ -46,6 +46,7 @@ vi.mock("@/lib/shopify", () => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
+  requireAppAuth: vi.fn().mockResolvedValue(null),
   getSessionUser: mockGetSessionUser,
 }));
 

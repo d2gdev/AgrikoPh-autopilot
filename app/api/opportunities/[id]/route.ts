@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { requireAppAuth } from "@/lib/auth";
+import { PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { routeOpportunity } from "@/lib/opportunities/route";
 
@@ -27,7 +27,16 @@ export async function PATCH(
 ) {
   const authError = await requireAppAuth(req);
   if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
 
+  return mutateOpportunity(req, params);
+}
+
+async function mutateOpportunity(
+  req: Request,
+  params: Promise<{ id: string }>,
+) {
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const action = typeof body.action === "string" ? body.action : "route";
@@ -67,5 +76,9 @@ export async function POST(
   req: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  return PATCH(req, context);
+  const authError = await requireAppAuth(req);
+  if (authError) return authError;
+  const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
+  if (permissionError) return permissionError;
+  return mutateOpportunity(req, context.params);
 }

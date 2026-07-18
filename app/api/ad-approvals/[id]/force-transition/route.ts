@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { authorizePermission, PERMISSIONS } from "@/lib/auth";
+import { authorizePermission, PERMISSIONS, requireAppAuth } from "@/lib/auth";
 import { STATUS, STAGE, REVIEW_STAGE, REVIEWER_ROLE } from "@/lib/ad-approval/constants";
 import { enqueueAiJob, type AiStage } from "@/lib/ad-approval/jobs";
 import { getRole } from "@/lib/ad-approval/reviewers";
@@ -51,6 +51,8 @@ const STATUS_AI_JOB: Record<string, AiStage> = {
 // to match the target status. Requires a justification; writes a
 // FORCE_TRANSITION audit row. Version-guarded.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const auth = await authorizePermission(req, PERMISSIONS.AD_APPROVAL_ADMIN);
   const { id } = await params;
   if (!auth.allowed) {

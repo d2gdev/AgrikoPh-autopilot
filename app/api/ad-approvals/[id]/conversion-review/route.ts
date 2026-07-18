@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { requireAppAuth } from "@/lib/auth";
 import { z } from "zod";
 import { STATUS, REVIEW_STAGE, DECISION, CONVERSION_QUESTION_COUNT } from "@/lib/ad-approval/constants";
 import { evaluateConversion } from "@/lib/ad-approval/scoring";
@@ -28,6 +29,8 @@ const schema = z.object({
 // POST /api/ad-approvals/[id]/conversion-review — assigned Conversion Reviewer
 // submits the 6-question rubric. Pass requires total >= 24 AND no question < 3.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
   const { id } = await params;

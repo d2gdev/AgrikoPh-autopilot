@@ -10,6 +10,7 @@ const mockPrisma = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
+  requireAppAuth: vi.fn().mockResolvedValue(null),
   authorizePermission: (...args: Parameters<typeof mockAuthorizePermission>) => mockAuthorizePermission(...args),
   PERMISSIONS: {
     JOBS_RUN: "jobs:run",

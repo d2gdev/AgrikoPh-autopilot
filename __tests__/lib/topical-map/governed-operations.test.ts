@@ -69,7 +69,17 @@ describe("governed operation adapter", () => {
   });
 
   it("requires designated manual review for explicit health or safety classification without approving or executing", () => {
-    const policy = active([rule({ domain: "high_stakes_reviews", payload: {} })]);
+    const policy = active([
+      rule({
+        ruleId: "metadata-rule",
+        domain: "content_decisions",
+        payload: {
+          currentUrl: "/blogs/news/safety",
+          decision: "refresh SEO metadata",
+        },
+      }),
+      rule({ domain: "high_stakes_reviews", payload: {} }),
+    ]);
 
     const result = evaluateGovernedOperation(policy, { type: "seo_metadata", targetUrl: "/blogs/news/safety", highStakesTopics: ["safety", "health"] });
 

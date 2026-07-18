@@ -2,12 +2,14 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requirePermission, PERMISSIONS } from "@/lib/auth";
+import { requirePermission, PERMISSIONS, requireAppAuth } from "@/lib/auth";
 import { REQUIRED_ROLES } from "@/lib/ad-approval/reviewers";
 
 // GET /api/settings/reviewer-assignments — the three roles with current holders
 // and (best-effort) display names. Admin only.
 export async function GET(req: Request) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const denied = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (denied) return denied;
 

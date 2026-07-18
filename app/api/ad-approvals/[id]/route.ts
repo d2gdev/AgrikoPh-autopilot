@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { requireAppAuth } from "@/lib/auth";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { STATUS } from "@/lib/ad-approval/constants";
@@ -27,6 +28,8 @@ function canView(actor: string, approval: { submitterId: string; assignedConvers
 
 // GET /api/ad-approvals/[id] — full detail (revisions + reviews + AI reports).
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
   const { id } = await params;
@@ -91,6 +94,8 @@ const patchSchema = z.object({
 
 // PATCH /api/ad-approvals/[id] — edit the working draft (only while status=draft).
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
   const { id } = await params;
@@ -130,6 +135,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 // DELETE /api/ad-approvals/[id] — delete a draft only (owner or admin).
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const ctx = await resolveActor(req);
   if (ctx instanceof NextResponse) return ctx;
   const { id } = await params;

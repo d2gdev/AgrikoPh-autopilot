@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { getSessionUser, PERMISSIONS, requirePermission } from "@/lib/auth";
+import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { encrypt } from "@/lib/crypto";
 
 const UpdateInput = z.object({
@@ -15,6 +15,8 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const authError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (authError) return authError;
   const { key } = await params;
@@ -43,6 +45,8 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const authError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (authError) return authError;
   const { key } = await params;
@@ -60,6 +64,8 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
+  const appAuthError = await requireAppAuth(req);
+  if (appAuthError) return appAuthError;
   const authError = await requirePermission(req, PERMISSIONS.SETTINGS_ADMIN);
   if (authError) return authError;
   const { key } = await params;
