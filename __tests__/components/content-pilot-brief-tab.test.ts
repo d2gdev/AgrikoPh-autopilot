@@ -44,4 +44,13 @@ describe("Content Pilot Brief tab", () => {
     expect(generatedBriefOpening).not.toContain("<Card>");
     expect(generatedBriefOpening).toContain("<Box");
   });
+
+  it("opens Queue only after a newly created proposal and reports other outcomes truthfully", () => {
+    expect(source).toContain("onOpenQueue");
+    expect(source).toContain('result?.status !== "created"');
+    expect(source).toContain("onOpenQueue();");
+    expect(source).toContain("This mapped work is already represented by an existing Content Pilot proposal.");
+    expect(source).toContain("Refresh SEO analysis before sending this mapped work to Queue.");
+    expect(source).not.toContain("(counts?.created ?? 0) + (counts?.already_existing ?? 0)");
+  });
 });

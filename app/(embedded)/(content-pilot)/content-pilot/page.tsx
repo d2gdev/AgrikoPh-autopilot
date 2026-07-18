@@ -274,7 +274,7 @@ export default function ContentPilotPage() {
                   <QueueTab authFetch={authFetch} active={selectedTab === 1} />
                 </div>
                 <div style={{ display: selectedTab === 2 ? undefined : "none" }}>
-                  <BriefTab authFetch={authFetch} />
+                  <BriefTab authFetch={authFetch} onOpenQueue={() => handleSelectTab(1)} />
                 </div>
               </Box>
             </Tabs>

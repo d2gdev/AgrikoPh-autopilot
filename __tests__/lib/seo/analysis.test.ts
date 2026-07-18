@@ -139,8 +139,9 @@ describe("map-aware SEO analysis", () => {
   it("emits an existing mapped page with a refresh decision as an actionable refresh with page evidence", () => {
     const refreshMap: TopicalMapCommandCenter = { ...commandCenter, pages: [{ url: "/blogs/news/source", title: "Map-owned source guide", decision: "optimize", evidence: "Preserve the winning intent while improving clarity.", primaryKeywordOrTheme: "source topic", priority: "medium", contentDecisionPolicy: resolvedPolicy, ruleIds: ["opaque-42"], ruleDomains: { content_decisions: ["opaque-42"] } }], prohibited: [] };
     const asOf = new Date("2026-07-13T00:00:00.000Z");
-    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, updatedAt: asOf }], asOf });
-    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", suggestedTitle: "Map-owned source guide", currentArticleTitle: "Source", query: "source topic", priority: "medium", mapEvidence: "Preserve the winning intent while improving clarity.", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }] }));
+    const contentHash = "b".repeat(64);
+    const result = buildMapAwareSeoGaps({ strategy: identity, commandCenter: refreshMap, queries: [{ query: "source topic", clicks: 4, impressions: 120, ctr: "3%", position: "9" }], queryPagePairs: [{ query: "source topic", page: "https://agrikoph.com/blogs/news/source", clicks: 4, impressions: 120, position: "9" }], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {}, contentHash, updatedAt: asOf }], asOf });
+    expect(result.gaps).toContainEqual(expect.objectContaining({ kind: "content", action: "refresh", page: "/blogs/news/source", suggestedTitle: "Map-owned source guide", currentArticleTitle: "Source", query: "source topic", priority: "medium", mapEvidence: "Preserve the winning intent while improving clarity.", ruleIds: ["opaque-42"], observedEvidence: [{ query: "source topic", impressions: 120, position: 9 }], observation: expect.objectContaining({ stateHash: contentHash }) }));
   });
 
   it("suppresses manual-gate and unsatisfied conditional content decisions", () => {
@@ -201,8 +202,9 @@ describe("map-aware SEO analysis", () => {
 
   it("requires exact inspected link absence and blocks present or uninspectable pairs", () => {
     const base = { strategy: identity, commandCenter, queries: [], queryPagePairs: [], articles: [{ handle: "source", title: "Source", wordCount: 500, internalLinkCount: 0, seoData: {} }] };
-    const absent = buildMapAwareSeoGaps({ ...base, linkInspections: new Map([["/blogs/news/source", { capturedAt: new Date(), targets: new Set<string>() }]]) });
-    expect(absent.gaps).toContainEqual(expect.objectContaining({ kind: "link", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped" }));
+    const contentHash = "c".repeat(64);
+    const absent = buildMapAwareSeoGaps({ ...base, linkInspections: new Map([["/blogs/news/source", { capturedAt: new Date(), stateHash: contentHash, targets: new Set<string>() }]]) });
+    expect(absent.gaps).toContainEqual(expect.objectContaining({ kind: "link", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", observation: expect.objectContaining({ stateHash: contentHash }) }));
     const present = buildMapAwareSeoGaps({ ...base, linkInspections: new Map([["/blogs/news/source", { capturedAt: new Date(), targets: new Set(["/blogs/news/mapped"]) }]]) });
     expect(present.gaps).not.toEqual(expect.arrayContaining([expect.objectContaining({ kind: "link" })]));
     const unavailable = buildMapAwareSeoGaps({ ...base, linkInspections: new Map() });

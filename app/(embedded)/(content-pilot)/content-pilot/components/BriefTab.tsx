@@ -36,8 +36,10 @@ function formatRoadmapDate(value: string): string {
 
 export function BriefTab({
   authFetch,
+  onOpenQueue,
 }: {
   authFetch: ReturnType<typeof useAuthFetch>;
+  onOpenQueue: () => void;
 }) {
   const [suggestions, setSuggestions] = useState<ContentMapSuggestionsResponse | null>(null);
   const [selected, setSelected] = useState<ContentMapSuggestion | null>(null);
@@ -123,21 +125,32 @@ export function BriefTab({
         setError((data.error as string) ?? "Mapped content work could not be sent to the Queue.");
         return;
       }
-      const counts = data.counts as Record<string, number> | undefined;
-      if ((counts?.created ?? 0) + (counts?.already_existing ?? 0) < 1) {
-        setError("The mapped candidate changed or is no longer actionable.");
+      const result = Array.isArray(data.results)
+        ? data.results[0] as { status?: string } | undefined
+        : undefined;
+      if (result?.status === "already_existing") {
+        setError("This mapped work is already represented by an existing Content Pilot proposal.");
+        return;
+      }
+      if (result?.status === "stale_or_blocked") {
+        setError("The source observation changed. Refresh SEO analysis before sending this mapped work to Queue.");
+        return;
+      }
+      if (result?.status !== "created") {
+        setError("Mapped content work could not be sent to the Queue.");
         return;
       }
       setProposalCreated(true);
       setBrief(null);
       setSelected(null);
       await loadSuggestions();
+      onOpenQueue();
     } catch (promotionError) {
       setError(String(promotionError));
     } finally {
       setPromoting(false);
     }
-  }, [authFetch, loadSuggestions, selected, suggestions]);
+  }, [authFetch, loadSuggestions, onOpenQueue, selected, suggestions]);
 
   return (
     <BlockStack gap="400">

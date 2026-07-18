@@ -41,6 +41,15 @@ function priority(value: string): "P1" | "P2" | "P3" {
   return band === "high" ? "P1" : band === "low" ? "P3" : "P2";
 }
 
+function matchesObservation(
+  observation: MapAwareSeoGap["observation"],
+  article: { contentHash: string; updatedAt: Date },
+): boolean {
+  return observation.stateHash
+    ? article.contentHash === observation.stateHash
+    : article.updatedAt.toISOString() === observation.capturedAt;
+}
+
 async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, commandCenter: NonNullable<Awaited<ReturnType<typeof loadActiveTopicalMapCommandCenter>>>) {
   const observedAt = new Date(gap.observation.capturedAt);
   const now = new Date();
@@ -52,8 +61,8 @@ async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, comm
     const link = commandCenter.work.internalLinks.find(item => item.fromUrl === fromUrl && item.toUrl === toUrl && item.ruleIds.slice().sort().join("\0") === gap.ruleIds.slice().sort().join("\0"));
     const sourceIdentity = blogIdentity(fromUrl);
     if (!link || !sourceIdentity || !topicalMapInternalLinkEligibility(link.policy, link.currentBodyState, link.requiredAction).actionable || !topicalMapInternalLinkRequiresAddition(link.requiredAction)) return null;
-    const source = await tx.articleRecord.findFirst({ where: sourceIdentity, select: { updatedAt: true, linksData: true } });
-    if (!source || source.updatedAt.toISOString() !== gap.observation.capturedAt) return null;
+    const source = await tx.articleRecord.findFirst({ where: sourceIdentity, select: { contentHash: true, updatedAt: true, linksData: true } });
+    if (!source || !matchesObservation(gap.observation, source)) return null;
     const internal = source.linksData && typeof source.linksData === "object" && Array.isArray((source.linksData as { internal?: unknown }).internal) ? (source.linksData as { internal: Array<{ href?: unknown }> }).internal : [];
     if (internal.some(item => typeof item.href === "string" && normalizeGovernedUrl(item.href) === toUrl)) return null;
     const targetIdentity = blogIdentity(toUrl);
@@ -68,7 +77,7 @@ async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, comm
         fromUrl, toUrl, recommendedAnchor: link.recommendedAnchor ?? null, linkPurpose: link.linkPurpose ?? null,
         currentBodyState: link.currentBodyState ?? null, requiredAction: link.requiredAction ?? null, verification: link.verification ?? null, originalPriority: link.priority ?? null,
         resolutionStatus: link.policy.resolutionStatus,
-        observation: { capturedAt: gap.observation.capturedAt, provenance: gap.observation.provenance },
+        observation: { capturedAt: gap.observation.capturedAt, provenance: gap.observation.provenance, ...(gap.observation.stateHash ? { stateHash: gap.observation.stateHash } : {}) },
       },
     };
     return { data, candidate: { type: "internal_link", fromUrl, toUrl } satisfies StrategyProposalCandidate };
@@ -78,9 +87,9 @@ async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, comm
   const page = commandCenter.pages.find(item => item.url === targetUrl && item.ruleIds.slice().sort().join("\0") === gap.ruleIds.slice().sort().join("\0"));
   const identity = blogIdentity(targetUrl);
   if (!page || !identity || !page.contentDecisionPolicy || !topicalMapActionEligibility(page.contentDecisionPolicy).actionable) return null;
-  const article = await tx.articleRecord.findFirst({ where: identity, select: { handle: true, title: true, wordCount: true, updatedAt: true } });
+  const article = await tx.articleRecord.findFirst({ where: identity, select: { handle: true, title: true, wordCount: true, contentHash: true, updatedAt: true } });
   if (gap.action === "create" && article) return null;
-  if (gap.action === "refresh" && (!article || article.updatedAt.toISOString() !== gap.observation.capturedAt)) return null;
+  if (gap.action === "refresh" && (!article || !matchesObservation(gap.observation, article))) return null;
   const isCreate = gap.action === "create";
   const proposedTitle = page.title ?? gap.suggestedTitle;
   const targetKeyword = page.primaryKeywordOrTheme ?? gap.query;
@@ -97,7 +106,7 @@ async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, comm
       secondaryVariants: page.secondaryVariants ?? null, contentKind: page.contentKind ?? null,
       publishingState: page.publishingState ?? null, exactTargetIfAny: page.exactTargetIfAny ?? null,
       resolutionStatus: page.contentDecisionPolicy.resolutionStatus,
-      observation: { capturedAt: gap.observation.capturedAt, provenance: gap.observation.provenance },
+      observation: { capturedAt: gap.observation.capturedAt, provenance: gap.observation.provenance, ...(gap.observation.stateHash ? { stateHash: gap.observation.stateHash } : {}) },
       strategyVersionId: gap.strategyVersionId, packageSha256: gap.packageSha256, ruleIds: gap.ruleIds,
       observedEvidence: gap.observedEvidence,
     },

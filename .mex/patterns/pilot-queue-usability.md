@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-18T23:20:00+08:00
+last_updated: 2026-07-18T23:50:00+08:00
 ---
 
 # Pilot Queue Usability
@@ -60,6 +60,8 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 - A queue reset should clear transient actionable rows, not historical tombstones that prevent regeneration.
 - Free-text AI strategy output can look useful while being unrelated to actual site data. Validate and evidence it at the API boundary before the UI can plan it into Content Pilot.
 - A successful action can look inert when its result is rendered after a long sibling list. Render candidate-specific output directly beneath the candidate action that produced it instead of at the end of the full surface.
+- Do not use `ArticleRecord.updatedAt` as content-state identity when routine indexing updates derived fields on the same row. Persist and revalidate `contentHash`; keep capture time only for freshness, and retain a fail-closed timestamp fallback for legacy observations.
+- A batch response containing `already_existing` is not proof that the current click created Queue work. Navigate to Queue only for the selected candidate's `created` result and state every other outcome explicitly.
 - A missing target Shopify article is not a transient refresh failure. Mark it `draftStatus: "failed"` so it leaves the ready queue and tells the operator to recreate or reject it.
 - Historical governed internal-link proposals may retain the exact target in `sourceData.strategyCandidate.toUrl` rather than `proposedState.toUrl`. Resolve both persisted representations through the same exact-governed-path validator; never reconstruct a target from a handle.
 - Do not gate Content Pilot rejection on `status === "pending"` only. Operators can change their mind after approval or draft generation, up until live publish begins.

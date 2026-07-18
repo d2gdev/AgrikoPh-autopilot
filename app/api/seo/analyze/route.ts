@@ -118,11 +118,11 @@ export async function POST(req: NextRequest) {
   const [gscData, articleCandidates, governedArticles] = await Promise.all([
     getLatestGscData(),
     prisma.articleRecord.findMany({
-      select: { blogHandle: true, handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, updatedAt: true },
+      select: { blogHandle: true, handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, contentHash: true, updatedAt: true },
       orderBy: [{ updatedAt: "desc" }, { handle: "asc" }],
       take: ARTICLE_LIMIT + 1,
     }),
-    prisma.articleRecord.findMany({ where: { OR: governedArticleIdentities.map(({ blogHandle, handle }) => ({ blogHandle, handle })) }, select: { blogHandle: true, handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, linksData: true, updatedAt: true } }),
+    prisma.articleRecord.findMany({ where: { OR: governedArticleIdentities.map(({ blogHandle, handle }) => ({ blogHandle, handle })) }, select: { blogHandle: true, handle: true, title: true, wordCount: true, internalLinkCount: true, seoData: true, linksData: true, contentHash: true, updatedAt: true } }),
   ]);
 
   const topQueries = gscData.queries.slice(0, 30);
@@ -130,13 +130,13 @@ export async function POST(req: NextRequest) {
   const mapArticles = [...new Map([...governedArticles, ...articleRecords].map(article => [articleUrl(article), article])).values()];
   const analysisAsOf = new Date();
   const verifiedAbsentUrls = new Map(governedPageIdentities.filter(identity => !governedArticles.some(article => articleUrl(article) === identity.url)).map(identity => [identity.url, analysisAsOf] as const));
-  const linkInspections = new Map<string, { capturedAt: Date; targets: Set<string> }>();
+  const linkInspections = new Map<string, { capturedAt: Date; targets: Set<string>; stateHash?: string }>();
   for (const article of governedArticles) {
     const sourceUrl = articleUrl(article);
     const source = commandCenter.work.internalLinks.find(link => normalizeGovernedUrl(link.fromUrl) === sourceUrl)?.fromUrl;
     if (!source || !(article.updatedAt instanceof Date)) continue;
     const internal = article.linksData && typeof article.linksData === "object" && Array.isArray((article.linksData as { internal?: unknown }).internal) ? (article.linksData as { internal: Array<{ href?: unknown }> }).internal : [];
-    linkInspections.set(source, { capturedAt: article.updatedAt, targets: new Set(internal.flatMap(link => typeof link.href === "string" ? [normalizeGovernedUrl(link.href)] : [])) });
+    linkInspections.set(source, { capturedAt: article.updatedAt, stateHash: article.contentHash, targets: new Set(internal.flatMap(link => typeof link.href === "string" ? [normalizeGovernedUrl(link.href)] : [])) });
   }
   const limits: SeoAnalysisLimits = {
     queriesTotal: gscData.queries.length,
