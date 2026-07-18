@@ -206,7 +206,7 @@ export function BriefTab({
 
       {brief && selected && (
         <Card>
-          <BlockStack gap="250">
+          <BlockStack gap="200">
             <InlineStack align="space-between" blockAlign="center" gap="200">
               <Text variant="headingMd" as="h2">Mapped content brief</Text>
               <Badge tone="info">{selected.title}</Badge>
