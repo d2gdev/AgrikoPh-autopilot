@@ -13,3 +13,4 @@ date,task,plan_level,gate_yes_count,planning_minutes,execution_minutes,notes
 2026-07-18,seo-task-completion-preflight,lean,1,0.5,10,Bounded task-history preflight and transactional recheck implemented test-first with no schema or external-source expansion
 2026-07-18,rolling-topical-map-seo-task-scheduler,lean,1,0.5,15,Phase-level 90-day materialization added test-first to existing activation and daily boundaries with no schema or deployment
 2026-07-18,execute-two-ready-seo-tasks,lean,2,0.5,15,Completed the authorized GA4 key-event task and retained the Shopify P0 task because all governed records are non-executable advisories with no approved recommendation
+2026-07-18,content-pilot-exact-topical-map-suggestions,comprehensive,1,5,0,Writing-plans workflow required after approved design; scope remains one subsystem with exact-map filtering and one proportional verification pass
