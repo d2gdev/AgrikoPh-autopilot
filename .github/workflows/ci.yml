@@ -55,4 +55,6 @@ jobs:
         run: npm run test:postgres
 
       - name: Build
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/autopilot_test?connection_limit=10
         run: npm run build
