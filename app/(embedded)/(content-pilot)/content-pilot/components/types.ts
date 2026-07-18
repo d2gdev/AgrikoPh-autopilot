@@ -14,8 +14,6 @@ export interface ArticleRow {
 export interface TopicCluster {
   topic: string;
   articleCount: number;
-  keywordCount: number;
-  gapScore: number;
 }
 
 export interface ContentMapSuggestion {
@@ -68,6 +66,7 @@ export interface ContentMapSuggestionsResponse {
 export interface LinkGraphData {
   total: number;
   hubs: { blogHandle: string; handle: string; title: string; inboundCount: number; outboundLinks: number }[];
+  authorities: { blogHandle: string; handle: string; title: string; inboundCount: number; outboundLinks: number }[];
   orphans: { blogHandle: string; handle: string; title: string; inboundCount: number; outboundLinks: number }[];
   orphanCount: number;
 }

@@ -87,7 +87,11 @@ export function contentProposalDedupeKey(input: ContentProposalDedupeInput): str
         text(proposedState.targetArticle) ??
         text(proposedState.suggestedAnchorText) ??
         input.title;
-      return `${base}:to:${normalizeKeyPart(destination)}`;
+      const observationStateHash = text(proposedState.observationStateHash);
+      const observation = observationStateHash
+        ? `:observed:${normalizeKeyPart(observationStateHash)}`
+        : "";
+      return `${base}:to:${normalizeKeyPart(destination)}${observation}`;
     }
 
     return base;

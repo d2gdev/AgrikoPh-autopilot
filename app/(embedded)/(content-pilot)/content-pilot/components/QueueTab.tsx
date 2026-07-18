@@ -52,8 +52,6 @@ export function QueueTab({
   const [total, setTotal] = useState(0);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [confirmGenerate, setConfirmGenerate] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
@@ -83,8 +81,6 @@ export function QueueTab({
   const [pendingRejectNote, setPendingRejectNote] = useState("");
   // Publish success feedback
   const [lastPublishFeedback, setLastPublishFeedback] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
-  // Generate proposals feedback
-  const [lastGeneratedCount, setLastGeneratedCount] = useState<number | null>(null);
   // Bulk publish modal
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishReviewChecked, setPublishReviewChecked] = useState(false);
@@ -193,24 +189,6 @@ export function QueueTab({
     }, 4000);
     return () => clearInterval(t);
   }, [active, loadProposals]);
-
-  const generate = async () => {
-    setConfirmGenerate(false);
-    setGenerating(true);
-    setError(null);
-    try {
-      const res = await authFetch("/api/content-pilot/proposals/generate", { method: "POST" });
-      const d = await safeJson(res);
-      if (!res.ok) { setError((d.error as string) ?? "Generation failed"); }
-      else {
-        const result = d as { created?: number };
-        setLastGeneratedCount(result.created ?? 0);
-        setStageFilter("pending");
-        await loadProposals();
-      }
-    } catch (e) { setError(String(e)); }
-    finally { setGenerating(false); }
-  };
 
   const approve = async (id: string, { generate: gen = true }: { generate?: boolean } = {}): Promise<boolean> => {
     setApprovingIds((prev) => new Set(prev).add(id));
@@ -615,7 +593,6 @@ export function QueueTab({
 
   const handleClosePublishModal = () => setShowPublishModal(false);
   const handleConfirmPublishAll = () => { setShowPublishModal(false); bulkPublishReady(); };
-  const handleCancelConfirmGenerate = () => setConfirmGenerate(false);
   const handlePublishReviewCheckedChange = (v: boolean) => setPublishReviewChecked(v);
   const handleLoadMore = async () => {
     if (!nextCursor || loadingMore) return;
@@ -637,20 +614,7 @@ export function QueueTab({
           {bulkFeedback.message}
         </Banner>
       )}
-      {lastGeneratedCount !== null && (
-        <Banner tone={lastGeneratedCount === 0 ? "warning" : "success"} onDismiss={() => setLastGeneratedCount(null)}>
-          {lastGeneratedCount === 0
-            ? "No new proposals generated. Existing, rejected, published, and otherwise finished ideas are being respected instead of recreated."
-            : `Generated ${lastGeneratedCount} new proposal${lastGeneratedCount === 1 ? "" : "s"}.`}
-        </Banner>
-      )}
-
       <QueueModals
-        confirmGenerate={confirmGenerate}
-        generating={generating}
-        pendingCount={pendingCount}
-        onConfirmGenerate={generate}
-        onCancelConfirmGenerate={handleCancelConfirmGenerate}
         showPublishModal={showPublishModal}
         publishCandidates={publishCandidates}
         publishReviewChecked={publishReviewChecked}
@@ -690,12 +654,7 @@ export function QueueTab({
               </Button>
             )
           )}
-          <Button size="slim" onClick={() => loadProposals()} loading={loading} disabled={generating}>Refresh</Button>
-{!confirmGenerate && (
-            <Button variant="primary" onClick={() => setConfirmGenerate(true)} loading={generating} disabled={bulkActing}>
-              Generate Proposals
-            </Button>
-          )}
+          <Button size="slim" onClick={() => loadProposals()} loading={loading}>Refresh</Button>
         </InlineStack>
       </InlineStack>
 
@@ -765,7 +724,7 @@ export function QueueTab({
           </Text>
           {allProposals.length === 0 && (
             <Text as="p" tone="subdued">
-              Generate fresh proposals after refreshing SEO and blog data. Finished or rejected ideas stay out of the queue unless you re-open them.
+              Create mapped work from Brief or SEO Pilot. Finished or rejected ideas stay in history and are not recreated.
             </Text>
           )}
           {allProposals.length > 0 && stageFilter === "pending" && pendingCount === 0 && !searchQuery && (

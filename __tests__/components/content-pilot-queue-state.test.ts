@@ -66,6 +66,14 @@ describe("Content Pilot queue publication stages", () => {
     expect(queue).not.toContain("/clone");
     expect(row).not.toContain("Duplicate this proposal?");
   });
+
+  it("keeps proposal creation on governed work surfaces instead of exposing an empty queue generator", () => {
+    const queue = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/QueueTab.tsx", "utf8");
+
+    expect(queue).not.toContain("Generate Proposals");
+    expect(queue).not.toContain("/api/content-pilot/proposals/generate");
+    expect(queue).toContain("Create mapped work from Brief or SEO Pilot");
+  });
 });
 
 describe("Content Pilot navigation and semantics", () => {
@@ -94,6 +102,22 @@ describe("Content Pilot navigation and semantics", () => {
     expect(source).toContain("<Pagination");
     expect(source).toContain("articleStorefrontUrl");
     expect(source).toContain("<Link");
+  });
+
+  it("presents cluster and link data as descriptive coverage, not map-independent recommendations", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/OverviewTab.tsx", "utf8");
+    const route = readFileSync("app/api/content-pilot/topic-clusters/route.ts", "utf8");
+
+    expect(source).toContain("Indexed Topic Coverage");
+    expect(source).toContain("Content decisions come only from the active topical map");
+    expect(source).not.toContain("Higher = more content needed");
+    expect(source).not.toContain("Gap Score");
+    expect(route).not.toContain("TOPIC_CLUSTERS");
+    expect(route).not.toContain("gapScore");
+    expect(source).toContain("Most-linked Articles");
+    expect(source).toContain("Highest observed inbound-link counts");
+    expect(source).not.toContain("pillar content candidates");
+    expect(source).toContain("linkGraph?.authorities");
   });
 
   it("gives repeated row controls proposal-specific accessible names", () => {

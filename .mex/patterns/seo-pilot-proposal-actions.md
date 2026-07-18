@@ -1,7 +1,7 @@
 ---
 name: seo-pilot-proposal-actions
 description: Diagnose and fix SEO Pilot actions that create Content Pilot proposals which cannot generate or publish the intended draft.
-last_updated: 2026-07-11
+last_updated: 2026-07-19
 ---
 
 # Pattern: SEO Pilot Proposal Actions
@@ -89,6 +89,7 @@ last_updated: 2026-07-11
    - Key active `seo-fix` proposals by proposal type plus article handle; keep target queries and issue labels as evidence, not parallel proposal discriminators.
    - During canonical-key migrations, check article type/handle history before inserting so rows stored under legacy query-specific keys still block regeneration.
    - Internal-link proposals still discriminate by destination, and handle-less new-content proposals still discriminate by target keyword/title.
+   - An exact internal link with pending, approved, or rejected history remains blocked. A link that was published and is later observed missing again is a new repair event: include the current source content hash in its dedupe identity so the repair can be queued once without allowing repeated clicks or unchanged analysis to create duplicates.
 21. Apply deterministic analysis bounds after selecting eligible work.
    - Content-gap discovery first filters to uncovered position 5-20 queries, then ranks by impressions, clicks, position, and query before applying the query limit.
    - Do not inherit a click-sorted presentation order for zero-click opportunity discovery.

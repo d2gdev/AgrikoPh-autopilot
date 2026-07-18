@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   BlockStack,
   Box,
@@ -54,13 +53,6 @@ export function OverviewTab({
   const clusterRows = clusters.slice(0, 15).map((c) => [
     c.topic,
     String(c.articleCount),
-    String(c.keywordCount),
-    <Badge
-      key={c.topic}
-      tone={c.gapScore >= 80 ? "critical" : c.gapScore >= 40 ? "attention" : "success"}
-    >
-      {String(c.gapScore)}
-    </Badge>,
   ]);
 
   const orphanRows = (linkGraph?.orphans ?? []).slice(0, 10).map((a) => [
@@ -68,7 +60,7 @@ export function OverviewTab({
     String(a.outboundLinks ?? 0),
   ]);
 
-  const hubRows = (linkGraph?.hubs ?? []).map((a) => [
+  const authorityRows = (linkGraph?.authorities ?? []).map((a) => [
     articleLink(a),
     String(a.inboundCount ?? 0),
     String(a.outboundLinks ?? 0),
@@ -86,10 +78,10 @@ export function OverviewTab({
     <BlockStack gap="600">
       <BlockStack gap="300">
         <Text variant="headingMd" as="h2">
-          Topic Cluster Gaps
+          Indexed Topic Coverage
         </Text>
         <Text as="p" tone="subdued">
-          Gap score 0–100. Higher = more content needed.
+          Descriptive index coverage only. Content decisions come only from the active topical map.
         </Text>
         <InlineStack>
           <Button onClick={onOpenBrief}>View mapped content work</Button>
@@ -101,8 +93,8 @@ export function OverviewTab({
         ) : (
           <BlockStack gap="200">
             <DataTable
-              columnContentTypes={["text", "numeric", "numeric", "text"]}
-              headings={["Topic", "Articles", "Keywords", "Gap Score"]}
+              columnContentTypes={["text", "numeric"]}
+              headings={["Topic", "Articles"]}
               rows={clusterRows}
             />
           </BlockStack>
@@ -136,12 +128,12 @@ export function OverviewTab({
         <Box minWidth="45%">
           <BlockStack gap="300">
             <Text variant="headingMd" as="h2">
-              Hub Articles
+              Most-linked Articles
             </Text>
             <Text as="p" tone="subdued">
-              Most-linked-to — pillar content candidates.
+              Highest observed inbound-link counts. Descriptive only; the topical map owns page roles.
             </Text>
-            {hubRows.length === 0 ? (
+            {authorityRows.length === 0 ? (
               <Text as="p" tone="subdued">
                 Run the indexer first.
               </Text>
@@ -149,7 +141,7 @@ export function OverviewTab({
               <DataTable
                 columnContentTypes={["text", "numeric", "numeric"]}
                 headings={["Article", "In-links", "Out-links"]}
-                rows={hubRows}
+                rows={authorityRows}
               />
             )}
           </BlockStack>

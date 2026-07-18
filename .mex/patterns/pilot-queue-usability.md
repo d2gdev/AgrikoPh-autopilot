@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-19T00:46:00+08:00
+last_updated: 2026-07-19T01:22:00+08:00
 ---
 
 # Pilot Queue Usability
@@ -31,6 +31,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
    - truly no rows,
    - current filters/search hiding rows,
    - a clean actionable queue because terminal history/dedupe blocked old ideas.
+   - a review queue from its governed work-generation surfaces; do not expose a generic queue generator that can return zero with no next step.
 6. Terminal states need explicit badges; do not fall through to unlabeled fallback UI.
 7. Publish failures that cannot succeed on retry without operator intervention must move to a visible failed state with the original error retained.
 8. Content Pilot proposals must remain rejectable until publishing starts. The Reject action should be available for approved, ready, scheduled, failed, and other pre-publish states, and hidden only once a proposal is already rejected, publishing, or published.

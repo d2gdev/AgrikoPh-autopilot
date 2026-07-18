@@ -50,6 +50,24 @@ function matchesObservation(
     : article.updatedAt.toISOString() === observation.capturedAt;
 }
 
+function exactInternalLinkState(value: unknown): { fromUrl: string; toUrl: string } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const state = value as { fromUrl?: unknown; toUrl?: unknown };
+  if (typeof state.fromUrl !== "string" || typeof state.toUrl !== "string") return null;
+  return {
+    fromUrl: normalizeGovernedUrl(state.fromUrl),
+    toUrl: normalizeGovernedUrl(state.toUrl),
+  };
+}
+
+function exactInternalLinkProposal(proposedState: unknown, sourceData: unknown) {
+  const direct = exactInternalLinkState(proposedState);
+  if (direct) return direct;
+  if (!sourceData || typeof sourceData !== "object" || Array.isArray(sourceData)) return null;
+  const candidate = (sourceData as { strategyCandidate?: unknown }).strategyCandidate;
+  return exactInternalLinkState(candidate);
+}
+
 async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, commandCenter: NonNullable<Awaited<ReturnType<typeof loadActiveTopicalMapCommandCenter>>>) {
   const observedAt = new Date(gap.observation.capturedAt);
   const now = new Date();
@@ -71,7 +89,14 @@ async function proposalForCandidate(tx: typeof prisma, gap: MapAwareSeoGap, comm
       priority: priority(link.priority ?? gap.priority), impact: "medium", effort: "low",
       title: `Add internal link from ${sourceIdentity.handle} to ${targetIdentity?.handle ?? toUrl}`,
       description: link.linkPurpose ? `Add the required internal link for ${link.linkPurpose}.` : `Add the required internal link from ${fromUrl} to ${toUrl}.`,
-      proposedState: { fromArticle: sourceIdentity.handle, toArticle: targetIdentity?.handle ?? toUrl, suggestedAnchorText: link.recommendedAnchor ?? gap.query, fromUrl, toUrl },
+      proposedState: {
+        fromArticle: sourceIdentity.handle,
+        toArticle: targetIdentity?.handle ?? toUrl,
+        suggestedAnchorText: link.recommendedAnchor ?? gap.query,
+        fromUrl,
+        toUrl,
+        observationStateHash: gap.observation.stateHash ?? source.contentHash,
+      },
       sourceData: {
         source: "seo-pilot", strategyVersionId: gap.strategyVersionId, packageSha256: gap.packageSha256, ruleIds: gap.ruleIds,
         fromUrl, toUrl, recommendedAnchor: link.recommendedAnchor ?? null, linkPurpose: link.linkPurpose ?? null,
@@ -147,6 +172,30 @@ export async function POST(req: NextRequest) {
         }
         const proposal = await proposalForCandidate(tx as typeof prisma, gap, commandCenter);
         if (!proposal) return { status: "stale_or_blocked" as const };
+        if (gap.kind === "link") {
+          const proposedLink = exactInternalLinkState(proposal.data.proposedState);
+          const priorLinks = await tx.contentProposal.findMany({
+            where: {
+              proposalType: "internal-link",
+              articleHandle: proposal.data.articleHandle,
+            },
+            select: {
+              id: true,
+              draftStatus: true,
+              proposedState: true,
+              sourceData: true,
+            },
+          });
+          const blocking = priorLinks.find((prior) => {
+            const priorLink = exactInternalLinkProposal(prior.proposedState, prior.sourceData);
+            return prior.draftStatus !== "published"
+              && priorLink?.fromUrl === proposedLink?.fromUrl
+              && priorLink?.toUrl === proposedLink?.toUrl;
+          });
+          if (blocking) {
+            return { status: "already_existing" as const, proposalId: blocking.id };
+          }
+        }
         const blockedProposals = await getBlockingMapContentProposals(tx as typeof prisma, [gap]);
         const existingProposalId = blockedProposals.get(candidateId);
         if (existingProposalId) {

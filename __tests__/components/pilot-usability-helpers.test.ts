@@ -99,8 +99,8 @@ describe("pilot usability helper regressions", () => {
   it("keeps clean-queue copy explicit about not recreating finished ideas", () => {
     const queueSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/QueueTab.tsx", "utf8");
 
-    expect(queueSource).toContain("finished ideas are being respected instead of recreated");
-    expect(queueSource).toContain("Finished or rejected ideas stay out of the queue unless you re-open them");
+    expect(queueSource).toContain("Create mapped work from Brief or SEO Pilot");
+    expect(queueSource).toContain("Finished or rejected ideas stay in history and are not recreated");
   });
 
   it("keeps reject actions available before publishing", () => {

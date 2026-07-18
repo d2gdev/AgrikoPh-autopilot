@@ -123,6 +123,52 @@ describe("content proposal dedupe", () => {
     expect(toArticleB).not.toBe(toArticleC);
   });
 
+  it("allows one repair per newly observed internal-link regression", () => {
+    const original = contentProposalDedupeKey({
+      articleHandle: "source-article",
+      proposalType: "internal-link",
+      title: "Add link",
+      proposedState: {
+        fromUrl: "/blogs/news/source-article",
+        toUrl: "/blogs/news/target",
+      },
+    });
+    const repair = contentProposalDedupeKey({
+      articleHandle: "source-article",
+      proposalType: "internal-link",
+      title: "Restore link",
+      proposedState: {
+        fromUrl: "/blogs/news/source-article",
+        toUrl: "/blogs/news/target",
+        observationStateHash: "a".repeat(64),
+      },
+    });
+    const repeatedRepair = contentProposalDedupeKey({
+      articleHandle: "source-article",
+      proposalType: "internal-link",
+      title: "Restore link again",
+      proposedState: {
+        fromUrl: "/blogs/news/source-article",
+        toUrl: "/blogs/news/target",
+        observationStateHash: "a".repeat(64),
+      },
+    });
+    const laterRegression = contentProposalDedupeKey({
+      articleHandle: "source-article",
+      proposalType: "internal-link",
+      title: "Restore later regression",
+      proposedState: {
+        fromUrl: "/blogs/news/source-article",
+        toUrl: "/blogs/news/target",
+        observationStateHash: "b".repeat(64),
+      },
+    });
+
+    expect(repair).not.toBe(original);
+    expect(repeatedRepair).toBe(repair);
+    expect(laterRegression).not.toBe(repair);
+  });
+
   it("dedupes competing SEO meta rewrites for the same article", () => {
     const missingMeta = contentProposalDedupeKey({
       articleHandle: "black-rice-benefits",

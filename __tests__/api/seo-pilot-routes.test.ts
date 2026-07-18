@@ -744,10 +744,17 @@ describe("SEO Pilot route regressions", () => {
 
   it("persists exact internal-link review context from the active map", async () => {
     const capturedAt = new Date().toISOString();
-    const input = { ...strategyIdentity, kind: "link" as const, state: "candidate" as const, action: "update" as const, ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add exact link", page: "/blogs/news/source", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", priority: "P3", mapEvidence: null, observedEvidence: [], observation: { source: "link_inspection" as const, capturedAt, provenance: "ArticleRecord.linksData:/blogs/news/source" } };
+    const stateHash = "c".repeat(64);
+    const input = { ...strategyIdentity, kind: "link" as const, state: "candidate" as const, action: "update" as const, ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add exact link", page: "/blogs/news/source", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", priority: "P3", mapEvidence: null, observedEvidence: [], observation: { source: "link_inspection" as const, capturedAt, provenance: "ArticleRecord.linksData:/blogs/news/source", stateHash } };
     const gap = { ...input, candidateId: mapCandidateId(input) };
     mockGetLatestSnapshot.mockResolvedValue({ payload: { schemaVersion: "2", strategy: { versionId: "v3", packageSha256: strategyIdentity.packageSha256 }, generatedAt: capturedAt, analysis: { gaps: [gap], observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: null, linkCapturedAt: capturedAt, requiredObservationFamilies: ["link_inspection"], storeInspection: { required: 0, inspected: 0 }, linkInspection: { required: 1, inspected: 1 }, maxAgeHours: 72 } }, fetchedAt: new Date(capturedAt) });
-    mockPrisma.articleRecord.findFirst.mockResolvedValue({ updatedAt: new Date(capturedAt), linksData: { internal: [] } });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue({ contentHash: stateHash, updatedAt: new Date(capturedAt), linksData: { internal: [] } });
+    mockPrisma.contentProposal.findMany.mockResolvedValue([{
+      id: "published-link",
+      status: "approved",
+      draftStatus: "published",
+      proposedState: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped" },
+    }]);
     mockCreateGovernedContentProposal.mockResolvedValue({ created: true, proposal: { id: "link-proposal" }, compliance: { result: "compliant" } });
     const { POST } = await import("@/app/api/seo/gaps/promote-selected/route");
 
@@ -756,9 +763,37 @@ describe("SEO Pilot route regressions", () => {
     expect(response.status).toBe(200);
     expect(mockCreateGovernedContentProposal.mock.calls[0]![1].data).toMatchObject({
       priority: "P1",
-      proposedState: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", suggestedAnchorText: "mapped topic" },
-      sourceData: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", recommendedAnchor: "mapped topic", currentBodyState: "absent", linkPurpose: "supporting context", requiredAction: "add", verification: "Exact href is present", originalPriority: "high", resolutionStatus: "resolved", observation: { capturedAt, provenance: "ArticleRecord.linksData:/blogs/news/source" }, ruleIds: ["rule:link"], strategyVersionId: "v3" },
+      proposedState: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", suggestedAnchorText: "mapped topic", observationStateHash: stateHash },
+      sourceData: { fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", recommendedAnchor: "mapped topic", currentBodyState: "absent", linkPurpose: "supporting context", requiredAction: "add", verification: "Exact href is present", originalPriority: "high", resolutionStatus: "resolved", observation: { capturedAt, provenance: "ArticleRecord.linksData:/blogs/news/source", stateHash }, ruleIds: ["rule:link"], strategyVersionId: "v3" },
     });
+  });
+
+  it("keeps legacy non-published internal-link history blocking a duplicate repair", async () => {
+    const capturedAt = new Date().toISOString();
+    const stateHash = "d".repeat(64);
+    const input = { ...strategyIdentity, kind: "link" as const, state: "candidate" as const, action: "update" as const, ruleIds: ["rule:link"], query: "mapped topic", suggestedTitle: "Add exact link", page: "/blogs/news/source", fromUrl: "/blogs/news/source", toUrl: "/blogs/news/mapped", priority: "P3", mapEvidence: null, observedEvidence: [], observation: { source: "link_inspection" as const, capturedAt, provenance: "ArticleRecord.linksData:/blogs/news/source", stateHash } };
+    const gap = { ...input, candidateId: mapCandidateId(input) };
+    mockGetLatestSnapshot.mockResolvedValue({ payload: { schemaVersion: "2", strategy: { versionId: "v3", packageSha256: strategyIdentity.packageSha256 }, generatedAt: capturedAt, analysis: { gaps: [gap], observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: null, linkCapturedAt: capturedAt, requiredObservationFamilies: ["link_inspection"], storeInspection: { required: 0, inspected: 0 }, linkInspection: { required: 1, inspected: 1 }, maxAgeHours: 72 } }, fetchedAt: new Date(capturedAt) });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue({ contentHash: stateHash, updatedAt: new Date(capturedAt), linksData: { internal: [] } });
+    mockPrisma.contentProposal.findMany.mockResolvedValue([{
+      id: "legacy-active-link",
+      draftStatus: "ready",
+      proposedState: {},
+      sourceData: {
+        strategyCandidate: {
+          fromUrl: "/blogs/news/source",
+          toUrl: "/blogs/news/mapped",
+        },
+      },
+    }]);
+    const { POST } = await import("@/app/api/seo/gaps/promote-selected/route");
+
+    const response = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: capturedAt, candidateIds: [gap.candidateId] }));
+
+    expect(await response.json()).toMatchObject({
+      results: [{ candidateId: gap.candidateId, status: "already_existing", proposalId: "legacy-active-link" }],
+    });
+    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
   });
 
   it("bounds selected candidate requests at 100 IDs before database work", async () => {

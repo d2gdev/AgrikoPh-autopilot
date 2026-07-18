@@ -3,7 +3,6 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireAppAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { TOPIC_CLUSTERS } from "@/lib/config/topic-clusters";
 
 export async function GET(req: Request) {
   const authError = await requireAppAuth(req);
@@ -16,31 +15,22 @@ export async function GET(req: Request) {
       orderBy: { indexedAt: "desc" },
     });
 
-    const clusterCounts: Record<string, number> = {};
-    for (const topic of Object.keys(TOPIC_CLUSTERS)) {
-      clusterCounts[topic] = 0;
-    }
+    const clusterCounts = new Map<string, number>();
 
     for (const r of records) {
       const topics = r.topicsData as Array<{ topic: string; confidence: number }>;
       for (const t of topics) {
-        if (t.topic in clusterCounts) {
-          clusterCounts[t.topic]!++;
-        }
+        const topic = typeof t.topic === "string" ? t.topic.trim() : "";
+        if (topic) clusterCounts.set(topic, (clusterCounts.get(topic) ?? 0) + 1);
       }
     }
 
-    // Gap score on an asymptotic curve: 100/(1 + count/5). Unlike a linear
-    // deduction it never hits 0, so high-coverage clusters stay distinct and
-    // monotonically decreasing (count 1→83, 5→50, 10→33, 20→20, 50→9, 100→5).
-    const clusters = Object.entries(clusterCounts).map(([topic, count]) => ({
+    const clusters = [...clusterCounts].map(([topic, count]) => ({
       topic,
       articleCount: count,
-      keywordCount: TOPIC_CLUSTERS[topic]!.length, // safe: topic came from Object.keys(TOPIC_CLUSTERS)
-      gapScore: count === 0 ? 100 : Math.round(100 / (1 + count / 5)),
     }));
 
-    clusters.sort((a, b) => b.gapScore - a.gapScore);
+    clusters.sort((a, b) => b.articleCount - a.articleCount || a.topic.localeCompare(b.topic));
 
     return NextResponse.json({ clusters, totalArticles: records.length });
   } catch (err) {

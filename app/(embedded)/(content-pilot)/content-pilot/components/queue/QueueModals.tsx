@@ -1,15 +1,9 @@
-import { Banner, Badge, BlockStack, Button, Checkbox, Divider, InlineStack, Modal, Text } from "@shopify/polaris";
+import { Badge, BlockStack, Checkbox, Divider, InlineStack, Modal, Text } from "@shopify/polaris";
 
 import type { ContentProposal } from "../types";
 import { countWordsFromHtml } from "../helpers";
 
 export function QueueModals({
-  confirmGenerate,
-  generating,
-  pendingCount,
-  onConfirmGenerate,
-  onCancelConfirmGenerate,
-
   showPublishModal,
   publishCandidates,
   publishReviewChecked,
@@ -18,12 +12,6 @@ export function QueueModals({
   onConfirmPublishAll,
   onPublishReviewCheckedChange,
 }: {
-  confirmGenerate: boolean;
-  generating: boolean;
-  pendingCount: number;
-  onConfirmGenerate: () => void;
-  onCancelConfirmGenerate: () => void;
-
   showPublishModal: boolean;
   publishCandidates: ContentProposal[];
   publishReviewChecked: boolean;
@@ -34,15 +22,6 @@ export function QueueModals({
 }) {
   return (
     <>
-      {confirmGenerate && (
-        <Banner tone="warning" title={`This will delete all ${pendingCount} pending proposals and generate a fresh batch.`}>
-          <InlineStack gap="200">
-            <Button size="slim" variant="primary" onClick={onConfirmGenerate} loading={generating}>Confirm</Button>
-            <Button size="slim" onClick={onCancelConfirmGenerate}>Cancel</Button>
-          </InlineStack>
-        </Banner>
-      )}
-
       <Modal
         open={showPublishModal}
         onClose={onClosePublishModal}
