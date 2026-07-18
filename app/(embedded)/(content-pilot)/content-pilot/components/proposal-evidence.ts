@@ -48,7 +48,7 @@ export function proposalEvidenceLines(proposal: Pick<ContentProposal, "sourceDat
   const mapEvidence = firstString(sourceData.mapEvidence);
   if (mapEvidence) lines.push(`Evidence: ${mapEvidence}`);
   const originalPriority = firstString(sourceData.originalPriority);
-  if (originalPriority) lines.push(`Priority: ${originalPriority}`);
+  if (originalPriority) lines.push(`Original map priority: ${originalPriority}`);
   const resolutionStatus = firstString(sourceData.resolutionStatus);
   if (resolutionStatus) lines.push(`Rule status: ${resolutionStatus}`);
   const secondaryVariants = firstString(sourceData.secondaryVariants);

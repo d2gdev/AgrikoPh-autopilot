@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-18T22:19:00+08:00
+last_updated: 2026-07-18T23:20:00+08:00
 ---
 
 # Pilot Queue Usability
@@ -45,6 +45,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 17. Keep queue and detail recovery state consistent. List responses must include `publishWarning`, `publishOperationId`, and `publishFinalizedAt`; draft detail must apply the same `202` reconciliation rules as the queue.
 18. Scope browser queue caches by Shopify context. Keep browser pages bounded, expose truthful totals and explicit pagination, and reject malformed or repeated cursors.
     - When the UI intentionally renders one bounded page, sorting must still be applied to the complete filtered server result before slicing that page. Do not sort only the browser's current page.
+    - Let PostgreSQL order the complete filtered set and return only the bounded page of IDs. Do not transfer every matching row into application memory merely to preserve global sorting.
     - Default “All” pages must exclude rejected rows in both the returned page and total. Stage counts may retain a separate Rejected count, but search/type/priority filters must scope every displayed stage count.
 19. Coordinate overlapping UI loads. Background polls must skip while a load is active; foreground or post-mutation refreshes may supersede and abort older work; only the current request may commit or clear loading state. If generation and its authoritative reload both fail, restore the pre-generation row and retain the original generation error.
 20. Protect Run Indexer and Content Brief with `CONTENT_REVIEW`. Return safe operator errors rather than raw provider or Shopify details.
@@ -60,6 +61,7 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 - Free-text AI strategy output can look useful while being unrelated to actual site data. Validate and evidence it at the API boundary before the UI can plan it into Content Pilot.
 - A successful action can look inert when its result is rendered after a long sibling list. Render candidate-specific output directly beneath the candidate action that produced it instead of at the end of the full surface.
 - A missing target Shopify article is not a transient refresh failure. Mark it `draftStatus: "failed"` so it leaves the ready queue and tells the operator to recreate or reject it.
+- Historical governed internal-link proposals may retain the exact target in `sourceData.strategyCandidate.toUrl` rather than `proposedState.toUrl`. Resolve both persisted representations through the same exact-governed-path validator; never reconstruct a target from a handle.
 - Do not gate Content Pilot rejection on `status === "pending"` only. Operators can change their mind after approval or draft generation, up until live publish begins.
 - Never let `draftStatus: "ready"` alone authorize a Shopify write. A rejected or concurrently modified proposal must fail the publish status predicate even if stale draft state remains.
 - `requirePermission` verifies the embedded identity again while checking roles, but the project-wide embedded-route contract is stricter: `requireAppAuth` remains the first handler statement and permission follows immediately. Test both the unauthenticated short-circuit and the authenticated-but-forbidden path.

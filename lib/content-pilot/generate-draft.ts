@@ -31,6 +31,22 @@ function exactGovernedPath(value: unknown): string | null {
   }
 }
 
+function exactInternalLinkTarget(proposal: Pick<ContentProposal, "proposedState" | "sourceData">): string | null {
+  const state = proposal.proposedState && typeof proposal.proposedState === "object" && !Array.isArray(proposal.proposedState)
+    ? proposal.proposedState as Record<string, unknown>
+    : {};
+  const directTarget = exactGovernedPath(state.toUrl);
+  if (directTarget) return directTarget;
+
+  const source = proposal.sourceData && typeof proposal.sourceData === "object" && !Array.isArray(proposal.sourceData)
+    ? proposal.sourceData as Record<string, unknown>
+    : {};
+  const candidate = source.strategyCandidate && typeof source.strategyCandidate === "object" && !Array.isArray(source.strategyCandidate)
+    ? source.strategyCandidate as Record<string, unknown>
+    : {};
+  return candidate.type === "internal_link" ? exactGovernedPath(candidate.toUrl) : null;
+}
+
 function persistedSupportingKeywords(proposal: Pick<ContentProposal, "sourceData">): string[] {
   const source = proposal.sourceData && typeof proposal.sourceData === "object" && !Array.isArray(proposal.sourceData)
     ? proposal.sourceData as Record<string, unknown>
@@ -41,9 +57,14 @@ function persistedSupportingKeywords(proposal: Pick<ContentProposal, "sourceData
     .map((value) => value.slice(0, 200));
 }
 
-export function assertExactInternalLinkDraft(proposal: Pick<ContentProposal, "proposedState">, draft: InternalLinkDraft): void {
-  const state = proposal.proposedState && typeof proposal.proposedState === "object" && !Array.isArray(proposal.proposedState) ? proposal.proposedState as Record<string, unknown> : {};
-  const targetUrl = exactGovernedPath(state.toUrl);
+export function assertExactInternalLinkDraft(
+  proposal: Pick<ContentProposal, "proposedState"> & Partial<Pick<ContentProposal, "sourceData">>,
+  draft: InternalLinkDraft,
+): void {
+  const targetUrl = exactInternalLinkTarget({
+    proposedState: proposal.proposedState,
+    sourceData: proposal.sourceData ?? {},
+  });
   const anchors = parseArticleHtml(draft.suggestedParagraph).anchors;
   const draftTarget = anchors.length === 1 ? exactGovernedPath(anchors[0]!.href) : null;
   if (!targetUrl || draftTarget !== targetUrl) throw new Error("Internal-link draft must contain exactly one link to the exact persisted target URL");
@@ -308,7 +329,7 @@ Generate new metaTitle and metaDescription.`;
 async function generateInternalLink(proposal: ContentProposal, article: BlogArticle | null): Promise<InternalLinkDraft> {
   const ps = proposal.proposedState as Record<string, unknown>;
   const targetHandle = (ps.toArticle as string | undefined) ?? "";
-  const targetUrl = exactGovernedPath(ps.toUrl);
+  const targetUrl = exactInternalLinkTarget(proposal);
   if (!targetUrl) throw new Error("Internal-link proposal requires an exact persisted target URL");
   const anchorHint = (ps.suggestedAnchorText as string | undefined) ?? targetHandle;
   const system = `You are a content editor for Agriko (agrikoph.com), a Philippine health food brand.

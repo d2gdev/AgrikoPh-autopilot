@@ -46,6 +46,25 @@ test("internal-link validation fails closed without an exact persisted target", 
   expect(() => assertExactInternalLinkDraft(proposal, { suggestedParagraph: '<p><a href="/blogs/news/shared">Shared</a></p>', anchorText: "Shared", targetHandle: "shared" })).toThrow("exact persisted target URL");
 });
 
+test("internal-link validation accepts the exact governed target from its strategy candidate", () => {
+  const proposal = {
+    proposedState: { toArticle: "shared" },
+    sourceData: {
+      strategyCandidate: {
+        type: "internal_link",
+        fromUrl: "/blogs/news/source",
+        toUrl: "/blogs/news/shared",
+      },
+    },
+  } as never;
+
+  expect(() => assertExactInternalLinkDraft(proposal, {
+    suggestedParagraph: '<p><a href="/blogs/news/shared">Shared guide</a></p>',
+    anchorText: "Shared guide",
+    targetHandle: "shared",
+  })).not.toThrow();
+});
+
 test("internal-link HTML is constructed deterministically with one exact persisted target", () => {
   const paragraph = buildExactInternalLinkParagraph({
     modelParagraph: '<p>Black rice is nutrient dense. <a href="/wrong">Ignore this link</a></p>',

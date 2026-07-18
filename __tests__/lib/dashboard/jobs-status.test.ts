@@ -89,15 +89,23 @@ describe("buildJobsStatusPayload – new fields", () => {
 
   it("returns contentPilotStats with pending and publishedThisMonth counts", async () => {
     mockPrisma.contentProposal.groupBy.mockResolvedValue([
-      { status: "pending", _count: { _all: 4 } },
-      { status: "approved", _count: { _all: 1 } },
+      { status: "pending", draftStatus: null, _count: { _all: 4 } },
+      { status: "approved", draftStatus: null, _count: { _all: 1 } },
+      { status: "approved", draftStatus: "ready", _count: { _all: 2 } },
+      { status: "approved", draftStatus: "published", _count: { _all: 40 } },
+      { status: "approved", draftStatus: "failed", _count: { _all: 3 } },
     ]);
     mockPrisma.contentProposal.count.mockResolvedValue(3);
 
     const result = await buildJobsStatusPayload();
 
     expect(result.contentPilotStats.pending).toBe(4);
+    expect(result.contentPilotStats.drafting).toBe(3);
     expect(result.contentPilotStats.publishedThisMonth).toBe(3);
+    expect(mockPrisma.contentProposal.groupBy).toHaveBeenCalledWith({
+      by: ["status", "draftStatus"],
+      _count: { _all: true },
+    });
   });
 
   it("returns adSpendSummary with delta from two most recent Meta snapshots", async () => {

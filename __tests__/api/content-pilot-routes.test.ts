@@ -9,6 +9,7 @@ const mockAuth = vi.hoisted(() => ({
 
 const mockPrisma = vi.hoisted(() => ({
   $transaction: vi.fn(),
+  $queryRaw: vi.fn(),
   contentProposal: {
     findUnique: vi.fn(),
     updateMany: vi.fn(),
@@ -109,6 +110,7 @@ describe("Content Pilot route regressions", () => {
     mockPrisma.topicalMapActivation.findUnique.mockResolvedValue(null);
     mockPrisma.contentProposal.count.mockResolvedValue(0);
     mockPrisma.contentProposal.groupBy.mockResolvedValue([]);
+    mockPrisma.$queryRaw.mockResolvedValue([]);
     mockPrisma.contentProposal.deleteMany.mockResolvedValue({ count: 0 });
     mockPrisma.contentProposal.create.mockImplementation(async ({ data }) => ({ id: `proposal-${data.title}`, ...data }));
     mockPrisma.contentProposal.createMany.mockImplementation(async ({ data }) => { const p = await mockPrisma.contentProposal.create({ data: data[0] }); mockPrisma.contentProposal.findUnique.mockResolvedValue(p); return { count: 1 }; });
@@ -214,9 +216,8 @@ describe("Content Pilot route regressions", () => {
         title: "Improve SERP snippet",
         sourceData: { source: "seo-pilot", query: "black rice benefits" },
       };
-    mockPrisma.contentProposal.findMany
-      .mockResolvedValueOnce([row])
-      .mockResolvedValueOnce([row]);
+    mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: "proposal-1" }]);
+    mockPrisma.contentProposal.findMany.mockResolvedValueOnce([row]);
 
     const { GET } = await import("@/app/api/content-pilot/proposals/route");
     const res = await GET(new Request("http://test.local/api/content-pilot/proposals"));
@@ -238,6 +239,7 @@ describe("Content Pilot route regressions", () => {
   });
 
   it("maps scheduled queue filtering and counts to ready drafts with a schedule", async () => {
+    mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: "proposal-1" }]);
     mockPrisma.contentProposal.findMany.mockResolvedValueOnce([]);
     mockPrisma.contentProposal.groupBy.mockResolvedValueOnce([
       { status: "approved", draftStatus: "ready", scheduledPublishAt: null, _count: { _all: 2 } },
@@ -249,13 +251,13 @@ describe("Content Pilot route regressions", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockPrisma.contentProposal.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         status: { in: ["approved", "override_approved"] },
         draftStatus: "ready",
         scheduledPublishAt: { not: null },
       }),
-    }));
+    });
     expect(mockPrisma.contentProposal.groupBy).toHaveBeenCalledWith(expect.objectContaining({
       by: ["status", "draftStatus", "scheduledPublishAt"],
       where: {},
@@ -263,12 +265,13 @@ describe("Content Pilot route regressions", () => {
     expect(body.stageCounts).toMatchObject({ ready: 2, scheduled: 3 });
   });
 
-  it("sorts the complete filtered queue before returning a bounded page", async () => {
+  it("requests only a bounded database-sorted page before loading proposal details", async () => {
+    mockPrisma.$queryRaw.mockResolvedValueOnce([
+      { id: "new" },
+      { id: "old" },
+    ]);
+    mockPrisma.contentProposal.count.mockResolvedValueOnce(2);
     mockPrisma.contentProposal.findMany
-      .mockResolvedValueOnce([
-        { id: "old", priority: "P2", impact: "Low", createdAt: new Date("2026-07-01T00:00:00Z") },
-        { id: "new", priority: "P3", impact: "High", createdAt: new Date("2026-07-03T00:00:00Z") },
-      ])
       .mockResolvedValueOnce([
         { id: "old", title: "Old" },
         { id: "new", title: "New" },
@@ -280,9 +283,13 @@ describe("Content Pilot route regressions", () => {
 
     expect(res.status).toBe(200);
     expect(body.proposals.map((proposal: { id: string }) => proposal.id)).toEqual(["new", "old"]);
-    expect(mockPrisma.contentProposal.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+    expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.contentProposal.count).toHaveBeenCalledWith({
       where: { status: { not: "rejected" } },
-      select: { id: true, priority: true, impact: true, createdAt: true },
+    });
+    expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.contentProposal.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ["new", "old"] } },
     }));
   });
 

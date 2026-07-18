@@ -14,4 +14,11 @@ describe("Content Pilot operator copy", () => {
 
     expect(source).toContain("published this month");
   });
+
+  it("distinguishes original map priority from operational priority", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/proposal-evidence.ts", "utf8");
+
+    expect(source).toContain("Original map priority:");
+    expect(source).not.toContain("lines.push(`Priority: ${originalPriority}`)");
+  });
 });

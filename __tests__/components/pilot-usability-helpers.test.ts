@@ -60,7 +60,7 @@ describe("pilot usability helper regressions", () => {
       sourceData: { source: "seo-pilot", mapTitle: "Map-owned black rice guide", targetKeyword: "black rice recipe", targetUrl: "/blogs/recipes/black-rice", currentArticleTitle: "Old Shopify title", mapDecision: "Refresh body content", mapEvidence: "Owner evidence", originalPriority: "P1", secondaryVariants: "forbidden rice; purple rice", contentKind: "recipe article", publishingState: "published", exactTargetIfAny: "/products/black-rice", resolutionStatus: "resolved", strategyVersionId: "strategy-v3", packageSha256: "a".repeat(64), ruleIds: ["content-decision:one"], observation: { capturedAt: "2026-07-14T00:00:00.000Z", provenance: "ArticleRecord:recipes/black-rice" } },
     })).toEqual(expect.arrayContaining([
       "Map title: Map-owned black rice guide", "Target keyword: black rice recipe", "Governed URL: /blogs/recipes/black-rice", "Current Shopify title: Old Shopify title",
-      "Decision: Refresh body content", "Evidence: Owner evidence", "Priority: P1", "Rule status: resolved",
+      "Decision: Refresh body content", "Evidence: Owner evidence", "Original map priority: P1", "Rule status: resolved",
       "Secondary variants: forbidden rice; purple rice", "Content kind: recipe article", "Publishing state: published", "Exact target: /products/black-rice",
       "Strategy version: strategy-v3", "Package: aaaaaaaaaaaa", "Governing rules: content-decision:one",
       "Observation: ArticleRecord:recipes/black-rice captured 2026-07-14T00:00:00.000Z",

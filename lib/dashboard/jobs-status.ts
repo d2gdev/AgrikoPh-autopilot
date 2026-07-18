@@ -437,7 +437,7 @@ export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
       select: { id: true, jobName: true, startedAt: true },
     }),
     prisma.contentProposal.groupBy({
-      by: ["status"],
+      by: ["status", "draftStatus"],
       _count: { _all: true },
     }),
     prisma.contentProposal.count({
@@ -583,12 +583,18 @@ export async function buildJobsStatusPayload(): Promise<JobsStatusPayload> {
     };
   });
 
-  const proposalCountByStatus = new Map(
-    contentProposalGroups.map((row) => [row.status, row._count._all]),
-  );
+  const pendingProposals = contentProposalGroups
+    .filter((row) => row.status === "pending")
+    .reduce((sum, row) => sum + row._count._all, 0);
+  const activeDrafts = contentProposalGroups
+    .filter((row) =>
+      ["approved", "override_approved"].includes(row.status)
+      && (row.draftStatus === null || ["generating", "ready"].includes(row.draftStatus))
+    )
+    .reduce((sum, row) => sum + row._count._all, 0);
   const contentPilotStats = {
-    pending: proposalCountByStatus.get("pending") ?? 0,
-    drafting: proposalCountByStatus.get("approved") ?? 0,
+    pending: pendingProposals,
+    drafting: activeDrafts,
     publishedThisMonth: contentPublishedThisMonth,
   };
 
