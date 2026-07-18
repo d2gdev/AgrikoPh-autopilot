@@ -14,4 +14,4 @@ date,task,plan_level,gate_yes_count,planning_minutes,execution_minutes,notes
 2026-07-18,rolling-topical-map-seo-task-scheduler,lean,1,0.5,15,Phase-level 90-day materialization added test-first to existing activation and daily boundaries with no schema or deployment
 2026-07-18,execute-two-ready-seo-tasks,lean,2,0.5,15,Completed the authorized GA4 key-event task and retained the Shopify P0 task because all governed records are non-executable advisories with no approved recommendation
 2026-07-18,content-pilot-exact-topical-map-suggestions,comprehensive,1,5,12,Writing-plans workflow required after approved design; scope remained one subsystem with exact-map filtering and one verification pass plus one failure-driven rerun
-2026-07-18,content-pilot-current-and-future-roadmap,comprehensive,0,4,0,Writing-plans workflow required after confirmed design; implementation is limited to one read-only roadmap response and one locked UI section
+2026-07-18,content-pilot-current-and-future-roadmap,comprehensive,0,4,3,Writing-plans workflow required after confirmed design; implementation is limited to one read-only roadmap response and one locked UI section

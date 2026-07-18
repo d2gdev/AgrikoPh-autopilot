@@ -36,13 +36,29 @@ export interface ContentMapResearchItem {
   ruleIds: string[];
 }
 
+export interface ContentMapUpcomingPhase {
+  taskId: string;
+  title: string;
+  obligations: string;
+  priority: string;
+  earliestReviewAt: string;
+  dueAt: string | null;
+  phaseLabel: string | null;
+  ruleIds: string[];
+}
+
 export interface ContentMapSuggestionsResponse {
   strategy: {
     versionId: string;
     packageSha256: string;
-    analysisGeneratedAt: string;
+    analysisGeneratedAt: string | null;
+  };
+  currentWork: {
+    status: "current" | "refresh_required";
+    reason: string | null;
   };
   actionable: ContentMapSuggestion[];
+  upcoming: ContentMapUpcomingPhase[];
   research: ContentMapResearchItem[];
 }
 

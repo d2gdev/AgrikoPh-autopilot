@@ -25,6 +25,15 @@ async function safeJson(res: Response): Promise<Record<string, unknown>> {
   }
 }
 
+const roadmapDate = new Intl.DateTimeFormat("en-PH", {
+  dateStyle: "medium",
+  timeZone: "Asia/Manila",
+});
+
+function formatRoadmapDate(value: string): string {
+  return roadmapDate.format(new Date(value));
+}
+
 export function BriefTab({
   authFetch,
 }: {
@@ -149,10 +158,17 @@ export function BriefTab({
       <Card>
         <BlockStack gap="300">
           <InlineStack align="space-between" blockAlign="center">
-            <Text variant="headingMd" as="h2">Mapped content work</Text>
+            <Text variant="headingMd" as="h2">Available now</Text>
             {loading && <Badge tone="info">Loading</Badge>}
           </InlineStack>
-          {!loading && suggestions?.actionable.length === 0 && (
+          {suggestions?.currentWork.status === "refresh_required" && (
+            <Banner tone="warning">
+              Current analysis needs refreshing. Current actions are unavailable, but the mapped roadmap remains visible.
+            </Banner>
+          )}
+          {!loading
+            && suggestions?.currentWork.status === "current"
+            && suggestions.actionable.length === 0 && (
             <Text as="p" tone="subdued">No mapped content work is currently actionable.</Text>
           )}
           {suggestions?.actionable.map((item) => (
@@ -175,6 +191,33 @@ export function BriefTab({
                     Generate mapped brief
                   </Button>
                 </InlineStack>
+              </BlockStack>
+            </Box>
+          ))}
+        </BlockStack>
+      </Card>
+
+      <Card>
+        <BlockStack gap="300">
+          <Text variant="headingMd" as="h2">Upcoming mapped phases</Text>
+          {!loading && suggestions?.upcoming.length === 0 && (
+            <Text as="p" tone="subdued">No future mapped phases are currently scheduled.</Text>
+          )}
+          {suggestions?.upcoming.map((item) => (
+            <Box key={item.taskId} paddingBlockEnd="300">
+              <BlockStack gap="150">
+                <InlineStack gap="200" blockAlign="center" wrap>
+                  <Text as="h3" variant="headingSm">{item.title}</Text>
+                  <Badge>{item.priority}</Badge>
+                  <Badge tone="info">Upcoming</Badge>
+                </InlineStack>
+                <Text as="p" tone="subdued">
+                  Review window: {formatRoadmapDate(item.earliestReviewAt)}
+                  {item.dueAt ? ` – ${formatRoadmapDate(item.dueAt)}` : ""}
+                </Text>
+                {item.obligations.split("\n").map((obligation) => (
+                  <Text key={obligation} as="p">{obligation}</Text>
+                ))}
               </BlockStack>
             </Box>
           ))}
