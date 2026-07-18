@@ -12,7 +12,7 @@ edges:
     condition: when running local verification commands
   - target: context/conventions.md
     condition: when database access is added to an integration test
-last_updated: 2026-07-12T00:00:00Z
+last_updated: 2026-07-18T14:10:00+08:00
 ---
 
 # Prisma and PostgreSQL Test Gates
@@ -27,7 +27,7 @@ last_updated: 2026-07-12T00:00:00Z
 2. Run `npm run verify:prisma-client` before application or test typechecks.
 3. Place database-backed tests in `__tests__/integration/` because `vitest.postgres.config.ts` explicitly collects `__tests__/integration/**/*.test.ts`. Guard each suite against an absent `DATABASE_URL_TEST`; do not change test discovery to preserve obsolete documentation.
 4. Use exactly `postgresql://test:test@127.0.0.1:5432/autopilot_test`; the URL-decoded database path must be exactly `autopilot_test`.
-5. In CI, retain the PostgreSQL 16 service and set `DATABASE_URL_TEST`; never use a production or secret database URL.
+5. In CI, retain the PostgreSQL 16 pgvector service and set `DATABASE_URL_TEST`; the migration history creates the `vector` extension, so plain `postgres:16` is insufficient. Never use a production or secret database URL.
 
 ## Gotchas
 
