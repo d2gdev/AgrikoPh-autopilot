@@ -84,6 +84,7 @@ describe("Content Pilot navigation and semantics", () => {
     expect(source).toContain("selectedTab === 1 &&");
     expect(source).toContain("selectedTab === 2 &&");
     expect(source).toContain("if (selectedTab !== 0) return;");
+    expect(source).toContain("overviewLoadedRef.current");
     expect(source).not.toContain("display: selectedTab ===");
   });
 

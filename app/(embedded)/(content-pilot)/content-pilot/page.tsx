@@ -75,6 +75,7 @@ export default function ContentPilotPage() {
   const [indexResult, setIndexResult] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const overviewLoadedRef = useRef(false);
   const overviewRequestsRef = useRef(createLatestRequestCoordinator());
 
   const loadOverview = useCallback(async (page = 1): Promise<void> => {
@@ -145,6 +146,8 @@ export default function ContentPilotPage() {
 
   useEffect(() => {
     if (selectedTab !== 0) return;
+    if (overviewLoadedRef.current) return;
+    overviewLoadedRef.current = true;
     void loadOverview(1);
   }, [loadOverview, selectedTab]);
 
