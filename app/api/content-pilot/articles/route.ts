@@ -11,17 +11,18 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
-  const limit = 50;
+  const limit = 25;
   const skip = (page - 1) * limit;
 
   try {
-    const [records, total] = await Promise.all([
+    const [records, total, scoreRecords] = await Promise.all([
       prisma.articleRecord.findMany({
         where: { publishedAt: { not: null } },
         skip,
         take: limit,
         orderBy: { publishedAt: "desc" },
         select: {
+          blogHandle: true,
           handle: true,
           title: true,
           publishedAt: true,
@@ -34,13 +35,28 @@ export async function GET(req: Request) {
         },
       }),
       prisma.articleRecord.count({ where: { publishedAt: { not: null } } }),
+      prisma.articleRecord.findMany({
+        where: { publishedAt: { not: null } },
+        select: { seoData: true },
+      }),
     ]);
+
+    const summary = scoreRecords.reduce(
+      (counts, record) => {
+        const score = ((record.seoData as unknown as SeoAnalysis) ?? { score: 0 }).score ?? 0;
+        if (score >= 80) counts.goodSeo += 1;
+        if (score < 50) counts.criticalSeo += 1;
+        return counts;
+      },
+      { goodSeo: 0, criticalSeo: 0 },
+    );
 
     const articles = records.map((r) => {
       const seo = (r.seoData as unknown as SeoAnalysis) ?? { score: 0, issues: [] };
       const links = r.linksData as { internal: unknown[]; external: unknown[]; inboundCount?: number };
       const topics = r.topicsData as Array<{ topic: string; confidence: number }>;
       return {
+        blogHandle: r.blogHandle,
         handle: r.handle,
         title: r.title,
         publishedAt: r.publishedAt,
@@ -54,7 +70,7 @@ export async function GET(req: Request) {
       };
     });
 
-    return NextResponse.json({ articles, total, page, pages: Math.ceil(total / limit) });
+    return NextResponse.json({ articles, total, page, pages: Math.ceil(total / limit), summary });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

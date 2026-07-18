@@ -10,7 +10,7 @@ triggers:
 edges:
   - target: patterns/generation-dedupe.md
     condition: when stale or finished ideas are being regenerated
-last_updated: 2026-07-18T23:50:00+08:00
+last_updated: 2026-07-19T00:22:00+08:00
 ---
 
 # Pilot Queue Usability
@@ -50,9 +50,10 @@ Backend dedupe is not enough. Operators need to see why a row exists, why a queu
 19. Coordinate overlapping UI loads. Background polls must skip while a load is active; foreground or post-mutation refreshes may supersede and abort older work; only the current request may commit or clear loading state. If generation and its authoritative reload both fail, restore the pre-generation row and retain the original generation error.
 20. Protect Run Indexer and Content Brief with `CONTENT_REVIEW`. Return safe operator errors rather than raw provider or Shopify details.
 21. Route every `fetchBlogContentHandler` production entry point through one owner-token lock wrapper. A denied lock means another index is active; only the owner that acquired the lock may release it.
-22. Overview counts must load the complete paginated article corpus, and overlapping refreshes must prevent older results from overwriting newer state.
-23. For executable topical-map Store Tasks, confirmation starts Apply but does not prove completion. Revalidate the active strategy and exact live before-state, perform only the supported Shopify mutation, persist the success receipt, and only then mark the task completed. Advisory tasks never expose Apply.
-24. Distinct persisted signals can still be visually duplicate work. Group rows that share the same operator-visible source and message, retain every underlying record, and expose a bounded source link for each record before Resolve. Do not resolve or delete distinct evidence merely to reduce card count.
+22. Overview article rows must load and render one bounded server page. Return authoritative full-corpus summary counts separately from that page, retain exact `(blogHandle, handle)` identity for links, and prevent older overlapping refreshes from overwriting newer state.
+23. Keep large Queue evidence and proposed-change summaries collapsed by default. The compact row must retain status, title, description, primary actions, warnings, and an accessible disclosure control; reducing visual density must not hide safety or recovery states.
+24. For executable topical-map Store Tasks, confirmation starts Apply but does not prove completion. Revalidate the active strategy and exact live before-state, perform only the supported Shopify mutation, persist the success receipt, and only then mark the task completed. Advisory tasks never expose Apply.
+25. Distinct persisted signals can still be visually duplicate work. Group rows that share the same operator-visible source and message, retain every underlying record, and expose a bounded source link for each record before Resolve. Do not resolve or delete distinct evidence merely to reduce card count.
 
 ## Gotchas
 - A successful "skipped/already handled" backend response still feels broken if the UI leaves the same row visible or says to fetch data first.

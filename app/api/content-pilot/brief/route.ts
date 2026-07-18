@@ -52,6 +52,13 @@ function mappedBrief(input: {
       link.requiredAction,
     ).actionable);
   const value = (item: string | undefined) => item ?? "Not specified by the active topical map.";
+  const ownershipBoundary = (sibling: CommandCenterPage) => {
+    const owner = `${value(sibling.title)} (${sibling.url})`;
+    const context = `role: ${value(sibling.role)}; keyword/theme: ${value(sibling.primaryKeywordOrTheme)}.`;
+    return sibling.exclusiveIntentScope
+      ? `- Do not duplicate ${sibling.exclusiveIntentScope} owned by ${owner}; ${context}`
+      : `- Keep the intent owned by ${owner} separate; ${context}`;
+  };
 
   return [
     `# ${value(page.title)}`,
@@ -73,8 +80,7 @@ function mappedBrief(input: {
     "",
     "## Ownership boundaries",
     ...(siblings.length > 0
-      ? siblings.map((sibling) =>
-        `- Do not duplicate ${value(sibling.exclusiveIntentScope)} owned by ${value(sibling.title)} (${sibling.url}); role: ${value(sibling.role)}; keyword/theme: ${value(sibling.primaryKeywordOrTheme)}.`)
+      ? siblings.map(ownershipBoundary)
       : ["- No sibling ownership boundary is specified for this cluster."]),
     "",
     "## Map-authorized internal links",

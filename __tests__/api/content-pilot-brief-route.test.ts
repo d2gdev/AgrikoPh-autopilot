@@ -169,6 +169,25 @@ describe("POST /api/content-pilot/brief", () => {
     expect(mocks.completions).not.toHaveBeenCalled();
   });
 
+  it("uses clear ownership wording when a sibling has no exclusive scope", async () => {
+    const commandCenter = await mocks.commandCenter();
+    commandCenter.pages[1].exclusiveIntentScope = undefined;
+    mocks.commandCenter.mockResolvedValue(commandCenter);
+
+    const { POST } = await import("@/app/api/content-pilot/brief/route");
+    const response = await POST(request({
+      strategyVersionId: "strategy-1",
+      packageSha256: "a".repeat(64),
+      analysisGeneratedAt: "2026-07-18T00:00:00.000Z",
+      candidateId: "b".repeat(64),
+    }) as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.brief).toContain("Keep the intent owned by Rice Benefits");
+    expect(body.brief).not.toContain("Do not duplicate Not specified");
+  });
+
   it("does not generate another brief for mapped work already handled", async () => {
     mocks.blockingProposals.mockResolvedValue(new Map([["b".repeat(64), "published-1"]]));
     const { POST } = await import("@/app/api/content-pilot/brief/route");

@@ -13,6 +13,7 @@ import {
   TextField,
 } from "@shopify/polaris";
 import type { useRouter } from "next/navigation";
+import { useState } from "react";
 import { withShopifyContextUrl } from "@/hooks/use-auth-fetch";
 import { sanitizeHtml } from "@/lib/content-pilot/sanitize-html";
 import { canRejectContentProposal } from "@/lib/content-pilot/proposal-state";
@@ -117,6 +118,8 @@ export function ProposalRow({
   isFullExpanded: boolean;
   onToggleFullExpand: (id: string) => void;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsId = `proposal-details-${p.id}`;
   const evidenceLines = proposalEvidenceLines(p);
   const canReject = canRejectContentProposal(p);
   const eligibility = contentProposalEligibility(p);
@@ -333,20 +336,37 @@ export function ProposalRow({
           </Text>
         )}
 
-        {evidenceLines.length > 0 && (
-          <Box background="bg-surface-secondary" padding="200" borderRadius="100">
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" fontWeight="semibold">Why shown</Text>
-              <InlineStack gap="200" wrap>
-                {evidenceLines.map((line) => (
-                  <Badge key={line}>{line}</Badge>
-                ))}
-              </InlineStack>
-            </BlockStack>
-          </Box>
-        )}
+        <InlineStack>
+          <Button
+            size="slim"
+            variant="plain"
+            ariaControls={`proposal-details-${p.id}`}
+            ariaExpanded={detailsOpen}
+            onClick={() => setDetailsOpen((open) => !open)}
+          >
+            {detailsOpen ? "Hide details" : "View details"}
+          </Button>
+        </InlineStack>
 
-        <ProposedChangeSummary proposalType={p.proposalType} proposedState={p.proposedState} />
+        {detailsOpen && (
+          <div id={detailsId}>
+            <BlockStack gap="200">
+              {evidenceLines.length > 0 && (
+                <Box background="bg-surface-secondary" padding="200" borderRadius="100">
+                  <BlockStack gap="100">
+                    <Text as="p" variant="bodySm" fontWeight="semibold">Why shown</Text>
+                    <InlineStack gap="200" wrap>
+                      {evidenceLines.map((line) => (
+                        <Badge key={line}>{line}</Badge>
+                      ))}
+                    </InlineStack>
+                  </BlockStack>
+                </Box>
+              )}
+              <ProposedChangeSummary proposalType={p.proposalType} proposedState={p.proposedState} />
+            </BlockStack>
+          </div>
+        )}
 
         <RowAction />
 

@@ -44,9 +44,19 @@ describe("Content Pilot queue publication stages", () => {
     const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/QueueTab.tsx", "utf8");
 
     expect(source).not.toContain("loadAllProposalPages");
+    expect(source).toContain('limit: "25"');
     expect(source).toContain('params.set("stage", stageFilter)');
     expect(source).toContain("stageCounts");
     expect(source).toContain("Load more");
+  });
+
+  it("keeps proposal evidence and change details collapsed by default", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/queue/ProposalRow.tsx", "utf8");
+
+    expect(source).toContain("detailsOpen");
+    expect(source).toContain('ariaControls={`proposal-details-${p.id}`}');
+    expect(source).toContain('{detailsOpen && (');
+    expect(source).toContain('detailsOpen ? "Hide details" : "View details"');
   });
 
   it("does not expose proposal cloning", () => {
@@ -65,6 +75,24 @@ describe("Content Pilot navigation and semantics", () => {
     expect(source).toContain("window.history.replaceState");
     expect(source).toContain("handleSelectTab");
     expect(source).toContain('as="p" tone="subdued"');
+  });
+
+  it("mounts only the active Content Pilot tab and defers Overview loading", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/page.tsx", "utf8");
+
+    expect(source).toContain("selectedTab === 0 &&");
+    expect(source).toContain("selectedTab === 1 &&");
+    expect(source).toContain("selectedTab === 2 &&");
+    expect(source).toContain("if (selectedTab !== 0) return;");
+    expect(source).not.toContain("display: selectedTab ===");
+  });
+
+  it("paginates indexed articles and links diagnostic rows to their exact storefront URLs", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/OverviewTab.tsx", "utf8");
+
+    expect(source).toContain("<Pagination");
+    expect(source).toContain("articleStorefrontUrl");
+    expect(source).toContain("<Link");
   });
 
   it("gives repeated row controls proposal-specific accessible names", () => {

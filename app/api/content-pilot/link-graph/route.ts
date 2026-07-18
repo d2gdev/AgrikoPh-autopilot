@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   try {
     const records = await prisma.articleRecord.findMany({
       where: { publishedAt: { not: null } },
-      select: { handle: true, title: true, linksData: true, inboundCount: true },
+      select: { blogHandle: true, handle: true, title: true, linksData: true, inboundCount: true },
       orderBy: { indexedAt: "desc" },
     });
     const edges = await prisma.internalLinkEdge.findMany({
@@ -61,6 +61,7 @@ export async function GET(req: Request) {
       const edgeOutbound = outboundBySource.get(r.handle);
       const edgeInbound = inboundArticleByHandle.get(r.handle);
       return {
+        blogHandle: r.blogHandle,
         handle: r.handle,
         title: r.title,
         outboundLinks: edgeOutbound ?? links.internal?.length ?? 0,

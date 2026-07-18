@@ -5,6 +5,8 @@ import {
   Box,
   DataTable,
   InlineStack,
+  Link,
+  Pagination,
   Spinner,
   Text,
 } from "@shopify/polaris";
@@ -18,6 +20,9 @@ export function OverviewTab({
   linkGraph,
   loading,
   articlesError,
+  page,
+  pages,
+  onPageChange,
   onOpenBrief,
 }: {
   articles: ArticleRow[];
@@ -25,10 +30,20 @@ export function OverviewTab({
   linkGraph: LinkGraphData | null;
   loading: boolean;
   articlesError: boolean; // Fix #3 — distinguish timeout from genuinely empty
+  page: number;
+  pages: number;
+  onPageChange: (page: number) => void;
   onOpenBrief: () => void;
 }) {
+  const articleStorefrontUrl = (article: { blogHandle: string; handle: string }) =>
+    `https://agrikoph.com/blogs/${encodeURIComponent(article.blogHandle)}/${encodeURIComponent(article.handle)}`;
+  const articleLink = (article: { blogHandle: string; handle: string; title: string }) => (
+    <Link url={articleStorefrontUrl(article)} external>
+      {article.title}
+    </Link>
+  );
   const articleRows = articles.map((a) => [
-    a.title,
+    articleLink(a),
     fmt(a.publishedAt),
     <ScoreBadge key={a.handle} score={a.seoScore} />,
     a.topics.join(", ") || "—",
@@ -49,12 +64,12 @@ export function OverviewTab({
   ]);
 
   const orphanRows = (linkGraph?.orphans ?? []).slice(0, 10).map((a) => [
-    a.title,
+    articleLink(a),
     String(a.outboundLinks ?? 0),
   ]);
 
   const hubRows = (linkGraph?.hubs ?? []).map((a) => [
-    a.title,
+    articleLink(a),
     String(a.inboundCount ?? 0),
     String(a.outboundLinks ?? 0),
   ]);
@@ -154,11 +169,24 @@ export function OverviewTab({
             No articles indexed yet. Click &ldquo;Run Indexer&rdquo; to analyse your blog posts.
           </Text>
         ) : (
-          <DataTable
-            columnContentTypes={["text", "text", "text", "text", "numeric", "numeric"]}
-            headings={["Title", "Published", "SEO Score", "Topics", "Out-links", "In-links"]}
-            rows={articleRows}
-          />
+          <BlockStack gap="300">
+            <DataTable
+              columnContentTypes={["text", "text", "text", "text", "numeric", "numeric"]}
+              headings={["Title", "Published", "SEO Score", "Topics", "Out-links", "In-links"]}
+              rows={articleRows}
+            />
+            {pages > 1 && (
+              <InlineStack align="center" gap="300" blockAlign="center">
+                <Text as="p" tone="subdued">{`Page ${page} of ${pages}`}</Text>
+                <Pagination
+                  hasPrevious={page > 1}
+                  onPrevious={() => onPageChange(page - 1)}
+                  hasNext={page < pages}
+                  onNext={() => onPageChange(page + 1)}
+                />
+              </InlineStack>
+            )}
+          </BlockStack>
         )}
       </BlockStack>
     </BlockStack>

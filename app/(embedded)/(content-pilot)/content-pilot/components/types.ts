@@ -1,4 +1,5 @@
 export interface ArticleRow {
+  blogHandle: string;
   handle: string;
   title: string;
   publishedAt: string | null;
@@ -66,8 +67,8 @@ export interface ContentMapSuggestionsResponse {
 
 export interface LinkGraphData {
   total: number;
-  hubs: { handle: string; title: string; inboundCount: number; outboundLinks: number }[];
-  orphans: { handle: string; title: string; inboundCount: number; outboundLinks: number }[];
+  hubs: { blogHandle: string; handle: string; title: string; inboundCount: number; outboundLinks: number }[];
+  orphans: { blogHandle: string; handle: string; title: string; inboundCount: number; outboundLinks: number }[];
   orphanCount: number;
 }
 

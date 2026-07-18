@@ -22,7 +22,7 @@ import {
 } from "@shopify/polaris";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuthFetch } from "@/hooks/use-auth-fetch";
-import { loadAllArticlePages, type ArticlePage } from "@/lib/content-pilot/article-pagination";
+import type { ArticlePage } from "@/lib/content-pilot/article-pagination";
 import { contentIndexFeedback, overviewLoadWarning } from "@/lib/content-pilot/operator-feedback";
 import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
 import type { ArticleRow, TopicCluster, LinkGraphData } from "./components/types";
@@ -48,14 +48,12 @@ import { BriefTab } from "./components/BriefTab";
 
 export default function ContentPilotPage() {
   const authFetch = useAuthFetch();
-  const [selectedTab, setSelectedTab] = useState(0);
+  const [selectedTab, setSelectedTab] = useState<number | null>(null);
 
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
-    if (t) {
-      const n = parseInt(t, 10);
-      if (Number.isFinite(n) && n >= 0 && n <= 2) setSelectedTab(n);
-    }
+    const n = t ? parseInt(t, 10) : 0;
+    setSelectedTab(Number.isFinite(n) && n >= 0 && n <= 2 ? n : 0);
   }, []);
   const handleSelectTab = useCallback((index: number) => {
     setSelectedTab(index);
@@ -65,6 +63,10 @@ export default function ContentPilotPage() {
   }, []);
   const [articles, setArticles] = useState<ArticleRow[]>([]);
   const [total, setTotal] = useState(0);
+  const [articlePage, setArticlePage] = useState(1);
+  const [articlePages, setArticlePages] = useState(1);
+  const [goodSeo, setGoodSeo] = useState(0);
+  const [criticalSeo, setCriticalSeo] = useState(0);
   const [clusters, setClusters] = useState<TopicCluster[]>([]);
   const [linkGraph, setLinkGraph] = useState<LinkGraphData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,7 +77,7 @@ export default function ContentPilotPage() {
   const [warning, setWarning] = useState<string | null>(null);
   const overviewRequestsRef = useRef(createLatestRequestCoordinator());
 
-  const loadOverview = useCallback(async (): Promise<void> => {
+  const loadOverview = useCallback(async (page = 1): Promise<void> => {
     const request = overviewRequestsRef.current.start({ background: false });
     if (!request) return;
     setLoading(true);
@@ -105,23 +107,25 @@ export default function ContentPilotPage() {
       }
     };
 
-    const articlePages = loadAllArticlePages<ArticleRow>(async (page) => {
-      const value = await fetchJson(`/api/content-pilot/articles?page=${page}`);
-      if (!value || !Array.isArray((value as { articles?: unknown }).articles)) {
-        throw new Error(`Article page ${page} failed to load`);
-      }
-      return value as ArticlePage<ArticleRow>;
-    });
-
     try {
       const [a, c, g] = await Promise.all([
-        articlePages,
+        fetchJson(`/api/content-pilot/articles?page=${page}`),
         fetchJson("/api/content-pilot/topic-clusters"),
         fetchJson("/api/content-pilot/link-graph"),
       ]);
       if (!overviewRequestsRef.current.isCurrent(request)) return;
-      setArticles(a.articles);
-      setTotal(a.total);
+      if (!a || !Array.isArray((a as { articles?: unknown }).articles)) {
+        throw new Error(`Article page ${page} failed to load`);
+      }
+      const articleData = a as ArticlePage<ArticleRow> & {
+        summary?: { goodSeo?: number; criticalSeo?: number };
+      };
+      setArticles(articleData.articles);
+      setTotal(articleData.total);
+      setArticlePage(articleData.page);
+      setArticlePages(articleData.pages);
+      setGoodSeo(articleData.summary?.goodSeo ?? 0);
+      setCriticalSeo(articleData.summary?.criticalSeo ?? 0);
       if (c) setClusters((c as { clusters: TopicCluster[] }).clusters ?? []);
       if (g) setLinkGraph(g as LinkGraphData);
       setWarning(overviewLoadWarning({ clustersLoaded: Boolean(c), linkGraphLoaded: Boolean(g) }));
@@ -140,8 +144,9 @@ export default function ContentPilotPage() {
   }, [authFetch]);
 
   useEffect(() => {
-    loadOverview();
-  }, [loadOverview]);
+    if (selectedTab !== 0) return;
+    void loadOverview(1);
+  }, [loadOverview, selectedTab]);
 
   const runIndexer = useCallback(async () => {
     setIndexing(true);
@@ -155,7 +160,7 @@ export default function ContentPilotPage() {
       } else {
         setIndexResult(contentIndexFeedback(d));
         handleSelectTab(0);
-        await loadOverview();
+        await loadOverview(1);
       }
     } catch (e) {
       setError(String(e));
@@ -163,9 +168,6 @@ export default function ContentPilotPage() {
       setIndexing(false);
     }
   }, [authFetch, handleSelectTab, loadOverview]);
-
-  const goodSeo = articles.filter((a) => a.seoScore >= 80).length;
-  const criticalSeo = articles.filter((a) => a.seoScore < 50).length;
 
   const tabs = [
     { id: "overview", content: "Overview" },
@@ -203,7 +205,7 @@ export default function ContentPilotPage() {
           </Layout.Section>
         )}
 
-        <Layout.Section>
+        {selectedTab === 0 && <Layout.Section>
           <InlineStack gap="400" wrap>
             <div style={{ flex: "1 1 180px", minWidth: 180 }}>
             <Card>
@@ -254,28 +256,31 @@ export default function ContentPilotPage() {
             </Card>
             </div>
           </InlineStack>
-        </Layout.Section>
+        </Layout.Section>}
 
         <Layout.Section>
           <Card padding="0">
-            <Tabs tabs={tabs} selected={selectedTab} onSelect={handleSelectTab}>
+            <Tabs tabs={tabs} selected={selectedTab ?? 0} onSelect={handleSelectTab}>
               <Box padding="400">
-                <div style={{ display: selectedTab === 0 ? undefined : "none" }}>
+                {selectedTab === 0 && (
                   <OverviewTab
                     articles={articles}
                     clusters={clusters}
                     linkGraph={linkGraph}
                     loading={loading}
                     articlesError={articlesError}
+                    page={articlePage}
+                    pages={articlePages}
+                    onPageChange={loadOverview}
                     onOpenBrief={() => handleSelectTab(2)}
                   />
-                </div>
-                <div style={{ display: selectedTab === 1 ? undefined : "none" }}>
-                  <QueueTab authFetch={authFetch} active={selectedTab === 1} />
-                </div>
-                <div style={{ display: selectedTab === 2 ? undefined : "none" }}>
+                )}
+                {selectedTab === 1 && (
+                  <QueueTab authFetch={authFetch} active />
+                )}
+                {selectedTab === 2 && (
                   <BriefTab authFetch={authFetch} onOpenQueue={() => handleSelectTab(1)} />
-                </div>
+                )}
               </Box>
             </Tabs>
           </Card>

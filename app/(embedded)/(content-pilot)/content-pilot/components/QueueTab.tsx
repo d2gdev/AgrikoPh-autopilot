@@ -137,7 +137,7 @@ export function QueueTab({
     if (!request) return false;
     if (!silent) setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: "50", sort: sortKey });
+      const params = new URLSearchParams({ limit: "25", sort: sortKey });
       if (stageFilter !== "all") params.set("stage", stageFilter);
       if (searchQuery.trim()) params.set("q", searchQuery.trim());
       if (typeFilter !== "all") params.set("type", typeFilter);
