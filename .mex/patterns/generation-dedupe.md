@@ -8,7 +8,7 @@ triggers:
   - "duplicate proposals"
   - "clear queue"
   - "start from scratch"
-last_updated: 2026-07-18T16:46:38+08:00
+last_updated: 2026-07-18T17:06:51+08:00
 ---
 
 # Generation Dedupe
@@ -48,6 +48,7 @@ Autopilot has multiple idea generators: skill recommendations, insight-derived a
 - For rolling topical-map tasks, use `topical-map-phase:<strategyVersionId>:<startDay>-<endDay>` as the immutable source key. Daily reconciliation may create a missing current-version phase or cancel an open prior-version phase through the audited mutation service, but it must never reopen or recreate a completed/cancelled identity.
 - For exact-map content candidates, preflight both the current exact-URL proposal key and the legacy handle-only key. Apply the same shared check when listing candidates, before expensive brief generation, and inside the queue transaction so historical rows and stale clicks cannot recreate finished work.
 - Use `topical-map-content:<strategyVersionId>:<candidateId>` for exact mapped content tasks. Reconcile against both completed task history by logical URL/action and recreate-blocking Content Proposal history. Content Pilot must require the corresponding Ready task before brief or proposal mutation, and proposal creation must trigger task reconciliation so it cannot remain as a separate actionable backlog.
+- Queue dedupe does not prevent semantic duplication inside an AI-written brief. For exact-map work, build the brief deterministically from the mapped page assignment, same-cluster ownership boundaries, and exact mapped links; do not let a model elaborate adjacent topics, URLs, claims, or link targets beyond the contract.
 
 ## Verify
 - Add regression coverage for at least one terminal status (`rejected`, `executed`, `published`, `dismissed`, or `completed`) blocking regeneration.

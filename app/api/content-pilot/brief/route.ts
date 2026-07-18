@@ -1,5 +1,4 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -10,7 +9,6 @@ import {
   requireAppAuth,
   requirePermission,
 } from "@/lib/auth";
-import { getAiClient } from "@/lib/ai/client";
 import {
   getBlockingMapContentProposals,
   hasReadyMappedContentTask,
@@ -22,7 +20,12 @@ import {
   readAnalysisForStrategy,
 } from "@/lib/seo/analysis";
 import { getLatestSnapshot } from "@/lib/seo/snapshot";
-import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
+import { topicalMapInternalLinkEligibility } from "@/lib/topical-map/action-eligibility";
+import {
+  loadActiveTopicalMapCommandCenter,
+  type CommandCenterPage,
+  type TopicalMapCommandCenter,
+} from "@/lib/topical-map/command-center";
 
 const BriefInput = z.object({
   strategyVersionId: z.string().min(1),
@@ -31,28 +34,61 @@ const BriefInput = z.object({
   candidateId: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
 
-function classifyBriefError(err: unknown): { status: number; error: string; detail?: string } {
-  const raw = err instanceof Error ? err.message : String(err);
-  const lower = raw.toLowerCase();
-  if (lower.includes("authentication fails") || lower.includes("api key") || lower.includes("401")) {
-    return {
-      status: 503,
-      error: "AI provider authentication failed",
-      detail: "The configured AI API key is invalid or expired. Update the DeepSeek/OpenRouter credential, then retry brief generation.",
-    };
-  }
-  if (lower.includes("no ai provider configured") || lower.includes("provider not configured")) {
-    return {
-      status: 503,
-      error: "AI provider is not configured",
-      detail: "Set a valid DeepSeek or OpenRouter API key, then retry brief generation.",
-    };
-  }
-  return {
-    status: 500,
-    error: "Brief generation failed",
-    detail: "The AI provider failed unexpectedly. Retry brief generation, or contact an administrator if the problem continues.",
-  };
+function mappedBrief(input: {
+  page: CommandCenterPage;
+  action: string;
+  observedEvidence: unknown;
+  commandCenter: TopicalMapCommandCenter;
+}): string {
+  const { page, action, observedEvidence, commandCenter } = input;
+  const siblings = page.cluster
+    ? commandCenter.pages.filter((item) => item.url !== page.url && item.cluster === page.cluster)
+    : [];
+  const links = commandCenter.work.internalLinks.filter((link) =>
+    (link.fromUrl === page.url || link.toUrl === page.url)
+    && topicalMapInternalLinkEligibility(
+      link.policy,
+      link.currentBodyState,
+      link.requiredAction,
+    ).actionable);
+  const value = (item: string | undefined) => item ?? "Not specified by the active topical map.";
+
+  return [
+    `# ${value(page.title)}`,
+    "",
+    "## Exact mapped assignment",
+    `- Action: ${action}`,
+    `- Target URL: ${page.url}`,
+    `- Cluster: ${value(page.cluster)}`,
+    `- Page role: ${value(page.role)}`,
+    `- Primary keyword/theme: ${value(page.primaryKeywordOrTheme)}`,
+    `- Secondary variants: ${value(page.secondaryVariants)}`,
+    `- Exclusive intent scope: ${value(page.exclusiveIntentScope)}`,
+    "",
+    "## Required work",
+    `- Map decision: ${value(page.decision)}`,
+    `- Exact target, if specified: ${value(page.exactTargetIfAny)}`,
+    `- Map evidence: ${value(page.evidence)}`,
+    `- Observed evidence: ${JSON.stringify(observedEvidence)}`,
+    "",
+    "## Ownership boundaries",
+    ...(siblings.length > 0
+      ? siblings.map((sibling) =>
+        `- Do not duplicate ${value(sibling.exclusiveIntentScope)} owned by ${value(sibling.title)} (${sibling.url}); role: ${value(sibling.role)}; keyword/theme: ${value(sibling.primaryKeywordOrTheme)}.`)
+      : ["- No sibling ownership boundary is specified for this cluster."]),
+    "",
+    "## Map-authorized internal links",
+    ...(links.length > 0
+      ? links.map((link) =>
+        `- ${link.fromUrl} → ${link.toUrl}; action: ${value(link.requiredAction)}; anchor: ${value(link.recommendedAnchor)}; purpose: ${value(link.linkPurpose)}.`)
+      : ["- No internal link involving this page is specified by the active topical map."]),
+    "",
+    "## Completion checks",
+    `- Keep the exact target URL: ${page.url}.`,
+    `- Complete only the mapped decision: ${value(page.decision)}`,
+    "- Do not add another topic, page, URL, intent, claim, or internal link that is not listed above.",
+    "- Keep sibling-owned intent out of this page.",
+  ].join("\n");
 }
 
 export async function POST(req: NextRequest) {
@@ -113,40 +149,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const prompt = [
-    "Create a concise implementation brief for this exact active topical-map content decision.",
-    `Mapped title: ${page.title ?? candidate.suggestedTitle}`,
-    `Exact target URL: ${page.url}`,
-    `Target keyword: ${page.primaryKeywordOrTheme ?? candidate.query}`,
-    `Secondary variants: ${page.secondaryVariants ?? "none specified"}`,
-    `Map decision: ${page.decision}`,
-    `Observed evidence: ${JSON.stringify(candidate.observedEvidence)}`,
-    "Do not propose another topic, title, URL, or intent.",
-  ].join("\n");
-
-  try {
-    const ai = await getAiClient();
-    const response = await ai.client.chat.completions.create({
-      model: ai.model,
-      max_tokens: 4096,
-      messages: [
-        {
-          role: "system",
-          content: "You are Agriko's content implementation strategist. Follow the supplied active topical-map decision exactly. Write in English. Return: mapped objective, required updates, evidence to preserve, internal-link considerations, and completion checks.",
-        },
-        { role: "user", content: prompt },
-      ],
-    });
-    const message = response.choices[0]?.message as Record<string, unknown> | undefined;
-    const brief = ((message?.content as string) || (message?.reasoning_content as string) || "").trim();
-    if (!brief) {
-      return NextResponse.json({ error: "AI returned an empty brief — please retry" }, { status: 502 });
-    }
-    return NextResponse.json({ brief });
-  } catch (err) {
-    console.error("[content-pilot/brief] error:", err);
-    const classified = classifyBriefError(err);
-    const { status, ...payload } = classified;
-    return NextResponse.json(payload, { status });
-  }
+  return NextResponse.json({
+    brief: mappedBrief({
+      page,
+      action: candidate.action,
+      observedEvidence: candidate.observedEvidence,
+      commandCenter,
+    }),
+  });
 }
