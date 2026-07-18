@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   readAnalysis: vi.fn(),
   completions: vi.fn(),
   blockingProposals: vi.fn(),
+  hasReadyTask: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -39,6 +40,7 @@ vi.mock("@/lib/ai/client", () => ({
 }));
 vi.mock("@/lib/content-pilot/map-candidate-history", () => ({
   getBlockingMapContentProposals: mocks.blockingProposals,
+  hasReadyMappedContentTask: mocks.hasReadyTask,
 }));
 
 const identity = {
@@ -95,6 +97,7 @@ beforeEach(() => {
     choices: [{ message: { content: "Mapped brief" }, finish_reason: "stop" }],
   });
   mocks.blockingProposals.mockResolvedValue(new Map());
+  mocks.hasReadyTask.mockResolvedValue(true);
 });
 
 describe("POST /api/content-pilot/brief", () => {

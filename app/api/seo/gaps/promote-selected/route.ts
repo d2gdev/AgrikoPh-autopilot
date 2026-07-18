@@ -3,7 +3,10 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { getBlockingMapContentProposals } from "@/lib/content-pilot/map-candidate-history";
+import {
+  getBlockingMapContentProposals,
+  hasReadyMappedContentTask,
+} from "@/lib/content-pilot/map-candidate-history";
 import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { getLatestSnapshot } from "@/lib/seo/snapshot";
 import { analysisEvidenceState, readAnalysisForStrategy, type MapAwareSeoGap } from "@/lib/seo/analysis";
@@ -13,6 +16,7 @@ import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 import type { StrategyProposalCandidate } from "@/lib/topical-map/proposal-context";
 import { topicalMapActionEligibility, topicalMapInternalLinkEligibility, topicalMapInternalLinkRequiresAddition } from "@/lib/topical-map/action-eligibility";
 import { normalizeTopicalMapPriority } from "@/lib/topical-map/priority";
+import { syncTopicalMapSeoTasks } from "@/lib/seo-tasks/topical-map-scheduler";
 
 const BodySchema = z.object({
   strategyVersionId: z.string().min(1),
@@ -126,6 +130,12 @@ export async function POST(req: NextRequest) {
     if (!gap) { results.push({ candidateId, status: "stale_or_blocked" }); continue; }
     try {
       const result = await prisma.$transaction(async tx => {
+        if (gap.kind === "content" && !await hasReadyMappedContentTask(tx as typeof prisma, {
+          strategyVersionId,
+          candidateId,
+        })) {
+          return { status: "stale_or_blocked" as const };
+        }
         const proposal = await proposalForCandidate(tx as typeof prisma, gap, commandCenter);
         if (!proposal) return { status: "stale_or_blocked" as const };
         const blockedProposals = await getBlockingMapContentProposals(tx as typeof prisma, [gap]);
@@ -149,5 +159,12 @@ export async function POST(req: NextRequest) {
 
   const counts = { created: 0, already_existing: 0, stale_or_blocked: 0, failed: 0 };
   for (const result of results) counts[result.status]++;
+  if (counts.created > 0 || counts.already_existing > 0) {
+    try {
+      await syncTopicalMapSeoTasks();
+    } catch {
+      console.error("[seo/gaps/promote-selected] SEO Task reconciliation failed");
+    }
+  }
   return NextResponse.json({ results, counts });
 }

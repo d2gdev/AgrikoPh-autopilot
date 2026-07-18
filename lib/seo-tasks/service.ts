@@ -12,6 +12,10 @@ import {
   deriveSeoTaskBucket,
   isSeoTaskOverdue,
 } from "./readiness";
+import {
+  getBlockingMappedContentProposals,
+  mappedContentIdentityFromTask,
+} from "@/lib/content-pilot/map-candidate-history";
 
 const ENTITY_TYPE = "seo_follow_up_task";
 const TERMINAL_AUDIT_ACTIONS = [
@@ -89,6 +93,7 @@ const SEO_TASK_LIST_SELECT = {
   evidenceSnapshot: true,
   sourceType: true,
   sourceKey: true,
+  sourceData: true,
   status: true,
 } satisfies Prisma.SeoFollowUpTaskSelect;
 
@@ -144,7 +149,11 @@ async function getCompletionPreflights(
       sourceKey: task.sourceKey,
     },
   ])).values()];
-  const [terminalReceipts, terminalTasks] = await Promise.all([
+  const mappedIdentities = openTasks.flatMap((task) => {
+    const identity = mappedContentIdentityFromTask(task);
+    return identity ? [identity] : [];
+  });
+  const [terminalReceipts, terminalTasks, blockingProposals] = await Promise.all([
     prisma.auditLog.findMany({
       where: {
         entityType: ENTITY_TYPE,
@@ -168,12 +177,17 @@ async function getCompletionPreflights(
         status: true,
       },
     }),
+    mappedIdentities.length > 0
+      ? getBlockingMappedContentProposals(prisma, mappedIdentities)
+      : Promise.resolve(new Map<string, string>()),
   ]);
   const receiptIds = new Set(terminalReceipts.map((receipt) => receipt.entityId));
   const terminalIdentities = new Set(terminalTasks.map(sourceIdentity));
   for (const task of openTasks) {
+    const mappedIdentity = mappedContentIdentityFromTask(task);
     result.set(task.id, {
       status: receiptIds.has(task.id) || terminalIdentities.has(sourceIdentity(task))
+        || (mappedIdentity ? blockingProposals.has(mappedIdentity.candidateId) : false)
         ? "already_handled"
         : "clear",
       basis: "task_and_audit_history",
@@ -384,12 +398,23 @@ export async function mutateSeoTask(
   action: SeoTaskMutation,
   actor: string,
   now: Date,
+  options: { skipMappedProposalPreflight?: boolean } = {},
 ): Promise<MutateSeoTaskResult> {
   return prisma.$transaction(async (tx) => {
     const current = await tx.seoFollowUpTask.findUnique({ where: { id } });
     if (!current) return { outcome: "not_found" };
     if (current.status !== "open") {
       return { outcome: "invalid_transition", message: "Closed SEO tasks cannot be changed or reopened." };
+    }
+    const mappedIdentity = mappedContentIdentityFromTask(current);
+    if (mappedIdentity && !options.skipMappedProposalPreflight) {
+      const blocked = await getBlockingMappedContentProposals(tx, [mappedIdentity]);
+      if (blocked.has(mappedIdentity.candidateId)) {
+        return {
+          outcome: "invalid_transition",
+          message: "Corresponding content work is already queued or completed.",
+        };
+      }
     }
     const [terminalReceipt, terminalTask] = await Promise.all([
       tx.auditLog.findFirst({

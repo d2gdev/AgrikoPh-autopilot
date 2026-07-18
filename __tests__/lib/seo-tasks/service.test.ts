@@ -40,6 +40,7 @@ const tx = {
     findUnique: vi.fn(),
     updateMany: vi.fn(),
   },
+  contentProposal: { findMany: vi.fn() },
   auditLog: { create: vi.fn(), findFirst: vi.fn() },
 };
 
@@ -50,6 +51,7 @@ const mockPrisma = {
     findFirst: vi.fn(),
     findUnique: vi.fn(),
   },
+  contentProposal: { findMany: vi.fn() },
   auditLog: { findMany: vi.fn() },
   $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
 };
@@ -82,10 +84,12 @@ beforeEach(() => {
   mockPrisma.seoFollowUpTask.findFirst.mockResolvedValue(null);
   mockPrisma.seoFollowUpTask.findUnique.mockResolvedValue(null);
   mockPrisma.auditLog.findMany.mockResolvedValue([]);
+  mockPrisma.contentProposal.findMany.mockResolvedValue([]);
   tx.seoFollowUpTask.create.mockResolvedValue(taskRow);
   tx.seoFollowUpTask.findUnique.mockResolvedValue(null);
   tx.seoFollowUpTask.findFirst.mockResolvedValue(null);
   tx.auditLog.findFirst.mockResolvedValue(null);
+  tx.contentProposal.findMany.mockResolvedValue([]);
   tx.auditLog.create.mockResolvedValue({ id: "audit-1" });
 });
 
@@ -161,6 +165,37 @@ describe("listSeoTasks", () => {
     mockPrisma.auditLog.findMany.mockResolvedValueOnce([{
       entityId: "task-1",
       action: "seo_follow_up_task_completed",
+    }]);
+
+    const result = await listSeoTasks({
+      bucket: "ready",
+      priority: "all",
+      taskType: "all",
+      q: "",
+      page: 1,
+      pageSize: 25,
+    }, new Date("2026-07-18T00:00:00.000Z"));
+
+    expect(result.tasks[0]?.completionPreflight.status).toBe("already_handled");
+  });
+
+  it("rechecks Content Proposal history for mapped content rows", async () => {
+    const mappedTask = {
+      ...taskRow,
+      taskType: "content_quality_review",
+      sourceType: "topical_map",
+      sourceKey: `topical-map-content:strategy-1:${"b".repeat(64)}`,
+      sourceData: {
+        candidateId: "b".repeat(64),
+        action: "refresh",
+        mapTitle: "Rice nutrition",
+      },
+    };
+    mockPrisma.seoFollowUpTask.findMany.mockImplementation(async (args) =>
+      args?.where?.status?.in ? [] : [mappedTask]);
+    mockPrisma.contentProposal.findMany.mockResolvedValue([{
+      id: "proposal-1",
+      dedupeKey: "content-refresh:article:rice-nutrition-breakdown",
     }]);
 
     const result = await listSeoTasks({
@@ -447,6 +482,34 @@ describe("mutateSeoTask", () => {
     }, "operator", new Date("2026-07-18T00:00:00.000Z"))).resolves.toMatchObject({
       outcome: "invalid_transition",
       message: expect.stringContaining("prior completion"),
+    });
+    expect(tx.seoFollowUpTask.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rechecks Content Proposal history inside mapped task mutations", async () => {
+    tx.seoFollowUpTask.findUnique.mockResolvedValueOnce({
+      ...taskRow,
+      taskType: "content_quality_review",
+      sourceType: "topical_map",
+      sourceKey: `topical-map-content:strategy-1:${"b".repeat(64)}`,
+      sourceData: {
+        candidateId: "b".repeat(64),
+        action: "refresh",
+        mapTitle: "Rice nutrition",
+      },
+    });
+    tx.contentProposal.findMany.mockResolvedValueOnce([{
+      id: "proposal-1",
+      dedupeKey: "content-refresh:article:rice-nutrition-breakdown",
+    }]);
+
+    await expect(mutateSeoTask("task-1", {
+      action: "complete",
+      expectedVersion: 1,
+      note: "Done.",
+    }, "operator", new Date("2026-07-18T00:00:00.000Z"))).resolves.toMatchObject({
+      outcome: "invalid_transition",
+      message: expect.stringContaining("already queued or completed"),
     });
     expect(tx.seoFollowUpTask.updateMany).not.toHaveBeenCalled();
   });

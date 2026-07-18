@@ -199,9 +199,9 @@ export function BriefTab({
 
       <Card>
         <BlockStack gap="300">
-          <Text variant="headingMd" as="h2">Upcoming mapped phases</Text>
+          <Text variant="headingMd" as="h2">Upcoming mapped content</Text>
           {!loading && suggestions?.upcoming.length === 0 && (
-            <Text as="p" tone="subdued">No future mapped phases are currently scheduled.</Text>
+            <Text as="p" tone="subdued">No future mapped content is currently scheduled.</Text>
           )}
           {suggestions?.upcoming.map((item) => (
             <Box key={item.taskId} paddingBlockEnd="300">
@@ -209,8 +209,9 @@ export function BriefTab({
                 <InlineStack gap="200" blockAlign="center" wrap>
                   <Text as="h3" variant="headingSm">{item.title}</Text>
                   <Badge>{item.priority}</Badge>
-                  <Badge tone="info">Upcoming</Badge>
+                  <Badge tone="info">{item.action}</Badge>
                 </InlineStack>
+                {item.targetUrl ? <Text as="p" tone="subdued">{item.targetUrl}</Text> : null}
                 <Text as="p" tone="subdued">
                   Review window: {formatRoadmapDate(item.earliestReviewAt)}
                   {item.dueAt ? ` – ${formatRoadmapDate(item.dueAt)}` : ""}

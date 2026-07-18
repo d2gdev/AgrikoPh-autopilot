@@ -42,20 +42,44 @@ beforeEach(() => {
     payload: { generatedAt: "2026-07-18T00:00:00.000Z" },
   });
   mocks.evidenceState.mockReturnValue("current");
-  mocks.tasks.mockResolvedValue([{
-    id: "phase-1",
-    title: "Review topical-map phase: Rice Nutrition",
-    description: "1. Refresh the mapped rice nutrition page.",
-    priority: "P2",
-    earliestReviewAt: new Date("2026-08-07T16:00:00.000Z"),
-    dueAt: new Date("2026-08-16T15:59:59.999Z"),
-    sourceData: {
-      strategyVersionId: "strategy-1",
-      packageSha256: "a".repeat(64),
-      phase: { label: "Rice Nutrition", startDay: 22, endDay: 30 },
-      ruleIds: ["schedule:rice"],
+  mocks.tasks.mockResolvedValue([
+    {
+      id: "ready-1",
+      sourceKey: `topical-map-content:strategy-1:${"b".repeat(64)}`,
+      title: "Rice Guide",
+      description: "keep; refresh",
+      targetUrl: "/blogs/news/rice-guide",
+      priority: "P1",
+      earliestReviewAt: new Date("2026-07-17T16:00:00.000Z"),
+      dueAt: null,
+      sourceData: {
+        candidateId: "b".repeat(64),
+        action: "refresh",
+        strategyVersionId: "strategy-1",
+        packageSha256: "a".repeat(64),
+        ruleIds: ["content-1"],
+      },
     },
-  }]);
+    {
+      id: "future-1",
+      sourceKey: `topical-map-content:strategy-1:${"c".repeat(64)}`,
+      title: "Future Rice Guide",
+      description: "Create the exact future mapped guide.",
+      targetUrl: "/blogs/news/future-rice-guide",
+      priority: "P2",
+      earliestReviewAt: new Date("2026-08-07T16:00:00.000Z"),
+      dueAt: new Date("2026-08-16T15:59:59.999Z"),
+      sourceData: {
+        candidateId: "c".repeat(64),
+        action: "create",
+        strategyVersionId: "strategy-1",
+        packageSha256: "a".repeat(64),
+        phase: { label: "Rice Nutrition", startDay: 22, endDay: 30 },
+        ruleIds: ["content:future"],
+        phaseRuleIds: ["schedule:rice"],
+      },
+    },
+  ]);
   mocks.blockingProposals.mockResolvedValue(new Map());
   mocks.commandCenter.mockResolvedValue({
     identity,
@@ -124,14 +148,16 @@ describe("GET /api/content-pilot/map-suggestions", () => {
       ruleIds: ["content-2"],
     });
     expect(body.upcoming).toEqual([{
-      taskId: "phase-1",
-      title: "Review topical-map phase: Rice Nutrition",
-      obligations: "1. Refresh the mapped rice nutrition page.",
+      taskId: "future-1",
+      title: "Future Rice Guide",
+      targetUrl: "/blogs/news/future-rice-guide",
+      action: "create",
+      obligations: "Create the exact future mapped guide.",
       priority: "P2",
       earliestReviewAt: "2026-08-07T16:00:00.000Z",
       dueAt: "2026-08-16T15:59:59.999Z",
       phaseLabel: "Rice Nutrition",
-      ruleIds: ["schedule:rice"],
+      ruleIds: ["content:future", "schedule:rice"],
     }]);
     expect(body).not.toHaveProperty("observations");
   });
@@ -165,12 +191,16 @@ describe("GET /api/content-pilot/map-suggestions", () => {
   it("excludes future phases whose persisted strategy identity does not match", async () => {
     mocks.tasks.mockResolvedValue([{
       id: "phase-other",
+      sourceKey: `topical-map-content:strategy-other:${"c".repeat(64)}`,
       title: "Other strategy phase",
       description: "Do not show.",
+      targetUrl: "/blogs/news/other",
       priority: "P2",
       earliestReviewAt: new Date("2026-08-07T16:00:00.000Z"),
       dueAt: null,
       sourceData: {
+        candidateId: "c".repeat(64),
+        action: "create",
         strategyVersionId: "strategy-other",
         packageSha256: "c".repeat(64),
         phase: { label: "Other", startDay: 22, endDay: 30 },

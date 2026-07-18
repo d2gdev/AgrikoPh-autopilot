@@ -14,6 +14,7 @@ import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-cen
 import { hasMissingMeta } from "@/lib/seo/meta";
 import { normalizeGovernedUrl } from "@/lib/topical-map/url-normalizer";
 import { syncTopicalMapStoreTasks } from "@/lib/store-tasks/topical-map";
+import { syncTopicalMapSeoTasks } from "@/lib/seo-tasks/topical-map-scheduler";
 import type { Prisma } from "@prisma/client";
 
 const SeoAnalysisSchema = z.object({
@@ -236,7 +237,14 @@ export async function POST(req: NextRequest) {
       console.error("[seo/analyze] topical-map Store Task synchronization failed");
       storeTaskSync = { status: "partial", executable: 0, advisory: 0, unchanged: 0, suppressed: 0 };
     }
-    return NextResponse.json({ analysis, mapAnalysis, generatedAt: generatedAt.toISOString(), gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source, storeTaskSync });
+    let seoTaskSync: Awaited<ReturnType<typeof syncTopicalMapSeoTasks>> | { status: "error" };
+    try {
+      seoTaskSync = await syncTopicalMapSeoTasks();
+    } catch {
+      console.error("[seo/analyze] topical-map SEO Task synchronization failed");
+      seoTaskSync = { status: "error" };
+    }
+    return NextResponse.json({ analysis, mapAnalysis, generatedAt: generatedAt.toISOString(), gscFetchedAt: gscData.fetchedAt, gscSource: gscData.source, storeTaskSync, seoTaskSync });
   };
 
   const aiTimeout = AbortSignal.timeout(25_000);

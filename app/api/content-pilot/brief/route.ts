@@ -11,7 +11,10 @@ import {
   requirePermission,
 } from "@/lib/auth";
 import { getAiClient } from "@/lib/ai/client";
-import { getBlockingMapContentProposals } from "@/lib/content-pilot/map-candidate-history";
+import {
+  getBlockingMapContentProposals,
+  hasReadyMappedContentTask,
+} from "@/lib/content-pilot/map-candidate-history";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import {
@@ -92,6 +95,15 @@ export async function POST(req: NextRequest) {
     : null;
   if (!candidate || !page?.decision) {
     return NextResponse.json({ error: "Mapped content candidate is no longer available." }, { status: 409 });
+  }
+  if (!await hasReadyMappedContentTask(prisma, {
+    strategyVersionId: parsed.data.strategyVersionId,
+    candidateId: candidate.candidateId,
+  })) {
+    return NextResponse.json(
+      { error: "Mapped content work is not Ready in SEO Tasks." },
+      { status: 409 },
+    );
   }
   const blockedProposals = await getBlockingMapContentProposals(prisma, [candidate]);
   if (blockedProposals.has(candidate.candidateId)) {

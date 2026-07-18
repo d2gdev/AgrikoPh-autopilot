@@ -64,9 +64,11 @@ const mockJobs = vi.hoisted(() => ({
 const mockEnqueueJob = vi.hoisted(() => vi.fn());
 const mockMaterializeJobsStatusSnapshot = vi.hoisted(() => vi.fn());
 const mockSyncTopicalMapStoreTasks = vi.hoisted(() => vi.fn());
+const mockSyncTopicalMapSeoTasks = vi.hoisted(() => vi.fn());
 const mockCreateGovernedContentProposal = vi.hoisted(() => vi.fn());
 const mockGetLatestSnapshot = vi.hoisted(() => vi.fn());
 const mockGetBlockingMapContentProposals = vi.hoisted(() => vi.fn());
+const mockHasReadyMappedContentTask = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth", () => ({
   PERMISSIONS: { CONTENT_REVIEW: "content:review" },
   requireAppAuth: mockAuth.requireAppAuth,
@@ -101,8 +103,12 @@ vi.mock("@/lib/dashboard/jobs-status", () => ({
 vi.mock("@/lib/store-tasks/topical-map", () => ({
   syncTopicalMapStoreTasks: mockSyncTopicalMapStoreTasks,
 }));
+vi.mock("@/lib/seo-tasks/topical-map-scheduler", () => ({
+  syncTopicalMapSeoTasks: mockSyncTopicalMapSeoTasks,
+}));
 vi.mock("@/lib/content-pilot/map-candidate-history", () => ({
   getBlockingMapContentProposals: mockGetBlockingMapContentProposals,
+  hasReadyMappedContentTask: mockHasReadyMappedContentTask,
 }));
 
 function jsonRequest(path: string, body: Record<string, unknown>, method = "POST") {
@@ -191,6 +197,15 @@ describe("SEO Pilot route regressions", () => {
     mockJobs.acquireJobLock.mockResolvedValue(true);
     mockJobs.releaseJobLock.mockResolvedValue(undefined);
     mockSyncTopicalMapStoreTasks.mockResolvedValue({ executable: 3, advisory: 4, unchanged: 5, suppressed: 6 });
+    mockSyncTopicalMapSeoTasks.mockResolvedValue({
+      status: "synced",
+      strategyVersionId: "v3",
+      projected: 1,
+      created: 1,
+      existing: 0,
+      superseded: 0,
+    });
+    mockHasReadyMappedContentTask.mockResolvedValue(true);
     mockEnqueueJob.mockResolvedValue({
       created: true,
       runId: "dashboard-run",

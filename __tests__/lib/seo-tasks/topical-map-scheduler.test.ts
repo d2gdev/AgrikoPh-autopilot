@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  projectTopicalMapContentTasks,
   projectTopicalMapPhaseTasks,
   syncTopicalMapSeoTasks,
 } from "@/lib/seo-tasks/topical-map-scheduler";
@@ -172,6 +173,166 @@ describe("projectTopicalMapPhaseTasks", () => {
   });
 });
 
+describe("projectTopicalMapContentTasks", () => {
+  const page = {
+    url: "/blogs/news/rice-nutrition-breakdown",
+    title: "Rice Nutrition Philippines: Black vs Red Rice Calories",
+    cluster: "Rice nutrition and comparisons",
+    role: "nutrition pillar",
+    decision: "keep; CTR and conversion-path refresh",
+    priority: "P1",
+    ruleIds: ["content:rice", "intent:rice", "role:rice"],
+    ruleDomains: { content_decisions: ["content:rice"] },
+    contentDecisionPolicy: {
+      resolutionStatus: "resolved" as const,
+      conditions: [],
+      evidenceRequirements: [],
+      reviewRequirements: [],
+    },
+  };
+
+  it("projects an exact current content candidate as Ready now with complete map identity", () => {
+    const tasks = projectTopicalMapContentTasks({
+      strategyVersionId: "strategy-a",
+      strategyVersion: "2026-07-18",
+      packageSha256: "a".repeat(64),
+      activatedAt: ACTIVATED_AT,
+      now: new Date("2026-07-18T04:00:00.000Z"),
+      horizonDays: 90,
+      pages: [page],
+      analysis: {
+        gaps: [{
+          candidateId: "b".repeat(64),
+          kind: "content",
+          strategyVersionId: "strategy-a",
+          packageSha256: "a".repeat(64),
+          ruleIds: [...page.ruleIds],
+          state: "candidate",
+          action: "refresh",
+          query: "rice nutrition Philippines",
+          suggestedTitle: page.title,
+          currentArticleTitle: page.title,
+          page: page.url,
+          priority: "P1",
+          mapEvidence: "ADMIN; SITEMAP",
+          observedEvidence: [],
+          observation: {
+            source: "store",
+            capturedAt: "2026-07-18T03:00:00.000Z",
+            provenance: "ArticleRecord:news/rice-nutrition-breakdown",
+          },
+        }],
+        observations: [],
+        suppressed: [],
+      },
+      rules: [
+        scheduleRule(
+          "schedule:rice",
+          "Days 22-30: Rice-Nutrition CTR Pilot",
+          "Refresh `/blogs/news/rice-nutrition-breakdown` for comparison intent.",
+        ),
+      ],
+    });
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({
+      taskType: "content_quality_review",
+      title: page.title,
+      targetUrl: page.url,
+      topicalCluster: page.cluster,
+      pageRole: page.role,
+      ownerSurface: "content",
+      destinationPath: "/content-pilot",
+      priority: "P1",
+      earliestReviewAt: new Date("2026-07-18T04:00:00.000Z"),
+      requiresEvidence: false,
+      evidenceStatus: "not_required",
+      sourceKey: `topical-map-content:strategy-a:${"b".repeat(64)}`,
+    });
+    expect(tasks[0]?.sourceData).toMatchObject({
+      candidateId: "b".repeat(64),
+      targetUrl: page.url,
+      mapTitle: page.title,
+      action: "refresh",
+      strategyVersionId: "strategy-a",
+      strategyVersion: "2026-07-18",
+      packageSha256: "a".repeat(64),
+      ruleIds: page.ruleIds,
+      phase: {
+        startDay: 22,
+        endDay: 30,
+        label: "Rice-Nutrition CTR Pilot",
+      },
+      phaseRuleIds: ["schedule:rice"],
+    });
+  });
+
+  it("schedules only exact, unconditional future content actions and deduplicates URLs", () => {
+    const futurePage = {
+      ...page,
+      url: "/blogs/news/sustainable-rice-farming",
+      title: "Sustainable Rice Farming",
+      cluster: "Organic farming",
+      role: "farming spoke",
+      decision: "keep; refresh and strengthen",
+      ruleIds: ["content:farming", "intent:farming", "role:farming"],
+      ruleDomains: { content_decisions: ["content:farming"] },
+    };
+    const conditionalPage = {
+      ...page,
+      url: "/blogs/news/conditional-guide",
+      title: "Conditional Guide",
+      decision: "create only if evidence exists",
+      ruleIds: ["content:conditional"],
+      ruleDomains: { content_decisions: ["content:conditional"] },
+    };
+    const tasks = projectTopicalMapContentTasks({
+      strategyVersionId: "strategy-a",
+      strategyVersion: "2026-07-18",
+      packageSha256: "a".repeat(64),
+      activatedAt: ACTIVATED_AT,
+      now: new Date("2026-07-18T04:00:00.000Z"),
+      horizonDays: 90,
+      pages: [futurePage, conditionalPage],
+      analysis: { gaps: [], observations: [], suppressed: [] },
+      rules: [
+        scheduleRule(
+          "schedule:farming:first",
+          "Days 15-21: Resolve Indexation",
+          "Strengthen `/blogs/news/sustainable-rice-farming` with unique Philippine evidence.",
+        ),
+        scheduleRule(
+          "schedule:farming:later",
+          "Days 61-75: Herbal and Farming Authority",
+          "Refresh `/blogs/news/sustainable-rice-farming` with authority sources.",
+        ),
+        scheduleRule(
+          "schedule:conditional",
+          "Days 31-45: Conditional Work",
+          "Create `/blogs/news/conditional-guide` only if fresh evidence supports it.",
+        ),
+        scheduleRule(
+          "schedule:research",
+          "Days 31-45: Research",
+          "Review `/blogs/news/research-only` for a future decision.",
+        ),
+      ],
+    });
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({
+      title: futurePage.title,
+      targetUrl: futurePage.url,
+      earliestReviewAt: new Date("2026-07-26T16:00:00.000Z"),
+      dueAt: new Date("2026-08-02T15:59:59.999Z"),
+    });
+    expect(tasks[0]?.sourceData).toMatchObject({
+      action: "refresh",
+      phaseRuleIds: ["schedule:farming:first"],
+    });
+  });
+});
+
 describe("syncTopicalMapSeoTasks", () => {
   it("creates missing phase tasks, recognizes duplicates, and cancels stale open strategy tasks", async () => {
     const db = {
@@ -243,6 +404,7 @@ describe("syncTopicalMapSeoTasks", () => {
       },
       "system:topical-map-task-scheduler",
       new Date("2026-07-18T00:00:00.000Z"),
+      { skipMappedProposalPreflight: true },
     );
   });
 
@@ -276,6 +438,90 @@ describe("syncTopicalMapSeoTasks", () => {
     expect(db.seoFollowUpTask.findMany).not.toHaveBeenCalled();
     expect(createTask).not.toHaveBeenCalled();
     expect(mutateTask).not.toHaveBeenCalled();
+  });
+
+  it("materializes exact content once and creates zero duplicates on a repeated sync", async () => {
+    const currentPage = {
+      url: "/blogs/news/rice-guide",
+      title: "Mapped Rice Guide",
+      cluster: "Rice",
+      role: "guide",
+      decision: "keep; refresh",
+      priority: "P1",
+      ruleIds: ["content:rice"],
+      ruleDomains: { content_decisions: ["content:rice"] },
+      contentDecisionPolicy: {
+        resolutionStatus: "resolved" as const,
+        conditions: [],
+        evidenceRequirements: [],
+        reviewRequirements: [],
+      },
+    };
+    const contentState = {
+      pages: [currentPage],
+      analysis: {
+        gaps: [{
+          candidateId: "b".repeat(64),
+          kind: "content" as const,
+          strategyVersionId: "strategy-current",
+          packageSha256: "a".repeat(64),
+          ruleIds: ["content:rice"],
+          state: "candidate" as const,
+          action: "refresh" as const,
+          query: "rice guide",
+          suggestedTitle: "Mapped Rice Guide",
+          page: "/blogs/news/rice-guide",
+          priority: "P1",
+          mapEvidence: null,
+          observedEvidence: [],
+          observation: {
+            source: "store" as const,
+            capturedAt: "2026-07-18T03:00:00.000Z",
+            provenance: "ArticleRecord:news/rice-guide",
+          },
+        }],
+        observations: [],
+        suppressed: [],
+      },
+    };
+    const db = {
+      topicalMapActivation: {
+        findUnique: vi.fn().mockResolvedValue({
+          strategyVersion: {
+            id: "strategy-current",
+            strategyVersion: "2026-07-18",
+            packageSha256: "a".repeat(64),
+            activatedAt: ACTIVATED_AT,
+            compiledRules: [],
+          },
+        }),
+      },
+      seoFollowUpTask: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    };
+    const createTask = vi.fn()
+      .mockResolvedValueOnce({ outcome: "created", task: { id: "content-1" } })
+      .mockResolvedValueOnce({ outcome: "duplicate", existingId: "content-1" });
+    const options = {
+      db,
+      now: new Date("2026-07-18T04:00:00.000Z"),
+      createTask,
+      mutateTask: vi.fn(),
+      loadContentState: vi.fn().mockResolvedValue(contentState),
+      getBlockingProposals: vi.fn().mockResolvedValue(new Map()),
+    };
+
+    await expect(syncTopicalMapSeoTasks(options)).resolves.toMatchObject({
+      projected: 1,
+      created: 1,
+      existing: 0,
+    });
+    await expect(syncTopicalMapSeoTasks(options)).resolves.toMatchObject({
+      projected: 1,
+      created: 0,
+      existing: 1,
+    });
   });
 });
 

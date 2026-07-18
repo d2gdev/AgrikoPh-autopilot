@@ -9,7 +9,7 @@ const source = readFileSync(
 describe("Content Pilot Brief tab", () => {
   it("shows only exact-map actionable and research suggestions", () => {
     expect(source).toContain("Available now");
-    expect(source).toContain("Upcoming mapped phases");
+    expect(source).toContain("Upcoming mapped content");
     expect(source).toContain("Mapped research only");
     expect(source).toContain("Current analysis needs refreshing");
     expect(source).toContain("Asia/Manila");

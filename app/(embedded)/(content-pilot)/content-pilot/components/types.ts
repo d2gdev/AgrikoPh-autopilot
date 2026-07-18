@@ -39,6 +39,8 @@ export interface ContentMapResearchItem {
 export interface ContentMapUpcomingPhase {
   taskId: string;
   title: string;
+  targetUrl: string | null;
+  action: "create" | "refresh";
   obligations: string;
   priority: string;
   earliestReviewAt: string;

@@ -28,23 +28,24 @@ export async function GET(req: Request) {
   }
 
   const now = new Date();
-  const [snapshot, phaseTasks] = await Promise.all([
+  const [snapshot, contentTasks] = await Promise.all([
     getLatestSnapshot("seo_analysis"),
     prisma.seoFollowUpTask.findMany({
       where: {
         status: "open",
         sourceType: "topical_map",
         sourceKey: {
-          startsWith: `topical-map-phase:${commandCenter.identity.versionId}:`,
+          startsWith: `topical-map-content:${commandCenter.identity.versionId}:`,
         },
-        earliestReviewAt: { gt: now },
       },
       orderBy: [{ earliestReviewAt: "asc" }, { id: "asc" }],
       take: 100,
       select: {
         id: true,
+        sourceKey: true,
         title: true,
         description: true,
+        targetUrl: true,
         priority: true,
         earliestReviewAt: true,
         dueAt: true,
@@ -63,8 +64,19 @@ export async function GET(req: Request) {
   const blockedProposals = analysis
     ? await getBlockingMapContentProposals(prisma, analysis.gaps)
     : new Map<string, string>();
+  const taskByCandidateId = new Map(contentTasks.flatMap((task) => {
+    if (!isRecord(task.sourceData)
+      || typeof task.sourceData.candidateId !== "string"
+      || task.sourceData.strategyVersionId !== commandCenter.identity.versionId
+      || task.sourceData.packageSha256 !== commandCenter.identity.packageSha256) {
+      return [];
+    }
+    return [[task.sourceData.candidateId, task] as const];
+  }));
   const actionable = (analysis?.gaps ?? []).flatMap((gap) => {
     if (gap.kind !== "content" || !gap.page || blockedProposals.has(gap.candidateId)) return [];
+    const task = taskByCandidateId.get(gap.candidateId);
+    if (!task || task.earliestReviewAt.getTime() > now.getTime()) return [];
     const page = pageByUrl.get(gap.page);
     if (!page?.decision) return [];
     return [{
@@ -91,20 +103,25 @@ export async function GET(req: Request) {
       ruleIds: [...contentRuleIds].sort(),
     }];
   });
-  const upcoming = phaseTasks.flatMap((task) => {
+  const upcoming = contentTasks.flatMap((task) => {
+    if (task.earliestReviewAt.getTime() <= now.getTime()) return [];
     if (!isRecord(task.sourceData)
       || task.sourceData.strategyVersionId !== commandCenter.identity.versionId
-      || task.sourceData.packageSha256 !== commandCenter.identity.packageSha256) {
+      || task.sourceData.packageSha256 !== commandCenter.identity.packageSha256
+      || typeof task.sourceData.candidateId !== "string"
+      || (task.sourceData.action !== "create" && task.sourceData.action !== "refresh")) {
       return [];
     }
     const phase = isRecord(task.sourceData.phase) ? task.sourceData.phase : null;
-    const ruleIds = Array.isArray(task.sourceData.ruleIds)
-      ? task.sourceData.ruleIds.filter((ruleId): ruleId is string =>
-        typeof ruleId === "string").sort()
-      : [];
+    const ruleIds = [...new Set([
+      ...(Array.isArray(task.sourceData.ruleIds) ? task.sourceData.ruleIds : []),
+      ...(Array.isArray(task.sourceData.phaseRuleIds) ? task.sourceData.phaseRuleIds : []),
+    ].filter((ruleId): ruleId is string => typeof ruleId === "string"))].sort();
     return [{
       taskId: task.id,
       title: task.title,
+      targetUrl: task.targetUrl,
+      action: task.sourceData.action,
       obligations: task.description,
       priority: task.priority,
       earliestReviewAt: task.earliestReviewAt.toISOString(),

@@ -17,17 +17,64 @@ type ProposalHistoryClient = {
   };
 };
 
-function candidateKeys(gap: MapAwareSeoGap): string[] {
-  if (gap.kind !== "content" || !gap.page) return [];
-  const targetUrl = normalizeGovernedUrl(gap.page);
+type MappedTaskClient = {
+  seoFollowUpTask: {
+    findFirst(args: {
+      where: {
+        status: "open";
+        sourceType: "topical_map";
+        sourceKey: string;
+        earliestReviewAt: { lte: Date };
+      };
+      select: { id: true };
+    }): Promise<{ id: string } | null>;
+  };
+};
+
+export type MappedContentIdentity = {
+  candidateId: string;
+  action: "create" | "refresh";
+  page: string;
+  suggestedTitle: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function mappedContentIdentityFromTask(task: {
+  sourceKey: string;
+  sourceData: unknown;
+  targetUrl: string | null;
+  title: string;
+}): MappedContentIdentity | null {
+  if (!task.sourceKey.startsWith("topical-map-content:")
+    || !task.targetUrl
+    || !isRecord(task.sourceData)
+    || typeof task.sourceData.candidateId !== "string"
+    || (task.sourceData.action !== "create" && task.sourceData.action !== "refresh")) {
+    return null;
+  }
+  return {
+    candidateId: task.sourceData.candidateId,
+    action: task.sourceData.action,
+    page: task.targetUrl,
+    suggestedTitle: typeof task.sourceData.mapTitle === "string"
+      ? task.sourceData.mapTitle
+      : task.title,
+  };
+}
+
+function candidateKeys(candidate: MappedContentIdentity): string[] {
+  const targetUrl = normalizeGovernedUrl(candidate.page);
   const match = /^\/blogs\/[^/]+\/([^/]+)$/.exec(targetUrl);
   if (!match) return [];
 
-  const proposalType = gap.action === "create" ? "new-content" : "content-refresh";
+  const proposalType = candidate.action === "create" ? "new-content" : "content-refresh";
   const input = {
     articleHandle: match[1]!,
     proposalType,
-    title: gap.suggestedTitle,
+    title: candidate.suggestedTitle,
   };
   return [
     contentProposalDedupeKey({
@@ -38,16 +85,16 @@ function candidateKeys(gap: MapAwareSeoGap): string[] {
   ];
 }
 
-export async function getBlockingMapContentProposals(
+export async function getBlockingMappedContentProposals(
   client: ProposalHistoryClient,
-  gaps: MapAwareSeoGap[],
+  candidates: MappedContentIdentity[],
 ): Promise<Map<string, string>> {
   const candidateIdsByKey = new Map<string, string[]>();
-  for (const gap of gaps) {
-    for (const key of candidateKeys(gap)) {
+  for (const candidate of candidates) {
+    for (const key of candidateKeys(candidate)) {
       candidateIdsByKey.set(key, [
         ...(candidateIdsByKey.get(key) ?? []),
-        gap.candidateId,
+        candidate.candidateId,
       ]);
     }
   }
@@ -68,4 +115,42 @@ export async function getBlockingMapContentProposals(
     }
   }
   return blocked;
+}
+
+export async function getBlockingMapContentProposals(
+  client: ProposalHistoryClient,
+  gaps: MapAwareSeoGap[],
+): Promise<Map<string, string>> {
+  return getBlockingMappedContentProposals(
+    client,
+    gaps.flatMap((gap) =>
+      gap.kind === "content" && gap.page
+        ? [{
+            candidateId: gap.candidateId,
+            action: gap.action === "create" ? "create" as const : "refresh" as const,
+            page: gap.page,
+            suggestedTitle: gap.suggestedTitle,
+          }]
+        : []),
+  );
+}
+
+export async function hasReadyMappedContentTask(
+  client: MappedTaskClient,
+  input: {
+    strategyVersionId: string;
+    candidateId: string;
+    now?: Date;
+  },
+): Promise<boolean> {
+  const task = await client.seoFollowUpTask.findFirst({
+    where: {
+      status: "open",
+      sourceType: "topical_map",
+      sourceKey: `topical-map-content:${input.strategyVersionId}:${input.candidateId}`,
+      earliestReviewAt: { lte: input.now ?? new Date() },
+    },
+    select: { id: true },
+  });
+  return Boolean(task);
 }

@@ -10,10 +10,27 @@ import {
   type CreateSeoTaskResult,
   type MutateSeoTaskResult,
 } from "@/lib/seo-tasks/service";
+import {
+  analysisEvidenceState,
+  mapCandidateId,
+  readAnalysisForStrategy,
+  type MapAwareSeoAnalysis,
+} from "@/lib/seo/analysis";
+import {
+  loadActiveTopicalMapCommandCenter,
+  type CommandCenterPage,
+} from "@/lib/topical-map/command-center";
+import { topicalMapActionEligibility } from "@/lib/topical-map/action-eligibility";
+import { getLatestSnapshot } from "@/lib/seo/snapshot";
+import {
+  getBlockingMappedContentProposals,
+  mappedContentIdentityFromTask,
+} from "@/lib/content-pilot/map-candidate-history";
 
 const SITE_HOST = "agrikoph.com";
 const ACTOR = "system:topical-map-task-scheduler";
 const SOURCE_PREFIX = "topical-map-phase:";
+export const CONTENT_SOURCE_PREFIX = "topical-map-content:";
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1_000;
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const PHASE_HEADING = /^Days ([1-9]\d*)-([1-9]\d*): (.+)$/;
@@ -39,7 +56,7 @@ type SchedulerDb = {
     findUnique(args: unknown): Promise<unknown>;
   };
   seoFollowUpTask: {
-    findMany(args: unknown): Promise<Array<{ id: string; version: number; sourceKey?: string }>>;
+    findMany(args: unknown): Promise<Array<Record<string, unknown>>>;
   };
 };
 
@@ -55,7 +72,13 @@ type SyncDependencies = {
     action: SeoTaskMutation,
     actor: string,
     now: Date,
+    options?: { skipMappedProposalPreflight?: boolean },
   ) => Promise<MutateSeoTaskResult>;
+  loadContentState?: () => Promise<{
+    pages: CommandCenterPage[];
+    analysis: MapAwareSeoAnalysis;
+  } | null>;
+  getBlockingProposals?: typeof getBlockingMappedContentProposals;
 };
 
 export type TopicalMapSeoTaskSyncResult = {
@@ -75,6 +98,12 @@ type SafeScheduleRule = {
     label: string;
   };
   literalText: string;
+};
+
+type ContentProjectionInput = Omit<ProjectionInput, "rules"> & {
+  pages: CommandCenterPage[];
+  analysis: MapAwareSeoAnalysis;
+  rules: CompiledRuleRecord[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -166,6 +195,203 @@ function explicitReviewStart(obligations: SafeScheduleRule[]): number | null {
     });
   });
   return starts.length > 0 ? Math.max(...starts) : null;
+}
+
+function contentPriority(value: string | undefined): "P0" | "P1" | "P2" | "P3" {
+  const priority = value?.trim().toUpperCase();
+  return priority === "P0" || priority === "P1" || priority === "P2" || priority === "P3"
+    ? priority
+    : "P2";
+}
+
+function contentAction(value: string): "create" | "refresh" | null {
+  if (/\b(?:only if|unless|pending|dossier|manual review|medical review)\b/i.test(value)) {
+    return null;
+  }
+  if (/\b(?:create|publish)\b/i.test(value)) return "create";
+  if (/\b(?:refresh|strengthen|rewrite|expand|improve|optimi[sz]e)\b/i.test(value)) {
+    return "refresh";
+  }
+  return null;
+}
+
+function exactBlogUrls(value: string): string[] {
+  return [...new Set(
+    value.match(/\/blogs\/[a-z0-9-]+\/[a-z0-9-]+/gi) ?? [],
+  )].sort();
+}
+
+type ContentPhase = {
+  phase: SafeScheduleRule["phase"];
+  ruleIds: string[];
+  earliestReviewAt: Date;
+  dueAt: Date;
+};
+
+function contentPhasesByUrl(input: ContentProjectionInput): Map<string, ContentPhase> {
+  const activationDayStart = manilaDateStartFromInstant(input.activatedAt);
+  const horizonEnd = input.now.getTime() + input.horizonDays * DAY_MS;
+  const candidates = new Map<string, Array<SafeScheduleRule & { action: "create" | "refresh" }>>();
+
+  for (const record of input.rules) {
+    const rule = parseSafeScheduleRule(record);
+    if (!rule) continue;
+    const action = contentAction(rule.literalText);
+    if (!action) continue;
+    for (const targetUrl of exactBlogUrls(rule.literalText)) {
+      candidates.set(targetUrl, [
+        ...(candidates.get(targetUrl) ?? []),
+        { ...rule, action },
+      ]);
+    }
+  }
+
+  const result = new Map<string, ContentPhase>();
+  for (const [targetUrl, rules] of candidates) {
+    const sorted = [...rules].sort((left, right) =>
+      left.phase.startDay - right.phase.startDay || left.ruleId.localeCompare(right.ruleId));
+    const earliest = sorted[0]!;
+    const samePhase = sorted.filter((rule) =>
+      rule.phase.startDay === earliest.phase.startDay
+      && rule.phase.endDay === earliest.phase.endDay
+      && rule.action === earliest.action);
+    const reviewStart = explicitReviewStart(samePhase)
+      ?? activationDayStart + (earliest.phase.startDay - 1) * DAY_MS;
+    const phaseEnd = activationDayStart + earliest.phase.endDay * DAY_MS - 1;
+    if (reviewStart > horizonEnd || reviewStart > phaseEnd) continue;
+    result.set(`${earliest.action}\u001f${targetUrl}`, {
+      phase: earliest.phase,
+      ruleIds: samePhase.map((rule) => rule.ruleId).sort(),
+      earliestReviewAt: new Date(reviewStart),
+      dueAt: new Date(phaseEnd),
+    });
+  }
+  return result;
+}
+
+function sameRules(left: string[], right: string[]): boolean {
+  return [...left].sort().join("\u001f") === [...right].sort().join("\u001f");
+}
+
+export function projectTopicalMapContentTasks(
+  input: ContentProjectionInput,
+): CreateSeoTaskInput[] {
+  const pageByUrl = new Map(input.pages.map((page) => [page.url, page]));
+  const phases = contentPhasesByUrl(input);
+  const projected = new Map<string, {
+    candidateId: string;
+    action: "create" | "refresh";
+    page: CommandCenterPage;
+    phase: ContentPhase | null;
+    current: boolean;
+  }>();
+
+  for (const gap of input.analysis.gaps) {
+    if (gap.kind !== "content" || !gap.page) continue;
+    const page = pageByUrl.get(gap.page);
+    if (!page?.decision
+      || !page.contentDecisionPolicy
+      || !topicalMapActionEligibility(page.contentDecisionPolicy).actionable
+      || !sameRules(page.ruleIds, gap.ruleIds)) {
+      continue;
+    }
+    const action = gap.action === "create" ? "create" : "refresh";
+    projected.set(gap.candidateId, {
+      candidateId: gap.candidateId,
+      action,
+      page,
+      phase: phases.get(`${action}\u001f${page.url}`) ?? null,
+      current: true,
+    });
+  }
+
+  for (const page of input.pages) {
+    if (!page.decision
+      || !page.contentDecisionPolicy
+      || !topicalMapActionEligibility(page.contentDecisionPolicy).actionable) {
+      continue;
+    }
+    const scheduled = (["create", "refresh"] as const)
+      .flatMap((action) => {
+        const phase = phases.get(`${action}\u001f${page.url}`);
+        return phase ? [{ action, phase }] : [];
+      })
+      .sort((left, right) =>
+        left.phase.earliestReviewAt.getTime() - right.phase.earliestReviewAt.getTime());
+    const selected = scheduled[0];
+    if (!selected) continue;
+    const { action, phase } = selected;
+    if (!phase || phase.earliestReviewAt.getTime() <= input.now.getTime()) continue;
+    const candidateId = mapCandidateId({
+      strategyVersionId: input.strategyVersionId,
+      packageSha256: input.packageSha256,
+      kind: "content",
+      action,
+      ruleIds: page.ruleIds,
+      page: page.url,
+    });
+    const alreadyCurrent = [...projected.values()].some((item) =>
+      item.current && item.action === action && item.page.url === page.url);
+    if (!alreadyCurrent && !projected.has(candidateId)) {
+      projected.set(candidateId, { candidateId, action, page, phase, current: false });
+    }
+  }
+
+  return [...projected.values()]
+    .sort((left, right) =>
+      Number(right.current) - Number(left.current)
+      || (left.phase?.earliestReviewAt.getTime() ?? 0) - (right.phase?.earliestReviewAt.getTime() ?? 0)
+      || left.page.url.localeCompare(right.page.url))
+    .map(({ candidateId, action, page, phase, current }) => {
+      const ruleIds = [...page.ruleIds].sort();
+      const parsed = CreateSeoTaskSchema.safeParse({
+        taskType: "content_quality_review",
+        title: page.title ?? page.url,
+        description: page.decision!,
+        targetUrl: page.url,
+        topicalCluster: page.cluster ?? null,
+        pageRole: page.role ?? null,
+        ownerSurface: "content",
+        destinationPath: "/content-pilot",
+        priority: contentPriority(page.priority),
+        earliestReviewAt: current ? input.now : phase!.earliestReviewAt,
+        dueAt: current ? null : phase!.dueAt,
+        requiresEvidence: false,
+        evidenceRequirement: {
+          kind: "topical-map-content",
+          action,
+          candidateId,
+          ruleIds,
+        },
+        evidenceStatus: "not_required",
+        sourceType: "topical_map",
+        sourceKey: `${CONTENT_SOURCE_PREFIX}${input.strategyVersionId}:${candidateId}`,
+        sourceData: {
+          candidateId,
+          targetUrl: page.url,
+          mapTitle: page.title ?? page.url,
+          mapDecision: page.decision,
+          action,
+          priority: contentPriority(page.priority),
+          topicalCluster: page.cluster ?? null,
+          pageRole: page.role ?? null,
+          strategyVersionId: input.strategyVersionId,
+          strategyVersion: input.strategyVersion,
+          packageSha256: input.packageSha256,
+          ruleIds,
+          ...(phase ? {
+            phase: phase.phase,
+            phaseRuleIds: phase.ruleIds,
+            phaseReviewAt: phase.earliestReviewAt.toISOString(),
+            phaseDueAt: phase.dueAt.toISOString(),
+          } : {}),
+        },
+      });
+      if (!parsed.success) {
+        throw new Error(`Invalid topical-map content task ${page.url}.`);
+      }
+      return parsed.data;
+    });
 }
 
 export function projectTopicalMapPhaseTasks(
@@ -302,7 +528,7 @@ export async function syncTopicalMapSeoTasks(
     };
   }
 
-  const projected = projectTopicalMapPhaseTasks({
+  const phaseTasks = projectTopicalMapPhaseTasks({
     strategyVersionId: active.id,
     strategyVersion: active.strategyVersion,
     packageSha256: active.packageSha256,
@@ -311,6 +537,97 @@ export async function syncTopicalMapSeoTasks(
     horizonDays: 90,
     rules: active.compiledRules,
   });
+  const loadContentState = dependencies.loadContentState
+    ?? (dependencies.db
+      ? async () => null
+      : async () => {
+          const [commandCenter, snapshot] = await Promise.all([
+            loadActiveTopicalMapCommandCenter(prisma),
+            getLatestSnapshot("seo_analysis"),
+          ]);
+          if (!commandCenter
+            || !snapshot
+            || commandCenter.identity.versionId !== active.id
+            || commandCenter.identity.packageSha256 !== active.packageSha256
+            || analysisEvidenceState(snapshot.payload, now) !== "current") {
+            return null;
+          }
+          const analysis = readAnalysisForStrategy(snapshot.payload, commandCenter.identity);
+          return analysis ? { pages: commandCenter.pages, analysis } : null;
+        });
+  const contentState = await loadContentState();
+  const projectedContentTasks = contentState
+    ? projectTopicalMapContentTasks({
+        strategyVersionId: active.id,
+        strategyVersion: active.strategyVersion,
+        packageSha256: active.packageSha256,
+        activatedAt: active.activatedAt,
+        now,
+        horizonDays: 90,
+        pages: contentState.pages,
+        analysis: contentState.analysis,
+        rules: active.compiledRules,
+      })
+    : [];
+  const contentIdentities = projectedContentTasks.flatMap((task) => {
+    const identity = mappedContentIdentityFromTask({
+      sourceKey: task.sourceKey,
+      sourceData: task.sourceData,
+      targetUrl: task.targetUrl ?? null,
+      title: task.title,
+    });
+    return identity ? [identity] : [];
+  });
+  const blockedProposals = contentIdentities.length > 0
+    ? await (dependencies.getBlockingProposals ?? getBlockingMappedContentProposals)(
+        prisma,
+        contentIdentities,
+      )
+    : new Map<string, string>();
+  const completedContentTasks = projectedContentTasks.length > 0
+    ? await db.seoFollowUpTask.findMany({
+        where: {
+          status: "completed",
+          sourceType: "topical_map",
+          sourceKey: { startsWith: CONTENT_SOURCE_PREFIX },
+          targetUrl: {
+            in: projectedContentTasks.flatMap((task) => task.targetUrl ? [task.targetUrl] : []),
+          },
+        },
+        select: {
+          sourceKey: true,
+          sourceData: true,
+          targetUrl: true,
+          title: true,
+        },
+      })
+    : [];
+  const completedContentKeys = new Set(completedContentTasks.flatMap((task) => {
+    if (typeof task.sourceKey !== "string"
+      || typeof task.title !== "string"
+      || (typeof task.targetUrl !== "string" && task.targetUrl !== null)) {
+      return [];
+    }
+    const identity = mappedContentIdentityFromTask({
+      sourceKey: task.sourceKey,
+      sourceData: task.sourceData,
+      targetUrl: task.targetUrl,
+      title: task.title,
+    });
+    return identity ? [`${identity.action}\u001f${identity.page}`] : [];
+  }));
+  const contentTasks = projectedContentTasks.filter((task) => {
+    const identity = mappedContentIdentityFromTask({
+      sourceKey: task.sourceKey,
+      sourceData: task.sourceData,
+      targetUrl: task.targetUrl ?? null,
+      title: task.title,
+    });
+    return identity
+      && !blockedProposals.has(identity.candidateId)
+      && !completedContentKeys.has(`${identity.action}\u001f${identity.page}`);
+  });
+  const projected = [...phaseTasks, ...contentTasks];
   let created = 0;
   let existing = 0;
 
@@ -320,18 +637,28 @@ export async function syncTopicalMapSeoTasks(
     else existing += 1;
   }
 
-  const currentPrefix = `${SOURCE_PREFIX}${active.id}:`;
+  const currentPhasePrefix = `${SOURCE_PREFIX}${active.id}:`;
+  const currentContentPrefix = `${CONTENT_SOURCE_PREFIX}${active.id}:`;
   const openTopicalMapTasks = await db.seoFollowUpTask.findMany({
     where: {
       status: "open",
       sourceType: "topical_map",
-      sourceKey: { startsWith: SOURCE_PREFIX },
-      NOT: { sourceKey: { startsWith: currentPrefix } },
+      OR: [
+        { sourceKey: { startsWith: SOURCE_PREFIX } },
+        { sourceKey: { startsWith: CONTENT_SOURCE_PREFIX } },
+      ],
+      NOT: {
+        OR: [
+          { sourceKey: { startsWith: currentPhasePrefix } },
+          { sourceKey: { startsWith: currentContentPrefix } },
+        ],
+      },
     },
     select: { id: true, version: true },
   });
   let superseded = 0;
   for (const task of openTopicalMapTasks) {
+    if (typeof task.id !== "string" || typeof task.version !== "number") continue;
     const result = await mutateTask(
       task.id,
       {
@@ -342,11 +669,55 @@ export async function syncTopicalMapSeoTasks(
       },
       ACTOR,
       now,
+      { skipMappedProposalPreflight: true },
     );
     if (result.outcome !== "updated") {
       throw new Error(`Could not supersede stale topical-map SEO task ${task.id}.`);
     }
     superseded += 1;
+  }
+
+  const blockedSourceKeys = projectedContentTasks.flatMap((task) => {
+    const identity = mappedContentIdentityFromTask({
+      sourceKey: task.sourceKey,
+      sourceData: task.sourceData,
+      targetUrl: task.targetUrl ?? null,
+      title: task.title,
+    });
+    return identity
+      && (blockedProposals.has(identity.candidateId)
+        || completedContentKeys.has(`${identity.action}\u001f${identity.page}`))
+      ? [task.sourceKey]
+      : [];
+  });
+  if (blockedSourceKeys.length > 0) {
+    const handledOpenTasks = await db.seoFollowUpTask.findMany({
+      where: {
+        status: "open",
+        sourceType: "topical_map",
+        sourceKey: { in: blockedSourceKeys },
+      },
+      select: { id: true, version: true },
+    });
+    for (const task of handledOpenTasks) {
+      if (typeof task.id !== "string" || typeof task.version !== "number") continue;
+      const result = await mutateTask(
+        task.id,
+        {
+          action: "cancel",
+          expectedVersion: task.version,
+          note: "Corresponding content work is already recorded in task or proposal history.",
+          decisionData: { reconciledBy: ACTOR },
+        },
+        ACTOR,
+        now,
+        { skipMappedProposalPreflight: true },
+      );
+      if (result.outcome !== "updated") {
+        throw new Error(`Could not reconcile handled topical-map SEO task ${task.id}.`);
+      }
+      superseded += 1;
+    }
   }
 
   return {
