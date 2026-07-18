@@ -66,6 +66,7 @@ const mockMaterializeJobsStatusSnapshot = vi.hoisted(() => vi.fn());
 const mockSyncTopicalMapStoreTasks = vi.hoisted(() => vi.fn());
 const mockCreateGovernedContentProposal = vi.hoisted(() => vi.fn());
 const mockGetLatestSnapshot = vi.hoisted(() => vi.fn());
+const mockGetBlockingMapContentProposals = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth", () => ({
   PERMISSIONS: { CONTENT_REVIEW: "content:review" },
   requireAppAuth: mockAuth.requireAppAuth,
@@ -99,6 +100,9 @@ vi.mock("@/lib/dashboard/jobs-status", () => ({
 }));
 vi.mock("@/lib/store-tasks/topical-map", () => ({
   syncTopicalMapStoreTasks: mockSyncTopicalMapStoreTasks,
+}));
+vi.mock("@/lib/content-pilot/map-candidate-history", () => ({
+  getBlockingMapContentProposals: mockGetBlockingMapContentProposals,
 }));
 
 function jsonRequest(path: string, body: Record<string, unknown>, method = "POST") {
@@ -193,6 +197,7 @@ describe("SEO Pilot route regressions", () => {
       status: "queued",
     });
     mockMaterializeJobsStatusSnapshot.mockResolvedValue(undefined);
+    mockGetBlockingMapContentProposals.mockResolvedValue(new Map());
   });
 
   it("signals a stale strategy analysis without returning its content", async () => {
@@ -516,6 +521,23 @@ describe("SEO Pilot route regressions", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ results: [{ candidateId: gap.candidateId, status: "stale_or_blocked" }] });
+    expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
+  });
+
+  it("does not queue mapped content with legacy completed history", async () => {
+    const capturedAt = new Date().toISOString();
+    const input = { ...strategyIdentity, kind: "content" as const, state: "candidate" as const, action: "refresh" as const, ruleIds: ["rule:black"], query: "black rice benefits", suggestedTitle: "Black Rice Benefits", page: "/blogs/news/black-rice-benefits", priority: "high", mapEvidence: null, observedEvidence: [], observation: { source: "store" as const, capturedAt, provenance: "ArticleRecord:news/black-rice-benefits" } };
+    const gap = { ...input, candidateId: mapCandidateId(input) };
+    mockGetLatestSnapshot.mockResolvedValue({ payload: { schemaVersion: "2", strategy: { versionId: "v3", packageSha256: strategyIdentity.packageSha256 }, generatedAt: capturedAt, analysis: { gaps: [gap], observations: [], suppressed: [] }, evidence: { gscCapturedAt: capturedAt, storeCapturedAt: capturedAt, linkCapturedAt: null, requiredObservationFamilies: ["store"], storeInspection: { required: 1, inspected: 1 }, linkInspection: { required: 0, inspected: 0 }, maxAgeHours: 72 } }, fetchedAt: new Date(capturedAt) });
+    mockPrisma.articleRecord.findFirst.mockResolvedValue({ handle: "black-rice-benefits", title: "Black Rice Benefits", wordCount: 400, updatedAt: new Date(capturedAt) });
+    mockGetBlockingMapContentProposals.mockResolvedValue(new Map([[gap.candidateId, "published-1"]]));
+    const { POST } = await import("@/app/api/seo/gaps/promote-selected/route");
+
+    const response = await POST(jsonRequest("/api/seo/gaps/promote-selected", { ...strategyIdentity, analysisGeneratedAt: capturedAt, candidateIds: [gap.candidateId] }));
+
+    expect(await response.json()).toMatchObject({
+      results: [{ candidateId: gap.candidateId, status: "already_existing", proposalId: "published-1" }],
+    });
     expect(mockCreateGovernedContentProposal).not.toHaveBeenCalled();
   });
 

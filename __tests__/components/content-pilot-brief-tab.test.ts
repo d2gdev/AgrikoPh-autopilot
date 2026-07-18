@@ -15,6 +15,7 @@ describe("Content Pilot Brief tab", () => {
     expect(source).toContain("Asia/Manila");
     expect(source).toContain("/api/content-pilot/map-suggestions");
     expect(source).toContain("/api/seo/gaps/promote-selected");
+    expect(source).toContain("Generate refresh brief");
     const upcoming = source.slice(
       source.indexOf("Upcoming mapped phases"),
       source.indexOf("Mapped research only"),

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { getBlockingMapContentProposals } from "@/lib/content-pilot/map-candidate-history";
 import { getSessionUser, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { getLatestSnapshot } from "@/lib/seo/snapshot";
 import { analysisEvidenceState, readAnalysisForStrategy, type MapAwareSeoGap } from "@/lib/seo/analysis";
@@ -127,6 +128,11 @@ export async function POST(req: NextRequest) {
       const result = await prisma.$transaction(async tx => {
         const proposal = await proposalForCandidate(tx as typeof prisma, gap, commandCenter);
         if (!proposal) return { status: "stale_or_blocked" as const };
+        const blockedProposals = await getBlockingMapContentProposals(tx as typeof prisma, [gap]);
+        const existingProposalId = blockedProposals.get(candidateId);
+        if (existingProposalId) {
+          return { status: "already_existing" as const, proposalId: existingProposalId };
+        }
         const persisted = await createGovernedContentProposalInTransaction(tx as never, { ...proposal, expectedStrategy: { versionId: strategyVersionId, packageSha256 } } as never);
         if (persisted.created && persisted.proposal) {
           await tx.auditLog.create({ data: { actor, action: "seo_map_candidate_promoted", entityType: "ContentProposal", entityId: persisted.proposal.id, meta: { candidateId, strategyVersionId, packageSha256 } } });

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   evidenceState: vi.fn(),
   readAnalysis: vi.fn(),
   tasks: vi.fn(),
+  blockingProposals: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({ requireAppAuth: mocks.requireAppAuth }));
@@ -20,6 +21,9 @@ vi.mock("@/lib/topical-map/command-center", () => ({
 vi.mock("@/lib/seo/analysis", () => ({
   analysisEvidenceState: mocks.evidenceState,
   readAnalysisForStrategy: mocks.readAnalysis,
+}));
+vi.mock("@/lib/content-pilot/map-candidate-history", () => ({
+  getBlockingMapContentProposals: mocks.blockingProposals,
 }));
 
 const identity = {
@@ -52,6 +56,7 @@ beforeEach(() => {
       ruleIds: ["schedule:rice"],
     },
   }]);
+  mocks.blockingProposals.mockResolvedValue(new Map());
   mocks.commandCenter.mockResolvedValue({
     identity,
     pages: [
@@ -145,6 +150,16 @@ describe("GET /api/content-pilot/map-suggestions", () => {
     expect(body.actionable).toEqual([]);
     expect(body.research).toEqual([]);
     expect(body.upcoming).toHaveLength(1);
+  });
+
+  it("hides mapped content already queued or completed", async () => {
+    mocks.blockingProposals.mockResolvedValue(new Map([["b".repeat(64), "published-1"]]));
+    const { GET } = await import("@/app/api/content-pilot/map-suggestions/route");
+    const response = await GET(new Request("https://app.example/api/content-pilot/map-suggestions"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.actionable).toEqual([]);
   });
 
   it("excludes future phases whose persisted strategy identity does not match", async () => {

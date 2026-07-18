@@ -188,7 +188,7 @@ export function BriefTab({
                     loading={generating && selected?.candidateId === item.candidateId}
                     disabled={generating || promoting}
                   >
-                    Generate mapped brief
+                    {item.action === "refresh" ? "Generate refresh brief" : "Generate mapped brief"}
                   </Button>
                 </InlineStack>
               </BlockStack>

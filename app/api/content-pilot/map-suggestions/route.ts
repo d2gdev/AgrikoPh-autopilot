@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { requireAppAuth } from "@/lib/auth";
+import { getBlockingMapContentProposals } from "@/lib/content-pilot/map-candidate-history";
 import { prisma } from "@/lib/db";
 import {
   analysisEvidenceState,
@@ -59,8 +60,11 @@ export async function GET(req: Request) {
     : null;
 
   const pageByUrl = new Map(commandCenter.pages.map((page) => [page.url, page]));
+  const blockedProposals = analysis
+    ? await getBlockingMapContentProposals(prisma, analysis.gaps)
+    : new Map<string, string>();
   const actionable = (analysis?.gaps ?? []).flatMap((gap) => {
-    if (gap.kind !== "content" || !gap.page) return [];
+    if (gap.kind !== "content" || !gap.page || blockedProposals.has(gap.candidateId)) return [];
     const page = pageByUrl.get(gap.page);
     if (!page?.decision) return [];
     return [{

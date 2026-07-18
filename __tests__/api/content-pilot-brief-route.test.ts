@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   evidenceState: vi.fn(),
   readAnalysis: vi.fn(),
   completions: vi.fn(),
+  blockingProposals: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -35,6 +36,9 @@ vi.mock("@/lib/ai/client", () => ({
     model: "test-model",
     client: { chat: { completions: { create: mocks.completions } } },
   })),
+}));
+vi.mock("@/lib/content-pilot/map-candidate-history", () => ({
+  getBlockingMapContentProposals: mocks.blockingProposals,
 }));
 
 const identity = {
@@ -90,6 +94,7 @@ beforeEach(() => {
   mocks.completions.mockResolvedValue({
     choices: [{ message: { content: "Mapped brief" }, finish_reason: "stop" }],
   });
+  mocks.blockingProposals.mockResolvedValue(new Map());
 });
 
 describe("POST /api/content-pilot/brief", () => {
@@ -117,5 +122,19 @@ describe("POST /api/content-pilot/brief", () => {
     expect(JSON.stringify(call?.messages)).toContain("Mapped Rice Guide");
     expect(JSON.stringify(call?.messages)).toContain("/blogs/news/rice-guide");
     expect(JSON.stringify(call?.messages)).not.toContain("health food Philippines");
+  });
+
+  it("does not generate another brief for mapped work already handled", async () => {
+    mocks.blockingProposals.mockResolvedValue(new Map([["b".repeat(64), "published-1"]]));
+    const { POST } = await import("@/app/api/content-pilot/brief/route");
+    const response = await POST(request({
+      strategyVersionId: "strategy-1",
+      packageSha256: "a".repeat(64),
+      analysisGeneratedAt: "2026-07-18T00:00:00.000Z",
+      candidateId: "b".repeat(64),
+    }) as never);
+
+    expect(response.status).toBe(409);
+    expect(mocks.completions).not.toHaveBeenCalled();
   });
 });
