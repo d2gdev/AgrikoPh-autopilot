@@ -61,6 +61,9 @@ const mockPrisma = {
     findFirst: vi.fn(),
     findMany: vi.fn(),
   },
+  topicalMapActivation: {
+    findUnique: vi.fn(),
+  },
 };
 
 beforeEach(() => {
@@ -75,6 +78,7 @@ beforeEach(() => {
   mockPrisma.skillInsight.findFirst.mockResolvedValue(null);
   mockPrisma.shoppingPriceHistory.findMany.mockResolvedValue([]);
   mockPrisma.skillInsight.findMany.mockResolvedValue([]);
+  mockPrisma.topicalMapActivation.findUnique.mockResolvedValue(null);
 });
 
 describe("opportunity scoring", () => {

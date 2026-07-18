@@ -29,6 +29,9 @@ const mockPrisma = vi.hoisted(() => ({
   contentProposalDraftHistory: {
     create: vi.fn(),
   },
+  topicalMapActivation: {
+    findUnique: vi.fn(),
+  },
 }));
 
 const mockProposalTransitions = vi.hoisted(() => ({
@@ -101,6 +104,9 @@ describe("Content Pilot route regressions", () => {
     mockCheckRateLimit.mockReturnValue(true);
     mockPrisma.$transaction.mockImplementation(async (ops) => Array.isArray(ops) ? Promise.all(ops) : ops(mockPrisma));
     mockPrisma.contentProposal.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.contentProposal.findMany.mockReset();
+    mockPrisma.contentProposal.findMany.mockResolvedValue([]);
+    mockPrisma.topicalMapActivation.findUnique.mockResolvedValue(null);
     mockPrisma.contentProposal.count.mockResolvedValue(0);
     mockPrisma.contentProposal.groupBy.mockResolvedValue([]);
     mockPrisma.contentProposal.deleteMany.mockResolvedValue({ count: 0 });

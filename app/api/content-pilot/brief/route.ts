@@ -57,13 +57,13 @@ export async function POST(req: NextRequest) {
   const permissionError = await requirePermission(req, PERMISSIONS.CONTENT_REVIEW);
   if (permissionError) return permissionError;
 
-  const parsed = BriefInput.safeParse(await req.json().catch(() => null));
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid mapped content candidate." }, { status: 400 });
-  }
   const actor = (await getSessionShop(req)) ?? (await getSessionUser(req)) ?? "embedded-app";
   if (!checkRateLimit(`brief:${actor}`, 10, 60_000)) {
     return NextResponse.json({ error: "Rate limit exceeded: max 10 briefs per minute" }, { status: 429 });
+  }
+  const parsed = BriefInput.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid mapped content candidate." }, { status: 400 });
   }
 
   const [snapshot, commandCenter] = await Promise.all([

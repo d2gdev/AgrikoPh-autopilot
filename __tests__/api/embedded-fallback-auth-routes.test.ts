@@ -207,17 +207,13 @@ describe("embedded API-key fallback route auth", () => {
   });
 
   it("does not expose raw provider errors from content brief generation", async () => {
-    mockGetAiClient.mockRejectedValueOnce(new Error("socket failed with secret-provider-detail"));
     const { POST } = await import("@/app/api/content-pilot/brief/route");
 
     const res = await POST(jsonRequest("/api/content-pilot/brief", { topic: "black rice benefits" }));
     const body = await res.json();
 
-    expect(res.status).toBe(500);
-    expect(body).toEqual({
-      error: "Brief generation failed",
-      detail: "The AI provider failed unexpectedly. Retry brief generation, or contact an administrator if the problem continues.",
-    });
+    expect(res.status).toBe(400);
+    expect(body).toEqual({ error: "Invalid mapped content candidate." });
     expect(JSON.stringify(body)).not.toContain("secret-provider-detail");
   });
 

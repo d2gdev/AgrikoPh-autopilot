@@ -119,12 +119,12 @@ describe("pilot usability helper regressions", () => {
     expect(queueSource).toContain("return proposal ? canRejectContentProposal(proposal) : false;");
   });
 
-  it("shows blog-loading failures and incomplete published bookkeeping", () => {
+  it("shows mapped-suggestion failures and incomplete published bookkeeping", () => {
     const briefSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/BriefTab.tsx", "utf8");
     const draftSource = readFileSync("app/(embedded)/(content-pilot)/content-pilot/draft/[id]/page.tsx", "utf8");
 
-    expect(briefSource).toContain("blogsError");
-    expect(briefSource).toContain("Shopify blogs could not be loaded");
+    expect(briefSource).toContain("Mapped content work is unavailable");
+    expect(briefSource).toContain("/api/content-pilot/map-suggestions");
     expect(draftSource).toContain('title="Bookkeeping incomplete"');
     expect(draftSource).toContain("Retry bookkeeping");
   });

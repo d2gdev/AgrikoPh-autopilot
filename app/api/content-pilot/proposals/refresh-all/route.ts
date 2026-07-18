@@ -8,6 +8,8 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { fetchBlogArticles } from "@/lib/shopify-admin";
 import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 import { replacePendingContentProposals } from "@/lib/content-pilot/proposal-replacement";
+import { filterExactMapProposals } from "@/lib/content-pilot/exact-map-suggestions";
+import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
 
 export async function POST(req: Request) {
   const appAuthError = await requireAppAuth(req);
@@ -44,7 +46,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ created: 0, message: "All articles already have a refresh proposal." });
     }
 
-    const result = await replacePendingContentProposals(prisma, toCreate.map((a) => ({ articleHandle: a.handle,
+    const commandCenter = await loadActiveTopicalMapCommandCenter(prisma);
+    const mapped = filterExactMapProposals(toCreate.map((a) => ({ articleHandle: a.handle,
             proposalType: "content-refresh",
             changeType: "update",
             priority: "P3",
@@ -53,7 +56,31 @@ export async function POST(req: Request) {
             title: `Guidelines refresh: ${a.title}`,
             description: `Re-write "${a.title}" to apply the current brand & writing guidelines.`,
             proposedState: { articleHandle: a.handle, articleTitle: a.title },
-            sourceData: { trigger: "manual-guidelines-refresh" } })));
+            sourceData: {
+              trigger: "manual-guidelines-refresh",
+              strategyCandidate: {
+                type: "content",
+                action: "update",
+                targetUrl: `/blogs/news/${a.handle}`,
+              },
+            },
+            priorityScore: 0,
+          })), commandCenter);
+    if (mapped.length === 0) {
+      return NextResponse.json({ created: 0, message: "No exact-map refresh work is currently actionable." });
+    }
+    const result = await replacePendingContentProposals(prisma, mapped.map((proposal) => ({
+      articleHandle: proposal.articleHandle,
+      proposalType: proposal.proposalType,
+      changeType: proposal.changeType,
+      priority: proposal.priority,
+      impact: proposal.impact,
+      effort: proposal.effort,
+      title: proposal.title,
+      description: proposal.description,
+      proposedState: proposal.proposedState as object,
+      sourceData: proposal.sourceData as object,
+    })), [], { governed: true });
 
     return NextResponse.json({ created: result.created });
   } catch (err) {
