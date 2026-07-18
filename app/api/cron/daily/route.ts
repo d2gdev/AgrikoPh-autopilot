@@ -8,7 +8,7 @@ import { runFetchBlogContentLocked } from "@/jobs/fetch-blog-content";
 import { runSkillsHandler } from "@/jobs/run-skills";
 import { acquireJobLock, releaseJobLock } from "@/lib/job-lock";
 import { notifyJobFailure, checkAndAlertJobHealth, checkAndAlertDataFreshness } from "@/lib/alerts";
-import { generateProposals } from "@/lib/content-pilot/generate-proposals";
+import { generateExactMapProposals } from "@/lib/content-pilot/exact-map-suggestions";
 import {
   CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
   filterBlockedContentProposalInputs,
@@ -124,7 +124,7 @@ export async function GET(req: Request) {
     // blog or SEO fetch succeeded (both feed proposal scoring).
     if (settledSucceeded(blogResult) || settledSucceeded(seoResult)) {
       try {
-        const proposals = await generateProposals(prisma);
+        const proposals = await generateExactMapProposals(prisma);
 
         // Skip creating new pending rows if nothing was found.
         if (proposals.length > 0) {

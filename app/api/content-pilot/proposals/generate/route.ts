@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { getSessionShop, PERMISSIONS, requireAppAuth, requirePermission } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { generateProposals } from "@/lib/content-pilot/generate-proposals";
+import { generateExactMapProposals } from "@/lib/content-pilot/exact-map-suggestions";
 import {
   CONTENT_PROPOSAL_REPLACEMENT_BLOCKING_STATUSES,
   contentProposalDedupeKey,
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const proposals = await generateProposals(prisma);
+    const proposals = await generateExactMapProposals(prisma);
 
     // Deduplicate existing approved proposals: for each (articleHandle, proposalType)
     // group with more than one record, keep ONE and delete the rest. We keep the

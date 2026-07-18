@@ -1,8 +1,8 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
-  generateProposals,
   type ProposalInput,
 } from "@/lib/content-pilot/generate-proposals";
+import { generateExactMapProposals } from "@/lib/content-pilot/exact-map-suggestions";
 import {
   CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES,
   filterBlockedContentProposalInputs,
@@ -452,7 +452,7 @@ export async function upsertOpportunities(
 export async function generateContentOpportunities(
   prismaClient: OpportunityClient,
 ): Promise<{ generated: number; upserted: number }> {
-  const proposals = await generateProposals(prismaClient as PrismaClient);
+  const proposals = await generateExactMapProposals(prismaClient as PrismaClient);
   const fresh = await filterBlockedContentProposalInputs(
     prismaClient,
     proposals,
