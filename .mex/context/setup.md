@@ -15,7 +15,7 @@ edges:
     condition: when understanding how components connect during setup
   - target: context/decisions.md
     condition: when understanding why deployment is structured a particular way
-last_updated: 2026-07-10T20:33:00Z
+last_updated: 2026-07-18T17:45:59+08:00
 ---
 
 # Setup
@@ -46,6 +46,7 @@ last_updated: 2026-07-10T20:33:00Z
 - `SHOPIFY_ADMIN_ACCESS_TOKEN` — private app admin token for blog/product writes
 - `SHOPIFY_STORE_DOMAIN` — e.g. `e56aau-5f.myshopify.com`
 - `SHOPIFY_APP_URL` — must be an HTTPS URL (ngrok in dev, real domain in prod)
+- `SHOPIFY_ADMIN_APP_URL` — canonical Shopify Admin app URL used for direct top-level fallback redirects
 - `OPENROUTER_API_KEY` — AI fallback; also used by legacy direct-analysis routes
 - `DATABASE_URL` — PostgreSQL connection string; include `?connection_limit=10&pool_timeout=10` in prod
 - `CRON_SECRET` — Bearer token for cron routes; fails closed if unset in production
