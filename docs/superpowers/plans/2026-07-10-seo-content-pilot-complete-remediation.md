@@ -1130,7 +1130,7 @@ Expected: every command exits 0. Do not infer one gate from another.
 - [x] **Step 5: Run security and invariant searches**
 
 ~~~bash
-! git grep -nE 'BEGIN (RSA |EC |OPENSSH |)?PRIVATE KEY|sk-or-v1-|ghp_[A-Za-z0-9_]{20,}|Bearer [A-Za-z0-9._-]{40,}' -- ':!package-lock.json' ':!.github/workflows/ci.yml'
+# Run the Secret scan command defined in .github/workflows/ci.yml.
 ! rg -n 'new PrismaClient' app lib jobs
 ! rg -n 'NEXT_PUBLIC_AUTOPILOT_API_KEY' app components hooks lib
 rg -n 'pause_ad' lib/guardrails.ts
