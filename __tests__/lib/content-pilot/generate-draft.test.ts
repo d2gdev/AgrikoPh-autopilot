@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { assertExactInternalLinkDraft, getDraftSchema } from "@/lib/content-pilot/generate-draft";
+import {
+  assertExactInternalLinkDraft,
+  buildExactInternalLinkParagraph,
+  getDraftSchema,
+} from "@/lib/content-pilot/generate-draft";
 
 // Exercises the REAL SeoFixSchema (no mocking of generate-draft) so a regression
 // like dropping .max(70)/.max(320) fails here, not just against a hand-copied
@@ -40,4 +44,16 @@ test("internal-link validation rejects a recipes target rewritten into news", ()
 test("internal-link validation fails closed without an exact persisted target", () => {
   const proposal = { proposedState: { toArticle: "shared" } } as never;
   expect(() => assertExactInternalLinkDraft(proposal, { suggestedParagraph: '<p><a href="/blogs/news/shared">Shared</a></p>', anchorText: "Shared", targetHandle: "shared" })).toThrow("exact persisted target URL");
+});
+
+test("internal-link HTML is constructed deterministically with one exact persisted target", () => {
+  const paragraph = buildExactInternalLinkParagraph({
+    modelParagraph: '<p>Black rice is nutrient dense. <a href="/wrong">Ignore this link</a></p>',
+    anchorText: "black rice benefits",
+    targetUrl: "/blogs/news/black-rice-benefits",
+  });
+
+  expect(paragraph).toContain('<a href="/blogs/news/black-rice-benefits">black rice benefits</a>');
+  expect(paragraph).not.toContain('href="/wrong"');
+  expect(paragraph.match(/<a /g)).toHaveLength(1);
 });

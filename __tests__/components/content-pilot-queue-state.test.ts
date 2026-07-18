@@ -39,6 +39,47 @@ describe("Content Pilot queue publication stages", () => {
 
     expect(source).toContain('>("pending")');
   });
+
+  it("requests one filtered server page and exposes explicit pagination", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/QueueTab.tsx", "utf8");
+
+    expect(source).not.toContain("loadAllProposalPages");
+    expect(source).toContain('params.set("stage", stageFilter)');
+    expect(source).toContain("stageCounts");
+    expect(source).toContain("Load more");
+  });
+
+  it("does not expose proposal cloning", () => {
+    const queue = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/QueueTab.tsx", "utf8");
+    const row = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/queue/ProposalRow.tsx", "utf8");
+
+    expect(queue).not.toContain("/clone");
+    expect(row).not.toContain("Duplicate this proposal?");
+  });
+});
+
+describe("Content Pilot navigation and semantics", () => {
+  it("persists tab selection in the URL so iframe remounts restore it", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/page.tsx", "utf8");
+
+    expect(source).toContain("window.history.replaceState");
+    expect(source).toContain("handleSelectTab");
+    expect(source).toContain('as="p" tone="subdued"');
+  });
+
+  it("gives repeated row controls proposal-specific accessible names", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/queue/ProposalRow.tsx", "utf8");
+
+    expect(source).toContain('label={`Select ${p.title}`}');
+    expect(source).toContain('accessibilityLabel={`Preview ${p.title}`}');
+    expect(source).toContain('accessibilityLabel={`View or edit ${p.title}`}');
+  });
+
+  it("enforces mobile touch target sizing for the Content Pilot surface", () => {
+    const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/content-pilot.module.css", "utf8");
+
+    expect(source).toContain("min-block-size: 44px");
+  });
 });
 
 describe("Unified Report pilot scope", () => {

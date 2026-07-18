@@ -31,4 +31,21 @@ describe("Content Pilot clone eligibility", () => {
     expect(response.status).toBe(409);
     expect(db.contentProposal.create).not.toHaveBeenCalled();
   });
+
+  it("does not create a second proposal that bypasses canonical history", async () => {
+    db.contentProposal.findUnique.mockResolvedValue({
+      id: "proposal-1",
+      proposalType: "content-refresh",
+      title: "Refresh mapped rice guide",
+      proposedState: { targetUrl: "/blogs/news/rice-guide" },
+      sourceData: {},
+    });
+    const { POST } = await import("@/app/api/content-pilot/proposals/[id]/clone/route");
+    const response = await POST(new Request("http://test.local/clone", { method: "POST" }), {
+      params: Promise.resolve({ id: "proposal-1" }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(db.contentProposal.create).not.toHaveBeenCalled();
+  });
 });

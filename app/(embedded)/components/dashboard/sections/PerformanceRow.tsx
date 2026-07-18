@@ -88,7 +88,7 @@ export function PerformanceRow({
                       </BlockStack>
                       <BlockStack gap="100">
                         <Text variant="headingLg" as="p">{data?.contentPilotStats.publishedThisMonth ?? "—"}</Text>
-                        <Text as="p" tone="subdued">published</Text>
+                        <Text as="p" tone="subdued">published this month</Text>
                       </BlockStack>
                     </InlineStack>
                   </Link>

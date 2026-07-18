@@ -26,6 +26,7 @@ import { loadAllArticlePages, type ArticlePage } from "@/lib/content-pilot/artic
 import { contentIndexFeedback, overviewLoadWarning } from "@/lib/content-pilot/operator-feedback";
 import { createLatestRequestCoordinator } from "@/lib/content-pilot/request-coordinator";
 import type { ArticleRow, TopicCluster, LinkGraphData } from "./components/types";
+import styles from "./content-pilot.module.css";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,12 @@ export default function ContentPilotPage() {
       const n = parseInt(t, 10);
       if (Number.isFinite(n) && n >= 0 && n <= 2) setSelectedTab(n);
     }
+  }, []);
+  const handleSelectTab = useCallback((index: number) => {
+    setSelectedTab(index);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", String(index));
+    window.history.replaceState(window.history.state, "", url);
   }, []);
   const [articles, setArticles] = useState<ArticleRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -147,7 +154,7 @@ export default function ContentPilotPage() {
         setError((d.error as string) ?? "Indexer failed");
       } else {
         setIndexResult(contentIndexFeedback(d));
-        setSelectedTab(0);
+        handleSelectTab(0);
         await loadOverview();
       }
     } catch (e) {
@@ -155,7 +162,7 @@ export default function ContentPilotPage() {
     } finally {
       setIndexing(false);
     }
-  }, [authFetch, loadOverview]);
+  }, [authFetch, handleSelectTab, loadOverview]);
 
   const goodSeo = articles.filter((a) => a.seoScore >= 80).length;
   const criticalSeo = articles.filter((a) => a.seoScore < 50).length;
@@ -167,6 +174,7 @@ export default function ContentPilotPage() {
   ];
 
   return (
+    <div className={styles.surface}>
     <Page
       title="Content Pilot"
       subtitle="Blog article SEO intelligence"
@@ -200,7 +208,7 @@ export default function ContentPilotPage() {
             <div style={{ flex: "1 1 180px", minWidth: 180 }}>
             <Card>
               <BlockStack gap="100">
-                <Text variant="headingSm" as="h3" tone="subdued">
+                <Text variant="headingSm" as="p" tone="subdued">
                   Total Indexed
                 </Text>
                 <Text variant="heading2xl" as="p">
@@ -212,7 +220,7 @@ export default function ContentPilotPage() {
             <div style={{ flex: "1 1 180px", minWidth: 180 }}>
             <Card>
               <BlockStack gap="100">
-                <Text variant="headingSm" as="h3" tone="subdued">
+                <Text variant="headingSm" as="p" tone="subdued">
                   SEO Score ≥80
                 </Text>
                 <Text variant="heading2xl" as="p">
@@ -224,7 +232,7 @@ export default function ContentPilotPage() {
             <div style={{ flex: "1 1 180px", minWidth: 180 }}>
             <Card>
               <BlockStack gap="100">
-                <Text variant="headingSm" as="h3" tone="subdued">
+                <Text variant="headingSm" as="p" tone="subdued">
                   Critical (&lt;50)
                 </Text>
                 <Text variant="heading2xl" as="p">
@@ -236,7 +244,7 @@ export default function ContentPilotPage() {
             <div style={{ flex: "1 1 180px", minWidth: 180 }}>
             <Card>
               <BlockStack gap="100">
-                <Text variant="headingSm" as="h3" tone="subdued">
+                <Text variant="headingSm" as="p" tone="subdued">
                   Orphan Articles
                 </Text>
                 <Text variant="heading2xl" as="p">
@@ -250,7 +258,7 @@ export default function ContentPilotPage() {
 
         <Layout.Section>
           <Card padding="0">
-            <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab}>
+            <Tabs tabs={tabs} selected={selectedTab} onSelect={handleSelectTab}>
               <Box padding="400">
                 <div style={{ display: selectedTab === 0 ? undefined : "none" }}>
                   <OverviewTab
@@ -259,7 +267,7 @@ export default function ContentPilotPage() {
                     linkGraph={linkGraph}
                     loading={loading}
                     articlesError={articlesError}
-                    onOpenBrief={() => setSelectedTab(2)}
+                    onOpenBrief={() => handleSelectTab(2)}
                   />
                 </div>
                 <div style={{ display: selectedTab === 1 ? undefined : "none" }}>
@@ -274,5 +282,6 @@ export default function ContentPilotPage() {
         </Layout.Section>
       </Layout>
     </Page>
+    </div>
   );
 }

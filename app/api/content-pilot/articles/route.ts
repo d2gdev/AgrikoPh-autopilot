@@ -17,6 +17,7 @@ export async function GET(req: Request) {
   try {
     const [records, total] = await Promise.all([
       prisma.articleRecord.findMany({
+        where: { publishedAt: { not: null } },
         skip,
         take: limit,
         orderBy: { publishedAt: "desc" },
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
           indexedAt: true,
         },
       }),
-      prisma.articleRecord.count(),
+      prisma.articleRecord.count({ where: { publishedAt: { not: null } } }),
     ]);
 
     const articles = records.map((r) => {

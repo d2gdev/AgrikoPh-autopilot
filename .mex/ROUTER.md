@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-18T19:17:16+08:00
+last_updated: 2026-07-18T20:25:00+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **Content Pilot audit remediation (2026-07-18, local):** The ten approved audit findings are remediated without schema or external mutations. Internal-link drafts now receive one deterministically constructed exact persisted anchor; proposal cloning is closed; Queue reads one filtered 50-row server page with explicit pagination and authoritative stage counts; tab state survives iframe remounts through the URL; unpublished ArticleRecords no longer influence article, cluster, or link intelligence; research-only output is blog-scoped; generic Overview actions, dashboard period copy, repeated control labels, mobile touch targets, and heading semantics are corrected. Local authenticated Shopify-session evidence showed 125 published indexed articles, 50 rendered published rows from 405 history records, explicit Load more, no Duplicate action, persisted Queue/Brief tab parameters, blog-only mapped URLs, 44px Content Pilot buttons at 585px, and 200 responses from all displayed Content Pilot APIs. Full verification passed 1,773 tests with 11 skipped, typecheck, lint after warning cleanup, and the optimized production build. No proposal, task, topical-map, Shopify, Meta, commit, push, or deployment state changed.
 - **Content Gaps category boundary (2026-07-18):** The SEO Pillar Content Gaps tab now shows only exact-map `create` candidates and gated pages backed by direct `ArticleRecord:absence:` evidence. Existing published pages that need refreshes remain actionable in SEO Tasks and Content Pilot but are no longer mislabeled as missing content. No task, proposal, topical-map, Shopify, or Meta state changed.
 - **SEO Content Gaps actionable-history preflight (2026-07-18):** The strategy-bound analysis reader now filters content candidates through the same current Ready SEO Task and recreate-blocking Content Proposal history used by Content Pilot. Raw analysis remains persisted unchanged, non-content link findings remain visible, and mutation boundaries still repeat their checks. This prevents handled, queued, published, rejected, non-Ready, or superseded content work from resurfacing as selectable Content Gaps rows.
 - **Visible Content Pilot brief results (2026-07-18):** “Generate refresh brief” already returned a valid mapped brief, but the result was rendered after 50 research-only rows and therefore appeared inert. The selected brief now opens directly beneath the exact candidate button that generated it, retaining the existing Clear and guarded Queue actions. No API, task, topical-map, Shopify, or Meta behavior changed.

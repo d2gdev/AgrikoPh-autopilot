@@ -168,6 +168,30 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+export function buildExactInternalLinkParagraph({
+  modelParagraph,
+  anchorText,
+  targetUrl,
+}: {
+  modelParagraph: string;
+  anchorText: string;
+  targetUrl: string;
+}): string {
+  const paragraph = escapeHtml(stripHtml(modelParagraph));
+  const anchor = escapeHtml(stripHtml(anchorText) || "related Agriko guide");
+  const href = escapeHtml(targetUrl);
+  return `<p>${paragraph}${paragraph ? " " : ""}Learn more in our <a href="${href}">${anchor}</a>.</p>`;
+}
+
 // Truncate article body to keep input tokens under control. Long articles can
 // push the combined prompt over the model's context limit, returning empty.
 const MAX_BODY_CHARS = 8000;
@@ -291,7 +315,7 @@ async function generateInternalLink(proposal: ContentProposal, article: BlogArti
 Return ONLY a JSON object:
 { "suggestedParagraph": "...", "anchorText": "...", "targetHandle": "..." }
 Rules:
-- suggestedParagraph: 2–3 sentences that naturally introduce exactly one link. The anchor href must equal the exact targetUrl provided; never reconstruct or alter it.
+- suggestedParagraph: 1–2 plain-text sentences that introduce the target topic. Do not include HTML or a link; the application adds the exact persisted link deterministically.
 - anchorText: 3–6 words, descriptive, matches the topic of the target article
 - targetHandle: the exact handle string provided, unchanged
 - Tone: warm, informative, matches existing article voice`;
@@ -317,7 +341,16 @@ ${fence(anchorHint)}
 \`\`\`
 Write a paragraph to append at the end of the source article that links to the target.`;
 
-  const result = { ...await callParseValidate(InternalLinkSchema, system, user), targetHandle };
+  const modelResult = await callParseValidate(InternalLinkSchema, system, user);
+  const result = {
+    ...modelResult,
+    suggestedParagraph: buildExactInternalLinkParagraph({
+      modelParagraph: modelResult.suggestedParagraph,
+      anchorText: modelResult.anchorText,
+      targetUrl,
+    }),
+    targetHandle,
+  };
   assertExactInternalLinkDraft(proposal, result);
   return result;
 }

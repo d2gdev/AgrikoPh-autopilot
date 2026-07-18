@@ -214,4 +214,33 @@ describe("GET /api/content-pilot/map-suggestions", () => {
     expect(response.status).toBe(200);
     expect(body.upcoming).toEqual([]);
   });
+
+  it("keeps research-only output within blog content scope", async () => {
+    mocks.commandCenter.mockResolvedValue({
+      identity,
+      pages: [{
+        url: "/products/black-rice",
+        title: "Black Rice",
+        decision: "review product copy",
+        priority: "P2",
+        ruleDomains: { content_decisions: ["content-product"] },
+      }],
+    });
+    mocks.readAnalysis.mockReturnValue({
+      gaps: [],
+      observations: [],
+      suppressed: [{
+        page: "/products/black-rice",
+        reason: "manual_gate",
+        ruleIds: ["content-product"],
+      }],
+    });
+
+    const { GET } = await import("@/app/api/content-pilot/map-suggestions/route");
+    const response = await GET(new Request("https://app.example/api/content-pilot/map-suggestions"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.research).toEqual([]);
+  });
 });

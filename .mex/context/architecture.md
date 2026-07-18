@@ -22,7 +22,7 @@ edges:
     condition: when adding a new route to the system
   - target: patterns/add-cron-job.md
     condition: when adding a new job handler to the pipeline
-last_updated: 2026-07-18T16:46:38+08:00
+last_updated: 2026-07-18T20:25:00+08:00
 ---
 
 # Architecture
@@ -50,7 +50,7 @@ Shopify admin iframe → Next.js App Router page (`app/(embedded)/`) → App Bri
 - **`lib/auth.ts`** — three auth paths: `requireAppAuth` (App Bridge JWT), `requireCronAuth` (Bearer `CRON_SECRET`), `apiKeyMatches` (`X-Autopilot-Api-Key`)
 - **`lib/job-lock.ts`** — DB-row-based advisory lock; prevents concurrent duplicate cron runs for the same job name
 - **`lib/alerts.ts`** — fires webhook alerts (`ALERT_WEBHOOK_URL`) on job failure, stale jobs, and data freshness gaps
-- **`lib/content-pilot/`** — separate pipeline for blog content: `generate-proposals.ts` scores existing articles → `ContentProposal` rows → operator approves → draft generation via AI → publish to Shopify blog. Governed drafts with an exact blog URL resolve the Shopify source by `(blogHandle, handle)` before AI generation and fail closed if that exact source is unavailable; handle-only fallback is limited to legacy proposals without an exact URL.
+- **`lib/content-pilot/`** — separate pipeline for blog content: `generate-proposals.ts` scores existing published articles → `ContentProposal` rows → operator approves → draft generation via AI → publish to Shopify blog. Governed drafts with an exact blog URL resolve the Shopify source by `(blogHandle, handle)` before AI generation and fail closed if that exact source is unavailable; handle-only fallback is limited to legacy proposals without an exact URL. Internal-link prose may be model-assisted, but the single exact persisted anchor is constructed deterministically and validated before persistence. The operator Queue uses server-side filters, authoritative aggregate stage counts, and bounded 50-row pages rather than downloading terminal history into the browser.
 - **`lib/market-intel/`** — competitor ad capture, shopping price history, keyword research; stored in `CompetitorAd`, `ShoppingResult`, `KeywordResearchResult` tables
 
 ## External Dependencies

@@ -76,6 +76,9 @@ export function OverviewTab({
         <Text as="p" tone="subdued">
           Gap score 0–100. Higher = more content needed.
         </Text>
+        <InlineStack>
+          <Button onClick={onOpenBrief}>View mapped content work</Button>
+        </InlineStack>
         {clusterRows.length === 0 ? (
           <Text as="p" tone="subdued">
             Run the indexer to populate topic data.
@@ -87,7 +90,6 @@ export function OverviewTab({
               headings={["Topic", "Articles", "Keywords", "Gap Score"]}
               rows={clusterRows}
             />
-            <Button onClick={onOpenBrief}>Create brief from a gap</Button>
           </BlockStack>
         )}
       </BlockStack>
@@ -112,7 +114,6 @@ export function OverviewTab({
                     headings={["Article", "Out-links"]}
                     rows={orphanRows}
                   />
-                  <Button onClick={onOpenBrief}>Create brief to address an orphan</Button>
                 </BlockStack>
             )}
           </BlockStack>

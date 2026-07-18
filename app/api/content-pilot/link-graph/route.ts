@@ -11,6 +11,7 @@ export async function GET(req: Request) {
   try {
     const [records, edges] = await Promise.all([
       prisma.articleRecord.findMany({
+        where: { publishedAt: { not: null } },
         select: { handle: true, title: true, linksData: true, inboundCount: true },
         orderBy: { indexedAt: "desc" },
       }),

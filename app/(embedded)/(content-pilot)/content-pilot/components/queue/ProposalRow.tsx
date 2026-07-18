@@ -58,12 +58,6 @@ export function ProposalRow({
   onReject,
   onCancelRejectForm,
 
-  isCloning,
-  isCloneConfirmOpen,
-  onOpenCloneConfirm,
-  onCancelClone,
-  onConfirmClone,
-
   isScheduleOpen,
   scheduleValue,
   isScheduling,
@@ -107,12 +101,6 @@ export function ProposalRow({
   onReject: (id: string, note?: string) => void;
   onCancelRejectForm: () => void;
 
-  isCloning: boolean;
-  isCloneConfirmOpen: boolean;
-  onOpenCloneConfirm: (id: string) => void;
-  onCancelClone: () => void;
-  onConfirmClone: (id: string) => void;
-
   isScheduleOpen: boolean;
   scheduleValue: string;
   isScheduling: boolean;
@@ -144,6 +132,7 @@ export function ProposalRow({
     if (!canReject) return null;
     return (
       <Button size="slim" tone="critical"
+        accessibilityLabel={`${isRejectFormOpen ? "Cancel rejection for" : "Reject"} ${p.title}`}
         loading={isRejecting} disabled={bulkActing || isApproving}
         onClick={() => onToggleRejectForm(p.id)}>
         {isRejectFormOpen ? "Cancel" : "Reject"}
@@ -171,11 +160,13 @@ export function ProposalRow({
       return (
         <InlineStack gap="200">
           <Button size="slim" variant="primary"
+            accessibilityLabel={`Approve and generate ${p.title}`}
             loading={isApproving} disabled={bulkActing || isRejecting}
             onClick={() => onApprove(p.id, { generate: true })}>
             Approve &amp; Generate
           </Button>
           <Button size="slim"
+            accessibilityLabel={`Approve ${p.title}`}
             loading={isApproving} disabled={bulkActing || isRejecting}
             onClick={() => onApprove(p.id, { generate: false })}>
             Approve
@@ -188,6 +179,7 @@ export function ProposalRow({
       return (
         <InlineStack gap="200">
           <Button size="slim"
+            accessibilityLabel={`Generate draft for ${p.title}`}
             loading={isGeneratingDraft}
             onClick={() => onGenerateDraft(p.id)}>
             Generate Draft
@@ -199,7 +191,7 @@ export function ProposalRow({
     if (stage === "generating") {
       return (
         <InlineStack gap="200">
-          <Button size="slim" disabled loading>Generating…</Button>
+          <Button size="slim" accessibilityLabel={`Generating draft for ${p.title}`} disabled loading>Generating…</Button>
           <RejectButton />
         </InlineStack>
       );
@@ -208,14 +200,15 @@ export function ProposalRow({
       return (
         <InlineStack gap="200">
           <Button size="slim" variant="primary"
+            accessibilityLabel={`Publish ${p.title}`}
             loading={isPublishing} disabled={bulkActing}
             onClick={() => onPublishDraft(p.id)}>
             Publish
           </Button>
-          <Button size="slim" onClick={() => onToggleExpand(p.id)}>
+          <Button size="slim" accessibilityLabel={`Preview ${p.title}`} onClick={() => onToggleExpand(p.id)}>
             {isExpanded ? "Collapse" : "Preview"}
           </Button>
-          <Button size="slim" onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
+          <Button size="slim" accessibilityLabel={`View or edit ${p.title}`} onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
             Edit / Schedule
           </Button>
           <RejectButton />
@@ -226,14 +219,15 @@ export function ProposalRow({
       return (
         <InlineStack gap="200">
           <Button size="slim" variant="primary"
+            accessibilityLabel={`Publish ${p.title} now`}
             loading={isPublishing} disabled={bulkActing}
             onClick={() => onPublishDraft(p.id)}>
             Publish Now
           </Button>
-          <Button size="slim" onClick={() => onToggleExpand(p.id)}>
+          <Button size="slim" accessibilityLabel={`Preview ${p.title}`} onClick={() => onToggleExpand(p.id)}>
             {isExpanded ? "Collapse" : "Preview"}
           </Button>
-          <Button size="slim" onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
+          <Button size="slim" accessibilityLabel={`View or edit ${p.title}`} onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
             Edit / Schedule
           </Button>
           <RejectButton />
@@ -243,10 +237,10 @@ export function ProposalRow({
     if (stage === "failed") {
       return (
         <InlineStack gap="200">
-          <Button size="slim" loading={isGeneratingDraft} onClick={() => onGenerateDraft(p.id)}>
+          <Button size="slim" accessibilityLabel={`Retry draft generation for ${p.title}`} loading={isGeneratingDraft} onClick={() => onGenerateDraft(p.id)}>
             Retry
           </Button>
-          <Button size="slim" onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
+          <Button size="slim" accessibilityLabel={`View ${p.title}`} onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
             View
           </Button>
           <RejectButton />
@@ -257,15 +251,16 @@ export function ProposalRow({
       return (
         <BlockStack gap="200">
           <InlineStack gap="200">
-            <Button size="slim" onClick={() => onToggleExpand(p.id)}>
+            <Button size="slim" accessibilityLabel={`Preview ${p.title}`} onClick={() => onToggleExpand(p.id)}>
               {isExpanded ? "Collapse" : "Preview"}
             </Button>
-            <Button size="slim" onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
+            <Button size="slim" accessibilityLabel={`View or edit ${p.title}`} onClick={() => router.push(withShopifyContextUrl(`/content-pilot/draft/${p.id}`))}>
               View / Edit
             </Button>
             {p.publishedHandle && (
               <Button
                 size="slim"
+                accessibilityLabel={`View ${p.title} on Shopify`}
                 url={`https://agrikoph.com/blogs/${(p.proposedState as Record<string, unknown>)?.blogHandle as string | undefined ?? "news"}/${p.publishedHandle}`}
                 external
               >
@@ -278,17 +273,17 @@ export function ProposalRow({
           )}
           {p.publishWarning && <Banner tone="warning" title="Published with warning"><p>{p.publishWarning}</p></Banner>}
           {p.publishFinalizedAt == null && p.publishOperationId && (
-            <Button size="slim" loading={isReconciling} onClick={() => onRetryBookkeeping(p.id)}>Retry bookkeeping</Button>
+            <Button size="slim" accessibilityLabel={`Retry bookkeeping for ${p.title}`} loading={isReconciling} onClick={() => onRetryBookkeeping(p.id)}>Retry bookkeeping</Button>
           )}
         </BlockStack>
       );
     }
     if (p.draftStatus === "publishing" || p.draftStatus === "publish-error") {
-      return <Button size="slim" tone="critical" loading={isReconciling} onClick={() => onReconcile(p.id)}>Reconcile</Button>;
+      return <Button size="slim" accessibilityLabel={`Reconcile ${p.title}`} tone="critical" loading={isReconciling} onClick={() => onReconcile(p.id)}>Reconcile</Button>;
     }
     if (stage === "rejected") {
       return (
-        <Button size="slim" onClick={() => onReopen(p.id)}>
+        <Button size="slim" accessibilityLabel={`Re-open ${p.title}`} onClick={() => onReopen(p.id)}>
           Re-open
         </Button>
       );
@@ -302,7 +297,7 @@ export function ProposalRow({
         <InlineStack align="space-between" blockAlign="start" wrap>
           <InlineStack gap="200" blockAlign="center" wrap>
             {(eligibility.actionable && (p.status === "pending" || (p.status === "approved" && !p.draftStatus)) || canReject) && (
-              <Checkbox label="Select proposal" labelHidden checked={isSelected} onChange={() => onToggleSelect(p.id)} />
+              <Checkbox label={`Select ${p.title}`} labelHidden checked={isSelected} onChange={() => onToggleSelect(p.id)} />
             )}
             <PriorityBadge priority={p.priority} />
             <StageBadge />
@@ -355,20 +350,6 @@ export function ProposalRow({
 
         <RowAction />
 
-        {eligibility.actionable && <InlineStack>
-          {isCloneConfirmOpen ? (
-            <InlineStack gap="200" blockAlign="center">
-              <Text as="p" tone="subdued" variant="bodySm">Duplicate this proposal?</Text>
-              <Button size="slim" loading={isCloning} onClick={() => onConfirmClone(p.id)}>Confirm</Button>
-              <Button size="slim" onClick={onCancelClone}>Cancel</Button>
-            </InlineStack>
-          ) : (
-            <Button size="slim" variant="plain" onClick={() => onOpenCloneConfirm(p.id)}>
-              Duplicate
-            </Button>
-          )}
-        </InlineStack>}
-
         {p.scheduledPublishAt && (
           <Text as="p" tone="subdued" variant="bodySm">Scheduled: {new Date(p.scheduledPublishAt).toLocaleString()}</Text>
         )}
@@ -376,7 +357,7 @@ export function ProposalRow({
         {(stage === "ready" || stage === "scheduled") && (
           <Box>
             {!isScheduleOpen ? (
-              <Button size="slim" variant="plain" onClick={() => onOpenSchedule(p)}>
+              <Button size="slim" accessibilityLabel={`${p.scheduledPublishAt ? "Edit schedule for" : "Schedule"} ${p.title}`} variant="plain" onClick={() => onOpenSchedule(p)}>
                 {p.scheduledPublishAt ? "Edit schedule" : "Schedule"}
               </Button>
             ) : (
@@ -393,17 +374,17 @@ export function ProposalRow({
                     {`Times are in your browser's local timezone (${Intl.DateTimeFormat().resolvedOptions().timeZone}).`}
                   </Text>
                 </div>
-                <Button size="slim" loading={isScheduling} disabled={!scheduleValue}
+                <Button size="slim" accessibilityLabel={`${p.scheduledPublishAt ? "Update schedule for" : "Set schedule for"} ${p.title}`} loading={isScheduling} disabled={!scheduleValue}
                   onClick={() => onSaveSchedule(p.id, scheduleValue)}>
                   {p.scheduledPublishAt ? "Update" : "Set"}
                 </Button>
                 {p.scheduledPublishAt && (
-                  <Button size="slim" tone="critical" loading={isScheduling}
+                  <Button size="slim" accessibilityLabel={`Clear schedule for ${p.title}`} tone="critical" loading={isScheduling}
                     onClick={() => onClearSchedule(p.id)}>
                     Clear
                   </Button>
                 )}
-                <Button size="slim" onClick={onCancelSchedule}>Cancel</Button>
+                <Button size="slim" accessibilityLabel={`Cancel scheduling ${p.title}`} onClick={onCancelSchedule}>Cancel</Button>
               </InlineStack>
             )}
           </Box>
@@ -476,7 +457,7 @@ export function ProposalRow({
                     <BlockStack gap="100">
                       <InlineStack align="space-between" blockAlign="center">
                         <Text variant="headingSm" as="h4">Article Body</Text>
-                        <Button size="slim" onClick={() => onToggleFullExpand(p.id)}>
+                        <Button size="slim" accessibilityLabel={`${isFullExpanded ? "Collapse" : "Expand"} article body for ${p.title}`} onClick={() => onToggleFullExpand(p.id)}>
                           {isFullExpanded ? "Collapse" : "Expand"}
                         </Button>
                       </InlineStack>
@@ -500,7 +481,7 @@ export function ProposalRow({
                 <BlockStack gap="100">
                   <InlineStack align="space-between" blockAlign="center">
                     <Text variant="headingSm" as="h4">Updated Body</Text>
-                    <Button size="slim" onClick={() => onToggleFullExpand(p.id)}>
+                    <Button size="slim" accessibilityLabel={`${isFull ? "Collapse" : "Expand"} updated body for ${p.title}`} onClick={() => onToggleFullExpand(p.id)}>
                       {isFull ? "Collapse" : "Expand"}
                     </Button>
                   </InlineStack>
@@ -533,11 +514,12 @@ export function ProposalRow({
             />
             <InlineStack gap="200">
               <Button size="slim" variant="primary" tone="critical"
+                accessibilityLabel={`Confirm rejection of ${p.title}`}
                 loading={isRejecting}
                 onClick={() => onReject(p.id, pendingRejectNote || undefined)}>
                 Confirm Reject
               </Button>
-              <Button size="slim" onClick={onCancelRejectForm}>
+              <Button size="slim" accessibilityLabel={`Cancel rejection of ${p.title}`} onClick={onCancelRejectForm}>
                 Cancel
               </Button>
             </InlineStack>

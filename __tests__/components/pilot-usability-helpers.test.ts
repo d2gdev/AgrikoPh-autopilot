@@ -139,7 +139,7 @@ describe("pilot usability helper regressions", () => {
 
   it("keeps a direct next step for overview content findings", () => {
     const source = readFileSync("app/(embedded)/(content-pilot)/content-pilot/components/OverviewTab.tsx", "utf8");
-    expect(source).toContain("Create brief");
+    expect(source).toContain("View mapped content work");
   });
 
   it("marks suspicious persisted image alt text for review before claiming it is optimized", () => {

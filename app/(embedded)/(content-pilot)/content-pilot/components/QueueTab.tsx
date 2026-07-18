@@ -1,7 +1,5 @@
 "use client";
 
-import { getCache, setCache } from "@/lib/client-cache";
-
 import {
   Banner,
   BlockStack,
@@ -24,8 +22,6 @@ import { QueueModals } from "./queue/QueueModals";
 import { contentProposalQueueStage } from "./queue-stage";
 import { publishFeedback, publishReconciliationMessage } from "./publish-feedback";
 import {
-  contentPilotQueueCacheKey,
-  loadAllProposalPages,
   loadProposalDraft,
   restoreProposalAfterFailedReload,
 } from "@/lib/content-pilot/queue-loading";
@@ -51,11 +47,14 @@ export function QueueTab({
   active: boolean;
 }) {
   const router = useRouter();
-  const cacheKey = contentPilotQueueCacheKey(withShopifyContextUrl);
-  const [allProposals, setAllProposals] = useState<ContentProposal[]>(() => getCache<ContentProposal[]>(cacheKey) ?? []);
+  const [allProposals, setAllProposals] = useState<ContentProposal[]>([]);
+  const [stageCounts, setStageCounts] = useState<Record<string, number>>({});
+  const [total, setTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [confirmGenerate, setConfirmGenerate] = useState(false);
-  const [loading, setLoading] = useState(() => !getCache(cacheKey));
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
   const [rejectingIds, setRejectingIds] = useState<Set<string>>(new Set());
@@ -86,9 +85,6 @@ export function QueueTab({
   const [lastPublishFeedback, setLastPublishFeedback] = useState<{ tone: "success" | "warning"; message: string } | null>(null);
   // Generate proposals feedback
   const [lastGeneratedCount, setLastGeneratedCount] = useState<number | null>(null);
-  // Clone
-  const [cloningIds, setCloningIds] = useState<Set<string>>(new Set());
-  const [confirmCloneId, setConfirmCloneId] = useState<string | null>(null);
   // Bulk publish modal
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishReviewChecked, setPublishReviewChecked] = useState(false);
@@ -100,16 +96,9 @@ export function QueueTab({
 
   const getStage = contentProposalQueueStage;
 
-  const pendingCount = allProposals.filter((p) => p.status === "pending").length;
+  const pendingCount = stageCounts.pending ?? 0;
   const approvedCount = allProposals.filter((p) => p.status === "approved" && !p.draftStatus && contentProposalEligibility(p).actionable).length;
-  const generatingCount = allProposals.filter((p) => p.draftStatus === "generating").length;
   const readyCount = allProposals.filter((p) => p.draftStatus === "ready" && !p.scheduledPublishAt).length;
-  const scheduledCount = allProposals.filter((p) => p.draftStatus === "ready" && p.scheduledPublishAt).length;
-  const publishingCount = allProposals.filter((p) => p.draftStatus === "publishing").length;
-  const publishErrorCount = allProposals.filter((p) => p.draftStatus === "publish-error").length;
-  const publishedCount = allProposals.filter((p) => p.draftStatus === "published").length;
-  const failedCount = allProposals.filter((p) => p.draftStatus === "failed").length;
-  const rejectedCount = allProposals.filter((p) => p.status === "rejected").length;
 
   const proposals = allProposals
     .filter((p) => stageFilter === "rejected" ? p.status === "rejected" : p.status !== "rejected")
@@ -138,28 +127,41 @@ export function QueueTab({
     });
 
   const proposalRequestsRef = useRef(createLatestRequestCoordinator());
-  const loadProposals = useCallback(async ({ silent = false, replace = false, preserveError = false }: {
+  const loadProposals = useCallback(async ({ silent = false, replace = false, preserveError = false, cursor = null }: {
     silent?: boolean;
     replace?: boolean;
     preserveError?: boolean;
+    cursor?: string | null;
   } = {}): Promise<boolean> => {
     const request = proposalRequestsRef.current.start({ background: silent && !replace });
     if (!request) return false;
     if (!silent) setLoading(true);
     try {
-      const pages = await loadAllProposalPages<ContentProposal>(async (cursor) => {
-        const params = new URLSearchParams({ limit: "100" });
-        if (cursor) params.set("cursor", cursor);
-        const res = await authFetch(`/api/content-pilot/proposals?${params.toString()}`, { signal: request.signal });
-        const body = await safeJson(res);
-        if (!res.ok) {
-          throw new Error(typeof body.error === "string" ? body.error : `Failed to load proposals (HTTP ${res.status})`);
-        }
-        return body as { proposals?: ContentProposal[]; total?: number; nextCursor?: string | null; hasMore?: boolean };
-      });
+      const params = new URLSearchParams({ limit: "50", sort: sortKey });
+      if (stageFilter !== "all") params.set("stage", stageFilter);
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
+      if (typeFilter !== "all") params.set("type", typeFilter);
+      if (priorityFilter !== "all") params.set("priority", priorityFilter);
+      if (cursor) params.set("cursor", cursor);
+      const res = await authFetch(`/api/content-pilot/proposals?${params.toString()}`, { signal: request.signal });
+      const body = await safeJson(res) as {
+        error?: unknown;
+        proposals?: ContentProposal[];
+        total?: number;
+        stageCounts?: Record<string, number>;
+        nextCursor?: string | null;
+      };
+      if (!res.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : `Failed to load proposals (HTTP ${res.status})`);
+      }
       if (!proposalRequestsRef.current.isCurrent(request)) return false;
-      setCache(cacheKey, pages);
-      setAllProposals(pages);
+      const page = body.proposals ?? [];
+      setAllProposals((current) => cursor
+        ? [...new Map([...current, ...page].map((proposal) => [proposal.id, proposal])).values()]
+        : page);
+      setStageCounts(body.stageCounts ?? {});
+      setTotal(typeof body.total === "number" ? body.total : page.length);
+      setNextCursor(body.nextCursor ?? null);
       return true;
     } catch (err) {
       if (!request.signal.aborted && !preserveError) {
@@ -171,15 +173,13 @@ export function QueueTab({
       proposalRequestsRef.current.finish(request);
       if (!silent && ownsRequest) setLoading(false);
     }
-  }, [authFetch, cacheKey]);
+  }, [authFetch, priorityFilter, searchQuery, sortKey, stageFilter, typeFilter]);
 
-  const hasLoadedRef = useRef(false);
   useEffect(() => {
-    if (active && !hasLoadedRef.current) {
-      hasLoadedRef.current = true;
-      loadProposals();
-    }
-  }, [active, loadProposals]);
+    if (!active) return;
+    const timeout = window.setTimeout(() => void loadProposals(), searchQuery ? 250 : 0);
+    return () => window.clearTimeout(timeout);
+  }, [active, loadProposals, searchQuery]);
 
   // Poll while any draft is generating
   const generatingRef = useRef(false);
@@ -516,16 +516,6 @@ export function QueueTab({
     setBulkActing(false);
   };
 
-  const cloneProposal = async (id: string) => {
-    setCloningIds((prev) => new Set(prev).add(id));
-    try {
-      const res = await authFetch(`/api/content-pilot/proposals/${id}/clone`, { method: "POST" });
-      if (!res.ok) { const d = await safeJson(res); setError((d.error as string) ?? "Clone failed"); return; }
-      await loadProposals();
-    } catch (e) { setError(String(e)); }
-    finally { setCloningIds((prev) => { const n = new Set(prev); n.delete(id); return n; }); }
-  };
-
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -569,17 +559,23 @@ export function QueueTab({
   ];
 
   const stagePills: { key: typeof stageFilter; label: string; count: number }[] = [
-    { key: "all", label: "All", count: allProposals.filter((p) => p.status !== "rejected").length },
+    {
+      key: "all",
+      label: "All",
+      count: Object.entries(stageCounts)
+        .filter(([stage]) => stage !== "rejected")
+        .reduce((sum, [, count]) => sum + count, 0),
+    },
     { key: "pending", label: "Pending", count: pendingCount },
-    { key: "approved", label: "Approved", count: approvedCount },
-    { key: "generating", label: "Generating", count: generatingCount },
-    { key: "ready", label: "Ready", count: readyCount },
-    { key: "scheduled", label: "Scheduled", count: scheduledCount },
-    { key: "publishing", label: "Publishing", count: publishingCount },
-    { key: "publish-error", label: "Publication errors", count: publishErrorCount },
-    { key: "published", label: "Published", count: publishedCount },
-    { key: "failed", label: "Failed", count: failedCount },
-    { key: "rejected", label: "Rejected", count: rejectedCount },
+    { key: "approved", label: "Approved", count: stageCounts.approved ?? 0 },
+    { key: "generating", label: "Generating", count: stageCounts.generating ?? 0 },
+    { key: "ready", label: "Ready", count: stageCounts.ready ?? 0 },
+    { key: "scheduled", label: "Scheduled", count: stageCounts.scheduled ?? 0 },
+    { key: "publishing", label: "Publishing", count: stageCounts.publishing ?? 0 },
+    { key: "publish-error", label: "Publication errors", count: stageCounts["publish-error"] ?? 0 },
+    { key: "published", label: "Published", count: stageCounts.published ?? 0 },
+    { key: "failed", label: "Failed", count: stageCounts.failed ?? 0 },
+    { key: "rejected", label: "Rejected", count: stageCounts.rejected ?? 0 },
   ];
 
   // ── Thin wrapper callbacks for props-only children ──────────────────────
@@ -599,10 +595,6 @@ export function QueueTab({
   };
   const handleCancelRejectForm = () => { setPendingRejectId(null); setPendingRejectNote(""); };
   const handlePendingRejectNoteChange = (v: string) => setPendingRejectNote(v);
-
-  const handleOpenCloneConfirm = (id: string) => setConfirmCloneId(id);
-  const handleCancelClone = () => setConfirmCloneId(null);
-  const handleConfirmClone = async (id: string) => { await cloneProposal(id); setConfirmCloneId(null); };
 
   const handleOpenSchedule = (p: ContentProposal) => {
     setScheduleOpenId(p.id);
@@ -625,6 +617,12 @@ export function QueueTab({
   const handleConfirmPublishAll = () => { setShowPublishModal(false); bulkPublishReady(); };
   const handleCancelConfirmGenerate = () => setConfirmGenerate(false);
   const handlePublishReviewCheckedChange = (v: boolean) => setPublishReviewChecked(v);
+  const handleLoadMore = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    await loadProposals({ silent: true, cursor: nextCursor });
+    setLoadingMore(false);
+  };
 
   return (
     <BlockStack gap="400">
@@ -669,26 +667,26 @@ export function QueueTab({
           {approvedCount > 0 && (
             confirmGenerateAll ? (
               <InlineStack gap="200" wrap blockAlign="center">
-                <Text as="p" tone="subdued">{`Generate all ${approvedCount} drafts?`}</Text>
+                <Text as="p" tone="subdued">{`Generate ${approvedCount} loaded drafts?`}</Text>
                 <Button size="slim" variant="primary" loading={bulkActing} onClick={() => { setConfirmGenerateAll(false); generateAllDrafts(); }}>Confirm</Button>
                 <Button size="slim" onClick={() => setConfirmGenerateAll(false)}>Cancel</Button>
               </InlineStack>
             ) : (
               <Button size="slim" loading={bulkActing} onClick={() => setConfirmGenerateAll(true)}>
-                {`Generate All Drafts (${approvedCount})`}
+                {`Generate Loaded Drafts (${approvedCount})`}
               </Button>
             )
           )}
           {readyCount > 0 && (
             confirmPublishAll ? (
               <InlineStack gap="200" wrap blockAlign="center">
-                <Text as="p" tone="subdued">{`Publish all ${readyCount}?`}</Text>
+                <Text as="p" tone="subdued">{`Publish ${readyCount} loaded ready drafts?`}</Text>
                 <Button size="slim" variant="primary" tone="critical" loading={bulkActing} onClick={() => { setConfirmPublishAll(false); openBulkPublishModal(); }}>Confirm</Button>
                 <Button size="slim" onClick={() => setConfirmPublishAll(false)}>Cancel</Button>
               </InlineStack>
             ) : (
               <Button size="slim" variant="primary" loading={bulkActing} onClick={() => setConfirmPublishAll(true)}>
-                {`Publish All Ready (${readyCount})`}
+                {`Publish Loaded Ready (${readyCount})`}
               </Button>
             )
           )}
@@ -802,11 +800,6 @@ export function QueueTab({
               onPendingRejectNoteChange={handlePendingRejectNoteChange}
               onReject={reject}
               onCancelRejectForm={handleCancelRejectForm}
-              isCloning={cloningIds.has(p.id)}
-              isCloneConfirmOpen={confirmCloneId === p.id}
-              onOpenCloneConfirm={handleOpenCloneConfirm}
-              onCancelClone={handleCancelClone}
-              onConfirmClone={handleConfirmClone}
               isScheduleOpen={scheduleOpenId === p.id}
               scheduleValue={scheduleInputs[p.id] ?? ""}
               isScheduling={schedulingId === p.id}
@@ -823,6 +816,13 @@ export function QueueTab({
               onToggleFullExpand={handleToggleFullExpand}
             />
           ))}
+          {nextCursor && (
+            <InlineStack align="center">
+              <Button loading={loadingMore} onClick={handleLoadMore}>
+                {`Load more (${allProposals.length.toLocaleString()} of ${total.toLocaleString()})`}
+              </Button>
+            </InlineStack>
+          )}
         </BlockStack>
       )}
     </BlockStack>

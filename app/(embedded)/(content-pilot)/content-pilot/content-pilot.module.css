@@ -1,0 +1,10 @@
+.surface {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .surface button,
+  .surface [role="button"] {
+    min-block-size: 44px;
+  }
+}

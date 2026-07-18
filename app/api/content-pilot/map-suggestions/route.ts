@@ -93,7 +93,9 @@ export async function GET(req: Request) {
   const research = (analysis?.suppressed ?? []).flatMap((item) => {
     const page = pageByUrl.get(item.page);
     const contentRuleIds = page?.ruleDomains.content_decisions ?? [];
-    if (!page?.decision || !contentRuleIds.some((ruleId) => item.ruleIds.includes(ruleId))) return [];
+    if (!page?.url.startsWith("/blogs/")
+      || !page.decision
+      || !contentRuleIds.some((ruleId) => item.ruleIds.includes(ruleId))) return [];
     return [{
       targetUrl: page.url,
       title: page.title ?? item.currentArticleTitle ?? page.url,
