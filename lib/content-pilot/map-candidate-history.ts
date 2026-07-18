@@ -31,6 +31,20 @@ type MappedTaskClient = {
   };
 };
 
+type MappedTaskListClient = ProposalHistoryClient & {
+  seoFollowUpTask: {
+    findMany(args: {
+      where: {
+        status: "open";
+        sourceType: "topical_map";
+        sourceKey: { startsWith: string };
+        earliestReviewAt: { lte: Date };
+      };
+      select: { sourceKey: true };
+    }): Promise<Array<{ sourceKey: string }>>;
+  };
+};
+
 export type MappedContentIdentity = {
   candidateId: string;
   action: "create" | "refresh";
@@ -133,6 +147,38 @@ export async function getBlockingMapContentProposals(
           }]
         : []),
   );
+}
+
+export async function getActionableMapContentCandidateIds(
+  client: MappedTaskListClient,
+  input: {
+    strategyVersionId: string;
+    gaps: MapAwareSeoGap[];
+    now?: Date;
+  },
+): Promise<Set<string>> {
+  const candidates = input.gaps.filter((gap) => gap.kind === "content" && gap.page);
+  const prefix = `topical-map-content:${input.strategyVersionId}:`;
+  const [tasks, blocked] = await Promise.all([
+    client.seoFollowUpTask.findMany({
+      where: {
+        status: "open",
+        sourceType: "topical_map",
+        sourceKey: { startsWith: prefix },
+        earliestReviewAt: { lte: input.now ?? new Date() },
+      },
+      select: { sourceKey: true },
+    }),
+    getBlockingMapContentProposals(client, candidates),
+  ]);
+  const ready = new Set(tasks.flatMap((task) => {
+    const candidateId = task.sourceKey.slice(prefix.length);
+    return /^[a-f0-9]{64}$/.test(candidateId) ? [candidateId] : [];
+  }));
+  return new Set(candidates.flatMap((candidate) =>
+    ready.has(candidate.candidateId) && !blocked.has(candidate.candidateId)
+      ? [candidate.candidateId]
+      : []));
 }
 
 export async function hasReadyMappedContentTask(

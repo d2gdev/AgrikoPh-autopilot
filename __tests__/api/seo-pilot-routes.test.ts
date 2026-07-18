@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import type { NextRequest } from "next/server";
-import { mapCandidateId, type MapAwareSeoGap } from "@/lib/seo/analysis";
+import {
+  createMapAnalysisEnvelope,
+  mapCandidateId,
+  type MapAwareSeoGap,
+} from "@/lib/seo/analysis";
 
 const mockAuth = vi.hoisted(() => ({
   requireAppAuth: vi.fn(),
@@ -69,6 +73,7 @@ const mockCreateGovernedContentProposal = vi.hoisted(() => vi.fn());
 const mockGetLatestSnapshot = vi.hoisted(() => vi.fn());
 const mockGetBlockingMapContentProposals = vi.hoisted(() => vi.fn());
 const mockHasReadyMappedContentTask = vi.hoisted(() => vi.fn());
+const mockGetActionableMapContentCandidateIds = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auth", () => ({
   PERMISSIONS: { CONTENT_REVIEW: "content:review" },
   requireAppAuth: mockAuth.requireAppAuth,
@@ -107,6 +112,7 @@ vi.mock("@/lib/seo-tasks/topical-map-scheduler", () => ({
   syncTopicalMapSeoTasks: mockSyncTopicalMapSeoTasks,
 }));
 vi.mock("@/lib/content-pilot/map-candidate-history", () => ({
+  getActionableMapContentCandidateIds: mockGetActionableMapContentCandidateIds,
   getBlockingMapContentProposals: mockGetBlockingMapContentProposals,
   hasReadyMappedContentTask: mockHasReadyMappedContentTask,
 }));
@@ -119,6 +125,11 @@ function jsonRequest(path: string, body: Record<string, unknown>, method = "POST
 }
 
 const strategyIdentity = { strategyVersionId: "v3", packageSha256: "a".repeat(64) };
+const makeGap = (input: Omit<MapAwareSeoGap, "candidateId">): MapAwareSeoGap => ({
+  ...input,
+  candidateId: mapCandidateId(input),
+});
+
 describe("SEO Pilot route regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -206,6 +217,10 @@ describe("SEO Pilot route regressions", () => {
       superseded: 0,
     });
     mockHasReadyMappedContentTask.mockResolvedValue(true);
+    mockGetActionableMapContentCandidateIds.mockImplementation(
+      async (_client, input: { gaps: MapAwareSeoGap[] }) =>
+        new Set(input.gaps.filter((gap) => gap.kind === "content").map((gap) => gap.candidateId)),
+    );
     mockEnqueueJob.mockResolvedValue({
       created: true,
       runId: "dashboard-run",
@@ -238,6 +253,64 @@ describe("SEO Pilot route regressions", () => {
       cachedStrategy: { versionId: "v2", packageSha256: "b".repeat(64) },
     });
     expect(JSON.stringify(body)).not.toContain("stale finding");
+  });
+
+  it("hides content gaps that are not current Ready mapped work", async () => {
+    const capturedAt = new Date();
+    const ready = makeGap({
+      strategyVersionId: "v3",
+      packageSha256: "a".repeat(64),
+      kind: "content",
+      state: "candidate",
+      action: "refresh",
+      ruleIds: ["rule:black"],
+      query: "black rice benefits",
+      suggestedTitle: "Black Rice Benefits",
+      page: "/blogs/news/black-rice-benefits",
+      priority: "high",
+      mapEvidence: null,
+      observedEvidence: [],
+      observation: {
+        source: "store",
+        capturedAt: capturedAt.toISOString(),
+        provenance: "ArticleRecord:news/black-rice-benefits",
+      },
+    });
+    const handled = makeGap({
+      ...ready,
+      ruleIds: ["rule:ghost"],
+      query: "ghost",
+      suggestedTitle: "Handled Ghost",
+      page: "/blogs/news/ghost-handle",
+      observation: {
+        source: "store",
+        capturedAt: capturedAt.toISOString(),
+        provenance: "ArticleRecord:news/ghost-handle",
+      },
+    });
+    const payload = createMapAnalysisEnvelope({
+      strategy: { versionId: "v3", packageSha256: "a".repeat(64) },
+      generatedAt: capturedAt,
+      analysis: { gaps: [ready, handled], observations: [], suppressed: [] },
+      evidence: {
+        gscCapturedAt: capturedAt.toISOString(),
+        storeCapturedAt: null,
+        linkCapturedAt: null,
+        requiredObservationFamilies: [],
+        storeInspection: { required: 0, inspected: 0 },
+        linkInspection: { required: 0, inspected: 0 },
+        maxAgeHours: 72,
+      },
+    });
+    mockGetLatestSnapshot.mockResolvedValue({ payload, fetchedAt: capturedAt });
+    mockGetActionableMapContentCandidateIds.mockResolvedValue(new Set([ready.candidateId]));
+
+    const { GET } = await import("@/app/api/seo/analysis/route");
+    const response = await GET(new Request("http://test.local/api/seo/analysis") as NextRequest);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.analysis.gaps).toEqual([ready]);
   });
 
   it("round-trips the POST schema-v2 map analysis through the GET reader", async () => {

@@ -18,7 +18,7 @@ edges:
     condition: when working on AI skills, guardrails, or the recommendation lifecycle
   - target: patterns/INDEX.md
     condition: when starting a task — check the pattern index for a matching pattern file
-last_updated: 2026-07-18T18:10:18+08:00
+last_updated: 2026-07-18T18:47:59+08:00
 ---
 
 # Session Bootstrap
@@ -30,6 +30,7 @@ Then read this file fully before doing anything else in this session.
 ## Current Project State
 
 **Working:**
+- **SEO Content Gaps actionable-history preflight (2026-07-18):** The strategy-bound analysis reader now filters content candidates through the same current Ready SEO Task and recreate-blocking Content Proposal history used by Content Pilot. Raw analysis remains persisted unchanged, non-content link findings remain visible, and mutation boundaries still repeat their checks. This prevents handled, queued, published, rejected, non-Ready, or superseded content work from resurfacing as selectable Content Gaps rows.
 - **Visible Content Pilot brief results (2026-07-18):** “Generate refresh brief” already returned a valid mapped brief, but the result was rendered after 50 research-only rows and therefore appeared inert. The selected brief now opens directly beneath the exact candidate button that generated it, retaining the existing Clear and guarded Queue actions. No API, task, topical-map, Shopify, or Meta behavior changed.
 - **Canonical Shopify Admin fallback redirect (2026-07-18):** Direct top-level visits to Autopilot now redirect through the explicit `SHOPIFY_ADMIN_APP_URL` rather than deriving an app destination from the legacy Admin API credential. This keeps the fallback entry point on the current `seoai-9` embedded app while leaving App Bridge session credentials, Admin API credentials, authentication, and permissions unchanged. Regression coverage pins the exact canonical Admin URL.
 - **Map-bounded Content Pilot briefs (2026-07-18, local):** Exact-map briefs are now assembled deterministically from the active topical map instead of asking an AI model to elaborate the assignment. A brief contains only the exact action, URL, mapped scope and decision, observed evidence, same-cluster ownership boundaries, and internal links explicitly present in the map. This prevents invented adjacent articles, URLs, intents, claims, and links from reintroducing duplicate content. Existing authentication, permission, Ready-task, and proposal-history preflights remain unchanged. Verification passed all 1,756 tests with 11 skipped, typecheck, lint, optimized production build, and diff hygiene. No schema, topical-map package, Shopify object, or Meta object changed.

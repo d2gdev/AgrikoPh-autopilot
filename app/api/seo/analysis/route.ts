@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireAppAuth } from "@/lib/auth";
+import { getActionableMapContentCandidateIds } from "@/lib/content-pilot/map-candidate-history";
 import { getLatestSnapshot } from "@/lib/seo/snapshot";
 import { prisma } from "@/lib/db";
 import { loadActiveTopicalMapCommandCenter } from "@/lib/topical-map/command-center";
@@ -17,9 +18,22 @@ export async function GET(req: NextRequest) {
   const analysis = commandCenter && snap ? readAnalysisForStrategy(snap.payload, commandCenter.identity) : null;
   const stale = cachedStrategy !== null && (cachedStrategy.versionId !== commandCenter.identity.versionId || cachedStrategy.packageSha256 !== commandCenter.identity.packageSha256);
   const evidenceState = snap ? analysisEvidenceState(snap.payload) : "observation_unavailable";
+  const actionableContentIds = analysis && !stale && evidenceState === "current"
+    ? await getActionableMapContentCandidateIds(prisma, {
+        strategyVersionId: commandCenter.identity.versionId,
+        gaps: analysis.gaps,
+      })
+    : null;
+  const presentedAnalysis = analysis && actionableContentIds
+    ? {
+        ...analysis,
+        gaps: analysis.gaps.filter((gap) =>
+          gap.kind !== "content" || actionableContentIds.has(gap.candidateId)),
+      }
+    : analysis;
   return NextResponse.json({
     state: stale ? "strategy_identity_stale" : analysis && evidenceState === "current" ? "ready" : analysis ? evidenceState : "empty",
-    analysis: stale || evidenceState !== "current" ? null : analysis,
+    analysis: stale || evidenceState !== "current" ? null : presentedAnalysis,
     generatedAt: !stale && analysis && evidenceState === "current" ? snap?.fetchedAt ?? null : null,
     strategy: commandCenter.identity,
     ...(stale ? { cachedStrategy } : {}),

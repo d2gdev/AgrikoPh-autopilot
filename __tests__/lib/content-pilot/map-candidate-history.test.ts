@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { getBlockingMapContentProposals } from "@/lib/content-pilot/map-candidate-history";
+import {
+  getActionableMapContentCandidateIds,
+  getBlockingMapContentProposals,
+} from "@/lib/content-pilot/map-candidate-history";
 import { CONTENT_PROPOSAL_RECREATE_BLOCKING_STATUSES } from "@/lib/content-pilot/proposal-dedupe";
 import type { MapAwareSeoGap } from "@/lib/seo/analysis";
 
@@ -35,5 +38,44 @@ describe("mapped content proposal history", () => {
       },
       select: { id: true, dedupeKey: true },
     });
+  });
+
+  it("returns only Ready candidates without blocking proposal history", async () => {
+    const ready = {
+      candidateId: "b".repeat(64),
+      kind: "content",
+      action: "refresh",
+      page: "/blogs/news/rice-guide",
+      suggestedTitle: "Rice Guide",
+    } as MapAwareSeoGap;
+    const blocked = {
+      ...ready,
+      candidateId: "c".repeat(64),
+      page: "/blogs/news/handled-guide",
+      suggestedTitle: "Handled Guide",
+    } as MapAwareSeoGap;
+    const prefix = "topical-map-content:strategy-1:";
+    const client = {
+      seoFollowUpTask: {
+        findMany: vi.fn().mockResolvedValue([
+          { sourceKey: `${prefix}${ready.candidateId}` },
+          { sourceKey: `${prefix}${blocked.candidateId}` },
+        ]),
+      },
+      contentProposal: {
+        findMany: vi.fn().mockResolvedValue([{
+          id: "published-1",
+          dedupeKey: "content-refresh:article:handled-guide",
+        }]),
+      },
+    };
+
+    const actionable = await getActionableMapContentCandidateIds(client, {
+      strategyVersionId: "strategy-1",
+      gaps: [ready, blocked],
+      now: new Date("2026-07-18T00:00:00.000Z"),
+    });
+
+    expect([...actionable]).toEqual([ready.candidateId]);
   });
 });
