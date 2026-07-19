@@ -412,6 +412,63 @@ describe("getLatestGscData freshness selection", () => {
     });
     expect(result?.propertyTotalsProvenance).toBe("dimensionless_property_aggregate");
   });
+
+  it("falls back to the exact adjacent raw snapshot when normalized prior rows do not exist", async () => {
+    const currentWindow = {
+      capturedAt: new Date("2026-07-20T00:00:00.000Z"),
+      dateRangeStart: new Date("2026-06-20T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-07-17T00:00:00.000Z"),
+    };
+    mockNormalized.getPreviousGscWindow.mockResolvedValue(null);
+    mockSnapshots.getSnapshotForWindow.mockResolvedValue(rawSnapshot(
+      "gsc",
+      "2026-07-20T00:00:00.000Z",
+      "2026-05-23T00:00:00.000Z",
+      "2026-06-19T00:00:00.000Z",
+      {
+        topQueries: [{ query: "prior query", clicks: 2, impressions: 20 }],
+        propertyTotals: {
+          clicks: 55,
+          impressions: 4618,
+          avgCtr: 0.0119,
+          avgPosition: 18.4,
+        },
+      },
+    ));
+    mockSnapshots.getQueries.mockReturnValue([
+      { query: "prior query", clicks: 2, impressions: 20, ctr: "10.0%", position: "5.0" },
+    ]);
+
+    const result = await getPreviousGscData({
+      source: "normalized",
+      window: currentWindow,
+      queries: [],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: currentWindow.capturedAt,
+      propertyTotals: null,
+      propertyTotalsProvenance: "unavailable",
+      freshness: {} as never,
+    });
+
+    expect(mockSnapshots.getSnapshotForWindow).toHaveBeenCalledWith(
+      "gsc",
+      new Date("2026-05-23T00:00:00.000Z"),
+      new Date("2026-06-19T00:00:00.000Z"),
+    );
+    expect(result).toMatchObject({
+      source: "rawSnapshot",
+      dateRangeStart: new Date("2026-05-23T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-06-19T00:00:00.000Z"),
+      propertyTotals: {
+        clicks: 55,
+        impressions: 4618,
+        avgCtr: 0.0119,
+        avgPosition: 18.4,
+      },
+    });
+    expect(result?.queries).toHaveLength(1);
+  });
 });
 
 describe("getLatestGa4Data freshness selection", () => {

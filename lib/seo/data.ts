@@ -253,7 +253,36 @@ export async function getPreviousGscQueries(current: LatestGscData): Promise<Gsc
 export async function getPreviousGscData(current: LatestGscData): Promise<PreviousGscData | null> {
   if (current.source === "normalized" && current.window) {
     const previousWindow = await getPreviousGscWindow(current.window);
-    if (!previousWindow) return null;
+    if (!previousWindow) {
+      const dayMs = 24 * 60 * 60 * 1000;
+      const durationMs =
+        current.window.dateRangeEnd.getTime()
+        - current.window.dateRangeStart.getTime();
+      const previousEnd = new Date(
+        current.window.dateRangeStart.getTime() - dayMs,
+      );
+      const previousStart = new Date(previousEnd.getTime() - durationMs);
+      const adjacentSnapshot = await getSnapshotForWindow(
+        "gsc",
+        previousStart,
+        previousEnd,
+      );
+      if (!adjacentSnapshot?.fetchedAt
+        || !adjacentSnapshot.dateRangeStart
+        || !adjacentSnapshot.dateRangeEnd) {
+        return null;
+      }
+      const propertyTotals = getPropertyTotals(adjacentSnapshot);
+      return {
+        queries: getQueries(adjacentSnapshot),
+        fetchedAt: adjacentSnapshot.fetchedAt,
+        dateRangeStart: adjacentSnapshot.dateRangeStart,
+        dateRangeEnd: adjacentSnapshot.dateRangeEnd,
+        source: "rawSnapshot",
+        propertyTotals,
+        propertyTotalsProvenance: totalsProvenance(propertyTotals),
+      };
+    }
     const snapshot = await getSnapshotForWindow(
       "gsc",
       previousWindow.dateRangeStart,

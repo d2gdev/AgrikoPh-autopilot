@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 
 describe("normalized GSC windows", () => {
-  it("selects the latest window by dateRangeEnd, then capturedAt", async () => {
+  it("selects the latest capture before comparing legacy window timestamps", async () => {
     mockPrisma.gscQuery.findFirst.mockResolvedValue(latestWindow);
 
     const result = await getLatestGscWindow();
@@ -36,7 +36,7 @@ describe("normalized GSC windows", () => {
     expect(result).toEqual(latestWindow);
     expect(mockPrisma.gscQuery.findFirst).toHaveBeenCalledWith({
       select: { dateRangeStart: true, dateRangeEnd: true, capturedAt: true },
-      orderBy: [{ dateRangeEnd: "desc" }, { capturedAt: "desc" }],
+      orderBy: [{ capturedAt: "desc" }, { dateRangeEnd: "desc" }],
     });
   });
 

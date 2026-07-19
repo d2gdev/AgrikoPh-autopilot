@@ -86,7 +86,7 @@ async function rowsForWindow(
 export async function getLatestGscWindow(client?: GscClient): Promise<GscWindow | null> {
   const row = await clientOrDefault(client).gscQuery.findFirst({
     select: { dateRangeStart: true, dateRangeEnd: true, capturedAt: true },
-    orderBy: [{ dateRangeEnd: "desc" }, { capturedAt: "desc" }],
+    orderBy: [{ capturedAt: "desc" }, { dateRangeEnd: "desc" }],
   });
   return row;
 }
