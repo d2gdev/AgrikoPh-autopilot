@@ -29,7 +29,7 @@ edges:
     condition: when diagnosing a pipeline failure
   - target: patterns/deploy.md
     condition: when deploying pipeline changes or running migrations in production
-last_updated: 2026-07-08T21:17:28Z
+last_updated: 2026-07-20T07:00:00+08:00
 ---
 
 # Data Pipeline
@@ -93,6 +93,8 @@ Google Ads Keyword Planner keyword research is persisted as `RawSnapshot("keywor
 - `meta.ts` — Meta Graph API; rate-limited; `META_ACCESS_TOKEN` expires (check `META_TOKEN_EXPIRES_AT`)
 - `ga4.ts` — Google Analytics Data API; service account auth via `GA4_SERVICE_ACCOUNT_JSON`
 - `gsc.ts` — Google Search Console; service account auth via `GSC_SERVICE_ACCOUNT_JSON`; `GSC_SITE_URL` must match property exactly
+- Search Analytics `startDate` and `endDate` are inclusive. A 28-day window is `end - 27 calendar days` through `end`; the adjacent prior period must end one calendar day before the current start. Do not subtract 28 days and reuse the current start as the prior end, or the stored periods become 29 days and overlap.
+- Dimensioned GSC rows are evidence, not authoritative property totals. Query and query/page responses can omit anonymized or otherwise ungrouped traffic. Persist a dimensionless aggregate for total click/impression/CTR/position cards and keep dimensioned rows for query, landing-page, and opportunity analysis.
 - `google-ads.ts` — keyword planning only; OAuth refresh token flow; no writes
 - `klaviyo.ts` — dead code; do not use or extend
 

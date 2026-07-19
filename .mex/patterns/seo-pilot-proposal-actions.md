@@ -1,7 +1,7 @@
 ---
 name: seo-pilot-proposal-actions
 description: Diagnose and fix SEO Pilot actions that create Content Pilot proposals which cannot generate or publish the intended draft.
-last_updated: 2026-07-19
+last_updated: 2026-07-20
 ---
 
 # Pattern: SEO Pilot Proposal Actions
@@ -109,6 +109,14 @@ last_updated: 2026-07-19
    - Apply bounds to distinct normalized GSC reporting windows, never raw query rows.
    - Page Health must describe missing GA4 engagement signals as unknown, not healthy.
    - Article-backed promotion targets derive word count from canonical `ArticleRecord` data only.
+26. Treat Search Analytics dates as inclusive calendar dates.
+   - A 28-day window starts 27 calendar days before its end date.
+   - The adjacent prior window ends one calendar day before the current start.
+   - Regression tests must assert both calendar-day count and zero overlap; equal boundary timestamps are not non-overlapping.
+27. Do not label dimensioned Search Analytics sums as property totals.
+   - Query/page rows remain the evidence source for search observations and opportunity attribution.
+   - Total clicks, impressions, CTR, and position require a same-window dimensionless aggregate because Google can omit anonymized query data from dimensioned responses.
+   - Authenticated UI verification must compare the displayed cards with a direct same-window aggregate API response.
 
 ## Regression Tests
 Add or update route tests when changing these paths:
