@@ -57,6 +57,32 @@ const after = `{
     }
     {% endif %}
 `;
+const liveLegacyBefore = `{
+      "branchOf": { "@id": {{ shop.url | append: '/#organization' | json }} },
+      "hasOfferCatalog": {
+        "@type": "OfferCatalog",
+        "name": "Agriko Products",
+        "itemListElement": [
+          { "@type": "Offer", "itemOffered": { "@type": "Thing", "name": "Black Rice" } }
+        ]
+      },
+      "sameAs": [
+        "https://www.facebook.com/AgrikoPH"
+      ]
+    }
+    {% if template.name == 'index' %}
+    ,{
+      "@type": "OfferCatalog",
+      "@id": {{ shop.url | append: '/#offer-catalog' | json }},
+      "itemListElement": []
+    }
+    ,{
+      "@type": "ItemList",
+      "@id": {{ shop.url | append: '/#featured-products' | json }},
+      "itemListElement": []
+    }
+    {% endif %}
+`;
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
 function observation(value: string) {
@@ -99,6 +125,16 @@ describe("homepage OfferCatalog recommendation workflow", () => {
     expect(after).toContain('"@type": "ItemList"');
     expect(after).not.toContain("hasOfferCatalog");
     expect(after).not.toContain('"@type": "OfferCatalog"');
+  });
+
+  it("removes the older live nested catalog shape without changing adjacent schema", () => {
+    const result = removeHomepageOfferCatalog(liveLegacyBefore);
+
+    expect(result).toContain('"branchOf"');
+    expect(result).toContain('"sameAs"');
+    expect(result).toContain('"@type": "ItemList"');
+    expect(result).not.toContain("hasOfferCatalog");
+    expect(result).not.toContain('"@type": "OfferCatalog"');
   });
 
   it("fails closed unless each approved schema block appears exactly once", () => {

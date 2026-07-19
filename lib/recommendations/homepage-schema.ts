@@ -10,6 +10,12 @@ import {
 
 const HAS_OFFER_CATALOG =
   `,\n      "hasOfferCatalog": { "@id": {{ shop.url | append: '/#offer-catalog' | json }} }`;
+const NESTED_HAS_OFFER_CATALOG_START =
+  `      "hasOfferCatalog": {\n`;
+const NESTED_HAS_OFFER_CATALOG_END =
+  `\n      },\n      "sameAs": [`;
+const NESTED_HAS_OFFER_CATALOG_END_PREFIX =
+  `\n      },\n`;
 const OFFER_CATALOG_START = `    ,{
       "@type": "OfferCatalog",`;
 const ITEM_LIST_START = `    ,{
@@ -34,7 +40,9 @@ function occurrences(value: string, needle: string): number {
 }
 
 export function removeHomepageOfferCatalog(value: string): string {
-  if (occurrences(value, HAS_OFFER_CATALOG) !== 1) {
+  const referenceCount = occurrences(value, HAS_OFFER_CATALOG);
+  const nestedCount = occurrences(value, NESTED_HAS_OFFER_CATALOG_START);
+  if (referenceCount + nestedCount !== 1) {
     throw new Error("Expected exactly one hasOfferCatalog reference");
   }
   if (occurrences(value, OFFER_CATALOG_START) !== 1) {
@@ -44,7 +52,22 @@ export function removeHomepageOfferCatalog(value: string): string {
     throw new Error("Expected exactly one homepage ItemList");
   }
 
-  const withoutReference = value.replace(HAS_OFFER_CATALOG, "");
+  let withoutReference: string;
+  if (referenceCount === 1) {
+    withoutReference = value.replace(HAS_OFFER_CATALOG, "");
+  } else {
+    const nestedStart = value.indexOf(NESTED_HAS_OFFER_CATALOG_START);
+    const nestedEnd = value.indexOf(
+      NESTED_HAS_OFFER_CATALOG_END,
+      nestedStart + NESTED_HAS_OFFER_CATALOG_START.length,
+    );
+    if (nestedStart < 0 || nestedEnd < 0) {
+      throw new Error("Nested hasOfferCatalog boundary is invalid");
+    }
+    withoutReference =
+      value.slice(0, nestedStart)
+      + value.slice(nestedEnd + NESTED_HAS_OFFER_CATALOG_END_PREFIX.length);
+  }
   const offerStart = withoutReference.indexOf(OFFER_CATALOG_START);
   const itemListStart = withoutReference.indexOf(ITEM_LIST_START);
   if (offerStart < 0 || itemListStart <= offerStart) {
