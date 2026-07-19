@@ -10,7 +10,7 @@ vi.doMock("@/lib/connectors/meta", () => ({
 }));
 
 // Import AFTER mocks are registered
-const { executeRecommendation } = await import("@/lib/executor");
+const { executeRecommendation, isSupportedAction } = await import("@/lib/executor");
 
 // Minimal recommendation shape matching Prisma Recommendation type
 const baseRec = {
@@ -67,5 +67,10 @@ describe("executeRecommendation", () => {
     mockExecuteMetaAction.mockResolvedValueOnce({ paused: true, campaignId: "camp-1" });
     const result = await executeRecommendation({ ...baseRec, platform: "meta" } as any);
     expect(result).toEqual({ paused: true, campaignId: "camp-1" });
+  });
+
+  it("allowlists only the governed homepage schema action for theme writes", () => {
+    expect(isSupportedAction("shopify", "remove_homepage_offer_catalog")).toBe(true);
+    expect(isSupportedAction("shopify", "update_theme_asset")).toBe(false);
   });
 });

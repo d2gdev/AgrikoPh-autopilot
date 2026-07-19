@@ -43,6 +43,10 @@ vi.mock("@/lib/connectors/meta", () => ({
 
 const storeDispatch = vi.hoisted(() => ({ dispatch: vi.fn(), recover: vi.fn(), receiptJson: vi.fn((value) => value) }));
 vi.mock("@/lib/store-tasks/apply-topical-map", () => ({ dispatchClaimedTopicalMapStoreTask: storeDispatch.dispatch, reobserveTopicalMapReceipt: storeDispatch.recover, receiptJson: storeDispatch.receiptJson }));
+const homepageDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
+vi.mock("@/lib/recommendations/homepage-schema", () => ({
+  applyApprovedHomepageSchemaRecommendation: homepageDispatch.apply,
+}));
 
 import { prisma } from "@/lib/db";
 import { checkGuardrails } from "@/lib/guardrails";
@@ -132,6 +136,12 @@ beforeEach(() => {
   mockExecuteRecommendation.mockResolvedValue({ success: true });
   storeDispatch.dispatch.mockResolvedValue({ taskId: "task-1", recommendationId: "rec-shopify", targetId: "gid://shopify/Product/1", targetUrl: "/products/rice", targetType: "product", strategyVersionId: "v1", packageSha256: "a".repeat(64), ruleIds: ["rule-1"], action: "seo_update", changedFields: ["seoTitle"], proposedStateHash: "b".repeat(64), shopifyReturnedStateHash: "c".repeat(64), verifiedAt: new Date().toISOString() });
   storeDispatch.recover.mockResolvedValue(null);
+  homepageDispatch.apply.mockResolvedValue({
+    themeId: "gid://shopify/OnlineStoreTheme/123",
+    assetKey: "snippets/schema-global-jsonld.liquid",
+    beforeSha256: "a".repeat(64),
+    afterSha256: "b".repeat(64),
+  });
 });
 
 describe("executeApprovedHandler", () => {
@@ -152,6 +162,38 @@ describe("executeApprovedHandler", () => {
     expect(storeDispatch.dispatch).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({ id: "rec-shopify", status: "executing" }));
     expect(mockPrisma.storeTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed", executionReceipt: expect.any(Object) }) }));
     expect((mockPrisma.$transaction.mock.calls.at(-1)![0] as unknown[])).toHaveLength(5);
+  });
+
+  it("executes the exact governed homepage schema recommendation", async () => {
+    const shopify = {
+      ...baseRec,
+      id: "rec-home-schema",
+      platform: "shopify",
+      actionType: "remove_homepage_offer_catalog",
+      targetEntityId: "gid://shopify/OnlineStoreTheme/123:snippets/schema-global-jsonld.liquid",
+      targetEntityType: "theme_asset",
+      status: "approved",
+    };
+    mockPrisma.recommendation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([shopify]);
+
+    await executeLive();
+
+    expect(homepageDispatch.apply).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "rec-home-schema", status: "executing" }),
+    );
+    expect(mockPrisma.recommendation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "rec-home-schema" },
+        data: expect.objectContaining({ status: "executed" }),
+      }),
+    );
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "homepage_schema_applied" }),
+      }),
+    );
   });
 
   it("marks reconciliation needed when joint finalization fails after verified Shopify success", async () => {

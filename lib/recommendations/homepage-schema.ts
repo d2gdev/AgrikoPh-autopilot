@@ -1,0 +1,199 @@
+import { createHash } from "node:crypto";
+import type { Recommendation } from "@prisma/client";
+import { z } from "zod";
+import { prisma } from "@/lib/db";
+import {
+  fetchMainThemeSchemaAsset,
+  HOME_SCHEMA_ASSET_KEY,
+  updateMainThemeSchemaAsset,
+} from "@/lib/shopify-theme-assets";
+
+const HAS_OFFER_CATALOG =
+  `,\n      "hasOfferCatalog": { "@id": {{ shop.url | append: '/#offer-catalog' | json }} }`;
+const OFFER_CATALOG_START = `    ,{
+      "@type": "OfferCatalog",`;
+const ITEM_LIST_START = `    ,{
+      "@type": "ItemList",`;
+
+const ApprovedHomepageSchema = z.object({
+  themeId: z.string().startsWith("gid://shopify/OnlineStoreTheme/").max(100),
+  assetKey: z.literal(HOME_SCHEMA_ASSET_KEY),
+  beforeSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  afterSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  afterValue: z.string().min(1).max(500_000),
+}).strict();
+
+type Db = typeof prisma;
+
+function hash(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function occurrences(value: string, needle: string): number {
+  return value.split(needle).length - 1;
+}
+
+export function removeHomepageOfferCatalog(value: string): string {
+  if (occurrences(value, HAS_OFFER_CATALOG) !== 1) {
+    throw new Error("Expected exactly one hasOfferCatalog reference");
+  }
+  if (occurrences(value, OFFER_CATALOG_START) !== 1) {
+    throw new Error("Expected exactly one homepage OfferCatalog");
+  }
+  if (occurrences(value, ITEM_LIST_START) !== 1) {
+    throw new Error("Expected exactly one homepage ItemList");
+  }
+
+  const withoutReference = value.replace(HAS_OFFER_CATALOG, "");
+  const offerStart = withoutReference.indexOf(OFFER_CATALOG_START);
+  const itemListStart = withoutReference.indexOf(ITEM_LIST_START);
+  if (offerStart < 0 || itemListStart <= offerStart) {
+    throw new Error("Homepage OfferCatalog order is invalid");
+  }
+  const result =
+    withoutReference.slice(0, offerStart) +
+    withoutReference.slice(itemListStart);
+  if (result.includes("hasOfferCatalog")
+    || result.includes('"@type": "OfferCatalog"')
+    || !result.includes('"@type": "ItemList"')) {
+    throw new Error("Homepage schema transformation did not reach the approved shape");
+  }
+  return result;
+}
+
+export async function queueHomepageSchemaRecommendation(
+  db: Db,
+  input: { actor: string },
+): Promise<{ recommendationId: string; created: boolean }> {
+  const current = await fetchMainThemeSchemaAsset();
+  const afterValue = removeHomepageOfferCatalog(current.value);
+  const proposed = ApprovedHomepageSchema.parse({
+    themeId: current.themeId,
+    assetKey: current.assetKey,
+    beforeSha256: current.sha256,
+    afterSha256: hash(afterValue),
+    afterValue,
+  });
+  const proposedValue = JSON.stringify(proposed);
+  const targetEntityId = `${current.themeId}:${current.assetKey}`;
+  const snapshot = await db.rawSnapshot.findFirst({
+    where: { source: "gsc" },
+    orderBy: { fetchedAt: "desc" },
+    select: { id: true },
+  });
+  if (!snapshot) throw new Error("No GSC evidence snapshot is available");
+
+  const existing = await db.recommendation.findFirst({
+    where: {
+      platform: "shopify",
+      actionType: "remove_homepage_offer_catalog",
+      targetEntityId,
+      proposedValue,
+      status: { in: ["pending", "approved", "override_approved", "executing"] },
+    },
+    select: { id: true },
+  });
+  if (existing) return { recommendationId: existing.id, created: false };
+
+  const recommendation = await db.recommendation.create({
+    data: {
+      platform: "shopify",
+      skillId: "gsc-homepage-schema",
+      skillName: "GSC homepage schema remediation",
+      actionType: "remove_homepage_offer_catalog",
+      targetEntityType: "theme_asset",
+      targetEntityId,
+      targetEntityName: current.assetKey,
+      currentValue: current.sha256,
+      proposedValue,
+      rationale:
+        "Remove the incomplete homepage OfferCatalog while retaining the valid featured-product ItemList.",
+      guardStatus: "clear",
+      status: "pending",
+      snapshotId: snapshot.id,
+    },
+  });
+  await db.auditLog.create({
+    data: {
+      actor: input.actor,
+      action: "homepage_schema_recommendation_queued",
+      entityType: "theme_asset",
+      entityId: targetEntityId,
+      before: { sha256: current.sha256 },
+      after: {
+        sha256: proposed.afterSha256,
+        recommendationId: recommendation.id,
+      },
+    },
+  });
+  return { recommendationId: recommendation.id, created: true };
+}
+
+export async function applyApprovedHomepageSchemaRecommendation(
+  recommendation: Recommendation,
+): Promise<Record<string, unknown>> {
+  if (recommendation.platform !== "shopify"
+    || recommendation.actionType !== "remove_homepage_offer_catalog"
+    || recommendation.status !== "executing") {
+    throw new Error("Homepage schema recommendation must be executing");
+  }
+  if (process.env.EXECUTE_APPROVED_LIVE_ENABLED !== "true") {
+    throw new Error("Live Shopify execution is disabled");
+  }
+
+  let proposed: z.infer<typeof ApprovedHomepageSchema>;
+  try {
+    proposed = ApprovedHomepageSchema.parse(
+      JSON.parse(recommendation.proposedValue ?? "null"),
+    );
+  } catch {
+    throw new Error("Approved homepage schema payload is invalid");
+  }
+  if (`${proposed.themeId}:${proposed.assetKey}` !== recommendation.targetEntityId
+    || hash(proposed.afterValue) !== proposed.afterSha256) {
+    throw new Error("Approved homepage schema identity is invalid");
+  }
+
+  const current = await fetchMainThemeSchemaAsset();
+  if (current.themeId !== proposed.themeId
+    || current.assetKey !== proposed.assetKey) {
+    throw new Error("Published Shopify theme identity changed after approval");
+  }
+  if (current.sha256 === proposed.afterSha256
+    && current.value === proposed.afterValue) {
+    return {
+      themeId: current.themeId,
+      assetKey: current.assetKey,
+      beforeSha256: proposed.beforeSha256,
+      afterSha256: proposed.afterSha256,
+      alreadyApplied: true,
+      verifiedAt: new Date().toISOString(),
+    };
+  }
+  if (current.sha256 !== proposed.beforeSha256) {
+    throw new Error("Shopify theme asset changed after approval");
+  }
+  const derivedAfter = removeHomepageOfferCatalog(current.value);
+  if (derivedAfter !== proposed.afterValue
+    || hash(derivedAfter) !== proposed.afterSha256) {
+    throw new Error("Approved homepage schema transformation is invalid");
+  }
+
+  const updated = await updateMainThemeSchemaAsset({
+    themeId: proposed.themeId,
+    assetKey: proposed.assetKey,
+    value: proposed.afterValue,
+  });
+  if (updated.sha256 !== proposed.afterSha256
+    || updated.value !== proposed.afterValue) {
+    throw new Error("Shopify theme asset read-back hash did not match approval");
+  }
+  return {
+    themeId: updated.themeId,
+    assetKey: updated.assetKey,
+    beforeSha256: proposed.beforeSha256,
+    afterSha256: proposed.afterSha256,
+    alreadyApplied: false,
+    verifiedAt: new Date().toISOString(),
+  };
+}

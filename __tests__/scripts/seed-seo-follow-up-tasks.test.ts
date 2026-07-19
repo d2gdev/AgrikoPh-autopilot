@@ -6,9 +6,9 @@ import {
 } from "@/scripts/seed-seo-follow-up-tasks";
 
 describe("SEO follow-up seed", () => {
-  it("contains exactly the three agreed dated follow-ups", () => {
-    expect(INITIAL_SEO_FOLLOW_UP_TASKS).toHaveLength(3);
-    expect(INITIAL_SEO_FOLLOW_UP_TASKS.map((task) => ({
+  it("contains the three existing and four approved GSC follow-ups", () => {
+    expect(INITIAL_SEO_FOLLOW_UP_TASKS).toHaveLength(7);
+    expect(INITIAL_SEO_FOLLOW_UP_TASKS.slice(0, 3).map((task) => ({
       taskType: task.taskType,
       targetUrl: task.targetUrl,
       earliestReviewAt: task.earliestReviewAt.toISOString(),
@@ -29,6 +29,34 @@ describe("SEO follow-up seed", () => {
         earliestReviewAt: "2026-09-21T16:00:00.000Z",
       },
     ]);
+    expect(INITIAL_SEO_FOLLOW_UP_TASKS.slice(3).map((task) => ({
+      taskType: task.taskType,
+      targetUrl: task.targetUrl,
+      sourceKey: task.sourceKey,
+    }))).toEqual([
+      {
+        taskType: "ctr_experiment_review",
+        targetUrl: "/blogs/news/red-rice-vs-brown-rice-article-system-pilot",
+        sourceKey: "gsc-07:red-brown-query-snippet:2026-07-20",
+      },
+      {
+        taskType: "ctr_experiment_review",
+        targetUrl: "/blogs/news/black-rice-vs-red-rice-which-philippine-organic-rice-is-right-for-you",
+        sourceKey: "gsc-07:black-red-query-snippet:2026-07-20",
+      },
+      {
+        taskType: "ctr_experiment_review",
+        targetUrl: "/blogs/news/pito-pito-tea-philippines",
+        sourceKey: "gsc-07:pito-pito-snippet-evidence:2026-07-20",
+      },
+      {
+        taskType: "content_quality_review",
+        targetUrl: "/blogs/news/turmeric-dosage-safety",
+        sourceKey: "gsc-07:turmeric-performance-medical-review:2026-07-20",
+      },
+    ]);
+    expect(INITIAL_SEO_FOLLOW_UP_TASKS.at(-1)?.evidenceRequirement)
+      .toMatchObject({ medicalReviewRequired: true });
   });
 
   it("defaults to dry-run and performs zero writes", async () => {
@@ -41,7 +69,7 @@ describe("SEO follow-up seed", () => {
       createTask,
     });
 
-    expect(result).toEqual({ planned: 3, created: 0, existing: 0, writeCount: 0, dryRun: true });
+    expect(result).toEqual({ planned: 7, created: 0, existing: 0, writeCount: 0, dryRun: true });
     expect(createTask).not.toHaveBeenCalled();
   });
 
@@ -60,16 +88,16 @@ describe("SEO follow-up seed", () => {
     };
 
     await expect(runSeoTaskSeed(input)).resolves.toMatchObject({
-      planned: 3,
-      created: 3,
+      planned: 7,
+      created: 7,
       existing: 0,
-      writeCount: 3,
+      writeCount: 7,
       dryRun: false,
     });
     await expect(runSeoTaskSeed(input)).resolves.toMatchObject({
-      planned: 3,
+      planned: 7,
       created: 0,
-      existing: 3,
+      existing: 7,
       writeCount: 0,
       dryRun: false,
     });

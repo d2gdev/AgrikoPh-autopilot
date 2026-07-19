@@ -18,6 +18,8 @@ import {
   fetchGscData,
   fetchGscPageMetrics,
   fetchGscPropertyTotals,
+  listGscSitemaps,
+  submitGscSitemap,
 } from "@/lib/connectors/gsc";
 
 const fetchMock = vi.fn();
@@ -158,5 +160,54 @@ describe("fetchGscPropertyTotals", () => {
         impressions: 13402,
       }],
     });
+  });
+});
+
+describe("GSC sitemap API", () => {
+  it("submits the exact sitemap with the write scope and an empty PUT body", async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 204 });
+
+    await expect(submitGscSitemap("https://agrikoph.com/sitemap.xml"))
+      .resolves.toEqual({
+        siteUrl: "sc-domain:agrikoph.com",
+        sitemapUrl: "https://agrikoph.com/sitemap.xml",
+        submitted: true,
+      });
+
+    const [url, request] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(
+      "https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Aagrikoph.com/sitemaps/https%3A%2F%2Fagrikoph.com%2Fsitemap.xml",
+    );
+    expect(request).toMatchObject({ method: "PUT" });
+    expect(request).not.toHaveProperty("body");
+    expect(request.signal).toBeInstanceOf(AbortSignal);
+    const authOptions = vi.mocked(
+      (await import("google-auth-library")).GoogleAuth,
+    ).mock.calls.at(-1)?.[0] as { scopes?: string[] };
+    expect(authOptions.scopes).toEqual([
+      "https://www.googleapis.com/auth/webmasters",
+    ]);
+  });
+
+  it("lists submitted sitemaps for read-back", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        sitemap: [{ path: "https://agrikoph.com/sitemap.xml", isPending: false }],
+      }),
+    });
+
+    await expect(listGscSitemaps()).resolves.toEqual([
+      { path: "https://agrikoph.com/sitemap.xml", isPending: false },
+    ]);
+  });
+
+  it("returns bounded status errors for sitemap failures", async () => {
+    const text = vi.fn();
+    fetchMock.mockResolvedValue({ ok: false, status: 403, text });
+
+    await expect(submitGscSitemap("https://agrikoph.com/sitemap.xml"))
+      .rejects.toThrow("GSC sitemap API error 403");
+    expect(text).not.toHaveBeenCalled();
   });
 });

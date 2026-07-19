@@ -7,7 +7,12 @@ export type { GscPropertyTotals } from "@/lib/seo/types";
 // Ported from cinema/shopify-theme/scripts/gsc-analysis.mjs
 // Uses JWT service account auth
 
-async function getAuth(): Promise<import("google-auth-library").GoogleAuth> {
+const GSC_READ_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
+const GSC_WRITE_SCOPE = "https://www.googleapis.com/auth/webmasters";
+
+async function getAuth(
+  scopes: string[] = [GSC_READ_SCOPE],
+): Promise<import("google-auth-library").GoogleAuth> {
   const { GoogleAuth } = await import("google-auth-library");
   return new GoogleAuth({
     credentials: loadServiceAccountJson(
@@ -15,16 +20,53 @@ async function getAuth(): Promise<import("google-auth-library").GoogleAuth> {
       await getOptionalSecret("GSC_SERVICE_ACCOUNT_JSON_PATH") ?? undefined,
       "GSC"
     ),
-    scopes: ["https://www.googleapis.com/auth/webmasters.readonly"],
+    scopes,
   });
 }
 
-async function getAccessToken(): Promise<string> {
-  const auth = await getAuth();
+async function getAccessToken(scopes?: string[]): Promise<string> {
+  const auth = await getAuth(scopes);
   const client = await auth.getClient();
   const token = await client.getAccessToken();
   if (!token.token) throw new Error("GSC: failed to obtain access token from service account");
   return token.token;
+}
+
+export async function submitGscSitemap(
+  sitemapUrl: string,
+): Promise<{ siteUrl: string; sitemapUrl: string; submitted: true }> {
+  const parsed = new URL(sitemapUrl);
+  if (parsed.protocol !== "https:" || !parsed.pathname.endsWith(".xml")) {
+    throw new Error("GSC sitemap URL must be an HTTPS XML URL");
+  }
+  const token = await getAccessToken([GSC_WRITE_SCOPE]);
+  const siteUrl = await getSecret("GSC_SITE_URL");
+  const res = await fetch(
+    `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/sitemaps/${encodeURIComponent(sitemapUrl)}`,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!res.ok) throw new Error(`GSC sitemap API error ${res.status}`);
+  return { siteUrl, sitemapUrl, submitted: true };
+}
+
+export async function listGscSitemaps(): Promise<Array<Record<string, unknown>>> {
+  const token = await getAccessToken();
+  const siteUrl = await getSecret("GSC_SITE_URL");
+  const res = await fetch(
+    `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/sitemaps`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!res.ok) throw new Error(`GSC sitemap API error ${res.status}`);
+  const data = await res.json() as { sitemap?: Array<Record<string, unknown>> };
+  return Array.isArray(data.sitemap) ? data.sitemap : [];
 }
 
 export type GscPageMetrics = {
