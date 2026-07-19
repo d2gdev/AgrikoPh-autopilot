@@ -9,7 +9,11 @@ const mockPrisma = {
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 
-const { getComparisonSnapshot, getLatestSnapshot } = await import("@/lib/seo/snapshot");
+const {
+  getComparisonSnapshot,
+  getLatestSnapshot,
+  getSnapshotForWindow,
+} = await import("@/lib/seo/snapshot");
 
 function snapshot(overrides: Record<string, unknown>) {
   return {
@@ -46,6 +50,28 @@ describe("getLatestSnapshot", () => {
 
     expect(mockPrisma.rawSnapshot.findFirst).toHaveBeenCalledWith({
       where: { source: "seo_analysis" },
+      orderBy: { fetchedAt: "desc" },
+    });
+  });
+});
+
+describe("getSnapshotForWindow", () => {
+  it("requires both exact inclusive window boundaries", async () => {
+    const start = new Date("2026-06-20T00:00:00.000Z");
+    const end = new Date("2026-07-17T00:00:00.000Z");
+    mockPrisma.rawSnapshot.findFirst.mockResolvedValue(snapshot({
+      dateRangeStart: start,
+      dateRangeEnd: end,
+    }));
+
+    await getSnapshotForWindow("gsc", start, end);
+
+    expect(mockPrisma.rawSnapshot.findFirst).toHaveBeenCalledWith({
+      where: {
+        source: "gsc",
+        dateRangeStart: start,
+        dateRangeEnd: end,
+      },
       orderBy: { fetchedAt: "desc" },
     });
   });

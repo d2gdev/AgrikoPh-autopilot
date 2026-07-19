@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { fetchGscQueryPageData } from "@/lib/connectors/gsc";
+import { fetchGscData, fetchGscQueryPageData } from "@/lib/connectors/gsc";
 import { fillSearchVolumeFromGscRows } from "@/lib/seo/search-volume-cache";
+import { buildGscReportingWindows } from "@/lib/seo/gsc-window";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
 
 type FetchGscSummary = {
@@ -35,10 +36,11 @@ function asFloat(v: unknown): number | null {
 export async function fetchGscDataHandler(): Promise<JobResult<FetchGscSummary>> {
   const run = await prisma.jobRun.create({ data: { jobName: "fetch-gsc-data" } });
   const capturedAt = new Date();
-  const windowDays = Math.max(1, Number(process.env.GSC_WINDOW_DAYS ?? 28));
-  const lagDays = Math.max(0, Number(process.env.GSC_LAG_DAYS ?? 3));
-  const end = new Date(capturedAt.getTime() - lagDays * 864e5);
-  const start = new Date(end.getTime() - windowDays * 864e5);
+  const { current: { start, end } } = buildGscReportingWindows({
+    capturedAt,
+    windowDays: Number(process.env.GSC_WINDOW_DAYS ?? 28),
+    lagDays: Number(process.env.GSC_LAG_DAYS ?? 3),
+  });
 
   const summary: FetchGscSummary = {
     rowsStored: 0,
@@ -52,8 +54,19 @@ export async function fetchGscDataHandler(): Promise<JobResult<FetchGscSummary>>
   const errors: string[] = [];
 
   try {
-    const data = await fetchGscQueryPageData({ start, end });
-    const pairs = (data.pairs as Array<Record<string, unknown>>) ?? [];
+    const [queryData, queryPageData] = await Promise.all([
+      fetchGscData({ start, end }),
+      fetchGscQueryPageData({ start, end }),
+    ]);
+    const pairs = (queryPageData.pairs as Array<Record<string, unknown>>) ?? [];
+    const propertyTotals = queryData.propertyTotals as
+      | { clicks?: unknown; impressions?: unknown }
+      | null
+      | undefined;
+    if (propertyTotals) {
+      summary.clicksTotal = asInt(propertyTotals.clicks);
+      summary.impressionsTotal = asInt(propertyTotals.impressions);
+    }
     const rows = [];
 
     for (const pair of pairs) {
@@ -75,9 +88,29 @@ export async function fetchGscDataHandler(): Promise<JobResult<FetchGscSummary>>
         capturedAt,
       });
       summary.rowsStored++;
-      summary.clicksTotal += clicks;
-      summary.impressionsTotal += impressions;
     }
+
+    await prisma.rawSnapshot.upsert({
+      where: {
+        source_dateRangeStart_dateRangeEnd: {
+          source: "gsc",
+          dateRangeStart: start,
+          dateRangeEnd: end,
+        },
+      },
+      create: {
+        source: "gsc",
+        dateRangeStart: start,
+        dateRangeEnd: end,
+        payload: json(queryData),
+        jobRunId: run.id,
+      },
+      update: {
+        payload: json(queryData),
+        jobRunId: run.id,
+        fetchedAt: capturedAt,
+      },
+    });
 
     if (rows.length > 0) {
       await prisma.$transaction([
@@ -97,17 +130,17 @@ export async function fetchGscDataHandler(): Promise<JobResult<FetchGscSummary>>
       errors.push(`search-volume: ${String(err).slice(0, 200)}`);
     }
 
-    status = summary.rowsStored > 0 ? "success" : "partial";
+    status = summary.rowsStored > 0 || propertyTotals ? "success" : "partial";
     await prisma.jobRun.update({
       where: { id: run.id },
       data: {
         completedAt: new Date(),
         status,
         summary: json(summary),
-        errorLog: summary.rowsStored === 0 ? "GSC returned no rows for the window." : null,
+        errorLog: summary.rowsStored === 0 && !propertyTotals ? "GSC returned no rows for the window." : null,
       },
     });
-    if (summary.rowsStored === 0) errors.push("GSC returned no rows for the window.");
+    if (summary.rowsStored === 0 && !propertyTotals) errors.push("GSC returned no rows for the window.");
   } catch (err) {
     const message = String(err).slice(0, 500);
     summary.disabledSources.push("gsc");

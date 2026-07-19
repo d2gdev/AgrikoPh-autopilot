@@ -25,6 +25,26 @@ export async function getLatestSnapshot(source: string): Promise<SnapshotRecord 
   };
 }
 
+/** Latest captured snapshot for one exact inclusive reporting window. */
+export async function getSnapshotForWindow(
+  source: string,
+  dateRangeStart: Date,
+  dateRangeEnd: Date,
+): Promise<SnapshotRecord | null> {
+  const snap = await prisma.rawSnapshot.findFirst({
+    where: { source, dateRangeStart, dateRangeEnd },
+    orderBy: { fetchedAt: "desc" },
+  });
+  if (!snap) return null;
+  return {
+    id: snap.id,
+    fetchedAt: snap.fetchedAt,
+    dateRangeStart: snap.dateRangeStart,
+    dateRangeEnd: snap.dateRangeEnd,
+    payload: (snap.payload as Record<string, unknown>) ?? {},
+  };
+}
+
 /**
  * A1: The "previous period" snapshot for true period-over-period comparison:
  * the snapshot whose `dateRangeEnd` immediately precedes (is <=) the latest

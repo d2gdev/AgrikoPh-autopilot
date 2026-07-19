@@ -155,8 +155,8 @@ describe("SEO refresh job regressions", () => {
 
     const firstGscCall = mockSeoConnectors.fetchGscData.mock.calls[0]?.[0];
     expect(firstGscCall).toBeDefined();
-    expect(firstGscCall!.end.toISOString()).toBe("2026-06-28T12:00:00.000Z");
-    expect(firstGscCall!.start.toISOString()).toBe("2026-05-31T12:00:00.000Z");
+    expect(firstGscCall!.end.toISOString()).toBe("2026-06-28T00:00:00.000Z");
+    expect(firstGscCall!.start.toISOString()).toBe("2026-06-01T00:00:00.000Z");
   });
 
   it("replaces normalized GA4 rows when a successful fetch has no pages", async () => {
@@ -175,14 +175,74 @@ describe("SEO refresh job regressions", () => {
     expect(mockPrisma.pageAnalytics.createMany).toHaveBeenCalledWith({ data: [] });
   });
 
-  it("falls back to raw GSC queries without mutating normalized GSC data", async () => {
-    const latest = { queries: [], pages: [], queryPagePairs: [] };
+  it("stores GSC property totals separately from query-page evidence", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-20T12:00:00Z"));
+    mockSeoConnectors.fetchGscData.mockResolvedValue({
+      topQueries: [{ query: "visible", clicks: 51, impressions: 13402 }],
+      propertyTotals: {
+        clicks: 201,
+        impressions: 32488,
+        avgCtr: 0.0061875,
+        avgPosition: 13.42,
+      },
+    });
+    mockSeoConnectors.fetchGscQueryPageData.mockResolvedValue({
+      pairs: [{
+        query: "visible",
+        page: "https://agrikoph.com/",
+        clicks: 51,
+        impressions: 13402,
+        position: 11.2,
+      }],
+    });
+    const { fetchGscDataHandler } = await vi.importActual<typeof import("@/jobs/fetch-gsc-data")>("@/jobs/fetch-gsc-data");
+
+    let result;
+    try {
+      result = await fetchGscDataHandler();
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(result.summary).toMatchObject({
+      clicksTotal: 201,
+      impressionsTotal: 32488,
+      dateRangeStart: "2026-06-20",
+      dateRangeEnd: "2026-07-17",
+    });
+    expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        source: "gsc",
+        payload: expect.objectContaining({
+          propertyTotals: expect.objectContaining({
+            clicks: 201,
+            impressions: 32488,
+          }),
+        }),
+      }),
+    }));
+  });
+
+  it("persists the dimensionless GSC property aggregate without summing query rows", async () => {
+    const propertyTotals = {
+      clicks: 201,
+      impressions: 32488,
+      avgCtr: 0.0061875,
+      avgPosition: 13.42,
+    };
+    const latest = { queries: [], pages: [], queryPagePairs: [], propertyTotals };
     mockSnapshotSources.getLatestGscData.mockResolvedValue(latest);
     const { snapshotSeoHistoryHandler } = await vi.importActual<typeof import("@/jobs/snapshot-seo-history")>("@/jobs/snapshot-seo-history");
 
     await snapshotSeoHistoryHandler();
 
     expect(latest.queries).toEqual([]);
-    expect(mockSnapshotSources.computeSnapshotTotals).toHaveBeenCalledWith([{ query: "black rice", clicks: 1, impressions: 10 }]);
+    expect(mockSnapshotSources.computeSnapshotTotals).not.toHaveBeenCalled();
+    expect(mockSnapshotSources.getLatestSnapshot).not.toHaveBeenCalled();
+    expect(mockPrisma.rawSnapshot.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ payload: propertyTotals }),
+      update: expect.objectContaining({ payload: propertyTotals }),
+    }));
   });
 });

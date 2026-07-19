@@ -1,6 +1,4 @@
 import { prisma } from "@/lib/db";
-import { getLatestSnapshot, getQueries } from "@/lib/seo/snapshot";
-import { computeSnapshotTotals } from "@/lib/seo/history";
 import { getLatestGscData } from "@/lib/seo/data";
 
 const JOB_NAME = "snapshot-seo-history";
@@ -8,7 +6,7 @@ const JOB_NAME = "snapshot-seo-history";
 /**
  * Persists ONE durable SEO trend point per UTC day from the latest "gsc"
  * snapshot. Stored as a RawSnapshot with source "seo_history" (payload =
- * pre-computed totals), keyed by the UTC day via the
+ * dimensionless property aggregate), keyed by the UTC day via the
  * @@unique([source, dateRangeStart, dateRangeEnd]) constraint so same-day
  * re-runs are idempotent.
  *
@@ -26,18 +24,14 @@ export async function snapshotSeoHistoryHandler() {
 
   try {
     const latest = await getLatestGscData();
-    let queries = latest.queries;
-    if (queries.length === 0) {
-      const rawLatest = await getLatestSnapshot("gsc");
-      const rawQueries = getQueries(rawLatest);
-      if (rawQueries.length === 0) {
-        status = "skipped";
-        return { skipped: true, reason: "no gsc snapshot yet" };
-      }
-      queries = rawQueries;
+    if (!latest.propertyTotals) {
+      status = "skipped";
+      return {
+        skipped: true,
+        reason: "no dimensionless GSC property aggregate yet",
+      };
     }
-
-    const totals = computeSnapshotTotals(queries);
+    const totals = latest.propertyTotals;
 
     // Key on the UTC day so there is exactly one point per day.
     const now = new Date();

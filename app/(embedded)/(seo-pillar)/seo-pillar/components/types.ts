@@ -3,7 +3,7 @@ export interface Query { query: string; clicks: number; impressions: number; ctr
 export interface PageRow { page: string; sessions: number; [key: string]: unknown }
 export interface Totals { clicks: number; impressions: number; avgCtr: number; avgPosition: number }
 export interface Mover { query: string; clicks: number; clicksDelta: number; impressionsDelta: number; positionDelta: number; direction: "up" | "down" }
-export interface Trends { current: Totals; previous: Totals | null; currentFetchedAt: string | null; previousFetchedAt: string | null; movers: Mover[] }
+export interface Trends { current: Totals | null; previous: Totals | null; currentFetchedAt: string | null; previousFetchedAt: string | null; movers: Mover[] }
 export interface Opportunity { query: string; impressions: number; clicks: number; ctr: number; position: number; type: string; potentialClicks: number; reason: string; page?: string | null; pageClicks?: number | null; pageImpressions?: number | null; score?: number; volume?: number | null; difficulty?: number | null }
 export interface OpportunityCluster { id: string; label: string; page: string | null; opportunities: Opportunity[]; totalPotentialClicks: number; topScore: number }
 export interface SnapshotTrendPoint { date: string; clicks: number; impressions: number; avgPosition: number; ctr: number }

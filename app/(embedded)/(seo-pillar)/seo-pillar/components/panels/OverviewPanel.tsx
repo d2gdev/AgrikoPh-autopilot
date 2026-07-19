@@ -27,7 +27,7 @@ export function OverviewPanel({
   queryPagePairs,
 }: {
   brief: string | null;
-  cur: Totals | undefined;
+  cur: Totals | null | undefined;
   prev: Totals | null | undefined;
   gscFetchedAt: string | null | undefined;
   gscFreshness?: GscFreshness;
@@ -69,6 +69,11 @@ export function OverviewPanel({
           </Card>
         ))}
       </InlineStack>
+      {!cur && gscFetchedAt && (
+        <Text as="p" tone="subdued" variant="bodySm">
+          Property totals are unavailable for this exact GSC reporting window; query evidence remains available below.
+        </Text>
+      )}
       {gscFetchedAt && (
         <Text as="p" tone="subdued" variant="bodySm">
           GSC updated {timeAgo(gscFetchedAt)}

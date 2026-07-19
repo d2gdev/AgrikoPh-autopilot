@@ -103,12 +103,20 @@ export async function GET(req: Request) {
 
     const previous = getPreviousGscData
       ? await getPreviousGscData(gscData)
-      : ((await getPreviousGscQueries(gscData)) ? { queries: await getPreviousGscQueries(gscData), fetchedAt: new Date(0) } : null);
+      : ((await getPreviousGscQueries(gscData))
+          ? {
+              queries: await getPreviousGscQueries(gscData),
+              fetchedAt: new Date(0),
+              propertyTotals: null,
+            }
+          : null);
     const trends = computeTrends(
       queries,
       previous?.queries ?? null,
       gscData.fetchedAt?.toISOString() ?? null,
       previous?.fetchedAt.toISOString() ?? null,
+      gscData.propertyTotals,
+      previous?.propertyTotals ?? null,
     );
     const gscPages = gscData.pages;
     const allQueryPagePairs = gscData.queryPagePairs;

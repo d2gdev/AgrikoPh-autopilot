@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockSnapshots = vi.hoisted(() => ({
   getComparisonSnapshot: vi.fn(),
   getLatestSnapshot: vi.fn(),
+  getSnapshotForWindow: vi.fn(),
   getPages: vi.fn(),
   getQueries: vi.fn(),
   getSnapshotHistory: vi.fn(),
@@ -49,6 +50,7 @@ describe("getLatestGscData freshness selection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSnapshots.getLatestSnapshot.mockResolvedValue(null);
+    mockSnapshots.getSnapshotForWindow.mockResolvedValue(null);
     mockSnapshots.getQueries.mockReturnValue([]);
     mockNormalized.getLatestGscWindow.mockResolvedValue(null);
     mockNormalized.getGscDataForWindow.mockImplementation(async (window) => ({
@@ -96,6 +98,78 @@ describe("getLatestGscData freshness selection", () => {
       rawCapturedAt: new Date("2026-07-09T04:30:00.000Z"),
     });
     expect(mockNormalized.getGscDataForWindow).toHaveBeenCalledWith(window);
+  });
+
+  it("uses a same-window dimensionless aggregate for normalized property totals", async () => {
+    const window = {
+      dateRangeStart: new Date("2026-06-20T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-07-17T00:00:00.000Z"),
+      capturedAt: new Date("2026-07-20T04:00:00.000Z"),
+    };
+    mockNormalized.getLatestGscWindow.mockResolvedValue(window);
+    mockNormalized.getGscQueriesForWindow.mockResolvedValue([
+      { query: "visible query", clicks: 51, impressions: 13402, ctr: "0.4%", position: "11.2" },
+    ]);
+    mockSnapshots.getSnapshotForWindow.mockResolvedValue(rawSnapshot(
+      "gsc",
+      "2026-07-20T04:00:00.000Z",
+      "2026-06-20T00:00:00.000Z",
+      "2026-07-17T00:00:00.000Z",
+      {
+        propertyTotals: {
+          clicks: 201,
+          impressions: 32488,
+          avgCtr: 0.0061875,
+          avgPosition: 13.42,
+        },
+      },
+    ));
+
+    const result = await getLatestGscData();
+
+    expect(result.propertyTotals).toEqual({
+      clicks: 201,
+      impressions: 32488,
+      avgCtr: 0.0061875,
+      avgPosition: 13.42,
+    });
+    expect(result.propertyTotalsProvenance).toBe("dimensionless_property_aggregate");
+    expect(mockSnapshots.getSnapshotForWindow).toHaveBeenCalledWith(
+      "gsc",
+      window.dateRangeStart,
+      window.dateRangeEnd,
+    );
+  });
+
+  it("does not lend property totals across reporting windows", async () => {
+    const window = {
+      dateRangeStart: new Date("2026-06-20T00:00:00.000Z"),
+      dateRangeEnd: new Date("2026-07-17T00:00:00.000Z"),
+      capturedAt: new Date("2026-07-20T04:00:00.000Z"),
+    };
+    mockNormalized.getLatestGscWindow.mockResolvedValue(window);
+    mockNormalized.getGscQueriesForWindow.mockResolvedValue([
+      { query: "visible query", clicks: 51, impressions: 13402, ctr: "0.4%", position: "11.2" },
+    ]);
+    mockSnapshots.getLatestSnapshot.mockResolvedValue(rawSnapshot(
+      "gsc",
+      "2026-07-20T04:00:00.000Z",
+      "2026-05-23T00:00:00.000Z",
+      "2026-06-19T00:00:00.000Z",
+      {
+        propertyTotals: {
+          clicks: 999,
+          impressions: 99999,
+          avgCtr: 0.01,
+          avgPosition: 1,
+        },
+      },
+    ));
+
+    const result = await getLatestGscData();
+
+    expect(result.propertyTotals).toBeNull();
+    expect(result.propertyTotalsProvenance).toBe("unavailable");
   });
 
   it("leaves freshness selection timestamps null when the raw snapshot payload is empty", async () => {
@@ -290,9 +364,53 @@ describe("getLatestGscData freshness selection", () => {
     const previousWindow = { capturedAt: new Date("2026-06-01T00:00:00.000Z"), dateRangeStart: new Date("2026-05-23T00:00:00.000Z"), dateRangeEnd: new Date("2026-05-31T00:00:00.000Z") };
     mockNormalized.getPreviousGscWindow.mockResolvedValue(previousWindow);
     mockNormalized.getGscQueriesForWindow.mockResolvedValue([{ query: "old", clicks: 1, impressions: 2, ctr: "50%", position: "4" }]);
-    const result = await getPreviousGscData({ source: "normalized", window: currentWindow, queries: [], pages: [], queryPagePairs: [], fetchedAt: currentWindow.capturedAt, freshness: {} as never });
+    const result = await getPreviousGscData({
+      source: "normalized",
+      window: currentWindow,
+      queries: [],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: currentWindow.capturedAt,
+      propertyTotals: null,
+      propertyTotalsProvenance: "unavailable",
+      freshness: {} as never,
+    });
     expect(result).toMatchObject({ source: "normalized", fetchedAt: previousWindow.capturedAt, dateRangeStart: previousWindow.dateRangeStart, dateRangeEnd: previousWindow.dateRangeEnd });
     expect(result?.queries).toHaveLength(1);
+  });
+
+  it("returns the same-window property aggregate with previous normalized rows", async () => {
+    const currentWindow = { capturedAt: new Date("2026-07-20T00:00:00.000Z"), dateRangeStart: new Date("2026-06-20T00:00:00.000Z"), dateRangeEnd: new Date("2026-07-17T00:00:00.000Z") };
+    const previousWindow = { capturedAt: new Date("2026-06-20T00:00:00.000Z"), dateRangeStart: new Date("2026-05-23T00:00:00.000Z"), dateRangeEnd: new Date("2026-06-19T00:00:00.000Z") };
+    mockNormalized.getPreviousGscWindow.mockResolvedValue(previousWindow);
+    mockNormalized.getGscQueriesForWindow.mockResolvedValue([{ query: "old", clicks: 1, impressions: 2, ctr: "50%", position: "4" }]);
+    mockSnapshots.getSnapshotForWindow.mockResolvedValue(rawSnapshot(
+      "gsc",
+      "2026-06-20T00:00:00.000Z",
+      "2026-05-23T00:00:00.000Z",
+      "2026-06-19T00:00:00.000Z",
+      { propertyTotals: { clicks: 55, impressions: 4618, avgCtr: 0.0119, avgPosition: 18.4 } },
+    ));
+
+    const result = await getPreviousGscData({
+      source: "normalized",
+      window: currentWindow,
+      queries: [],
+      pages: [],
+      queryPagePairs: [],
+      fetchedAt: currentWindow.capturedAt,
+      propertyTotals: null,
+      propertyTotalsProvenance: "unavailable",
+      freshness: {} as never,
+    });
+
+    expect(result?.propertyTotals).toEqual({
+      clicks: 55,
+      impressions: 4618,
+      avgCtr: 0.0119,
+      avgPosition: 18.4,
+    });
+    expect(result?.propertyTotalsProvenance).toBe("dimensionless_property_aggregate");
   });
 });
 

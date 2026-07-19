@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { JobResult, JobStatus } from "@/lib/jobs/types";
+import { buildGscReportingWindows } from "@/lib/seo/gsc-window";
 import { toPageAnalyticsInput } from "@/lib/seo/page-analytics";
 
 type FetchSeoSummary = { snapshotsFetched: number };
@@ -14,24 +15,22 @@ export async function fetchSeoDataHandler(): Promise<JobResult<FetchSeoSummary>>
   let errors: string[] = [];
 
   try {
-    // A1: persist TWO non-overlapping, period-over-period windows per run so
-    // trend comparisons use true adjacent periods (not overlapping/cadence-
-    // dependent windows). Current = [now-28, now); prior = [now-56, now-28).
-    const WINDOW_MS = 28 * 24 * 60 * 60 * 1000;
-    const LAG_MS = Math.max(0, Number(process.env.GSC_LAG_DAYS ?? 3)) * 24 * 60 * 60 * 1000;
-    const now = new Date();
-    const currentEnd = new Date(now.getTime() - LAG_MS);
-    const currentStart = new Date(currentEnd.getTime() - WINDOW_MS);
-    const priorEnd = currentStart;
-    const priorStart = new Date(currentStart.getTime() - WINDOW_MS);
+    // Search Analytics dates are inclusive. Build two adjacent 28-calendar-day
+    // windows at UTC midnight so the current start is not reused as the prior
+    // end and arbitrary capture-time hours cannot affect snapshot identity.
+    const { current, previous } = buildGscReportingWindows({
+      capturedAt: new Date(),
+      lagDays: Number(process.env.GSC_LAG_DAYS ?? 3),
+      windowDays: 28,
+    });
 
     // One persistence task per (source, window). Each stores its own snapshot
     // with the correct dateRangeStart/dateRangeEnd. The
     // @@unique([source, dateRangeStart, dateRangeEnd]) constraint makes
     // same-window re-runs idempotent via upsert.
     const windows: { start: Date; end: Date }[] = [
-      { start: currentStart, end: currentEnd },
-      { start: priorStart, end: priorEnd },
+      current,
+      previous,
     ];
 
     async function saveSnapshot(source: string, start: Date, end: Date, payload: unknown) {

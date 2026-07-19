@@ -96,8 +96,10 @@ export interface SeoTotals {
   avgPosition: number;
 }
 
+export type GscPropertyTotals = SeoTotals;
+
 export interface SeoTrends {
-  current: SeoTotals;
+  current: SeoTotals | null;
   previous: SeoTotals | null;
   currentFetchedAt: string | null;
   previousFetchedAt: string | null;

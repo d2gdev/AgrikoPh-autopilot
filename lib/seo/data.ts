@@ -11,11 +11,13 @@ import {
   getLatestSnapshot,
   getPages,
   getQueries,
+  getSnapshotForWindow,
   getSnapshotHistory,
 } from "@/lib/seo/snapshot";
 import { computeSnapshotTrend } from "@/lib/seo/history";
 import type {
   Ga4PageRow,
+  GscPropertyTotals,
   GscPageRow,
   GscQueryPageRow,
   GscQueryRow,
@@ -24,6 +26,9 @@ import type {
 
 export type GscDataSource = "normalized" | "rawSnapshot" | "none";
 export type Ga4DataSource = "normalized" | "rawSnapshot" | "none";
+export type GscPropertyTotalsProvenance =
+  | "dimensionless_property_aggregate"
+  | "unavailable";
 
 export interface GscFreshness {
   selectedSource: GscDataSource;
@@ -46,6 +51,8 @@ export interface LatestGscData {
   fetchedAt: Date | null;
   source: GscDataSource;
   window: GscWindow | null;
+  propertyTotals: GscPropertyTotals | null;
+  propertyTotalsProvenance: GscPropertyTotalsProvenance;
   freshness: GscFreshness;
 }
 
@@ -67,6 +74,8 @@ export interface PreviousGscData {
   dateRangeStart: Date;
   dateRangeEnd: Date;
   source: Exclude<GscDataSource, "none">;
+  propertyTotals: GscPropertyTotals | null;
+  propertyTotalsProvenance: GscPropertyTotalsProvenance;
 }
 
 function formatPercent(value: number | null | undefined, digits = 1): string {
@@ -115,6 +124,27 @@ function sharesReportingWindow(
   );
 }
 
+function getPropertyTotals(
+  snapshot: { payload: Record<string, unknown> } | null,
+): GscPropertyTotals | null {
+  const value = snapshot?.payload?.propertyTotals;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const totals = {
+    clicks: Number(record.clicks),
+    impressions: Number(record.impressions),
+    avgCtr: Number(record.avgCtr),
+    avgPosition: Number(record.avgPosition),
+  };
+  return Object.values(totals).every(Number.isFinite) ? totals : null;
+}
+
+function totalsProvenance(
+  totals: GscPropertyTotals | null,
+): GscPropertyTotalsProvenance {
+  return totals ? "dimensionless_property_aggregate" : "unavailable";
+}
+
 export async function getLatestGscData(): Promise<LatestGscData> {
   const [gscSnap, gscPagesSnap, queryPageSnap, latestWindow] = await Promise.all([
     getLatestSnapshot("gsc"),
@@ -131,6 +161,15 @@ export async function getLatestGscData(): Promise<LatestGscData> {
           dateRangeEnd: gscSnap.dateRangeEnd,
         }
       : null;
+  const exactNormalizedSnapshot = latestWindow
+    ? await getSnapshotForWindow(
+        "gsc",
+        latestWindow.dateRangeStart,
+        latestWindow.dateRangeEnd,
+      )
+    : null;
+  const rawPropertyTotals = getPropertyTotals(gscSnap);
+  const normalizedPropertyTotals = getPropertyTotals(exactNormalizedSnapshot);
   const pagesRaw = sharesReportingWindow(gscSnap, gscPagesSnap) ? gscPagesSnap?.payload?.topPages : undefined;
   const pairsRaw = sharesReportingWindow(gscSnap, queryPageSnap) ? queryPageSnap?.payload?.pairs : undefined;
   const rawQueries = getQueries(gscSnap);
@@ -150,6 +189,8 @@ export async function getLatestGscData(): Promise<LatestGscData> {
         fetchedAt: latestWindow.capturedAt,
         source: "normalized",
         window: latestWindow,
+        propertyTotals: normalizedPropertyTotals,
+        propertyTotalsProvenance: totalsProvenance(normalizedPropertyTotals),
         freshness: buildFreshness({
           selectedSource: "normalized",
           selectedCapturedAt: latestWindow.capturedAt,
@@ -169,6 +210,8 @@ export async function getLatestGscData(): Promise<LatestGscData> {
       fetchedAt: gscSnap?.fetchedAt ?? null,
       source: "rawSnapshot",
       window: null,
+      propertyTotals: rawPropertyTotals,
+      propertyTotalsProvenance: totalsProvenance(rawPropertyTotals),
       freshness: buildFreshness({
         selectedSource: "rawSnapshot",
         selectedCapturedAt: gscSnap?.fetchedAt ?? null,
@@ -181,21 +224,24 @@ export async function getLatestGscData(): Promise<LatestGscData> {
     };
   }
 
+  const hasRawData = rawQueries.length > 0 || rawPropertyTotals !== null;
   return {
     queries: rawQueries,
     pages: rawPages,
     queryPagePairs: rawQueryPagePairs,
     fetchedAt: gscSnap?.fetchedAt ?? null,
-    source: rawQueries.length ? "rawSnapshot" : "none",
+    source: hasRawData ? "rawSnapshot" : "none",
     window: null,
+    propertyTotals: rawPropertyTotals,
+    propertyTotalsProvenance: totalsProvenance(rawPropertyTotals),
     freshness: buildFreshness({
-      selectedSource: rawQueries.length ? "rawSnapshot" : "none",
-      selectedCapturedAt: rawQueries.length ? gscSnap?.fetchedAt ?? null : null,
-      selectedDateRangeStart: rawQueries.length ? gscSnap?.dateRangeStart ?? null : null,
-      selectedDateRangeEnd: rawQueries.length ? gscSnap?.dateRangeEnd ?? null : null,
+      selectedSource: hasRawData ? "rawSnapshot" : "none",
+      selectedCapturedAt: hasRawData ? gscSnap?.fetchedAt ?? null : null,
+      selectedDateRangeStart: hasRawData ? gscSnap?.dateRangeStart ?? null : null,
+      selectedDateRangeEnd: hasRawData ? gscSnap?.dateRangeEnd ?? null : null,
       normalizedWindow: null,
       rawSnapshot,
-      fallbackReason: rawQueries.length ? "normalized_missing" : null,
+      fallbackReason: hasRawData ? "normalized_missing" : null,
     }),
   };
 }
@@ -208,12 +254,36 @@ export async function getPreviousGscData(current: LatestGscData): Promise<Previo
   if (current.source === "normalized" && current.window) {
     const previousWindow = await getPreviousGscWindow(current.window);
     if (!previousWindow) return null;
-    return { queries: await getGscQueriesForWindow(previousWindow), fetchedAt: previousWindow.capturedAt, dateRangeStart: previousWindow.dateRangeStart, dateRangeEnd: previousWindow.dateRangeEnd, source: "normalized" };
+    const snapshot = await getSnapshotForWindow(
+      "gsc",
+      previousWindow.dateRangeStart,
+      previousWindow.dateRangeEnd,
+    );
+    const propertyTotals = getPropertyTotals(snapshot);
+    return {
+      queries: await getGscQueriesForWindow(previousWindow),
+      fetchedAt: previousWindow.capturedAt,
+      dateRangeStart: previousWindow.dateRangeStart,
+      dateRangeEnd: previousWindow.dateRangeEnd,
+      source: "normalized",
+      propertyTotals,
+      propertyTotalsProvenance: totalsProvenance(propertyTotals),
+    };
   }
 
   const latest = await getLatestSnapshot("gsc");
   const previous = latest ? await getComparisonSnapshot("gsc", latest) : null;
-  return previous?.fetchedAt && previous.dateRangeStart && previous.dateRangeEnd ? { queries: getQueries(previous), fetchedAt: previous.fetchedAt, dateRangeStart: previous.dateRangeStart, dateRangeEnd: previous.dateRangeEnd, source: "rawSnapshot" } : null;
+  if (!previous?.fetchedAt || !previous.dateRangeStart || !previous.dateRangeEnd) return null;
+  const propertyTotals = getPropertyTotals(previous);
+  return {
+    queries: getQueries(previous),
+    fetchedAt: previous.fetchedAt,
+    dateRangeStart: previous.dateRangeStart,
+    dateRangeEnd: previous.dateRangeEnd,
+    source: "rawSnapshot",
+    propertyTotals,
+    propertyTotalsProvenance: totalsProvenance(propertyTotals),
+  };
 }
 
 export async function getLatestGa4Data(): Promise<LatestGa4Data> {

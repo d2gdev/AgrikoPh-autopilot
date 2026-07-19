@@ -16,4 +16,41 @@ describe("computeTrends movers", () => {
     ]));
     expect(new Set(result.movers.map((mover) => mover.query)).size).toBe(result.movers.length);
   });
+
+  it("uses property aggregates for cards while retaining query rows for movers", () => {
+    const result = computeTrends(
+      [{ query: "visible query", clicks: 51, impressions: 13402, ctr: "0.4%", position: "11.2" }],
+      [{ query: "visible query", clicks: 12, impressions: 1000, ctr: "1.2%", position: "14.0" }],
+      "2026-07-20T04:00:00.000Z",
+      "2026-06-20T04:00:00.000Z",
+      { clicks: 201, impressions: 32488, avgCtr: 0.0061875, avgPosition: 13.42 },
+      { clicks: 55, impressions: 4618, avgCtr: 0.0119, avgPosition: 18.4 },
+    );
+
+    expect(result.current).toEqual({
+      clicks: 201,
+      impressions: 32488,
+      avgCtr: 0.0061875,
+      avgPosition: 13.42,
+    });
+    expect(result.previous?.clicks).toBe(55);
+    expect(result.movers).toContainEqual(expect.objectContaining({
+      query: "visible query",
+      clicksDelta: 39,
+    }));
+  });
+
+  it("keeps property cards unavailable instead of summing dimensioned rows", () => {
+    const result = computeTrends(
+      [{ query: "visible query", clicks: 51, impressions: 13402, ctr: "0.4%", position: "11.2" }],
+      null,
+      null,
+      null,
+      null,
+      null,
+    );
+
+    expect(result.current).toBeNull();
+    expect(result.previous).toBeNull();
+  });
 });

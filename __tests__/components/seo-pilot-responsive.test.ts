@@ -82,6 +82,15 @@ describe("SEO Pilot responsive layout contract", () => {
     expect(overview).toContain("fallback snapshot");
   });
 
+  it("does not substitute dimensioned query sums when property totals are unavailable", () => {
+    const overview = read("app/(embedded)/(seo-pillar)/seo-pillar/components/panels/OverviewPanel.tsx");
+    const trends = read("lib/seo/trends.ts");
+
+    expect(overview).toContain("Property totals are unavailable for this exact GSC reporting window");
+    expect(trends).toContain("currentTotals: SeoTotals | null = null");
+    expect(trends).not.toContain("function totals(");
+  });
+
   it("reloads persisted map candidates before opening content gaps after analysis", () => {
     const page = read(pagePath);
     expect(page).toMatch(/await reloadCommandCenter\(\);\s*setSelectedMap\(new Set\(\)\);\s*setPromotedMap\(new Set\(\)\);\s*setTab\(2\)/);

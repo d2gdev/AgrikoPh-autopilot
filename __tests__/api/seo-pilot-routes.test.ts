@@ -1098,6 +1098,27 @@ describe("SEO Pilot route regressions", () => {
       fetchedAt: new Date("2026-06-01T00:00:00Z"),
       source: "normalized",
       window: null,
+      propertyTotals: {
+        clicks: 201,
+        impressions: 32488,
+        avgCtr: 0.0061875,
+        avgPosition: 13.42,
+      },
+      propertyTotalsProvenance: "dimensionless_property_aggregate",
+    });
+    mockSeoData.getPreviousGscData.mockResolvedValue({
+      queries: [{ query: "target query", clicks: 0, impressions: 50, ctr: "0%", position: "12.0" }],
+      fetchedAt: new Date("2026-05-01T00:00:00Z"),
+      dateRangeStart: new Date("2026-04-03T00:00:00Z"),
+      dateRangeEnd: new Date("2026-04-30T00:00:00Z"),
+      source: "normalized",
+      propertyTotals: {
+        clicks: 55,
+        impressions: 4618,
+        avgCtr: 0.0119,
+        avgPosition: 18.4,
+      },
+      propertyTotalsProvenance: "dimensionless_property_aggregate",
     });
     const { GET } = await import("@/app/api/seo/route");
 
@@ -1105,7 +1126,14 @@ describe("SEO Pilot route regressions", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.trends.previousFetchedAt).toBe("2026-06-01T00:00:00.000Z");
+    expect(body.trends.current).toEqual({
+      clicks: 201,
+      impressions: 32488,
+      avgCtr: 0.0061875,
+      avgPosition: 13.42,
+    });
+    expect(body.trends.previous.clicks).toBe(55);
+    expect(body.trends.previousFetchedAt).toBe("2026-05-01T00:00:00.000Z");
     expect(body.opportunities.find((row: { query: string }) => row.query === "target query"))
       .toEqual(expect.objectContaining({
         page: "https://agrikoph.com/blogs/news/target-article",

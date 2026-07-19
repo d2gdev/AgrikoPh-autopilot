@@ -1,32 +1,14 @@
 import type { GscQueryRow, QueryMover, SeoTotals, SeoTrends } from "@/lib/seo/types";
 import { parseNum } from "@/lib/seo/types";
 
-function totals(rows: GscQueryRow[]): SeoTotals {
-  let clicks = 0;
-  let impressions = 0;
-  let weightedPos = 0;
-  for (const r of rows) {
-    clicks += r.clicks;
-    impressions += r.impressions;
-    weightedPos += parseNum(r.position) * r.impressions;
-  }
-  return {
-    clicks,
-    impressions,
-    avgCtr: impressions > 0 ? clicks / impressions : 0,
-    avgPosition: impressions > 0 ? weightedPos / impressions : 0,
-  };
-}
-
 export function computeTrends(
   current: GscQueryRow[],
   previous: GscQueryRow[] | null,
   currentFetchedAt: string | null,
   previousFetchedAt: string | null,
+  currentTotals: SeoTotals | null = null,
+  previousTotals: SeoTotals | null = null,
 ): SeoTrends {
-  const currentTotals = totals(current);
-  const previousTotals = previous ? totals(previous) : null;
-
   let movers: QueryMover[] = [];
 
   if (previous) {

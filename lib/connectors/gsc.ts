@@ -1,5 +1,8 @@
 import { loadServiceAccountJson } from "@/lib/service-account";
 import { getOptionalSecret, getSecret } from "@/lib/config/resolver";
+import type { GscPropertyTotals } from "@/lib/seo/types";
+
+export type { GscPropertyTotals } from "@/lib/seo/types";
 
 // Ported from cinema/shopify-theme/scripts/gsc-analysis.mjs
 // Uses JWT service account auth
@@ -30,6 +33,40 @@ export type GscPageMetrics = {
   ctr: number | null;
   avgPosition: number | null;
 };
+
+export async function fetchGscPropertyTotals(opts: {
+  start: Date;
+  end: Date;
+}): Promise<GscPropertyTotals | null> {
+  const token = await getAccessToken();
+  const siteUrl = await getSecret("GSC_SITE_URL");
+  const body = {
+    startDate: opts.start.toISOString().split("T")[0],
+    endDate: opts.end.toISOString().split("T")[0],
+    dataState: "final",
+    rowLimit: 1,
+  };
+  const res = await fetch(
+    `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!res.ok) throw new Error(`GSC API error ${res.status}`);
+
+  const data = await res.json() as { rows?: Array<Record<string, unknown>> };
+  const row = data.rows?.[0];
+  if (!row) return null;
+  return {
+    clicks: Number(row.clicks ?? 0),
+    impressions: Number(row.impressions ?? 0),
+    avgCtr: Number(row.ctr ?? 0),
+    avgPosition: Number(row.position ?? 0),
+  };
+}
 
 export async function fetchGscPageMetrics(input: {
   startDate: string;
@@ -73,6 +110,7 @@ export async function fetchGscPageMetrics(input: {
 }
 
 export async function fetchGscData(opts: { start: Date; end: Date }): Promise<Record<string, unknown>> {
+  const propertyTotals = await fetchGscPropertyTotals(opts);
   const token = await getAccessToken();
   const siteUrl = await getSecret("GSC_SITE_URL");
 
@@ -82,6 +120,7 @@ export async function fetchGscData(opts: { start: Date; end: Date }): Promise<Re
   const body = {
     startDate: since,
     endDate: until,
+    dataState: "final",
     dimensions: ["query"],
     rowLimit: 25000, // API maximum — fetch as many rows as possible per request
     orderBy: [{ fieldName: "clicks", sortOrder: "DESCENDING" }],
@@ -108,7 +147,7 @@ export async function fetchGscData(opts: { start: Date; end: Date }): Promise<Re
     position: ((row.position as number) ?? 0).toFixed(1),
   }));
 
-  return { topQueries, fetchedAt: new Date().toISOString() };
+  return { topQueries, propertyTotals, fetchedAt: new Date().toISOString() };
 }
 
 export async function fetchGscPageData(opts: { start: Date; end: Date }): Promise<Record<string, unknown>> {
