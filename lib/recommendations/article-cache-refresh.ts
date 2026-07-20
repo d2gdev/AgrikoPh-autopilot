@@ -21,9 +21,28 @@ const ApprovedArticleCacheRefresh = z.object({
   bodySha256: z.string().regex(/^[a-f0-9]{64}$/),
   stateSha256: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
+const ApprovedArticleTemplateRoundTrip = z.object({
+  articleId: z.literal(ARTICLE_ID),
+  blogId: z.literal(BLOG_ID),
+  blogHandle: z.literal(BLOG_HANDLE),
+  handle: z.literal(ARTICLE_HANDLE),
+  canonicalUrl: z.literal(CANONICAL_URL),
+  operation: z.literal("custom_to_default_to_custom"),
+  originalTemplateSuffix: z.literal(ARTICLE_HANDLE),
+  bodyBytes: z.number().int().positive(),
+  bodySha256: z.string().regex(/^[a-f0-9]{64}$/),
+  summarySha256: z.string().regex(/^[a-f0-9]{64}$/),
+  tagsSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  titleSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  isPublished: z.boolean(),
+  publishedAt: z.string().datetime().nullable(),
+  stateSha256: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
 
 type Db = typeof prisma;
 type ApprovedPayload = z.infer<typeof ApprovedArticleCacheRefresh>;
+type ApprovedRoundTripPayload =
+  z.infer<typeof ApprovedArticleTemplateRoundTrip>;
 type ShopifyArticle = {
   id: string;
   blog: { id: string; handle: string } | null;
@@ -75,6 +94,13 @@ function stateSha256(article: ShopifyArticle): string {
   return sha256(JSON.stringify(protectedState(article)));
 }
 
+function stateWithTemplateSuffix(
+  article: ShopifyArticle,
+  templateSuffix: string | null,
+): ShopifyArticle {
+  return { ...article, templateSuffix };
+}
+
 async function fetchExactArticle(): Promise<ShopifyArticle> {
   const data = await shopifyFetch<{ article: ShopifyArticle | null }>(`
     query ApprovedArticleCacheRefresh($id: ID!) {
@@ -109,6 +135,208 @@ function approvedPayload(article: ShopifyArticle): ApprovedPayload {
 
 function targetEntityId(payload: ApprovedPayload): string {
   return `${payload.articleId}:page-cache:${payload.bodySha256}`;
+}
+
+function approvedRoundTripPayload(
+  article: ShopifyArticle,
+): ApprovedRoundTripPayload {
+  return ApprovedArticleTemplateRoundTrip.parse({
+    articleId: article.id,
+    blogId: article.blog?.id,
+    blogHandle: article.blog?.handle,
+    handle: article.handle,
+    canonicalUrl: CANONICAL_URL,
+    operation: "custom_to_default_to_custom",
+    originalTemplateSuffix: article.templateSuffix,
+    bodyBytes: Buffer.byteLength(article.body),
+    bodySha256: sha256(article.body),
+    summarySha256: sha256(article.summary),
+    tagsSha256: sha256(JSON.stringify(article.tags)),
+    titleSha256: sha256(article.title),
+    isPublished: article.isPublished,
+    publishedAt: article.publishedAt,
+    stateSha256: stateSha256(article),
+  });
+}
+
+function roundTripTargetEntityId(
+  payload: ApprovedRoundTripPayload,
+): string {
+  return `${payload.articleId}:template-round-trip:${payload.stateSha256}`;
+}
+
+function roundTripPayloadMatches(
+  article: ShopifyArticle,
+  payload: ApprovedRoundTripPayload,
+): boolean {
+  try {
+    return JSON.stringify(approvedRoundTripPayload(article))
+      === JSON.stringify(payload);
+  } catch {
+    return false;
+  }
+}
+
+type RenderEvidence = {
+  status: number;
+  bytes: number;
+  h1Count: number;
+  torStoryCount: number;
+};
+
+function countMatches(value: string, pattern: RegExp): number {
+  return value.match(pattern)?.length ?? 0;
+}
+
+function renderIsCorrect(evidence: RenderEvidence): boolean {
+  return evidence.status === 200
+    && evidence.h1Count >= 1
+    && evidence.torStoryCount >= 1;
+}
+
+async function fetchCanonicalRender(
+  phase: "intermediate" | "final" | "recovery",
+): Promise<RenderEvidence> {
+  const url = new URL(CANONICAL_URL);
+  url.searchParams.set(
+    "autopilot_template_round_trip",
+    `${phase}-${Date.now()}`,
+  );
+  const response = await fetch(url, {
+    redirect: "follow",
+    cache: "no-store",
+    signal: AbortSignal.timeout(20_000),
+  });
+  const html = await response.text();
+  return {
+    status: response.status,
+    bytes: Buffer.byteLength(html),
+    h1Count: countMatches(html, /<h1\b/gi),
+    torStoryCount: countMatches(html, /ag-tor-story/gi),
+  };
+}
+
+async function updateTemplateSuffix(
+  templateSuffix: string | null,
+): Promise<void> {
+  const data = await shopifyFetch<{
+    articleUpdate: {
+      article: { id: string; templateSuffix: string | null } | null;
+      userErrors: Array<{ message: string }>;
+    };
+  }>(`
+    mutation RoundTripApprovedArticleTemplate(
+      $id: ID!
+      $article: ArticleUpdateInput!
+    ) {
+      articleUpdate(id: $id, article: $article) {
+        article { id templateSuffix }
+        userErrors { code field message }
+      }
+    }
+  `, {
+    id: ARTICLE_ID,
+    article: { templateSuffix },
+  });
+  if (data.articleUpdate.userErrors.length > 0) {
+    throw new Error(data.articleUpdate.userErrors[0]!.message);
+  }
+  if (data.articleUpdate.article?.id !== ARTICLE_ID
+    || data.articleUpdate.article.templateSuffix !== templateSuffix) {
+    throw new Error("Shopify returned the wrong article template suffix");
+  }
+}
+
+async function restoreOriginalTemplate(input: {
+  payload: ApprovedRoundTripPayload;
+  observed?: ShopifyArticle;
+}): Promise<{
+  restored: boolean;
+  article: ShopifyArticle | null;
+  attempts: number;
+  error: string | null;
+}> {
+  let observed = input.observed ?? null;
+  let attempts = 0;
+  let lastError: string | null = null;
+  if (!observed) {
+    try {
+      observed = await fetchExactArticle();
+    } catch (error) {
+      lastError = String(error);
+    }
+  }
+  if (observed
+    && observed.templateSuffix === input.payload.originalTemplateSuffix
+    && roundTripPayloadMatches(observed, input.payload)) {
+    return { restored: true, article: observed, attempts, error: null };
+  }
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    attempts++;
+    try {
+      await updateTemplateSuffix(
+        input.payload.originalTemplateSuffix,
+      );
+    } catch (error) {
+      lastError = String(error);
+    }
+    try {
+      observed = await fetchExactArticle();
+      if (observed.templateSuffix
+          === input.payload.originalTemplateSuffix
+        && roundTripPayloadMatches(observed, input.payload)) {
+        return {
+          restored: true,
+          article: observed,
+          attempts,
+          error: lastError,
+        };
+      }
+    } catch (error) {
+      lastError = String(error);
+      observed = null;
+    }
+  }
+  return {
+    restored: false,
+    article: observed,
+    attempts,
+    error: lastError,
+  };
+}
+
+function parseRoundTripRecommendation(
+  recommendation: Recommendation,
+): ApprovedRoundTripPayload {
+  if (recommendation.platform !== "shopify"
+    || recommendation.actionType
+      !== "round_trip_shopify_article_template"
+    || recommendation.status !== "executing") {
+    throw new Error(
+      "Article template round-trip recommendation must be executing",
+    );
+  }
+  if (process.env.EXECUTE_APPROVED_LIVE_ENABLED !== "true") {
+    throw new Error("Live Shopify execution is disabled");
+  }
+  let payload: ApprovedRoundTripPayload;
+  try {
+    payload = ApprovedArticleTemplateRoundTrip.parse(
+      JSON.parse(recommendation.proposedValue ?? "null"),
+    );
+  } catch {
+    throw new Error(
+      "Approved article template round-trip payload is invalid",
+    );
+  }
+  if (roundTripTargetEntityId(payload)
+      !== recommendation.targetEntityId) {
+    throw new Error(
+      "Approved article template round-trip identity is invalid",
+    );
+  }
+  return payload;
 }
 
 export async function queueArticleCacheRefreshRecommendation(
@@ -192,6 +420,89 @@ export async function queueArticleCacheRefreshRecommendation(
   return { recommendationId: recommendation.id, created: true };
 }
 
+export async function queueArticleTemplateRoundTripRecommendation(
+  db: Db,
+  input: { actor: string },
+): Promise<{ recommendationId: string; created: boolean }> {
+  const article = await fetchExactArticle();
+  const payload = approvedRoundTripPayload(article);
+  const proposedValue = JSON.stringify(payload);
+  const targetId = roundTripTargetEntityId(payload);
+  const snapshot = await db.rawSnapshot.findFirst({
+    where: { source: "gsc" },
+    orderBy: { fetchedAt: "desc" },
+    select: { id: true },
+  });
+  if (!snapshot) throw new Error("No GSC evidence snapshot is available");
+
+  const existing = await db.recommendation.findFirst({
+    where: {
+      platform: "shopify",
+      actionType: "round_trip_shopify_article_template",
+      targetEntityId: targetId,
+      proposedValue,
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    return { recommendationId: existing.id, created: false };
+  }
+
+  const recommendation = await db.recommendation.create({
+    data: {
+      platform: "shopify",
+      skillId: "article-template-round-trip",
+      skillName: "Shopify article template-cache reconciliation",
+      actionType: "round_trip_shopify_article_template",
+      targetEntityType: "blog_article",
+      targetEntityId: targetId,
+      targetEntityName: CANONICAL_URL,
+      currentValue: JSON.stringify({
+        articleId: payload.articleId,
+        blogId: payload.blogId,
+        blogHandle: payload.blogHandle,
+        handle: payload.handle,
+        bodyBytes: payload.bodyBytes,
+        bodySha256: payload.bodySha256,
+        summarySha256: payload.summarySha256,
+        tagsSha256: payload.tagsSha256,
+        titleSha256: payload.titleSha256,
+        isPublished: payload.isPublished,
+        publishedAt: payload.publishedAt,
+        templateSuffix: payload.originalTemplateSuffix,
+        stateSha256: payload.stateSha256,
+        updatedAt: article.updatedAt,
+      }),
+      proposedValue,
+      rationale:
+        "Round-trip the exact article template assignment through the identical default template to invalidate Shopify's stale no-view canonical cache, then restore the original suffix.",
+      guardStatus: "clear",
+      status: "pending",
+      snapshotId: snapshot.id,
+    },
+  });
+  await db.auditLog.create({
+    data: {
+      actor: input.actor,
+      action:
+        "article_template_round_trip_recommendation_queued",
+      entityType: "recommendation",
+      entityId: recommendation.id,
+      before: {
+        articleId: payload.articleId,
+        templateSuffix: payload.originalTemplateSuffix,
+        stateSha256: payload.stateSha256,
+      },
+      after: {
+        recommendationId: recommendation.id,
+        canonicalUrl: payload.canonicalUrl,
+        operation: payload.operation,
+      },
+    },
+  });
+  return { recommendationId: recommendation.id, created: true };
+}
+
 export async function applyApprovedArticleCacheRefreshRecommendation(
   recommendation: Recommendation,
 ): Promise<Record<string, unknown>> {
@@ -266,6 +577,188 @@ export async function applyApprovedArticleCacheRefreshRecommendation(
     beforeUpdatedAt: before.updatedAt,
     afterUpdatedAt: after.updatedAt,
     contentChanged: false,
+    verifiedAt: new Date().toISOString(),
+  };
+}
+
+export async function applyApprovedArticleTemplateRoundTripRecommendation(
+  recommendation: Recommendation,
+): Promise<Record<string, unknown>> {
+  const payload = parseRoundTripRecommendation(recommendation);
+  const before = await fetchExactArticle();
+  if (!roundTripPayloadMatches(before, payload)) {
+    throw new Error("Shopify article changed after approval");
+  }
+
+  let intermediate: ShopifyArticle | undefined;
+  let intermediateRender: RenderEvidence | null = null;
+  let roundTripError: unknown = null;
+  try {
+    await updateTemplateSuffix(null);
+    intermediate = await fetchExactArticle();
+    const expectedIntermediateState = stateSha256(
+      stateWithTemplateSuffix(before, null),
+    );
+    if (intermediate.templateSuffix !== null
+      || stateSha256(intermediate) !== expectedIntermediateState) {
+      throw new Error(
+        "Shopify default-template state did not match approval",
+      );
+    }
+    intermediateRender = await fetchCanonicalRender("intermediate");
+    if (!renderIsCorrect(intermediateRender)) {
+      throw new Error(
+        "Canonical storefront remained stale during template round-trip",
+      );
+    }
+  } catch (error) {
+    roundTripError = error;
+  }
+
+  const restoration = await restoreOriginalTemplate({
+    payload,
+    observed: intermediate,
+  });
+  if (!restoration.restored || !restoration.article) {
+    await prisma.auditLog.create({
+      data: {
+        actor: "system",
+        action:
+          "article_template_round_trip_reconciliation_needed",
+        entityType: "recommendation",
+        entityId: recommendation.id,
+        before: {
+          originalTemplateSuffix: payload.originalTemplateSuffix,
+          stateSha256: payload.stateSha256,
+        },
+        after: {
+          observedTemplateSuffix:
+            restoration.article?.templateSuffix ?? null,
+          observedStateSha256: restoration.article
+            ? stateSha256(restoration.article)
+            : null,
+          restorationAttempts: restoration.attempts,
+          error: restoration.error,
+        },
+      },
+    });
+    throw new Error(
+      "Could not restore the original article template suffix",
+    );
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      actor: "system",
+      action: "article_template_round_trip_restored",
+      entityType: "recommendation",
+      entityId: recommendation.id,
+      before: {
+        intermediateTemplateSuffix:
+          intermediate?.templateSuffix ?? null,
+      },
+      after: {
+        finalTemplateSuffix: restoration.article.templateSuffix,
+        stateSha256: stateSha256(restoration.article),
+        restorationAttempts: restoration.attempts,
+      },
+    },
+  });
+  if (roundTripError) throw roundTripError;
+
+  const finalRender = await fetchCanonicalRender("final");
+  if (!renderIsCorrect(finalRender)) {
+    throw new Error(
+      "Canonical storefront remained stale after template restoration",
+    );
+  }
+  return {
+    articleId: payload.articleId,
+    canonicalUrl: payload.canonicalUrl,
+    bodyBytes: payload.bodyBytes,
+    bodySha256: payload.bodySha256,
+    stateSha256: payload.stateSha256,
+    originalTemplateSuffix: payload.originalTemplateSuffix,
+    intermediateTemplateSuffix: null,
+    finalTemplateSuffix: restoration.article.templateSuffix,
+    beforeUpdatedAt: before.updatedAt,
+    intermediateUpdatedAt: intermediate?.updatedAt ?? null,
+    finalUpdatedAt: restoration.article.updatedAt,
+    contentChanged: false,
+    intermediateRender,
+    finalRender,
+    restorationAttempts: restoration.attempts,
+    verifiedAt: new Date().toISOString(),
+  };
+}
+
+export async function reconcileInterruptedArticleTemplateRoundTrip(
+  recommendation: Recommendation,
+): Promise<Record<string, unknown>> {
+  const payload = parseRoundTripRecommendation(recommendation);
+  const observed = await fetchExactArticle();
+  const isApprovedOriginal =
+    roundTripPayloadMatches(observed, payload);
+  const isApprovedDefault =
+    observed.templateSuffix === null
+    && stateSha256({
+      ...observed,
+      templateSuffix: payload.originalTemplateSuffix,
+    }) === payload.stateSha256;
+  if (!isApprovedOriginal && !isApprovedDefault) {
+    throw new Error(
+      "Interrupted article template round-trip state is ambiguous",
+    );
+  }
+
+  const restoration = await restoreOriginalTemplate({
+    payload,
+    observed,
+  });
+  if (!restoration.restored || !restoration.article) {
+    await prisma.auditLog.create({
+      data: {
+        actor: "system",
+        action:
+          "article_template_round_trip_reconciliation_needed",
+        entityType: "recommendation",
+        entityId: recommendation.id,
+        before: {
+          originalTemplateSuffix: payload.originalTemplateSuffix,
+          stateSha256: payload.stateSha256,
+        },
+        after: {
+          observedTemplateSuffix:
+            restoration.article?.templateSuffix ?? null,
+          observedStateSha256: restoration.article
+            ? stateSha256(restoration.article)
+            : null,
+          restorationAttempts: restoration.attempts,
+          error: restoration.error,
+        },
+      },
+    });
+    throw new Error(
+      "Could not restore the original article template suffix",
+    );
+  }
+  const finalRender = await fetchCanonicalRender("recovery");
+  if (!renderIsCorrect(finalRender)) {
+    throw new Error(
+      "Canonical storefront remained stale after interrupted round-trip recovery",
+    );
+  }
+  return {
+    articleId: payload.articleId,
+    canonicalUrl: payload.canonicalUrl,
+    bodySha256: payload.bodySha256,
+    stateSha256: payload.stateSha256,
+    finalTemplateSuffix: restoration.article.templateSuffix,
+    finalUpdatedAt: restoration.article.updatedAt,
+    contentChanged: false,
+    finalRender,
+    recovered: true,
+    restorationAttempts: restoration.attempts,
     verifiedAt: new Date().toISOString(),
   };
 }

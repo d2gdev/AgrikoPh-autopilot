@@ -4,17 +4,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const shopify = vi.hoisted(() => ({
   fetch: vi.fn(),
 }));
+const storefront = vi.hoisted(() => ({
+  fetch: vi.fn(),
+}));
+const auditCreate = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/shopify-admin", () => ({
   shopifyFetch: shopify.fetch,
 }));
 vi.mock("@/lib/db", () => ({
-  prisma: {},
+  prisma: { auditLog: { create: auditCreate } },
 }));
 
 import {
   applyApprovedArticleCacheRefreshRecommendation,
+  applyApprovedArticleTemplateRoundTripRecommendation,
   queueArticleCacheRefreshRecommendation,
+  queueArticleTemplateRoundTripRecommendation,
+  reconcileInterruptedArticleTemplateRoundTrip,
 } from "@/lib/recommendations/article-cache-refresh";
 
 const ARTICLE_ID = "gid://shopify/Article/672983056610";
@@ -57,6 +64,7 @@ describe("governed Shopify article page-cache refresh", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("EXECUTE_APPROVED_LIVE_ENABLED", "true");
+    vi.stubGlobal("fetch", storefront.fetch);
   });
 
   it("queues the exact observed article hashes without writing Shopify", async () => {
@@ -208,5 +216,368 @@ describe("governed Shopify article page-cache refresh", () => {
         recommendation(payload),
       ),
     ).rejects.toThrow(/read-back.*match/i);
+  });
+
+  it("queues only the exact custom-template round-trip state", async () => {
+    shopify.fetch.mockResolvedValueOnce({ article: article() });
+    const db: any = {
+      rawSnapshot: {
+        findFirst: vi.fn().mockResolvedValue({ id: "gsc-snapshot" }),
+      },
+      recommendation: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({
+          id: "rec-article-template-round-trip",
+        }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
+
+    await expect(
+      queueArticleTemplateRoundTripRecommendation(db, {
+        actor: "operator",
+      }),
+    ).resolves.toEqual({
+      recommendationId: "rec-article-template-round-trip",
+      created: true,
+    });
+
+    const created = db.recommendation.create.mock.calls[0][0].data;
+    const payload = JSON.parse(created.proposedValue);
+    expect(created.actionType).toBe(
+      "round_trip_shopify_article_template",
+    );
+    expect(payload).toMatchObject({
+      articleId: ARTICLE_ID,
+      operation: "custom_to_default_to_custom",
+      originalTemplateSuffix: "types-of-organic-rice",
+      bodySha256: BODY_SHA256,
+    });
+    expect(created.targetEntityId).toBe(
+      `${ARTICLE_ID}:template-round-trip:${payload.stateSha256}`,
+    );
+    expect(shopify.fetch).toHaveBeenCalledTimes(1);
+    expect(storefront.fetch).not.toHaveBeenCalled();
+  });
+
+  it("round-trips the template, proves both renders, and restores exact state", async () => {
+    const before = article();
+    const intermediate = article({
+      templateSuffix: null,
+      updatedAt: "2026-07-20T03:30:00Z",
+    });
+    const after = article({
+      updatedAt: "2026-07-20T03:30:01Z",
+    });
+    shopify.fetch
+      .mockResolvedValueOnce({ article: before })
+      .mockResolvedValueOnce({ article: before })
+      .mockResolvedValueOnce({
+        articleUpdate: {
+          article: { id: ARTICLE_ID, templateSuffix: null },
+          userErrors: [],
+        },
+      })
+      .mockResolvedValueOnce({ article: intermediate })
+      .mockResolvedValueOnce({
+        articleUpdate: {
+          article: {
+            id: ARTICLE_ID,
+            templateSuffix: "types-of-organic-rice",
+          },
+          userErrors: [],
+        },
+      })
+      .mockResolvedValueOnce({ article: after });
+    storefront.fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: vi.fn().mockResolvedValue(
+          '<main><h1>Types of Organic Rice</h1><div class="ag-tor-story"></div></main>',
+        ),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: vi.fn().mockResolvedValue(
+          '<main><h1>Types of Organic Rice</h1><div class="ag-tor-story"></div></main>',
+        ),
+      });
+    const db: any = {
+      rawSnapshot: {
+        findFirst: vi.fn().mockResolvedValue({ id: "gsc-snapshot" }),
+      },
+      recommendation: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({
+          id: "rec-article-template-round-trip",
+        }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
+    await queueArticleTemplateRoundTripRecommendation(db, {
+      actor: "operator",
+    });
+    const created = db.recommendation.create.mock.calls[0][0].data;
+
+    await expect(
+      applyApprovedArticleTemplateRoundTripRecommendation({
+        ...recommendation(created.proposedValue, {
+          actionType: "round_trip_shopify_article_template",
+          targetEntityId: created.targetEntityId,
+        }),
+      }),
+    ).resolves.toMatchObject({
+      articleId: ARTICLE_ID,
+      originalTemplateSuffix: "types-of-organic-rice",
+      finalTemplateSuffix: "types-of-organic-rice",
+      bodySha256: BODY_SHA256,
+      contentChanged: false,
+      intermediateRender: {
+        status: 200,
+        h1Count: 1,
+        torStoryCount: 1,
+      },
+      finalRender: {
+        status: 200,
+        h1Count: 1,
+        torStoryCount: 1,
+      },
+    });
+
+    expect(shopify.fetch.mock.calls[2]![1]).toEqual({
+      id: ARTICLE_ID,
+      article: { templateSuffix: null },
+    });
+    expect(shopify.fetch.mock.calls[4]![1]).toEqual({
+      id: ARTICLE_ID,
+      article: { templateSuffix: "types-of-organic-rice" },
+    });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "article_template_round_trip_restored",
+      }),
+    });
+  });
+
+  it("restores the original suffix before reporting stale intermediate rendering", async () => {
+    const before = article();
+    const intermediate = article({
+      templateSuffix: null,
+      updatedAt: "2026-07-20T03:30:00Z",
+    });
+    const after = article({
+      updatedAt: "2026-07-20T03:30:01Z",
+    });
+    shopify.fetch
+      .mockResolvedValueOnce({ article: before })
+      .mockResolvedValueOnce({ article: before })
+      .mockResolvedValueOnce({
+        articleUpdate: {
+          article: { id: ARTICLE_ID, templateSuffix: null },
+          userErrors: [],
+        },
+      })
+      .mockResolvedValueOnce({ article: intermediate })
+      .mockResolvedValueOnce({
+        articleUpdate: {
+          article: {
+            id: ARTICLE_ID,
+            templateSuffix: "types-of-organic-rice",
+          },
+          userErrors: [],
+        },
+      })
+      .mockResolvedValueOnce({ article: after });
+    storefront.fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: vi.fn().mockResolvedValue(
+        '<main><article id="top">Old shell</article></main>',
+      ),
+    });
+    const db: any = {
+      rawSnapshot: {
+        findFirst: vi.fn().mockResolvedValue({ id: "gsc-snapshot" }),
+      },
+      recommendation: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({
+          id: "rec-article-template-round-trip",
+        }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
+    await queueArticleTemplateRoundTripRecommendation(db, {
+      actor: "operator",
+    });
+    const created = db.recommendation.create.mock.calls[0][0].data;
+
+    await expect(
+      applyApprovedArticleTemplateRoundTripRecommendation(
+        recommendation(created.proposedValue, {
+          actionType: "round_trip_shopify_article_template",
+          targetEntityId: created.targetEntityId,
+        }),
+      ),
+    ).rejects.toThrow(/canonical.*stale/i);
+
+    expect(shopify.fetch.mock.calls[4]![1]).toEqual({
+      id: ARTICLE_ID,
+      article: { templateSuffix: "types-of-organic-rice" },
+    });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "article_template_round_trip_restored",
+        after: expect.objectContaining({
+          finalTemplateSuffix: "types-of-organic-rice",
+        }),
+      }),
+    });
+  });
+
+  it("records reconciliation when the original suffix cannot be restored", async () => {
+    const before = article();
+    const intermediate = article({
+      templateSuffix: null,
+      updatedAt: "2026-07-20T03:30:00Z",
+    });
+    shopify.fetch
+      .mockResolvedValueOnce({ article: before })
+      .mockResolvedValueOnce({ article: before })
+      .mockResolvedValueOnce({
+        articleUpdate: {
+          article: { id: ARTICLE_ID, templateSuffix: null },
+          userErrors: [],
+        },
+      })
+      .mockResolvedValueOnce({ article: intermediate })
+      .mockResolvedValueOnce({
+        articleUpdate: {
+          article: null,
+          userErrors: [{ message: "Restore rejected" }],
+        },
+      })
+      .mockResolvedValueOnce({ article: intermediate })
+      .mockResolvedValueOnce({
+        articleUpdate: {
+          article: null,
+          userErrors: [{ message: "Restore rejected again" }],
+        },
+      })
+      .mockResolvedValueOnce({ article: intermediate });
+    storefront.fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: vi.fn().mockResolvedValue(
+        '<main><h1>Types</h1><div class="ag-tor-story"></div></main>',
+      ),
+    });
+    const db: any = {
+      rawSnapshot: {
+        findFirst: vi.fn().mockResolvedValue({ id: "gsc-snapshot" }),
+      },
+      recommendation: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({
+          id: "rec-article-template-round-trip",
+        }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
+    await queueArticleTemplateRoundTripRecommendation(db, {
+      actor: "operator",
+    });
+    const created = db.recommendation.create.mock.calls[0][0].data;
+
+    await expect(
+      applyApprovedArticleTemplateRoundTripRecommendation(
+        recommendation(created.proposedValue, {
+          actionType: "round_trip_shopify_article_template",
+          targetEntityId: created.targetEntityId,
+        }),
+      ),
+    ).rejects.toThrow(/restore.*original.*suffix/i);
+
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "article_template_round_trip_reconciliation_needed",
+        after: expect.objectContaining({
+          observedTemplateSuffix: null,
+        }),
+      }),
+    });
+  });
+
+  it("restores an interrupted default-template state without starting another round-trip", async () => {
+    const before = article();
+    const intermediate = article({
+      templateSuffix: null,
+      updatedAt: "2026-07-20T03:30:00Z",
+    });
+    const after = article({
+      updatedAt: "2026-07-20T03:30:01Z",
+    });
+    shopify.fetch
+      .mockResolvedValueOnce({ article: before })
+      .mockResolvedValueOnce({ article: intermediate })
+      .mockResolvedValueOnce({
+        articleUpdate: {
+          article: {
+            id: ARTICLE_ID,
+            templateSuffix: "types-of-organic-rice",
+          },
+          userErrors: [],
+        },
+      })
+      .mockResolvedValueOnce({ article: after });
+    storefront.fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: vi.fn().mockResolvedValue(
+        '<main><h1>Types</h1><div class="ag-tor-story"></div></main>',
+      ),
+    });
+    const db: any = {
+      rawSnapshot: {
+        findFirst: vi.fn().mockResolvedValue({ id: "gsc-snapshot" }),
+      },
+      recommendation: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({
+          id: "rec-article-template-round-trip",
+        }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
+    await queueArticleTemplateRoundTripRecommendation(db, {
+      actor: "operator",
+    });
+    const created = db.recommendation.create.mock.calls[0][0].data;
+
+    await expect(
+      reconcileInterruptedArticleTemplateRoundTrip(
+        recommendation(created.proposedValue, {
+          actionType: "round_trip_shopify_article_template",
+          targetEntityId: created.targetEntityId,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      recovered: true,
+      finalTemplateSuffix: "types-of-organic-rice",
+      contentChanged: false,
+    });
+
+    expect(shopify.fetch.mock.calls[2]![1]).toEqual({
+      id: ARTICLE_ID,
+      article: { templateSuffix: "types-of-organic-rice" },
+    });
+    expect(
+      shopify.fetch.mock.calls.some(
+        (call) =>
+          (call[1] as any)?.article?.templateSuffix === null,
+      ),
+    ).toBe(false);
   });
 });

@@ -59,10 +59,18 @@ const themeCacheFlushDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
 vi.mock("@/lib/recommendations/theme-cache-flush", () => ({
   applyApprovedThemeCacheFlushRecommendation: themeCacheFlushDispatch.apply,
 }));
-const articleCacheRefreshDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
+const articleCacheRefreshDispatch = vi.hoisted(() => ({
+  apply: vi.fn(),
+  roundTrip: vi.fn(),
+  recoverRoundTrip: vi.fn(),
+}));
 vi.mock("@/lib/recommendations/article-cache-refresh", () => ({
   applyApprovedArticleCacheRefreshRecommendation:
     articleCacheRefreshDispatch.apply,
+  applyApprovedArticleTemplateRoundTripRecommendation:
+    articleCacheRefreshDispatch.roundTrip,
+  reconcileInterruptedArticleTemplateRoundTrip:
+    articleCacheRefreshDispatch.recoverRoundTrip,
 }));
 
 import { prisma } from "@/lib/db";
@@ -183,6 +191,21 @@ beforeEach(() => {
     canonicalUrl:
       "https://agrikoph.com/blogs/news/types-of-organic-rice",
     bodySha256: "a".repeat(64),
+    contentChanged: false,
+  });
+  articleCacheRefreshDispatch.roundTrip.mockResolvedValue({
+    articleId: "gid://shopify/Article/672983056610",
+    canonicalUrl:
+      "https://agrikoph.com/blogs/news/types-of-organic-rice",
+    bodySha256: "a".repeat(64),
+    originalTemplateSuffix: "types-of-organic-rice",
+    finalTemplateSuffix: "types-of-organic-rice",
+    contentChanged: false,
+  });
+  articleCacheRefreshDispatch.recoverRoundTrip.mockResolvedValue({
+    articleId: "gid://shopify/Article/672983056610",
+    finalTemplateSuffix: "types-of-organic-rice",
+    recovered: true,
     contentChanged: false,
   });
 });
@@ -389,6 +412,45 @@ describe("executeApprovedHandler", () => {
     );
   });
 
+  it("executes only the exact governed article template round-trip", async () => {
+    const shopify = {
+      ...baseRec,
+      id: "rec-article-template-round-trip",
+      platform: "shopify",
+      actionType: "round_trip_shopify_article_template",
+      targetEntityId:
+        "gid://shopify/Article/672983056610:template-round-trip:"
+        + "b".repeat(64),
+      targetEntityType: "blog_article",
+      status: "approved",
+    };
+    mockPrisma.recommendation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([shopify]);
+    process.env.EXECUTE_APPROVED_LIVE_ENABLED = "true";
+
+    await executeApprovedHandler({
+      liveRequested: true,
+      recommendationId: shopify.id,
+      triggeredBy: "operator",
+    });
+
+    expect(articleCacheRefreshDispatch.roundTrip).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-article-template-round-trip",
+        status: "executing",
+      }),
+    );
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "article_template_round_trip_completed",
+          entityId: "rec-article-template-round-trip",
+        }),
+      }),
+    );
+  });
+
   it("reconciles a stale theme cache flush from exact Shopify state", async () => {
     const stale = {
       ...baseRec,
@@ -409,6 +471,34 @@ describe("executeApprovedHandler", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           action: "theme_cache_flush_execution_timeout_reconciled",
+        }),
+      }),
+    );
+  });
+
+  it("restores and reconciles a stale article template round-trip", async () => {
+    const stale = {
+      ...baseRec,
+      id: "rec-article-template-round-trip-stale",
+      platform: "shopify",
+      actionType: "round_trip_shopify_article_template",
+      status: "executing",
+      updatedAt: new Date(0),
+    };
+    mockPrisma.recommendation.findMany
+      .mockResolvedValueOnce([stale])
+      .mockResolvedValueOnce([]);
+
+    await executeLive();
+
+    expect(
+      articleCacheRefreshDispatch.recoverRoundTrip,
+    ).toHaveBeenCalledWith(stale);
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action:
+            "article_template_round_trip_execution_timeout_reconciled",
         }),
       }),
     );

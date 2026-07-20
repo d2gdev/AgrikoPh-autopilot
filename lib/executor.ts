@@ -7,6 +7,7 @@ const SUPPORTED_ACTIONS: Record<string, readonly string[]> = {
     "fix_robots_sitemap_url",
     "flush_shopify_theme_page_cache",
     "refresh_shopify_article_page_cache",
+    "round_trip_shopify_article_template",
     "remove_homepage_offer_catalog",
     "sync_theme_source_assets",
     "update_product_image_alt_text",

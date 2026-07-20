@@ -75,6 +75,7 @@ describe("executeRecommendation", () => {
     expect(isSupportedAction("shopify", "sync_theme_source_assets")).toBe(true);
     expect(isSupportedAction("shopify", "flush_shopify_theme_page_cache")).toBe(true);
     expect(isSupportedAction("shopify", "refresh_shopify_article_page_cache")).toBe(true);
+    expect(isSupportedAction("shopify", "round_trip_shopify_article_template")).toBe(true);
     expect(isSupportedAction("shopify", "update_theme_asset")).toBe(false);
   });
 });
