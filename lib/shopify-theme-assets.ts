@@ -168,10 +168,13 @@ export async function fetchMainThemeRobotsAsset(): Promise<
 export async function fetchMainThemeSourceAssets(): Promise<
   Array<ThemeAssetObservation<ThemeSourceSyncAssetKey>>
 > {
-  return readThemeAssets(
-    await discoverMainThemeId(),
-    THEME_SOURCE_SYNC_ASSET_KEYS,
-  );
+  return fetchThemeSourceAssets(await discoverMainThemeId());
+}
+
+export async function fetchThemeSourceAssets(
+  themeId: string,
+): Promise<Array<ThemeAssetObservation<ThemeSourceSyncAssetKey>>> {
+  return readThemeAssets(themeId, THEME_SOURCE_SYNC_ASSET_KEYS);
 }
 
 async function updateMainThemeAsset<TKey extends AllowedThemeAssetKey>(input: {

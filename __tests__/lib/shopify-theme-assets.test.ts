@@ -6,6 +6,7 @@ vi.mock("@/lib/shopify-admin", () => ({ shopifyFetch }));
 
 import {
   ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY,
+  fetchThemeSourceAssets,
   fetchMainThemeSourceAssets,
   fetchMainThemeSchemaAsset,
   fetchMainThemeRobotsAsset,
@@ -120,6 +121,29 @@ describe("Shopify main-theme schema asset adapter", () => {
     ]);
     expect(shopifyFetch.mock.calls[1]?.[1]).toEqual({
       themeId,
+      filenames: [
+        MAIN_ARTICLE_ASSET_KEY,
+        MAIN_HOME_ASSET_KEY,
+        ROBOTS_TEMPLATE_ASSET_KEY,
+        ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY,
+      ],
+    });
+  });
+
+  it("reads the fixed source-sync assets from an exact named theme", async () => {
+    const duplicateThemeId = "gid://shopify/OnlineStoreTheme/456";
+    shopifyFetch.mockResolvedValueOnce(sourceFiles({
+      [MAIN_ARTICLE_ASSET_KEY]: "article-after",
+      [MAIN_HOME_ASSET_KEY]: "home-after",
+      [ROBOTS_TEMPLATE_ASSET_KEY]: "robots-after",
+      [ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY]: "article-snippet-after",
+    }));
+
+    const result = await fetchThemeSourceAssets(duplicateThemeId);
+
+    expect(result).toHaveLength(4);
+    expect(shopifyFetch.mock.calls[0]?.[1]).toEqual({
+      themeId: duplicateThemeId,
       filenames: [
         MAIN_ARTICLE_ASSET_KEY,
         MAIN_HOME_ASSET_KEY,
