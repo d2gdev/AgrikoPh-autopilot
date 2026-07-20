@@ -4,6 +4,7 @@ const SUPPORTED_ACTIONS: Record<string, readonly string[]> = {
   meta: ["pause_campaign", "pause_ad", "adjust_budget"],
   shopify: [
     "apply_topical_map_store_task",
+    "fix_robots_sitemap_url",
     "remove_homepage_offer_catalog",
     "update_product_image_alt_text",
   ],

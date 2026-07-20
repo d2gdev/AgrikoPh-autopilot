@@ -47,6 +47,10 @@ const homepageDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
 vi.mock("@/lib/recommendations/homepage-schema", () => ({
   applyApprovedHomepageSchemaRecommendation: homepageDispatch.apply,
 }));
+const robotsDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
+vi.mock("@/lib/recommendations/robots-sitemap", () => ({
+  applyApprovedRobotsSitemapRecommendation: robotsDispatch.apply,
+}));
 
 import { prisma } from "@/lib/db";
 import { checkGuardrails } from "@/lib/guardrails";
@@ -142,6 +146,12 @@ beforeEach(() => {
     beforeSha256: "a".repeat(64),
     afterSha256: "b".repeat(64),
   });
+  robotsDispatch.apply.mockResolvedValue({
+    themeId: "gid://shopify/OnlineStoreTheme/123",
+    assetKey: "templates/robots.txt.liquid",
+    beforeSha256: "c".repeat(64),
+    afterSha256: "d".repeat(64),
+  });
 });
 
 describe("executeApprovedHandler", () => {
@@ -192,6 +202,101 @@ describe("executeApprovedHandler", () => {
     expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ action: "homepage_schema_applied" }),
+      }),
+    );
+  });
+
+  it("executes the exact governed robots sitemap recommendation", async () => {
+    const shopify = {
+      ...baseRec,
+      id: "rec-robots-sitemap",
+      platform: "shopify",
+      actionType: "fix_robots_sitemap_url",
+      targetEntityId: "gid://shopify/OnlineStoreTheme/123:templates/robots.txt.liquid",
+      targetEntityType: "theme_asset",
+      status: "approved",
+    };
+    mockPrisma.recommendation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([shopify]);
+
+    await executeLive();
+
+    expect(robotsDispatch.apply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-robots-sitemap",
+        status: "executing",
+      }),
+    );
+    expect(mockPrisma.recommendation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "rec-robots-sitemap" },
+        data: expect.objectContaining({ status: "executed" }),
+      }),
+    );
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "robots_sitemap_applied" }),
+      }),
+    );
+  });
+
+  it("reconciles a stale robots sitemap execution from exact Shopify state", async () => {
+    const stale = {
+      ...baseRec,
+      id: "rec-robots-stale",
+      platform: "shopify",
+      actionType: "fix_robots_sitemap_url",
+      status: "executing",
+      updatedAt: new Date(0),
+    };
+    mockPrisma.recommendation.findMany
+      .mockResolvedValueOnce([stale])
+      .mockResolvedValueOnce([]);
+
+    await executeLive();
+
+    expect(robotsDispatch.apply).toHaveBeenCalledWith(stale);
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "robots_sitemap_execution_timeout_reconciled",
+        }),
+      }),
+    );
+  });
+
+  it("records reconciliation need if robots write succeeds before finalization fails", async () => {
+    const shopify = {
+      ...baseRec,
+      id: "rec-robots-reconcile",
+      platform: "shopify",
+      actionType: "fix_robots_sitemap_url",
+      targetEntityType: "theme_asset",
+      status: "approved",
+    };
+    mockPrisma.recommendation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([shopify]);
+    mockPrisma.$transaction.mockRejectedValueOnce(new Error("commit failed"));
+
+    await executeLive();
+
+    expect(mockPrisma.recommendation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "rec-robots-reconcile", status: "executing" },
+        data: expect.objectContaining({
+          executionResult: expect.objectContaining({
+            reconciliationNeeded: true,
+          }),
+        }),
+      }),
+    );
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "robots_sitemap_reconciliation_needed",
+        }),
       }),
     );
   });

@@ -69,8 +69,9 @@ describe("executeRecommendation", () => {
     expect(result).toEqual({ paused: true, campaignId: "camp-1" });
   });
 
-  it("allowlists only the governed homepage schema action for theme writes", () => {
+  it("allowlists only narrowly governed theme write actions", () => {
     expect(isSupportedAction("shopify", "remove_homepage_offer_catalog")).toBe(true);
+    expect(isSupportedAction("shopify", "fix_robots_sitemap_url")).toBe(true);
     expect(isSupportedAction("shopify", "update_theme_asset")).toBe(false);
   });
 });
