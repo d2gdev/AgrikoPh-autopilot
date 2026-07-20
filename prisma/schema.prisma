@@ -392,6 +392,22 @@ model SeoFollowUpTask {
   @@index([targetUrl])
 }
 
+model BacklogItem {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  version     Int       @default(1)
+  title       String
+  description String
+  dueAt       DateTime
+  status      String    @default("open")
+  createdBy   String
+  updatedBy   String
+  completedAt DateTime?
+
+  @@index([status, dueAt])
+}
+
 model StoreTaskExecutionLock {
   targetUrl  String   @id
   taskId     String   @unique

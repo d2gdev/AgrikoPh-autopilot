@@ -82,6 +82,7 @@ export const EMBEDDED_NAVIGATION_SECTIONS: EmbeddedNavigationSection[] = [
   {
     separator: true,
     items: [
+      { label: "Backlog", href: "/backlog", match: "prefix", appBridge: true },
       { label: "Settings", href: "/settings", match: "prefix", appBridge: true },
     ],
   },

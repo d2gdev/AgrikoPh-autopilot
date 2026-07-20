@@ -21,8 +21,20 @@ describe("embedded navigation config", () => {
       "/social-pilot",
       "/market-intelligence",
       "/insights",
+      "/backlog",
       "/settings",
     ]);
+  });
+
+  it("places Backlog immediately before Settings", () => {
+    const allItems = EMBEDDED_NAVIGATION_SECTIONS.flatMap(
+      (section) => section.items,
+    );
+    const backlogIndex = allItems.findIndex((item) => item.href === "/backlog");
+    const settingsIndex = allItems.findIndex((item) => item.href === "/settings");
+
+    expect(backlogIndex).toBeGreaterThan(-1);
+    expect(settingsIndex).toBe(backlogIndex + 1);
   });
 
   it("routes the SEO nav entry to the pillar dashboard (/seo is a redirect)", () => {
