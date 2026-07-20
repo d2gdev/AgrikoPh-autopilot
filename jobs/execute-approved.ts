@@ -270,6 +270,40 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
                 err,
               );
             }
+          } else if (stale.platform === "shopify"
+            && stale.actionType === "refresh_shopify_article_page_cache") {
+            try {
+              const { applyApprovedArticleCacheRefreshRecommendation } =
+                await import("@/lib/recommendations/article-cache-refresh");
+              const receipt =
+                await applyApprovedArticleCacheRefreshRecommendation(stale);
+              await prisma.$transaction([
+                prisma.recommendation.update({
+                  where: { id: stale.id },
+                  data: {
+                    status: "executed",
+                    executedAt: new Date(),
+                    executionResult: json(receipt),
+                  },
+                }),
+                prisma.auditLog.create({
+                  data: {
+                    actor: "system",
+                    action:
+                      "article_cache_refresh_execution_timeout_reconciled",
+                    entityType: "recommendation",
+                    entityId: stale.id,
+                    after: json(receipt),
+                    meta: { jobRunId: run.id },
+                  },
+                }),
+              ]);
+            } catch (err) {
+              console.error(
+                `[execute-approved] stale article cache refresh failed for ${stale.id} — continuing:`,
+                err,
+              );
+            }
           } else {
             await prisma.$transaction([
               prisma.recommendation.update({ where: { id: stale.id }, data: { status: "failed", executionResult: json({ error: "Execution timed out — process likely died" }) } }),
@@ -659,6 +693,57 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
         counters.executed++;
         continue;
       }
+      if (rec.platform === "shopify"
+        && rec.actionType === "refresh_shopify_article_page_cache") {
+        if (dryRun) {
+          counters.simulated++;
+          await prisma.auditLog.create({
+            data: {
+              actor: "system",
+              action: "execution_dry_run_success",
+              entityType: "recommendation",
+              entityId: rec.id,
+              after: {
+                simulated: true,
+                intendedChange: intendedChange(rec),
+                result: "No Shopify call was made.",
+              },
+              meta: { dryRun: true, jobRunId: run.id },
+            },
+          });
+          continue;
+        }
+        const { applyApprovedArticleCacheRefreshRecommendation } =
+          await import("@/lib/recommendations/article-cache-refresh");
+        const receipt =
+          await applyApprovedArticleCacheRefreshRecommendation({
+            ...rec,
+            status: "executing",
+          });
+        verifiedShopifyReceipt = receipt;
+        await prisma.$transaction([
+          prisma.recommendation.update({
+            where: { id: rec.id },
+            data: {
+              status: "executed",
+              executedAt: new Date(),
+              executionResult: json(receipt),
+            },
+          }),
+          prisma.auditLog.create({
+            data: {
+              actor: "system",
+              action: "article_page_cache_refreshed",
+              entityType: "recommendation",
+              entityId: rec.id,
+              after: json(receipt),
+              meta: { dryRun: false, jobRunId: run.id },
+            },
+          }),
+        ]);
+        counters.executed++;
+        continue;
+      }
       // Re-check guardrails using snapshot data — skip for override_approved (already overridden)
       if (originalStatus === "approved") {
         const { conversionCount, dailyBudgetPhp } = await deriveGuardrailInputs(rec);
@@ -926,6 +1011,36 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
             data: {
               actor: "system",
               action: "theme_cache_flush_reconciliation_needed",
+              entityType: "recommendation",
+              entityId: rec.id,
+              after: json({
+                reconciliationNeeded: true,
+                receipt: verifiedShopifyReceipt,
+              }),
+              meta: { dryRun: false, jobRunId: run.id },
+            },
+          }),
+        ]);
+        continue;
+      }
+      if (!dryRun
+        && rec.platform === "shopify"
+        && rec.actionType === "refresh_shopify_article_page_cache"
+        && verifiedShopifyReceipt) {
+        await Promise.all([
+          prisma.recommendation.updateMany({
+            where: { id: rec.id, status: "executing" },
+            data: {
+              executionResult: json({
+                reconciliationNeeded: true,
+                receipt: verifiedShopifyReceipt,
+              }),
+            },
+          }),
+          prisma.auditLog.create({
+            data: {
+              actor: "system",
+              action: "article_cache_refresh_reconciliation_needed",
               entityType: "recommendation",
               entityId: rec.id,
               after: json({

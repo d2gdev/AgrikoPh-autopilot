@@ -59,6 +59,11 @@ const themeCacheFlushDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
 vi.mock("@/lib/recommendations/theme-cache-flush", () => ({
   applyApprovedThemeCacheFlushRecommendation: themeCacheFlushDispatch.apply,
 }));
+const articleCacheRefreshDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
+vi.mock("@/lib/recommendations/article-cache-refresh", () => ({
+  applyApprovedArticleCacheRefreshRecommendation:
+    articleCacheRefreshDispatch.apply,
+}));
 
 import { prisma } from "@/lib/db";
 import { checkGuardrails } from "@/lib/guardrails";
@@ -172,6 +177,13 @@ beforeEach(() => {
     duplicateName: "autopilot-cache-flush-2026-07-20-02-30-00",
     sourceCommit: "8ff4626583861e70a542a2b51f67989429d52ea3",
     alreadyApplied: false,
+  });
+  articleCacheRefreshDispatch.apply.mockResolvedValue({
+    articleId: "gid://shopify/Article/672983056610",
+    canonicalUrl:
+      "https://agrikoph.com/blogs/news/types-of-organic-rice",
+    bodySha256: "a".repeat(64),
+    contentChanged: false,
   });
 });
 
@@ -334,6 +346,44 @@ describe("executeApprovedHandler", () => {
         data: expect.objectContaining({
           action: "theme_page_cache_flushed",
           entityId: "rec-theme-cache-flush",
+        }),
+      }),
+    );
+  });
+
+  it("executes only the exact governed article page-cache refresh", async () => {
+    const shopify = {
+      ...baseRec,
+      id: "rec-article-cache-refresh",
+      platform: "shopify",
+      actionType: "refresh_shopify_article_page_cache",
+      targetEntityId:
+        "gid://shopify/Article/672983056610:page-cache:" + "a".repeat(64),
+      targetEntityType: "blog_article",
+      status: "approved",
+    };
+    mockPrisma.recommendation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([shopify]);
+    process.env.EXECUTE_APPROVED_LIVE_ENABLED = "true";
+
+    await executeApprovedHandler({
+      liveRequested: true,
+      recommendationId: shopify.id,
+      triggeredBy: "operator",
+    });
+
+    expect(articleCacheRefreshDispatch.apply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-article-cache-refresh",
+        status: "executing",
+      }),
+    );
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "article_page_cache_refreshed",
+          entityId: "rec-article-cache-refresh",
         }),
       }),
     );
