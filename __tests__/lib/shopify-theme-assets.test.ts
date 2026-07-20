@@ -6,7 +6,10 @@ vi.mock("@/lib/shopify-admin", () => ({ shopifyFetch }));
 
 import {
   fetchMainThemeSchemaAsset,
+  fetchMainThemeRobotsAsset,
   HOME_SCHEMA_ASSET_KEY,
+  ROBOTS_TEMPLATE_ASSET_KEY,
+  updateMainThemeRobotsAsset,
   updateMainThemeSchemaAsset,
 } from "@/lib/shopify-theme-assets";
 
@@ -18,7 +21,7 @@ function themes(nodes: Array<{ id: string; role: string }>) {
   return { themes: { nodes } };
 }
 
-function file(value: string, filename = HOME_SCHEMA_ASSET_KEY) {
+function file(value: string, filename: string = HOME_SCHEMA_ASSET_KEY) {
   return {
     theme: {
       files: {
@@ -52,6 +55,25 @@ describe("Shopify main-theme schema asset adapter", () => {
     expect(shopifyFetch.mock.calls[1]?.[1]).toEqual({
       themeId,
       filenames: [HOME_SCHEMA_ASSET_KEY],
+    });
+  });
+
+  it("reads only the fixed robots Liquid asset", async () => {
+    shopifyFetch
+      .mockResolvedValueOnce(themes([{ id: themeId, role: "MAIN" }]))
+      .mockResolvedValueOnce(file(before, ROBOTS_TEMPLATE_ASSET_KEY));
+
+    const result = await fetchMainThemeRobotsAsset();
+
+    expect(result).toMatchObject({
+      themeId,
+      themeRole: "main",
+      assetKey: ROBOTS_TEMPLATE_ASSET_KEY,
+      value: before,
+    });
+    expect(shopifyFetch.mock.calls[1]?.[1]).toEqual({
+      themeId,
+      filenames: [ROBOTS_TEMPLATE_ASSET_KEY],
     });
   });
 
@@ -98,6 +120,46 @@ describe("Shopify main-theme schema asset adapter", () => {
     await expect(updateMainThemeSchemaAsset({
       themeId,
       assetKey: "layout/theme.liquid" as never,
+      value: after,
+    })).rejects.toThrow(/asset key is not allowed/i);
+    expect(shopifyFetch).not.toHaveBeenCalled();
+  });
+
+  it("upserts only the fixed robots asset and requires exact read-back bytes", async () => {
+    shopifyFetch
+      .mockResolvedValueOnce(themes([{ id: themeId, role: "MAIN" }]))
+      .mockResolvedValueOnce({
+        themeFilesUpsert: {
+          upsertedThemeFiles: [{ filename: ROBOTS_TEMPLATE_ASSET_KEY }],
+          job: { id: "gid://shopify/Job/2" },
+          userErrors: [],
+        },
+      })
+      .mockResolvedValueOnce(file(after, ROBOTS_TEMPLATE_ASSET_KEY));
+
+    const result = await updateMainThemeRobotsAsset({
+      themeId,
+      assetKey: ROBOTS_TEMPLATE_ASSET_KEY,
+      value: after,
+    });
+
+    expect(shopifyFetch.mock.calls[1]?.[1]).toEqual({
+      themeId,
+      files: [{
+        filename: ROBOTS_TEMPLATE_ASSET_KEY,
+        body: { type: "TEXT", value: after },
+      }],
+    });
+    expect(result).toMatchObject({
+      assetKey: ROBOTS_TEMPLATE_ASSET_KEY,
+      value: after,
+    });
+  });
+
+  it("rejects non-robots keys through the robots writer", async () => {
+    await expect(updateMainThemeRobotsAsset({
+      themeId,
+      assetKey: HOME_SCHEMA_ASSET_KEY as never,
       value: after,
     })).rejects.toThrow(/asset key is not allowed/i);
     expect(shopifyFetch).not.toHaveBeenCalled();

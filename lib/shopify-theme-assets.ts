@@ -3,11 +3,19 @@ import { shopifyFetch } from "@/lib/shopify-admin";
 
 export const HOME_SCHEMA_ASSET_KEY =
   "snippets/schema-global-jsonld.liquid" as const;
+export const ROBOTS_TEMPLATE_ASSET_KEY =
+  "templates/robots.txt.liquid" as const;
 
-export type ThemeAssetObservation = {
+type AllowedThemeAssetKey =
+  | typeof HOME_SCHEMA_ASSET_KEY
+  | typeof ROBOTS_TEMPLATE_ASSET_KEY;
+
+export type ThemeAssetObservation<
+  TKey extends AllowedThemeAssetKey = typeof HOME_SCHEMA_ASSET_KEY,
+> = {
   themeId: string;
   themeRole: "main";
-  assetKey: typeof HOME_SCHEMA_ASSET_KEY;
+  assetKey: TKey;
   value: string;
   sha256: string;
 };
@@ -39,7 +47,10 @@ async function discoverMainThemeId(): Promise<string> {
   return main[0]!.id;
 }
 
-async function readThemeAsset(themeId: string): Promise<ThemeAssetObservation> {
+async function readThemeAsset<TKey extends AllowedThemeAssetKey>(
+  themeId: string,
+  assetKey: TKey,
+): Promise<ThemeAssetObservation<TKey>> {
   const data = await shopifyFetch<{
     theme: {
       files: {
@@ -54,7 +65,7 @@ async function readThemeAsset(themeId: string): Promise<ThemeAssetObservation> {
       };
     } | null;
   }>(`
-    query ExactHomepageSchemaAsset($themeId: ID!, $filenames: [String!]!) {
+    query ExactAllowedThemeAsset($themeId: ID!, $filenames: [String!]!) {
       theme(id: $themeId) {
         files(filenames: $filenames) {
           nodes {
@@ -72,13 +83,13 @@ async function readThemeAsset(themeId: string): Promise<ThemeAssetObservation> {
         }
       }
     }
-  `, { themeId, filenames: [HOME_SCHEMA_ASSET_KEY] });
+  `, { themeId, filenames: [assetKey] });
 
   if (!data.theme || data.theme.files.userErrors.length > 0) {
     throw new Error("Shopify theme asset could not be read");
   }
   const files = data.theme.files.nodes.filter((file) =>
-    file.filename === HOME_SCHEMA_ASSET_KEY);
+    file.filename === assetKey);
   if (files.length !== 1 || !("content" in files[0]!.body)) {
     throw new Error("Shopify theme asset was missing or was not text");
   }
@@ -86,24 +97,27 @@ async function readThemeAsset(themeId: string): Promise<ThemeAssetObservation> {
   return {
     themeId,
     themeRole: "main",
-    assetKey: HOME_SCHEMA_ASSET_KEY,
+    assetKey,
     value,
     sha256: hash(value),
   };
 }
 
 export async function fetchMainThemeSchemaAsset(): Promise<ThemeAssetObservation> {
-  return readThemeAsset(await discoverMainThemeId());
+  return readThemeAsset(await discoverMainThemeId(), HOME_SCHEMA_ASSET_KEY);
 }
 
-export async function updateMainThemeSchemaAsset(input: {
+export async function fetchMainThemeRobotsAsset(): Promise<
+  ThemeAssetObservation<typeof ROBOTS_TEMPLATE_ASSET_KEY>
+> {
+  return readThemeAsset(await discoverMainThemeId(), ROBOTS_TEMPLATE_ASSET_KEY);
+}
+
+async function updateMainThemeAsset<TKey extends AllowedThemeAssetKey>(input: {
   themeId: string;
-  assetKey: typeof HOME_SCHEMA_ASSET_KEY;
+  assetKey: TKey;
   value: string;
-}): Promise<ThemeAssetObservation> {
-  if (input.assetKey !== HOME_SCHEMA_ASSET_KEY) {
-    throw new Error("Shopify theme asset key is not allowed");
-  }
+}): Promise<ThemeAssetObservation<TKey>> {
   const mainThemeId = await discoverMainThemeId();
   if (input.themeId !== mainThemeId) {
     throw new Error("Approved Shopify theme is no longer the published main theme");
@@ -116,7 +130,7 @@ export async function updateMainThemeSchemaAsset(input: {
       userErrors: Array<{ field: string[] | null; message: string }>;
     };
   }>(`
-    mutation UpdateExactHomepageSchemaAsset(
+    mutation UpdateExactAllowedThemeAsset(
       $files: [OnlineStoreThemeFilesUpsertFileInput!]!
       $themeId: ID!
     ) {
@@ -136,21 +150,21 @@ export async function updateMainThemeSchemaAsset(input: {
   `, {
     themeId: input.themeId,
     files: [{
-      filename: HOME_SCHEMA_ASSET_KEY,
+      filename: input.assetKey,
       body: { type: "TEXT", value: input.value },
     }],
   });
 
   if (data.themeFilesUpsert.userErrors.length > 0
     || !data.themeFilesUpsert.upsertedThemeFiles.some(
-      (file) => file.filename === HOME_SCHEMA_ASSET_KEY,
+      (file) => file.filename === input.assetKey,
     )) {
     throw new Error("Shopify theme asset update was rejected");
   }
 
   const approvedHash = hash(input.value);
   for (let attempt = 0; attempt < READ_BACK_ATTEMPTS; attempt++) {
-    const observation = await readThemeAsset(input.themeId);
+    const observation = await readThemeAsset(input.themeId, input.assetKey);
     if (observation.sha256 === approvedHash && observation.value === input.value) {
       return observation;
     }
@@ -159,4 +173,26 @@ export async function updateMainThemeSchemaAsset(input: {
     }
   }
   throw new Error("Shopify theme asset read-back did not match the approved hash");
+}
+
+export async function updateMainThemeSchemaAsset(input: {
+  themeId: string;
+  assetKey: typeof HOME_SCHEMA_ASSET_KEY;
+  value: string;
+}): Promise<ThemeAssetObservation> {
+  if (input.assetKey !== HOME_SCHEMA_ASSET_KEY) {
+    throw new Error("Shopify theme asset key is not allowed");
+  }
+  return updateMainThemeAsset(input);
+}
+
+export async function updateMainThemeRobotsAsset(input: {
+  themeId: string;
+  assetKey: typeof ROBOTS_TEMPLATE_ASSET_KEY;
+  value: string;
+}): Promise<ThemeAssetObservation<typeof ROBOTS_TEMPLATE_ASSET_KEY>> {
+  if (input.assetKey !== ROBOTS_TEMPLATE_ASSET_KEY) {
+    throw new Error("Shopify theme asset key is not allowed");
+  }
+  return updateMainThemeAsset(input);
 }
