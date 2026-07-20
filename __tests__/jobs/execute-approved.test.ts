@@ -55,6 +55,10 @@ const themeSourceDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
 vi.mock("@/lib/recommendations/theme-source-sync", () => ({
   applyApprovedThemeSourceSyncRecommendation: themeSourceDispatch.apply,
 }));
+const themeCacheFlushDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
+vi.mock("@/lib/recommendations/theme-cache-flush", () => ({
+  applyApprovedThemeCacheFlushRecommendation: themeCacheFlushDispatch.apply,
+}));
 
 import { prisma } from "@/lib/db";
 import { checkGuardrails } from "@/lib/guardrails";
@@ -160,6 +164,13 @@ beforeEach(() => {
     themeId: "gid://shopify/OnlineStoreTheme/123",
     sourceCommit: "8ff4626583861e70a542a2b51f67989429d52ea3",
     assetCount: 3,
+    alreadyApplied: false,
+  });
+  themeCacheFlushDispatch.apply.mockResolvedValue({
+    sourceThemeId: "gid://shopify/OnlineStoreTheme/123",
+    publishedThemeId: "gid://shopify/OnlineStoreTheme/456",
+    duplicateName: "autopilot-cache-flush-2026-07-20-02-30-00",
+    sourceCommit: "8ff4626583861e70a542a2b51f67989429d52ea3",
     alreadyApplied: false,
   });
 });
@@ -276,6 +287,79 @@ describe("executeApprovedHandler", () => {
     expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ action: "theme_source_assets_applied" }),
+      }),
+    );
+  });
+
+  it("executes only the exact governed theme cache-flush recommendation", async () => {
+    const shopify = {
+      ...baseRec,
+      id: "rec-theme-cache-flush",
+      platform: "shopify",
+      actionType: "flush_shopify_theme_page_cache",
+      targetEntityId:
+        "gid://shopify/OnlineStoreTheme/123:cache-flush:"
+        + "8ff4626583861e70a542a2b51f67989429d52ea3:"
+        + "autopilot-cache-flush-2026-07-20-02-30-00",
+      targetEntityType: "published_theme",
+      status: "approved",
+    };
+    mockPrisma.recommendation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([shopify]);
+    process.env.EXECUTE_APPROVED_LIVE_ENABLED = "true";
+
+    await executeApprovedHandler({
+      liveRequested: true,
+      recommendationId: shopify.id,
+      triggeredBy: "operator",
+    });
+
+    expect(mockPrisma.recommendation.findMany).toHaveBeenLastCalledWith({
+      where: {
+        status: { in: ["approved", "override_approved"] },
+        id: shopify.id,
+      },
+      take: 1,
+      orderBy: { reviewedAt: "asc" },
+    });
+    expect(themeCacheFlushDispatch.apply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-theme-cache-flush",
+        status: "executing",
+      }),
+    );
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "theme_page_cache_flushed",
+          entityId: "rec-theme-cache-flush",
+        }),
+      }),
+    );
+  });
+
+  it("reconciles a stale theme cache flush from exact Shopify state", async () => {
+    const stale = {
+      ...baseRec,
+      id: "rec-theme-cache-flush-stale",
+      platform: "shopify",
+      actionType: "flush_shopify_theme_page_cache",
+      status: "executing",
+      updatedAt: new Date(0),
+    };
+    mockPrisma.recommendation.findMany
+      .mockResolvedValueOnce([stale])
+      .mockResolvedValueOnce([]);
+
+    await executeLive();
+
+    expect(themeCacheFlushDispatch.apply).toHaveBeenCalledWith(stale);
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "theme_cache_flush_execution_timeout_reconciled",
+        }),
       }),
     );
   });
