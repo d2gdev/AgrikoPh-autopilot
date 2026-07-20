@@ -1,5 +1,14 @@
 # Approved Google Search Console Remediation Implementation Plan
 
+**Execution status (2026-07-20):** Implemented and deployed. GSC-01, GSC-02,
+GSC-04, and GSC-07 passed their live evidence gates. GSC-03 passed theme asset
+read-back and cache-bypass rendering but is still pending canonical storefront
+cache propagation and a fresh Google crawl. GSC-05's sitemap passed and two
+priority URLs are now indexed; 17 URLs remain pending Google processing because
+the Request Indexing daily quota was exhausted. GSC-06 was retained because
+Workspace dependency verification was unavailable. A newly discovered relative
+robots.txt sitemap directive is recorded as unapproved GSC-08 in the audit.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Subagent dispatch is prohibited for this run.
 
 **Goal:** Remediate approved findings GSC-01 through GSC-05 and GSC-07, and remove GSC-06 only if Google Workspace and Merchant Center dependency checks prove the unused token is safe to remove.
