@@ -136,6 +136,38 @@ describe("Shopify theme cache lifecycle adapter", () => {
     });
   });
 
+  it("keeps bounded polling beyond Shopify's observed 150-second duplicate time", async () => {
+    vi.useFakeTimers();
+    for (let attempt = 0; attempt < 31; attempt++) {
+      shopifyFetch.mockResolvedValueOnce({
+        theme: theme({
+          id: duplicateThemeId,
+          name: duplicateName,
+          role: "UNPUBLISHED",
+          processing: true,
+        }),
+      });
+    }
+    shopifyFetch.mockResolvedValueOnce({
+      theme: theme({
+        id: duplicateThemeId,
+        name: duplicateName,
+        role: "UNPUBLISHED",
+        processing: false,
+      }),
+    });
+
+    const pending = waitForShopifyThemeReady(duplicateThemeId);
+    const handled = pending.catch((error: unknown) => error);
+    await vi.runAllTimersAsync();
+
+    await expect(handled).resolves.toMatchObject({
+      id: duplicateThemeId,
+      processing: false,
+    });
+    expect(shopifyFetch).toHaveBeenCalledTimes(32);
+  });
+
   it("publishes only the exact verified duplicate ID", async () => {
     shopifyFetch.mockResolvedValue({
       themePublish: {

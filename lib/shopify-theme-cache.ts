@@ -8,7 +8,7 @@ export type ShopifyThemeIdentity = {
   updatedAt: string;
 };
 
-const THEME_READY_ATTEMPTS = 30;
+const THEME_READY_ATTEMPTS = 55;
 const THEME_READY_POLL_MS = 5_000;
 const THEME_ID_PATTERN = /^gid:\/\/shopify\/OnlineStoreTheme\/\d+$/;
 const DUPLICATE_NAME_PATTERN =
