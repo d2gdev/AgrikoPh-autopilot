@@ -51,6 +51,10 @@ const robotsDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
 vi.mock("@/lib/recommendations/robots-sitemap", () => ({
   applyApprovedRobotsSitemapRecommendation: robotsDispatch.apply,
 }));
+const themeSourceDispatch = vi.hoisted(() => ({ apply: vi.fn() }));
+vi.mock("@/lib/recommendations/theme-source-sync", () => ({
+  applyApprovedThemeSourceSyncRecommendation: themeSourceDispatch.apply,
+}));
 
 import { prisma } from "@/lib/db";
 import { checkGuardrails } from "@/lib/guardrails";
@@ -152,6 +156,12 @@ beforeEach(() => {
     beforeSha256: "c".repeat(64),
     afterSha256: "d".repeat(64),
   });
+  themeSourceDispatch.apply.mockResolvedValue({
+    themeId: "gid://shopify/OnlineStoreTheme/123",
+    sourceCommit: "8ff4626583861e70a542a2b51f67989429d52ea3",
+    assetCount: 3,
+    alreadyApplied: false,
+  });
 });
 
 describe("executeApprovedHandler", () => {
@@ -237,6 +247,35 @@ describe("executeApprovedHandler", () => {
     expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ action: "robots_sitemap_applied" }),
+      }),
+    );
+  });
+
+  it("executes the exact governed theme source-sync recommendation", async () => {
+    const shopify = {
+      ...baseRec,
+      id: "rec-theme-source-sync",
+      platform: "shopify",
+      actionType: "sync_theme_source_assets",
+      targetEntityId: "gid://shopify/OnlineStoreTheme/123:source-sync:8ff4626583861e70a542a2b51f67989429d52ea3",
+      targetEntityType: "theme_asset_set",
+      status: "approved",
+    };
+    mockPrisma.recommendation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([shopify]);
+
+    await executeLive();
+
+    expect(themeSourceDispatch.apply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-theme-source-sync",
+        status: "executing",
+      }),
+    );
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "theme_source_assets_applied" }),
       }),
     );
   });

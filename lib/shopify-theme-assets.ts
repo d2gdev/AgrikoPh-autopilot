@@ -5,10 +5,22 @@ export const HOME_SCHEMA_ASSET_KEY =
   "snippets/schema-global-jsonld.liquid" as const;
 export const ROBOTS_TEMPLATE_ASSET_KEY =
   "templates/robots.txt.liquid" as const;
+export const MAIN_ARTICLE_ASSET_KEY =
+  "sections/main-article.liquid" as const;
+export const MAIN_HOME_ASSET_KEY =
+  "sections/main-home.liquid" as const;
+export const THEME_SOURCE_SYNC_ASSET_KEYS = [
+  MAIN_ARTICLE_ASSET_KEY,
+  MAIN_HOME_ASSET_KEY,
+  ROBOTS_TEMPLATE_ASSET_KEY,
+] as const;
+
+export type ThemeSourceSyncAssetKey =
+  typeof THEME_SOURCE_SYNC_ASSET_KEYS[number];
 
 type AllowedThemeAssetKey =
   | typeof HOME_SCHEMA_ASSET_KEY
-  | typeof ROBOTS_TEMPLATE_ASSET_KEY;
+  | ThemeSourceSyncAssetKey;
 
 export type ThemeAssetObservation<
   TKey extends AllowedThemeAssetKey = typeof HOME_SCHEMA_ASSET_KEY,
@@ -47,10 +59,10 @@ async function discoverMainThemeId(): Promise<string> {
   return main[0]!.id;
 }
 
-async function readThemeAsset<TKey extends AllowedThemeAssetKey>(
+async function readThemeAssets<TKey extends AllowedThemeAssetKey>(
   themeId: string,
-  assetKey: TKey,
-): Promise<ThemeAssetObservation<TKey>> {
+  assetKeys: readonly TKey[],
+): Promise<Array<ThemeAssetObservation<TKey>>> {
   const data = await shopifyFetch<{
     theme: {
       files: {
@@ -83,24 +95,33 @@ async function readThemeAsset<TKey extends AllowedThemeAssetKey>(
         }
       }
     }
-  `, { themeId, filenames: [assetKey] });
+  `, { themeId, filenames: assetKeys });
 
   if (!data.theme || data.theme.files.userErrors.length > 0) {
     throw new Error("Shopify theme asset could not be read");
   }
-  const files = data.theme.files.nodes.filter((file) =>
-    file.filename === assetKey);
-  if (files.length !== 1 || !("content" in files[0]!.body)) {
-    throw new Error("Shopify theme asset was missing or was not text");
-  }
-  const value = files[0]!.body.content;
-  return {
-    themeId,
-    themeRole: "main",
-    assetKey,
-    value,
-    sha256: hash(value),
-  };
+  return assetKeys.map((assetKey) => {
+    const files = data.theme!.files.nodes.filter((file) =>
+      file.filename === assetKey);
+    if (files.length !== 1 || !("content" in files[0]!.body)) {
+      throw new Error("Shopify theme asset was missing or was not text");
+    }
+    const value = files[0]!.body.content;
+    return {
+      themeId,
+      themeRole: "main",
+      assetKey,
+      value,
+      sha256: hash(value),
+    };
+  });
+}
+
+async function readThemeAsset<TKey extends AllowedThemeAssetKey>(
+  themeId: string,
+  assetKey: TKey,
+): Promise<ThemeAssetObservation<TKey>> {
+  return (await readThemeAssets(themeId, [assetKey]))[0]!;
 }
 
 export async function fetchMainThemeSchemaAsset(): Promise<ThemeAssetObservation> {
@@ -111,6 +132,15 @@ export async function fetchMainThemeRobotsAsset(): Promise<
   ThemeAssetObservation<typeof ROBOTS_TEMPLATE_ASSET_KEY>
 > {
   return readThemeAsset(await discoverMainThemeId(), ROBOTS_TEMPLATE_ASSET_KEY);
+}
+
+export async function fetchMainThemeSourceAssets(): Promise<
+  Array<ThemeAssetObservation<ThemeSourceSyncAssetKey>>
+> {
+  return readThemeAssets(
+    await discoverMainThemeId(),
+    THEME_SOURCE_SYNC_ASSET_KEYS,
+  );
 }
 
 async function updateMainThemeAsset<TKey extends AllowedThemeAssetKey>(input: {
@@ -195,4 +225,77 @@ export async function updateMainThemeRobotsAsset(input: {
     throw new Error("Shopify theme asset key is not allowed");
   }
   return updateMainThemeAsset(input);
+}
+
+export async function updateMainThemeSourceAssets(input: {
+  themeId: string;
+  assets: Array<{ assetKey: ThemeSourceSyncAssetKey; value: string }>;
+}): Promise<Array<ThemeAssetObservation<ThemeSourceSyncAssetKey>>> {
+  const keys = input.assets.map((asset) => asset.assetKey);
+  if (keys.length !== THEME_SOURCE_SYNC_ASSET_KEYS.length
+    || keys.some((key, index) => key !== THEME_SOURCE_SYNC_ASSET_KEYS[index])) {
+    throw new Error("Theme source sync asset set is not allowed");
+  }
+  const mainThemeId = await discoverMainThemeId();
+  if (input.themeId !== mainThemeId) {
+    throw new Error("Approved Shopify theme is no longer the published main theme");
+  }
+
+  const data = await shopifyFetch<{
+    themeFilesUpsert: {
+      upsertedThemeFiles: Array<{ filename: string }>;
+      job: { id: string } | null;
+      userErrors: Array<{ field: string[] | null; message: string }>;
+    };
+  }>(`
+    mutation UpdateExactThemeSourceAssets(
+      $files: [OnlineStoreThemeFilesUpsertFileInput!]!
+      $themeId: ID!
+    ) {
+      themeFilesUpsert(files: $files, themeId: $themeId) {
+        upsertedThemeFiles {
+          filename
+        }
+        job {
+          id
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `, {
+    themeId: input.themeId,
+    files: input.assets.map((asset) => ({
+      filename: asset.assetKey,
+      body: { type: "TEXT", value: asset.value },
+    })),
+  });
+
+  const upserted = new Set(
+    data.themeFilesUpsert.upsertedThemeFiles.map((file) => file.filename),
+  );
+  if (data.themeFilesUpsert.userErrors.length > 0
+    || THEME_SOURCE_SYNC_ASSET_KEYS.some((key) => !upserted.has(key))) {
+    throw new Error("Shopify theme source asset update was rejected");
+  }
+
+  const expected = new Map(
+    input.assets.map((asset) => [asset.assetKey, hash(asset.value)]),
+  );
+  for (let attempt = 0; attempt < READ_BACK_ATTEMPTS; attempt++) {
+    const observations = await readThemeAssets(
+      input.themeId,
+      THEME_SOURCE_SYNC_ASSET_KEYS,
+    );
+    if (observations.every((asset) =>
+      asset.sha256 === expected.get(asset.assetKey))) {
+      return observations;
+    }
+    if (attempt < READ_BACK_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
+    }
+  }
+  throw new Error("Shopify theme source asset read-back did not match approved hashes");
 }

@@ -5,10 +5,14 @@ const shopifyFetch = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/shopify-admin", () => ({ shopifyFetch }));
 
 import {
+  fetchMainThemeSourceAssets,
   fetchMainThemeSchemaAsset,
   fetchMainThemeRobotsAsset,
   HOME_SCHEMA_ASSET_KEY,
+  MAIN_ARTICLE_ASSET_KEY,
+  MAIN_HOME_ASSET_KEY,
   ROBOTS_TEMPLATE_ASSET_KEY,
+  updateMainThemeSourceAssets,
   updateMainThemeRobotsAsset,
   updateMainThemeSchemaAsset,
 } from "@/lib/shopify-theme-assets";
@@ -26,6 +30,20 @@ function file(value: string, filename: string = HOME_SCHEMA_ASSET_KEY) {
     theme: {
       files: {
         nodes: [{ filename, body: { content: value } }],
+        userErrors: [],
+      },
+    },
+  };
+}
+
+function sourceFiles(values: Record<string, string>) {
+  return {
+    theme: {
+      files: {
+        nodes: Object.entries(values).map(([filename, content]) => ({
+          filename,
+          body: { content },
+        })),
         userErrors: [],
       },
     },
@@ -75,6 +93,72 @@ describe("Shopify main-theme schema asset adapter", () => {
       themeId,
       filenames: [ROBOTS_TEMPLATE_ASSET_KEY],
     });
+  });
+
+  it("reads the exact three source-sync assets from one published theme", async () => {
+    shopifyFetch
+      .mockResolvedValueOnce(themes([{ id: themeId, role: "MAIN" }]))
+      .mockResolvedValueOnce(sourceFiles({
+        [MAIN_ARTICLE_ASSET_KEY]: "article-before",
+        [MAIN_HOME_ASSET_KEY]: "home-before",
+        [ROBOTS_TEMPLATE_ASSET_KEY]: "robots-before",
+      }));
+
+    const result = await fetchMainThemeSourceAssets();
+
+    expect(result.map((asset) => asset.assetKey)).toEqual([
+      MAIN_ARTICLE_ASSET_KEY,
+      MAIN_HOME_ASSET_KEY,
+      ROBOTS_TEMPLATE_ASSET_KEY,
+    ]);
+    expect(shopifyFetch.mock.calls[1]?.[1]).toEqual({
+      themeId,
+      filenames: [
+        MAIN_ARTICLE_ASSET_KEY,
+        MAIN_HOME_ASSET_KEY,
+        ROBOTS_TEMPLATE_ASSET_KEY,
+      ],
+    });
+  });
+
+  it("upserts and verifies the exact source-sync asset set in one mutation", async () => {
+    const values = {
+      [MAIN_ARTICLE_ASSET_KEY]: "article-after",
+      [MAIN_HOME_ASSET_KEY]: "home-after",
+      [ROBOTS_TEMPLATE_ASSET_KEY]: "robots-after",
+    };
+    shopifyFetch
+      .mockResolvedValueOnce(themes([{ id: themeId, role: "MAIN" }]))
+      .mockResolvedValueOnce({
+        themeFilesUpsert: {
+          upsertedThemeFiles: Object.keys(values).map((filename) => ({ filename })),
+          job: { id: "gid://shopify/Job/3" },
+          userErrors: [],
+        },
+      })
+      .mockResolvedValueOnce(sourceFiles(values));
+
+    const result = await updateMainThemeSourceAssets({
+      themeId,
+      assets: Object.entries(values).map(([assetKey, value]) => ({
+        assetKey,
+        value,
+      })) as never,
+    });
+
+    expect(shopifyFetch.mock.calls[1]?.[1]).toEqual({
+      themeId,
+      files: [
+        { filename: MAIN_ARTICLE_ASSET_KEY, body: { type: "TEXT", value: "article-after" } },
+        { filename: MAIN_HOME_ASSET_KEY, body: { type: "TEXT", value: "home-after" } },
+        { filename: ROBOTS_TEMPLATE_ASSET_KEY, body: { type: "TEXT", value: "robots-after" } },
+      ],
+    });
+    expect(result.map((asset) => asset.value)).toEqual([
+      "article-after",
+      "home-after",
+      "robots-after",
+    ]);
   });
 
   it("rejects zero or multiple published main themes", async () => {

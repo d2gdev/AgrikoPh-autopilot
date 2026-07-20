@@ -6,6 +6,7 @@ const SUPPORTED_ACTIONS: Record<string, readonly string[]> = {
     "apply_topical_map_store_task",
     "fix_robots_sitemap_url",
     "remove_homepage_offer_catalog",
+    "sync_theme_source_assets",
     "update_product_image_alt_text",
   ],
 };

@@ -72,6 +72,7 @@ describe("executeRecommendation", () => {
   it("allowlists only narrowly governed theme write actions", () => {
     expect(isSupportedAction("shopify", "remove_homepage_offer_catalog")).toBe(true);
     expect(isSupportedAction("shopify", "fix_robots_sitemap_url")).toBe(true);
+    expect(isSupportedAction("shopify", "sync_theme_source_assets")).toBe(true);
     expect(isSupportedAction("shopify", "update_theme_asset")).toBe(false);
   });
 });

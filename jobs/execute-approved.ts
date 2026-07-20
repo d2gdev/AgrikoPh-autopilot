@@ -202,6 +202,40 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
                 err,
               );
             }
+          } else if (stale.platform === "shopify"
+            && stale.actionType === "sync_theme_source_assets") {
+            try {
+              const { applyApprovedThemeSourceSyncRecommendation } = await import(
+                "@/lib/recommendations/theme-source-sync"
+              );
+              const receipt =
+                await applyApprovedThemeSourceSyncRecommendation(stale);
+              await prisma.$transaction([
+                prisma.recommendation.update({
+                  where: { id: stale.id },
+                  data: {
+                    status: "executed",
+                    executedAt: new Date(),
+                    executionResult: json(receipt),
+                  },
+                }),
+                prisma.auditLog.create({
+                  data: {
+                    actor: "system",
+                    action: "theme_source_sync_execution_timeout_reconciled",
+                    entityType: "recommendation",
+                    entityId: stale.id,
+                    after: json(receipt),
+                    meta: { jobRunId: run.id },
+                  },
+                }),
+              ]);
+            } catch (err) {
+              console.error(
+                `[execute-approved] stale theme source sync reobservation failed for ${stale.id} — continuing:`,
+                err,
+              );
+            }
           } else {
             await prisma.$transaction([
               prisma.recommendation.update({ where: { id: stale.id }, data: { status: "failed", executionResult: json({ error: "Execution timed out — process likely died" }) } }),
@@ -489,6 +523,57 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
         counters.executed++;
         continue;
       }
+      if (rec.platform === "shopify"
+        && rec.actionType === "sync_theme_source_assets") {
+        if (dryRun) {
+          counters.simulated++;
+          await prisma.auditLog.create({
+            data: {
+              actor: "system",
+              action: "execution_dry_run_success",
+              entityType: "recommendation",
+              entityId: rec.id,
+              after: {
+                simulated: true,
+                intendedChange: intendedChange(rec),
+                result: "No Shopify call was made.",
+              },
+              meta: { dryRun: true, jobRunId: run.id },
+            },
+          });
+          continue;
+        }
+        const { applyApprovedThemeSourceSyncRecommendation } = await import(
+          "@/lib/recommendations/theme-source-sync"
+        );
+        const receipt = await applyApprovedThemeSourceSyncRecommendation({
+          ...rec,
+          status: "executing",
+        });
+        verifiedShopifyReceipt = receipt;
+        await prisma.$transaction([
+          prisma.recommendation.update({
+            where: { id: rec.id },
+            data: {
+              status: "executed",
+              executedAt: new Date(),
+              executionResult: json(receipt),
+            },
+          }),
+          prisma.auditLog.create({
+            data: {
+              actor: "system",
+              action: "theme_source_assets_applied",
+              entityType: "recommendation",
+              entityId: rec.id,
+              after: json(receipt),
+              meta: { dryRun: false, jobRunId: run.id },
+            },
+          }),
+        ]);
+        counters.executed++;
+        continue;
+      }
       // Re-check guardrails using snapshot data — skip for override_approved (already overridden)
       if (originalStatus === "approved") {
         const { conversionCount, dailyBudgetPhp } = await deriveGuardrailInputs(rec);
@@ -696,6 +781,36 @@ export async function executeApprovedHandler(options: ExecuteApprovedOptions = {
             data: {
               actor: "system",
               action: "robots_sitemap_reconciliation_needed",
+              entityType: "recommendation",
+              entityId: rec.id,
+              after: json({
+                reconciliationNeeded: true,
+                receipt: verifiedShopifyReceipt,
+              }),
+              meta: { dryRun: false, jobRunId: run.id },
+            },
+          }),
+        ]);
+        continue;
+      }
+      if (!dryRun
+        && rec.platform === "shopify"
+        && rec.actionType === "sync_theme_source_assets"
+        && verifiedShopifyReceipt) {
+        await Promise.all([
+          prisma.recommendation.updateMany({
+            where: { id: rec.id, status: "executing" },
+            data: {
+              executionResult: json({
+                reconciliationNeeded: true,
+                receipt: verifiedShopifyReceipt,
+              }),
+            },
+          }),
+          prisma.auditLog.create({
+            data: {
+              actor: "system",
+              action: "theme_source_sync_reconciliation_needed",
               entityType: "recommendation",
               entityId: rec.id,
               after: json({
