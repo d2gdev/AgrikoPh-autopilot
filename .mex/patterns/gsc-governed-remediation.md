@@ -14,7 +14,7 @@ edges:
     condition: when a GSC finding requires governed redirects or SEO tasks
   - target: "deploy.md"
     condition: when deploying Autopilot changes
-last_updated: 2026-07-20T08:52:00+08:00
+last_updated: 2026-07-20T11:40:40+08:00
 ---
 
 # Governed GSC Remediation
@@ -74,6 +74,18 @@ flow through approved Recommendations and the live executor.
   immediately replacing the report snapshot. Record the request task ID and
   keep Google confirmation open until the row's checked time advances and its
   critical issue count changes.
+- A Shopify article's explicit `?view=<suffix>` and
+  `?section_id=main-article` responses can render current theme source while
+  the no-view `BlogArticleDetailsController` response remains stale. Treat the
+  canonical response as a separate acceptance gate.
+- For `/blogs/news/types-of-organic-rice`, hash-verified theme publication, an
+  identical-body save, and an exact template-suffix round-trip all failed to
+  invalidate the canonical response. The round-trip did update the article but
+  restored its complete protected state and final suffix before failing closed.
+  After three governed hypotheses, stop: do not stack another speculative
+  Shopify mutation. Record the unresolved Shopify platform-cache boundary and
+  seek platform authority or observe expiry. Cloudflare is not a substitute
+  boundary.
 
 ## Verify
 
