@@ -36,6 +36,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
+    "verify:storefront-security-headers": "node scripts/verify-storefront-security-headers.mjs",
     "verify:prisma-client": "node scripts/check-prisma-client.mjs",
     "test:postgres": "DATABASE_URL=\"$DATABASE_URL_TEST\" prisma migrate deploy && DATABASE_URL=\"$DATABASE_URL_TEST\" vitest run --config vitest.postgres.config.ts"
   },
