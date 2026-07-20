@@ -9,10 +9,13 @@ export const MAIN_ARTICLE_ASSET_KEY =
   "sections/main-article.liquid" as const;
 export const MAIN_HOME_ASSET_KEY =
   "sections/main-home.liquid" as const;
+export const ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY =
+  "snippets/article-types-of-organic-rice.liquid" as const;
 export const THEME_SOURCE_SYNC_ASSET_KEYS = [
   MAIN_ARTICLE_ASSET_KEY,
   MAIN_HOME_ASSET_KEY,
   ROBOTS_TEMPLATE_ASSET_KEY,
+  ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY,
 ] as const;
 
 export type ThemeSourceSyncAssetKey =
@@ -33,6 +36,7 @@ export type ThemeAssetObservation<
 };
 
 const READ_BACK_ATTEMPTS = 5;
+const JOB_POLL_ATTEMPTS = 10;
 
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -124,6 +128,33 @@ async function readThemeAsset<TKey extends AllowedThemeAssetKey>(
   return (await readThemeAssets(themeId, [assetKey]))[0]!;
 }
 
+async function waitForThemeFileWriteJob(jobId: string | null): Promise<void> {
+  if (!jobId) return;
+  for (let attempt = 0; attempt < JOB_POLL_ATTEMPTS; attempt++) {
+    const data: {
+      job: { id: string; done: boolean } | null;
+    } = await shopifyFetch<{
+      job: { id: string; done: boolean } | null;
+    }>(`
+      query ThemeFileWriteJob($jobId: ID!) {
+        job(id: $jobId) {
+          id
+          done
+        }
+      }
+    `, { jobId });
+    if (!data.job || data.job.id !== jobId) {
+      throw new Error("Shopify theme file write job could not be read");
+    }
+    if (data.job.done) return;
+    if (attempt < JOB_POLL_ATTEMPTS - 1) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(1_000, 100 * 2 ** attempt)));
+    }
+  }
+  throw new Error("Shopify theme file write job did not complete");
+}
+
 export async function fetchMainThemeSchemaAsset(): Promise<ThemeAssetObservation> {
   return readThemeAsset(await discoverMainThemeId(), HOME_SCHEMA_ASSET_KEY);
 }
@@ -191,6 +222,7 @@ async function updateMainThemeAsset<TKey extends AllowedThemeAssetKey>(input: {
     )) {
     throw new Error("Shopify theme asset update was rejected");
   }
+  await waitForThemeFileWriteJob(data.themeFilesUpsert.job?.id ?? null);
 
   const approvedHash = hash(input.value);
   for (let attempt = 0; attempt < READ_BACK_ATTEMPTS; attempt++) {
@@ -280,6 +312,7 @@ export async function updateMainThemeSourceAssets(input: {
     || THEME_SOURCE_SYNC_ASSET_KEYS.some((key) => !upserted.has(key))) {
     throw new Error("Shopify theme source asset update was rejected");
   }
+  await waitForThemeFileWriteJob(data.themeFilesUpsert.job?.id ?? null);
 
   const expected = new Map(
     input.assets.map((asset) => [asset.assetKey, hash(asset.value)]),

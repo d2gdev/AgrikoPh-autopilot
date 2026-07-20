@@ -20,6 +20,7 @@ import {
   queueThemeSourceSyncRecommendation,
 } from "@/lib/recommendations/theme-source-sync";
 import {
+  ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY,
   MAIN_ARTICLE_ASSET_KEY,
   MAIN_HOME_ASSET_KEY,
   ROBOTS_TEMPLATE_ASSET_KEY,
@@ -32,11 +33,13 @@ const beforeValues = {
   [MAIN_ARTICLE_ASSET_KEY]: "article-before",
   [MAIN_HOME_ASSET_KEY]: "home-before",
   [ROBOTS_TEMPLATE_ASSET_KEY]: "robots-before",
+  [ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY]: "article-snippet-before",
 };
 const afterValues = {
   [MAIN_ARTICLE_ASSET_KEY]: "article-after",
   [MAIN_HOME_ASSET_KEY]: "home-after",
   [ROBOTS_TEMPLATE_ASSET_KEY]: "robots-after",
+  [ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY]: "article-snippet-after",
 };
 const sha256 = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -142,7 +145,7 @@ describe("theme source-sync recommendation workflow", () => {
       themeId,
       sourceCommit,
       alreadyApplied: false,
-      assetCount: 3,
+      assetCount: 4,
     });
     expect(result).not.toHaveProperty("values");
   });
@@ -154,7 +157,7 @@ describe("theme source-sync recommendation workflow", () => {
       recommendation(),
     );
 
-    expect(result).toMatchObject({ alreadyApplied: true, assetCount: 3 });
+    expect(result).toMatchObject({ alreadyApplied: true, assetCount: 4 });
     expect(theme.update).not.toHaveBeenCalled();
   });
 });

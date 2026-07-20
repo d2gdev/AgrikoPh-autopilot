@@ -5,6 +5,7 @@ const shopifyFetch = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/shopify-admin", () => ({ shopifyFetch }));
 
 import {
+  ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY,
   fetchMainThemeSourceAssets,
   fetchMainThemeSchemaAsset,
   fetchMainThemeRobotsAsset,
@@ -48,6 +49,10 @@ function sourceFiles(values: Record<string, string>) {
       },
     },
   };
+}
+
+function completedJob(id: string) {
+  return { job: { id, done: true } };
 }
 
 describe("Shopify main-theme schema asset adapter", () => {
@@ -95,13 +100,14 @@ describe("Shopify main-theme schema asset adapter", () => {
     });
   });
 
-  it("reads the exact three source-sync assets from one published theme", async () => {
+  it("reads the exact four source-sync assets from one published theme", async () => {
     shopifyFetch
       .mockResolvedValueOnce(themes([{ id: themeId, role: "MAIN" }]))
       .mockResolvedValueOnce(sourceFiles({
         [MAIN_ARTICLE_ASSET_KEY]: "article-before",
         [MAIN_HOME_ASSET_KEY]: "home-before",
         [ROBOTS_TEMPLATE_ASSET_KEY]: "robots-before",
+        [ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY]: "article-snippet-before",
       }));
 
     const result = await fetchMainThemeSourceAssets();
@@ -110,6 +116,7 @@ describe("Shopify main-theme schema asset adapter", () => {
       MAIN_ARTICLE_ASSET_KEY,
       MAIN_HOME_ASSET_KEY,
       ROBOTS_TEMPLATE_ASSET_KEY,
+      ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY,
     ]);
     expect(shopifyFetch.mock.calls[1]?.[1]).toEqual({
       themeId,
@@ -117,6 +124,7 @@ describe("Shopify main-theme schema asset adapter", () => {
         MAIN_ARTICLE_ASSET_KEY,
         MAIN_HOME_ASSET_KEY,
         ROBOTS_TEMPLATE_ASSET_KEY,
+        ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY,
       ],
     });
   });
@@ -126,6 +134,7 @@ describe("Shopify main-theme schema asset adapter", () => {
       [MAIN_ARTICLE_ASSET_KEY]: "article-after",
       [MAIN_HOME_ASSET_KEY]: "home-after",
       [ROBOTS_TEMPLATE_ASSET_KEY]: "robots-after",
+      [ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY]: "article-snippet-after",
     };
     shopifyFetch
       .mockResolvedValueOnce(themes([{ id: themeId, role: "MAIN" }]))
@@ -136,6 +145,7 @@ describe("Shopify main-theme schema asset adapter", () => {
           userErrors: [],
         },
       })
+      .mockResolvedValueOnce(completedJob("gid://shopify/Job/3"))
       .mockResolvedValueOnce(sourceFiles(values));
 
     const result = await updateMainThemeSourceAssets({
@@ -152,13 +162,60 @@ describe("Shopify main-theme schema asset adapter", () => {
         { filename: MAIN_ARTICLE_ASSET_KEY, body: { type: "TEXT", value: "article-after" } },
         { filename: MAIN_HOME_ASSET_KEY, body: { type: "TEXT", value: "home-after" } },
         { filename: ROBOTS_TEMPLATE_ASSET_KEY, body: { type: "TEXT", value: "robots-after" } },
+        {
+          filename: ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY,
+          body: { type: "TEXT", value: "article-snippet-after" },
+        },
       ],
     });
     expect(result.map((asset) => asset.value)).toEqual([
       "article-after",
       "home-after",
       "robots-after",
+      "article-snippet-after",
     ]);
+  });
+
+  it("waits for the asynchronous Shopify write job before file read-back", async () => {
+    const values = {
+      [MAIN_ARTICLE_ASSET_KEY]: "article-after",
+      [MAIN_HOME_ASSET_KEY]: "home-after",
+      [ROBOTS_TEMPLATE_ASSET_KEY]: "robots-after",
+      [ARTICLE_TYPES_OF_ORGANIC_RICE_ASSET_KEY]: "article-snippet-after",
+    };
+    shopifyFetch
+      .mockResolvedValueOnce(themes([{ id: themeId, role: "MAIN" }]))
+      .mockResolvedValueOnce({
+        themeFilesUpsert: {
+          upsertedThemeFiles: Object.keys(values).map((filename) => ({ filename })),
+          job: { id: "gid://shopify/Job/async-theme-write" },
+          userErrors: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        job: { id: "gid://shopify/Job/async-theme-write", done: false },
+      })
+      .mockResolvedValueOnce({
+        job: { id: "gid://shopify/Job/async-theme-write", done: true },
+      })
+      .mockResolvedValueOnce(sourceFiles(values));
+
+    const result = await updateMainThemeSourceAssets({
+      themeId,
+      assets: Object.entries(values).map(([assetKey, value]) => ({
+        assetKey,
+        value,
+      })) as never,
+    });
+
+    expect(result).toHaveLength(4);
+    expect(shopifyFetch.mock.calls[2]?.[1]).toEqual({
+      jobId: "gid://shopify/Job/async-theme-write",
+    });
+    expect(shopifyFetch.mock.calls[3]?.[1]).toEqual({
+      jobId: "gid://shopify/Job/async-theme-write",
+    });
+    expect(String(shopifyFetch.mock.calls[2]?.[0])).toContain("job(id: $jobId)");
   });
 
   it("rejects zero or multiple published main themes", async () => {
@@ -182,6 +239,7 @@ describe("Shopify main-theme schema asset adapter", () => {
           userErrors: [],
         },
       })
+      .mockResolvedValueOnce(completedJob("gid://shopify/Job/1"))
       .mockResolvedValueOnce(file(after));
 
     const result = await updateMainThemeSchemaAsset({
@@ -219,6 +277,7 @@ describe("Shopify main-theme schema asset adapter", () => {
           userErrors: [],
         },
       })
+      .mockResolvedValueOnce(completedJob("gid://shopify/Job/2"))
       .mockResolvedValueOnce(file(after, ROBOTS_TEMPLATE_ASSET_KEY));
 
     const result = await updateMainThemeRobotsAsset({
@@ -259,7 +318,8 @@ describe("Shopify main-theme schema asset adapter", () => {
           job: { id: "gid://shopify/Job/1" },
           userErrors: [],
         },
-      });
+      })
+      .mockResolvedValueOnce(completedJob("gid://shopify/Job/1"));
     for (let index = 0; index < 5; index++) {
       shopifyFetch.mockResolvedValueOnce(file(before));
     }
