@@ -14,7 +14,7 @@ edges:
     condition: when a GSC finding requires governed redirects or SEO tasks
   - target: "deploy.md"
     condition: when deploying Autopilot changes
-last_updated: 2026-07-20T08:25:00+08:00
+last_updated: 2026-07-20T08:52:00+08:00
 ---
 
 # Governed GSC Remediation
@@ -65,6 +65,15 @@ flow through approved Recommendations and the live executor.
   is unused by Google Workspace.
 - A local dirty theme file may overlap a newly discovered finding. Preserve it
   and request approval rather than overwriting it.
+- Do not assume Shopify Liquid objects render identically in `robots.txt`.
+  On this store both `{{ shop.url }}` and `{{ group.sitemap }}` produced a
+  relative sitemap directive. Capture the published asset hash, use the literal
+  canonical absolute URL in the exact approved transform, and pin the source
+  repository with a regression test.
+- Search Console's Request recrawl action can finish its request task without
+  immediately replacing the report snapshot. Record the request task ID and
+  keep Google confirmation open until the row's checked time advances and its
+  critical issue count changes.
 
 ## Verify
 

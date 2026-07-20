@@ -1,5 +1,11 @@
 # GSC-08 Robots Sitemap Remediation Implementation Plan
 
+**Execution status (2026-07-20):** Implemented and deployed. Shopify Admin,
+canonical public robots.txt, authenticated Autopilot UI, Recommendation, and
+AuditLog evidence all match the approved after-state. Search Console accepted
+recrawl task `YR_KaTzEydtIzic3eN7dow` but still displays its older 5:55 AM
+snapshot, so Google-side issue-count refresh remains open.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Subagent dispatch is prohibited for this run.
 
 **Goal:** Replace the invalid rendered robots directive `Sitemap: /sitemap.xml` with the absolute directive `Sitemap: https://agrikoph.com/sitemap.xml` through an approved, hash-locked Shopify Recommendation.
