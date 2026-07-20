@@ -1,7 +1,7 @@
 ---
 name: agents
 description: Always-loaded project anchor. Read this first. Contains project identity, non-negotiables, commands, and pointer to ROUTER.md for full context.
-last_updated: 2026-07-14
+last_updated: 2026-07-20
 ---
 
 # Agriko Autopilot
@@ -15,6 +15,7 @@ A private Shopify embedded app that pulls ad, SEO, blog, and market-intelligence
 - Every embedded app API route must call `await requireAppAuth(req)` as the first statement; every cron route must call `requireCronAuth(req)` (sync) then `acquireJobLock`
 - `AUTOPILOT_API_KEY` is server-side only — never prefix with `NEXT_PUBLIC_`
 - `pause_ad` is NOT in `CONVERSION_SENSITIVE_ACTIONS` in `lib/guardrails.ts` — it must always be executable (do not add it to that set)
+- Any general task explicitly deferred for later or requiring a future check must be persisted in Backlog with a due date before handoff. Do not substitute a prose reminder. Keep existing SEO and Store work in their specialized task systems.
 - Never report an audit as `clean`, `fixed`, or `complete` without inspecting the authenticated UI, tracing every displayed finding to its API and persisted record, and recording the evidence. Any displayed item not individually reviewed remains an open audit item. Do not modify, commit, or deploy audit fixes until the operator approves the issue list.
 
 ## Commands

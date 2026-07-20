@@ -20,6 +20,7 @@ Lookup table for all pattern files in this directory. Check here before starting
 | [prisma-postgres-test-gates.md](prisma-postgres-test-gates.md) | Changing Prisma dependencies/schema, CI verification ordering, or PostgreSQL integration tests |
 | [generation-dedupe.md](generation-dedupe.md) | Generated recommendations/proposals/opportunities/tasks are recreating old or already finished ideas |
 | [pilot-queue-usability.md](pilot-queue-usability.md) | Pilot queues are technically deduped but still feel stale, opaque, or misleading to operators |
+| [backlog.md](backlog.md) | General work is explicitly deferred, postponed, or needs a future recheck with a due date |
 | [seo-pilot-proposal-actions.md](seo-pilot-proposal-actions.md) | SEO Pilot actions create proposals that do not generate or publish correctly in Content Pilot |
 | [surface-fix.md](surface-fix.md) | Running a bounded audit/fix loop for one named product surface |
 | [codex-agent-loop.md](codex-agent-loop.md) | Running or resuming a bounded approved implementation plan through the local Codex controller |
